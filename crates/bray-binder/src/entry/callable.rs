@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
 };
-use bray_symbols::{CallableExecution, CallableSignatureFact};
+use bray_symbols::{CallableExecution, CallableSignatureQuery};
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
@@ -71,7 +71,7 @@ pub fn bind_callable_body<C>(
 ) -> Result<PendingBoundCallableBody, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let body =
         anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())

@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, RefinementFact, StorageAccessId, StorageAccessPlan,
+    AnyBoundNodeId, BorrowCapabilityId, Refinement, StorageAccessId, StorageAccessPlan,
     StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId, StorageProjection,
     StorageRelationship,
 };
@@ -232,7 +232,7 @@ where
     pub(super) fn refinements_allow_access(
         &self,
         access: StorageAccessId,
-        refinements: &[RefinementFact],
+        refinements: &[Refinement],
     ) -> bool {
         let Some(storage_access) = self.storage.access(access) else {
             return false;

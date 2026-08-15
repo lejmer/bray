@@ -55,7 +55,7 @@ impl Lowerer<'_> {
 
         let requires_lifecycle_storage = self
             .input
-            .async_facts()
+            .async_analysis()
             .scope_exits()
             .iter()
             .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)

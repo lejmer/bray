@@ -2,7 +2,7 @@
 
 This document defines the goal-state architecture for planning, serializing, staging, and publishing Bray compilation artifacts.
 
-`docs/design/compiler-architecture.md` defines the compiler-wide phase and lazy fact model.
+`docs/design/compiler-architecture.md` defines the compiler-wide phase and lazy emission input model.
 
 `docs/design/codegen.md` defines backend selection, codegen units, backend IR construction, and backend-specific serialization.
 
@@ -10,7 +10,7 @@ This document defines the goal-state architecture for planning, serializing, sta
 
 `docs/design/linker.md` defines final native linker and archiver integration.
 
-This document defines the emission lifecycle that coordinates those completed compiler facts into deterministic external artifacts.
+This document defines the emission lifecycle that coordinates those completed compiler emission inputs into deterministic external artifacts.
 
 ---
 
@@ -21,7 +21,7 @@ The emitter architecture should:
 - own one coherent lifecycle from an emission request through published artifact records,
 - let artifact policy be established before backend serialization begins,
 - keep emission planning immutable and safe to share across parallel codegen tasks,
-- request compiler facts lazily rather than execute earlier phases through workflow commands,
+- request compiler emission inputs lazily rather than execute earlier phases through workflow commands,
 - coordinate backend-specific serialization without inspecting backend modules,
 - publish package-interface artifacts without moving their encoding policy out of `bray-package-interface`,
 - own deterministic output names, sinks, staging, atomic publication, and artifact bookkeeping,
@@ -41,7 +41,7 @@ The emitter does not:
 - translate Bray MIR into backend-specific instructions,
 - inspect, mutate, or retain LLVM modules or another backend's private IR,
 - define LLVM optimization pipelines or perform backend-specific serialization itself,
-- encode `.brayi` records or decide which semantic facts belong in a package interface,
+- encode `.brayi` records or decide which semantic emission inputs belong in a package interface,
 - discover native libraries by reading source directives,
 - implement or invoke the final linker directly,
 - make the command driver enumerate compiler phases,
@@ -56,8 +56,8 @@ The emitter does not:
 An `EmissionRequest` describes the product and external artifacts requested by the compiler host. It contains typed product,
 target identity, destination, artifact, and replacement intent.
 
-Target-output facts and compilation diagnostic policy remain facts of their owning target and compilation contexts. Planning
-requests those facts rather than duplicating them in the host's artifact request.
+Target-output emission inputs and compilation diagnostic policy remain emission inputs of their owning target and compilation contexts. Planning
+requests those emission inputs rather than duplicating them in the host's artifact request.
 
 It does not contain mutable compiler state or backend-private values.
 
@@ -69,7 +69,7 @@ capabilities, completed package-interface artifact, and completed implementation
 It fixes artifact identities, required and optional artifact kinds, logical ordering, output names, sinks, per-unit backend artifact
 requests, package-interface output, staging requirements, and prospective link outputs before backend emission or publication begins.
 
-The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
+The planning boundary is an immutable `EmissionPlanner` composed from target-output emission inputs, an optional selected backend with its
 stable codegen-unit keys and output policy, an optional completed `InterfaceArtifact`, and an optional completed
 `ImplementationBundle` for the selected product. Planning consumes one `EmissionRequest` and returns either the complete
 `EmissionPlan` or a typed planning error. Callers do not preassemble planned artifacts or backend artifact requests.
@@ -78,7 +78,7 @@ stable codegen-unit keys and output policy, an optional completed `InterfaceArti
 
 An artifact contribution is immutable content produced for one planned artifact identity. Backend contributions come from codegen
 units. Package-interface contributions come from `bray-package-interface`. Runtime or compiler-provided contributions come from
-their owning compilation facts.
+their owning compilation emission inputs.
 
 ### Output Sink
 
@@ -116,7 +116,7 @@ EmissionRequest
     -> validate product, target, backend capabilities, interface identity, and destinations
     -> freeze immutable EmissionPlan
     -> request required package and semantic diagnostics
-    -> request planned MIR and codegen-unit facts
+    -> request planned MIR and codegen-unit emission inputs
     -> backend constructs task-local modules
     -> backend serializes requested artifact contributions
     -> validate and merge contributions in plan order
@@ -129,7 +129,7 @@ EmissionRequest
 ```
 
 The emitter is a lifecycle orchestrator. Orchestration does not transfer ownership of earlier compiler semantics into the emitter.
-It requests typed completed facts and applies emission-owned policy to them.
+It requests typed completed emission inputs and applies emission-owned policy to them.
 
 The lifecycle can logically bracket code generation without sharing a mutable emission session. `EmissionPlan` is immutable. Each
 codegen task receives only its derived immutable request and publishes one immutable contribution.
@@ -138,7 +138,7 @@ codegen task receives only its derived immutable request and publishes one immut
 
 ## Compilation Integration
 
-`bray-compilation` owns the top-level product emission operation because it owns lazy fact coordination, cancellation, and
+`bray-compilation` owns the top-level product emission operation because it owns lazy emission input coordination, cancellation, and
 deterministic diagnostic aggregation.
 
 Conceptually, its public boundary is:
@@ -154,18 +154,18 @@ pub fn emit(
 
 This is a design shape rather than a requirement to preserve the exact signature.
 
-The operation asks the emitter to create the plan, requests the compilation facts named by that plan, returns immutable
+The operation asks the emitter to create the plan, requests the compilation emission inputs named by that plan, returns immutable
 contributions to the emitter, invokes `bray-linker` when a link plan exists, and asks the emitter to publish the linked staging
 result.
 
-The operation does not manually call parser, binder, checker, lowering, and codegen entry points. It asks for final typed facts, and
-those facts request their own dependencies.
+The operation does not manually call parser, binder, checker, lowering, and codegen entry points. It asks for final typed emission inputs, and
+those emission inputs request their own dependencies.
 
 The command driver performs one product emission request and renders the resulting merged diagnostics. It does not implement the
 lifecycle itself.
 
-Emission is effectful and is not cached as if filesystem state were an immutable compiler fact. The MIR, codegen contributions,
-package-interface artifact, and other pure inputs remain lazy cached facts. Repeating emission can reuse them while reattempting
+Emission is effectful and is not cached as if filesystem state were an immutable compiler emission input. The MIR, codegen contributions,
+package-interface artifact, and other pure inputs remain lazy cached emission inputs. Repeating emission can reuse them while reattempting
 publication against current external state.
 
 ---
@@ -299,7 +299,7 @@ The emitter owns deterministic external artifact naming and product layout.
 Names derive from typed package, product, target, artifact-kind, and codegen-unit identities. They do not derive from worker order,
 memory addresses, temporary names, or compilation-local numeric IDs whose assignment depends on lazy demand.
 
-Target-specific extensions and naming conventions are typed target-output facts. They are not raw strings assembled by codegen.
+Target-specific extensions and naming conventions are typed target-output emission inputs. They are not raw strings assembled by codegen.
 `bray-target` represents these as a target identity, machine properties, and stable per-artifact prefix and suffix rules. The
 emitter validates product-derived filename stems and applies those rules while resolving final sinks.
 
@@ -369,7 +369,7 @@ succeeds. Neither path can publish a partial product.
 
 The emitter constructs the typed `LinkPlan` owned by `bray-linker` after every required link input has been emitted or staged.
 
-The plan is assembled from already resolved compilation and target facts:
+The plan is assembled from already resolved compilation and target properties:
 
 - emitted object or bitcode inputs,
 - product kind and staged linked-output destination,
@@ -386,10 +386,10 @@ The plan is assembled from already resolved compilation and target facts:
 - platform linker options represented through typed policy,
 - debug and companion output requirements.
 
-The emitter does not rediscover these requirements from source directives. It maps validated facts to emitted paths and validates
+The emitter does not rediscover these requirements from source directives. It maps validated emission inputs to emitted paths and validates
 that every plan input exists in the emission plan.
 
-Async runtime requirements arrive as already resolved product facts defined by `docs/design/async-runtime.md`. The emitter does not
+Async runtime requirements arrive as already resolved product emission inputs defined by `docs/design/async-runtime.md`. The emitter does not
 select a runtime, infer requirements from MIR, or locate runtime components by source-level names.
 
 `.brayi` is excluded from the native link plan.
@@ -398,7 +398,7 @@ select a runtime, infer requirements from MIR, or locate runtime components by s
 
 ## Parallelism And Determinism
 
-Package-interface construction may compute in parallel with the target and backend facts needed for planning, but the completed
+Package-interface construction may compute in parallel with the target and backend emission inputs needed for planning, but the completed
 `InterfaceArtifact` must exist before the immutable plan is published. Independent codegen contributions can compute in parallel
 after plan publication.
 
@@ -444,7 +444,7 @@ External paths and tools usually have no Bray source span. Diagnostics must not 
 Cancellation is observed before planning publication, before requesting expensive contributions, between independent staging
 operations, before linking, and before final publication.
 
-Cancellation publishes no new product success. Already completed pure compiler facts remain reusable.
+Cancellation publishes no new product success. Already completed pure compiler emission inputs remain reusable.
 
 Ordinary source errors prevent successful product emission after their owning diagnostics are collected. The emitter does not emit
 recovery objects or malformed package interfaces as successful products.
@@ -470,7 +470,7 @@ Emitter tests should cover:
 - digest and length mismatch rejection,
 - complete link-plan construction,
 - structured diagnostics without invented source spans,
-- repeated emission using reused pure compilation facts.
+- repeated emission using reused pure compilation emission inputs.
 
 Tests should use injected sinks and temporary destinations. They must not require a production linker merely to validate emitter
 planning and publication.

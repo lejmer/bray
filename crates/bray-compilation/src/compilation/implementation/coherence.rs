@@ -19,7 +19,7 @@ use bray_syntax::{ImplementationOverloadDeclarationSyntax, PathSyntax};
 
 use super::super::Compilation;
 use super::index::{ImplementationFamilyKey, ImplementationFamilySubject};
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
 use crate::compilation::diagnostics::{source_diagnostic, symbol_diagnostic_identity};
 use crate::compilation::limits::try_count_comparison;
 use crate::compilation::overlap::{
@@ -53,14 +53,14 @@ impl Compilation {
         let index = self.implementation_header_index(cancellation)?;
         let values = self.semantic_value_store()?;
         let symbols = self.symbol_graph()?;
-        let facts = self.binder_facts(cancellation)?;
-        let imported = facts.imported_symbols().map_err(binder_fact_error)?;
+        let binding_context = self.binding_context(cancellation)?;
+        let imported = binding_context.imported_symbols().map_err(binder_fact_error)?;
 
-        // The published coherence fact owns its merged diagnostic bag.
+        // The published coherence result owns its merged diagnostic bag.
         let mut diagnostics = participation.diagnostics().clone();
 
         let families =
-            self.resolve_implementation_families(&facts, imported, index.value(), cancellation)?;
+            self.resolve_implementation_families(&binding_context, imported, index.value(), cancellation)?;
 
         diagnostics.add_range(families.diagnostics.iter().cloned());
 
@@ -238,7 +238,7 @@ impl Compilation {
 
     fn resolve_implementation_families(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         imported: Option<&ImportedSymbolSkeleton>,
         index: &super::index::ImplementationHeaderIndex,
         cancellation: &CancellationToken,
@@ -275,7 +275,7 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let expected = bind_family_header(
-                facts,
+                binding_context,
                 symbols,
                 imported,
                 module.id(),
@@ -291,7 +291,7 @@ impl Compilation {
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let Some(implementation) = bind_family_arm(
-                    facts,
+                    binding_context,
                     symbols,
                     imported,
                     module.id(),
@@ -417,7 +417,7 @@ impl ResolvedImplementationFamilies {
 }
 
 fn bind_family_header(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbols: &SymbolGraph,
     imported: Option<&ImportedSymbolSkeleton>,
     module: bray_symbols::ModuleSymbolId,
@@ -425,14 +425,14 @@ fn bind_family_header(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<ImplementationFamilyKey>, FactQueryError> {
     let subject = bind_surface_path(
-        facts,
+        binding_context,
         module,
         &declaration.implementation_overload_subject().path(),
         diagnostics,
     )?;
 
     let trait_definition =
-        bind_surface_path(facts, module, &declaration.trait_path(), diagnostics)?;
+        bind_surface_path(binding_context, module, &declaration.trait_path(), diagnostics)?;
 
     let subject = match subject {
         Some(AnySymbolId::Struct(subject)) => {
@@ -505,14 +505,14 @@ fn bind_family_header(
 }
 
 fn bind_family_arm(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbols: &SymbolGraph,
     imported: Option<&ImportedSymbolSkeleton>,
     module: bray_symbols::ModuleSymbolId,
     path: &PathSyntax,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<NamedTraitImplementationSymbolId>, FactQueryError> {
-    let result = bind_surface_path(facts, module, path, diagnostics)?;
+    let result = bind_surface_path(binding_context, module, path, diagnostics)?;
 
     let Some(result) = result else {
         return Ok(None);
@@ -602,12 +602,12 @@ const fn named_type_symbol(subject: bray_symbols::NamedTypeSymbolId) -> AnySymbo
 }
 
 fn bind_surface_path(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     module: bray_symbols::ModuleSymbolId,
     path: &bray_syntax::PathSyntax,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let result = facts
+    let result = binding_context
         .bind_surface_path(module, path, NameAccess::Internal)
         .map_err(binder_fact_error)?;
 

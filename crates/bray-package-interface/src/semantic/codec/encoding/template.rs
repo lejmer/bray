@@ -1,4 +1,4 @@
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{
     write_count, write_symbol_reference, write_symbol_references,
@@ -10,16 +10,16 @@ use crate::semantic::model::{
 };
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use crate::{InterfaceSectionTag, InterfaceSemantics};
 
-pub(super) fn encode_templates(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_templates(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
     encoder.write_u32(super::super::DECLARATION_TEMPLATE_FORMAT_VERSION);
 
     encode_record_table(
         &mut encoder,
-        &facts.checked_templates,
+        &semantics.checked_templates,
         |encoder, template| {
             encode_template(encoder, template);
         },
@@ -27,7 +27,7 @@ pub(super) fn encode_templates(facts: &InterfaceSemanticFacts) -> EncodedSemanti
 
     encode_record_table(
         &mut encoder,
-        &facts.declaration_templates,
+        &semantics.declaration_templates,
         |encoder, declaration| {
             encode_declaration_template(encoder, declaration);
         },
@@ -35,7 +35,7 @@ pub(super) fn encode_templates(facts: &InterfaceSemanticFacts) -> EncodedSemanti
 
     section(
         InterfaceSectionTag::DeclarationTemplates,
-        facts.checked_templates.len() + facts.declaration_templates.len(),
+        semantics.checked_templates.len() + semantics.declaration_templates.len(),
         encoder,
     )
 }

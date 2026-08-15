@@ -63,7 +63,7 @@ mod tests {
 
     use bray_diagnostics::DiagnosticResult;
     use bray_symbols::{
-        CallableSignatureFact, CallableSignatureTemplate, CallableSymbolId, FunctionSymbolId,
+        CallableSignatureQuery, CallableSignatureTemplate, CallableSymbolId, FunctionSymbolId,
         SemanticValueStore, SymbolFactRequest, SymbolId, TypeData, TypeExpressionTemplate,
     };
 
@@ -74,7 +74,7 @@ mod tests {
     fn repeated_symbol_fact_requests_publish_once() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = SymbolFactCache::<CallableSignatureFact>::new();
+        let cache = SymbolFactCache::<CallableSignatureQuery>::new();
         let computations = AtomicUsize::new(0);
 
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(4));

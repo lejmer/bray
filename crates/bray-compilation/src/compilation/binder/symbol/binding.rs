@@ -1,7 +1,7 @@
 use bray_binder::{BinderFactError, BinderFactResult};
 use bray_symbols::{SymbolFactContract, SymbolFactRequest, SymbolFactResult};
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::{FactQueryError, SymbolFactCache};
 
 pub(super) trait CompilationSymbolFactBinding<C>
@@ -12,7 +12,7 @@ where
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
+        context: &CompilationBindingContext<'_>,
         request: SymbolFactRequest<C>,
     ) -> BinderFactResult<SymbolFactResult<C>>;
 }

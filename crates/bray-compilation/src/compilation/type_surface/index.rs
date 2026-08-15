@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_symbols::{
-    ImplementationCoherenceFact, ImplementationSymbolId, InherentImplementationSymbolId,
+    ImplementationCoherenceQuery, ImplementationSymbolId, InherentImplementationSymbolId,
     NamedTypeSymbolId, SymbolFactRequest, SymbolOrigin, TypeData,
 };
 
@@ -49,17 +49,17 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<InherentImplementationAssociationIndex, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
         let source_graph = self.product_source_graph()?;
 
         let source_module_parts = source_declaration_module_parts(source_graph.declarations());
 
-        let imported = facts
+        let imported = binding_context
             .imported_symbols()
             .map_err(binder::binder_fact_error)?;
 
-        let mut implementations = facts
+        let mut implementations = binding_context
             .symbols()
             .inherent_implementations()
             .iter()
@@ -67,7 +67,7 @@ impl Compilation {
                 implementation.origin() != SymbolOrigin::Source
                     || source_symbol_contribution_gate(
                         source_graph,
-                        facts.symbols(),
+                        binding_context.symbols(),
                         &source_module_parts,
                         implementation.id().into(),
                     )
@@ -82,19 +82,19 @@ impl Compilation {
             )
             .collect::<Vec<_>>();
 
-        implementations = sort_symbols_by_key(&facts, implementations)?;
+        implementations = sort_symbols_by_key(&binding_context, implementations)?;
 
         let mut by_subject = BTreeMap::<_, Vec<_>>::new();
 
         for implementation in implementations {
             cancellation.check()?;
 
-            let subject = match facts
-                .imported_fact_address(implementation.into())
+            let subject = match binding_context
+                .imported_semantic_address(implementation.into())
                 .map_err(binder::binder_fact_error)?
             {
                 Some(address) => {
-                    let imported = binder::imported_implementation(&facts, address)
+                    let imported = binder::imported_implementation(&binding_context, address)
                         .map_err(binder::binder_fact_error)?;
 
                     if imported.value().trait_application().is_some() {
@@ -104,8 +104,8 @@ impl Compilation {
                     imported.value().subject().ty()
                 }
                 None => {
-                    let coherence = facts
-                        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+                    let coherence = binding_context
+                        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
                             ImplementationSymbolId::from(implementation),
                         ))
                         .map_err(binder::binder_fact_error)?;
@@ -118,7 +118,7 @@ impl Compilation {
                 }
             };
 
-            let data = facts
+            let data = binding_context
                 .semantic_values()
                 .type_data(subject)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;

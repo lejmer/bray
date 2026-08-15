@@ -1,14 +1,14 @@
-// rust-style: allow(module-too-large, reason = "unit semantic fact queries share one demand-driven convergence pipeline")
+// rust-style: allow(module-too-large, reason = "unit semantic queries share one demand-driven convergence pipeline")
 
 use std::sync::Arc;
 
 use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, CheckedAsyncFacts, CheckedControlFlowFacts,
+    BoundWalkEvent, BoundWalkOutcome, CheckedAsync, CheckedControlFlow,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, StorageFlowFacts,
+    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, StorageFlow,
     StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
@@ -24,7 +24,7 @@ use super::support::{
 };
 use crate::compilation::binder::{bind_declared_value_type_templates, binder_fact_error};
 use crate::compilation::checker::checker_result;
-use crate::compilation::facts::{CheckedExpressionSemantics, Compilation};
+use crate::compilation::state::{CheckedExpressionSemantics, Compilation};
 use crate::compilation::operation::operation_type_input;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
@@ -77,7 +77,7 @@ impl Compilation {
 
             pending.extend(bound.result().value().nested_units().iter().rev().cloned());
 
-            // The family shares each immutable published fact independently of its cache cell.
+            // The family shares each immutable published result independently of its cache cell.
             family.push(Arc::clone(bound.result()));
         }
 
@@ -97,11 +97,11 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns the control-flow facts and diagnostics for one bound semantic unit.
+    /// Returns the control-flow analysis and diagnostics for one bound semantic unit.
     pub fn control_flow(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<CheckedControlFlow>>, FactQueryError> {
         let published = self.control_flow_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
@@ -127,12 +127,12 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns checked pattern and match-coverage facts for one bound semantic unit.
-    pub fn pattern_facts(
+    /// Returns checked pattern and match-coverage analysis for one bound semantic unit.
+    pub fn patterns(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedPatternFacts>>, FactQueryError> {
-        let published = self.pattern_facts_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<Arc<DiagnosticResult<CheckedPatterns>>, FactQueryError> {
+        let published = self.patterns_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -162,28 +162,28 @@ impl Compilation {
     pub fn liveness(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<LivenessFacts>>, FactQueryError> {
+    ) -> Result<Arc<DiagnosticResult<Liveness>>, FactQueryError> {
         let published = self.liveness_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns flow-sensitive facts available at checked operation occurrences.
-    pub fn refinement_facts(
+    /// Returns flow-sensitive analysis available at checked operation occurrences.
+    pub fn refinements(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedRefinementFacts>>, FactQueryError> {
-        let published = self.refinement_facts_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<Arc<DiagnosticResult<CheckedRefinements>>, FactQueryError> {
+        let published = self.refinements_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
 
     /// Returns checked storage, ownership, movement, and borrow decisions for one unit.
-    pub fn storage_flow_facts(
+    pub fn storage_flow(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<StorageFlowFacts>>, FactQueryError> {
-        let published = self.storage_flow_facts_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<Arc<DiagnosticResult<StorageFlow>>, FactQueryError> {
+        let published = self.storage_flow_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -209,12 +209,12 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns async frame, suspension, task, and cleanup facts for one unit.
-    pub fn async_facts(
+    /// Returns async frame, suspension, task, and cleanup analysis for one unit.
+    pub fn async_analysis(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedAsyncFacts>>, FactQueryError> {
-        let published = self.async_facts_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<Arc<DiagnosticResult<CheckedAsync>>, FactQueryError> {
+        let published = self.async_analysis_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -257,10 +257,10 @@ impl Compilation {
             cancellation,
             priority,
             |cancellation| {
-                let facts = self.binder_facts_for(&key, cancellation)?;
+                let binding_context = self.binding_context_for(&key, cancellation)?;
                 let unit = self.bound_unit_id(&key)?;
 
-                bind_unit(&facts, unit, key)
+                bind_unit(&binding_context, unit, key)
                     .map(BoundUnitComputation::into_parts)
                     .map_err(map_binding_error)
             },
@@ -271,7 +271,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedControlFlowFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<CheckedControlFlow>>, FactQueryError> {
         self.unit_fact(
             &self.state.checked_control_flow,
             CompilationFactKey::CheckedControlFlow(key.clone()),
@@ -395,8 +395,8 @@ impl Compilation {
 
         let supplemental = self.nested_callable_evidence(bound.result().value(), cancellation)?;
 
-        let facts = self.binder_facts_for(key, cancellation)?;
-        let candidates = expression_candidates(&facts, bound.result().value())?;
+        let binding_context = self.binding_context_for(key, cancellation)?;
+        let candidates = expression_candidates(&binding_context, bound.result().value())?;
 
         let context = self.checker_context_for(key, cancellation)?;
 
@@ -451,7 +451,7 @@ impl Compilation {
                 return BoundWalkControl::Continue;
             };
 
-            // Each independently demandable nested fact owns its cache key.
+            // Each independently demandable nested query owns its cache key.
             let nested_bound =
                 match self.bound_unit_with_cancellation(callable.unit().clone(), cancellation) {
                     Ok(nested) => nested,
@@ -490,7 +490,7 @@ impl Compilation {
                 return BoundWalkControl::Stop;
             };
 
-            // The outer expression fact owns this template after the nested fact handle drops.
+            // The outer expression query owns this template after the nested query handle drops.
             evidence.push(NestedCallableEvidence::new(
                 expression,
                 callable_symbol,
@@ -540,11 +540,11 @@ impl Compilation {
         )
     }
 
-    pub(in crate::compilation) fn pattern_facts_with_cancellation(
+    pub(in crate::compilation) fn patterns_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedPatternFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<CheckedPatterns>>, FactQueryError> {
         // Cache identity, unit publication, and dependent queries retain the shared key separately.
         self.unit_fact(
             &self.state.checked_patterns,
@@ -717,7 +717,7 @@ impl Compilation {
     fn expression_semantic_projection<T>(
         &self,
         cache: &UnitFactCache<T>,
-        fact_key: fn(BoundUnitKey) -> CompilationFactKey,
+        semantic_key: fn(BoundUnitKey) -> CompilationFactKey,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         project: fn(&CheckedExpressionSemantics) -> &T,
@@ -728,13 +728,13 @@ impl Compilation {
         // Cache identity, unit publication, and the atomic computation retain the shared key.
         self.unit_fact(
             cache,
-            fact_key(key.clone()),
+            semantic_key(key.clone()),
             key.clone(),
             cancellation,
             |_| {
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-                // The projection owns its immutable table after the atomic fact handle drops.
+                // The projection owns its immutable table after the atomic query handle drops.
                 let value = project(semantics.result().value()).clone();
                 let diagnostics = semantics.result().diagnostics().clone();
 
@@ -743,14 +743,14 @@ impl Compilation {
         )
     }
 
-    pub(in crate::compilation) fn async_facts_with_cancellation(
+    pub(in crate::compilation) fn async_analysis_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedAsyncFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<CheckedAsync>>, FactQueryError> {
         self.unit_fact(
-            &self.state.async_facts,
-            CompilationFactKey::AsyncFacts(key.clone()),
+            &self.state.async_analysis,
+            CompilationFactKey::AsyncAnalysis(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
@@ -768,9 +768,9 @@ impl Compilation {
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
 
                 let refinements =
-                    self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+                    self.refinements_with_cancellation(key.clone(), cancellation)?;
 
-                let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+                let flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
@@ -785,7 +785,7 @@ impl Compilation {
                             )
                         })?;
 
-                let result = checker_result(DefaultAsyncChecker.check_async_facts(
+                let result = checker_result(DefaultAsyncChecker.check_async_analysis(
                     unit,
                     types.result().value(),
                     selections.result().value(),
@@ -796,7 +796,7 @@ impl Compilation {
                     flow.result().value(),
                 ))?;
 
-                let (facts, async_diagnostics) = result.into_parts();
+                let (analysis, async_diagnostics) = result.into_parts();
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -810,7 +810,7 @@ impl Compilation {
                     &async_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(analysis, diagnostics), Box::new([])))
             },
         )
     }
@@ -827,9 +827,9 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let facts = self.binder_facts_for(&key, cancellation)?;
+                let binding_context = self.binding_context_for(&key, cancellation)?;
 
-                let result = bind_declared_value_type_templates(&facts, bound.result().value())
+                let result = bind_declared_value_type_templates(&binding_context, bound.result().value())
                     .map_err(binder_fact_error)?;
 
                 Ok((result, Box::new([])))
@@ -849,7 +849,7 @@ mod tests {
         BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes,
         CheckedMemoryOperationKind, ConstructionTarget, ConversionTarget,
         DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-        IndexTarget, PatternOperation, PatternPredicate, PatternProjection, RefinementFactKind,
+        IndexTarget, PatternOperation, PatternPredicate, PatternProjection, RefinementKind,
         SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose,
         StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
         StorageProjection, walk_bound_unit_view,
@@ -1155,7 +1155,7 @@ mod tests {
         assert_eq!(compilation.state.liveness.is_published(&key), Ok(false));
 
         let first = match compilation.liveness(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("liveness analysis must publish: {error:?}"),
         };
 
@@ -1170,7 +1170,7 @@ mod tests {
         );
 
         let second = match compilation.liveness(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("repeated liveness analysis must publish: {error:?}"),
         };
 
@@ -1208,12 +1208,12 @@ mod tests {
         );
 
         let first = match compilation.dependency_contracts(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("dependency contracts must publish: {error:?}"),
         };
 
         let second = match compilation.dependency_contracts(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("repeated dependency contracts must publish: {error:?}"),
         };
 
@@ -1232,7 +1232,7 @@ mod tests {
         ));
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
-        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StorageFlowFacts(key)));
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StorageFlow(key)));
     }
 
     #[test]
@@ -1252,23 +1252,23 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
-            compilation.state.storage_flow_facts.is_published(&key),
+            compilation.state.storage_flow.is_published(&key),
             Ok(false)
         );
 
-        let facts = match compilation.storage_flow_facts(key.clone()) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
         assert!(
-            facts.value().operations().iter().any(|operation| {
+            analysis.value().operations().iter().any(|operation| {
                 operation.status() == bray_bound_tree::StorageOperationStatus::ConflictingBorrow
             }),
-            "{facts:?}"
+            "{analysis:?}"
         );
 
-        let diagnostic = facts
+        let diagnostic = analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingConflictingBorrow)
             .next()
@@ -1277,19 +1277,19 @@ mod tests {
         bray_testing::assert_goal_state_diagnostic(diagnostic);
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingConflictingBorrow,
         );
 
-        let repeated = match compilation.storage_flow_facts(key.clone()) {
-            Ok(facts) => facts,
+        let repeated = match compilation.storage_flow(key.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("repeated storage-flow checking must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&facts, &repeated));
+        assert!(Arc::ptr_eq(&analysis, &repeated));
 
         let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::StorageFlowFacts(key.clone()),
+            &crate::fact::CompilationFactKey::StorageFlow(key.clone()),
         ) {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published storage flow must retain dependencies"),
@@ -1301,7 +1301,7 @@ mod tests {
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::Liveness(key.clone())));
 
         assert!(
-            dependencies.contains(&crate::fact::CompilationFactKey::RefinementFacts(
+            dependencies.contains(&crate::fact::CompilationFactKey::Refinements(
                 key.clone()
             ))
         );
@@ -1385,18 +1385,18 @@ mod tests {
 
         let key = source_function_body_key(&compilation, "main");
 
-        let facts = compilation
-            .storage_flow_facts(key)
+        let analysis = compilation
+            .storage_flow(key)
             .unwrap_or_else(|error| panic!("storage-flow checking must publish: {error:?}"));
 
         assert!(
-            facts.diagnostics().by_kind(diagnostic).next().is_none(),
-            "{facts:#?}"
+            analysis.diagnostics().by_kind(diagnostic).next().is_none(),
+            "{analysis:#?}"
         );
     }
 
     #[test]
-    fn async_facts_report_awaits_in_synchronous_callables() {
+    fn async_analysis_reports_awaits_in_synchronous_callables() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
@@ -1411,20 +1411,20 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.async_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("async facts must publish: {error:?}"),
+        let analysis = match compilation.async_analysis(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("async analysis must publish: {error:?}"),
         };
 
-        assert_eq!(facts.value().suspensions().len(), 1);
+        assert_eq!(analysis.value().suspensions().len(), 1);
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
         );
 
         assert!(
-            facts
+            analysis
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .next()
@@ -1441,7 +1441,7 @@ mod tests {
     }
 
     #[test]
-    fn async_facts_respect_anonymous_callable_execution_modes() {
+    fn async_analysis_respects_anonymous_callable_execution_modes() {
         for (modifier, expected_diagnostic) in [("", true), ("async ", false)] {
             let compilation = compilation(&format!(
                 concat!(
@@ -1470,11 +1470,11 @@ mod tests {
                 panic!("source callable must contain one anonymous callable");
             };
 
-            let facts = compilation
-                .async_facts(anonymous.clone())
-                .unwrap_or_else(|error| panic!("anonymous async facts must publish: {error:?}"));
+            let analysis = compilation
+                .async_analysis(anonymous.clone())
+                .unwrap_or_else(|error| panic!("anonymous async analysis must publish: {error:?}"));
 
-            let has_diagnostic = facts
+            let has_diagnostic = analysis
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .next()
@@ -1496,11 +1496,11 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = compilation
-            .async_facts(key)
-            .unwrap_or_else(|error| panic!("async facts must publish: {error:?}"));
+        let analysis = compilation
+            .async_analysis(key)
+            .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
 
-        let [suspension] = facts.value().suspensions() else {
+        let [suspension] = analysis.value().suspensions() else {
             panic!("the direct await must publish one suspension point");
         };
 
@@ -1520,15 +1520,15 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = compilation
-            .async_facts(key.clone())
-            .unwrap_or_else(|error| panic!("async facts must publish: {error:?}"));
+        let analysis = compilation
+            .async_analysis(key.clone())
+            .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
 
         let dependencies = compilation
             .dependency_contracts(key)
             .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
 
-        let [suspension] = facts.value().suspensions() else {
+        let [suspension] = analysis.value().suspensions() else {
             panic!("the direct await must publish one suspension point");
         };
 
@@ -1541,7 +1541,7 @@ mod tests {
     }
 
     #[test]
-    fn async_facts_follow_deferred_calls_through_local_future_bindings() {
+    fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
         let compilation = compilation(concat!(
             "module app;\n",
             "async func main() -> i32\n",
@@ -1560,13 +1560,13 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let liveness = match compilation.liveness(key.clone()) {
-            Ok(facts) => facts,
-            Err(error) => panic!("liveness facts must publish: {error:?}"),
+            Ok(analysis) => analysis,
+            Err(error) => panic!("liveness analysis must publish: {error:?}"),
         };
 
-        let facts = match compilation.async_facts(key.clone()) {
-            Ok(facts) => facts,
-            Err(error) => panic!("async facts must publish: {error:?}"),
+        let analysis = match compilation.async_analysis(key.clone()) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("async analysis must publish: {error:?}"),
         };
 
         let storage = match compilation.storage_plan(key.clone()) {
@@ -1574,17 +1574,17 @@ mod tests {
             Err(error) => panic!("storage plan must publish: {error:?}"),
         };
 
-        let [suspension] = facts.value().suspensions() else {
+        let [suspension] = analysis.value().suspensions() else {
             panic!("the direct await must publish one suspension point");
         };
 
         assert_eq!(suspension.deferred_calls().len(), 1);
         assert!(!suspension.is_recovered());
-        assert!(!facts.value().frame_dependencies().is_empty());
+        assert!(!analysis.value().frame_dependencies().is_empty());
 
         assert_eq!(
             suspension.retained_subjects(),
-            facts.value().frame_dependencies()
+            analysis.value().frame_dependencies()
         );
 
         assert!(
@@ -1592,14 +1592,14 @@ mod tests {
                 .value()
                 .live_across_suspensions()
                 .iter()
-                .all(|entry| facts
+                .all(|entry| analysis
                     .value()
                     .frame_dependencies()
                     .contains(&entry.subject()))
         );
 
         assert!(
-            facts
+            analysis
                 .value()
                 .scope_exits()
                 .iter()
@@ -1607,14 +1607,14 @@ mod tests {
         );
 
         assert!(
-            facts
+            analysis
                 .value()
                 .scope_exits()
                 .iter()
                 .any(|exit| !exit.cancellation_broadcast().is_empty())
         );
 
-        let cleanup_roles = facts
+        let cleanup_roles = analysis
             .value()
             .scope_exits()
             .iter()
@@ -1631,12 +1631,12 @@ mod tests {
                 .all(|role| *role == RepresentationRole::Future)
         );
 
-        let repeated = match compilation.async_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("repeated async facts must publish: {error:?}"),
+        let repeated = match compilation.async_analysis(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("repeated async analysis must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&facts, &repeated));
+        assert!(Arc::ptr_eq(&analysis, &repeated));
     }
 
     #[test]
@@ -1651,17 +1651,17 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
-        assert!(facts.value().operations().iter().any(|operation| {
+        assert!(analysis.value().operations().iter().any(|operation| {
             operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
         }));
 
         assert!(
-            facts
+            analysis
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingMissingMutationAuthority)
                 .next()
@@ -1669,7 +1669,7 @@ mod tests {
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingMissingMutationAuthority,
         );
     }
@@ -1687,17 +1687,17 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
-        assert!(facts.value().operations().iter().any(|operation| {
+        assert!(analysis.value().operations().iter().any(|operation| {
             operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
         }));
 
         assert!(
-            facts
+            analysis
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingMissingMutationAuthority)
                 .next()
@@ -1717,20 +1717,20 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
         assert!(
-            facts.value().operations().iter().all(|operation| {
+            analysis.value().operations().iter().all(|operation| {
                 !matches!(
                     operation.status(),
                     bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
                         | bray_bound_tree::StorageOperationStatus::ConflictingBorrow
                 )
             }),
-            "{facts:?}"
+            "{analysis:?}"
         );
     }
 
@@ -1746,12 +1746,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
-        assert!(facts.value().operations().iter().any(|operation| {
+        assert!(analysis.value().operations().iter().any(|operation| {
             operation.status() == bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
         }));
     }
@@ -1774,22 +1774,22 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
         assert!(
-            facts
+            analysis
                 .value()
                 .operations()
                 .iter()
                 .any(|operation| operation.status()
                     == bray_bound_tree::StorageOperationStatus::Moved),
-            "{facts:?}"
+            "{analysis:?}"
         );
 
-        let diagnostic = facts
+        let diagnostic = analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
             .next()
@@ -1798,12 +1798,12 @@ mod tests {
         bray_testing::assert_goal_state_diagnostic(diagnostic);
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingUseOfMovedStorage,
         );
 
         assert!(
-            facts
+            analysis
                 .value()
                 .exits()
                 .iter()
@@ -1823,7 +1823,7 @@ mod tests {
         );
 
         let flow = compilation
-            .storage_flow_facts(source_callable_body_key(&compilation))
+            .storage_flow(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("borrowed move storage flow must publish: {error:?}"));
 
         assert_goal_state_diagnostic_kind(
@@ -1900,7 +1900,7 @@ mod tests {
         ));
 
         let flow = compilation
-            .storage_flow_facts(source_callable_body_key(&compilation))
+            .storage_flow(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("nested storage flow must publish: {error:?}"));
 
         let diagnostic = flow
@@ -1976,20 +1976,20 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
         assert!(
-            facts.value().operations().iter().all(|operation| {
+            analysis.value().operations().iter().all(|operation| {
                 !matches!(
                     operation.status(),
                     bray_bound_tree::StorageOperationStatus::Uninitialized
                         | bray_bound_tree::StorageOperationStatus::Moved
                 )
             }),
-            "{facts:?}"
+            "{analysis:?}"
         );
     }
 
@@ -2007,28 +2007,28 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.storage_flow_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.storage_flow(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("storage-flow checking must publish: {error:?}"),
         };
 
         assert!(
-            facts
+            analysis
                 .value()
                 .operations()
                 .iter()
                 .any(|operation| operation.purpose() == StorageAccessPurpose::Copy),
-            "{facts:?}"
+            "{analysis:?}"
         );
 
         assert!(
-            facts
+            analysis
                 .value()
                 .operations()
                 .iter()
                 .all(|operation| operation.status()
                     != bray_bound_tree::StorageOperationStatus::Moved),
-            "{facts:?}"
+            "{analysis:?}"
         );
     }
 
@@ -2060,16 +2060,16 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.liveness(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.liveness(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("cyclic liveness analysis must converge: {error:?}"),
         };
 
-        assert!(!facts.value().last_uses().is_empty(), "{facts:#?}");
+        assert!(!analysis.value().last_uses().is_empty(), "{analysis:#?}");
     }
 
     #[test]
-    fn refinement_facts_are_lazy_cached_and_retain_branch_conditions() {
+    fn refinements_are_lazy_cached_and_retain_branch_conditions() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main(pos condition: bool)\n",
@@ -2088,36 +2088,36 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
-            compilation.state.refinement_facts.is_published(&key),
+            compilation.state.refinements.is_published(&key),
             Ok(false)
         );
 
-        let first = match compilation.refinement_facts(key.clone()) {
-            Ok(facts) => facts,
+        let first = match compilation.refinements(key.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("refinement analysis must publish: {error:?}"),
         };
 
         assert!(
             first.value().occurrences().iter().any(|occurrence| {
-                occurrence.facts().iter().any(|fact| {
+                occurrence.refinements().iter().any(|refinement| {
                     matches!(
-                        fact.kind(),
-                        RefinementFactKind::Condition { value: true, .. }
+                        refinement.kind(),
+                        RefinementKind::Condition { value: true, .. }
                     )
                 })
             }),
             "{first:?}"
         );
 
-        let second = match compilation.refinement_facts(key.clone()) {
-            Ok(facts) => facts,
+        let second = match compilation.refinements(key.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("repeated refinement analysis must publish: {error:?}"),
         };
 
         assert!(Arc::ptr_eq(&first, &second));
 
         let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::RefinementFacts(key.clone()),
+            &crate::fact::CompilationFactKey::Refinements(key.clone()),
         ) {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published refinements must retain dependencies"),
@@ -2150,13 +2150,13 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.liveness(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.liveness(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("scope liveness analysis must publish: {error:?}"),
         };
 
         assert!(
-            facts
+            analysis
                 .value()
                 .live_across_scopes()
                 .iter()
@@ -2391,21 +2391,21 @@ mod tests {
             Ok(false)
         );
 
-        let facts = match compilation.declared_value_type_templates(key.clone()) {
-            Ok(facts) => facts,
+        let analysis = match compilation.declared_value_type_templates(key.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("declared value types must publish: {error:?}"),
         };
 
         assert!(has_value_kind(
-            facts.value(),
+            analysis.value(),
             SymbolKind::GenericConstParameter
         ));
 
-        assert!(has_value_kind(facts.value(), SymbolKind::CallableParameter));
-        assert!(has_value_kind(facts.value(), SymbolKind::LocalConstant));
+        assert!(has_value_kind(analysis.value(), SymbolKind::CallableParameter));
+        assert!(has_value_kind(analysis.value(), SymbolKind::LocalConstant));
 
         assert!(
-            facts
+            analysis
                 .value()
                 .evidence()
                 .iter()
@@ -2413,22 +2413,22 @@ mod tests {
         );
 
         assert!(matches!(
-            facts.value().callable_result(),
+            analysis.value().callable_result(),
             Some(TypeExpressionTemplate::Array { .. })
         ));
 
         assert!(has_constraint_kind(
-            facts.value(),
+            analysis.value(),
             DeclaredValueTypeConstraintKind::Initializer
         ));
 
         assert!(has_constraint_kind(
-            facts.value(),
+            analysis.value(),
             DeclaredValueTypeConstraintKind::PatternBinding
         ));
 
         assert!(has_constraint_kind(
-            facts.value(),
+            analysis.value(),
             DeclaredValueTypeConstraintKind::DefinitionUse
         ));
 
@@ -2460,23 +2460,23 @@ mod tests {
 
         let nested = nested.clone();
 
-        let nested_facts = match compilation.declared_value_type_templates(nested.clone()) {
-            Ok(facts) => facts,
+        let nested_templates = match compilation.declared_value_type_templates(nested.clone()) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("anonymous callable value types must publish: {error:?}"),
         };
 
         assert!(has_value_kind(
-            nested_facts.value(),
+            nested_templates.value(),
             SymbolKind::AnonymousCallableParameter
         ));
 
         assert!(has_value_kind(
-            nested_facts.value(),
+            nested_templates.value(),
             SymbolKind::GenericConstParameter
         ));
 
         assert!(matches!(
-            nested_facts.value().callable_result(),
+            nested_templates.value().callable_result(),
             Some(TypeExpressionTemplate::Array { .. })
         ));
 
@@ -2510,7 +2510,7 @@ mod tests {
             Err(error) => panic!("declared unit keys must be available: {error:?}"),
         };
 
-        let constant = facts_for_kind(&compilation, &keys, BoundUnitKind::ConstantTemplate);
+        let constant = types_for_kind(&compilation, &keys, BoundUnitKind::ConstantTemplate);
         assert!(has_value_kind(constant.value(), SymbolKind::Constant));
 
         assert!(has_constraint_kind(
@@ -2518,7 +2518,7 @@ mod tests {
             DeclaredValueTypeConstraintKind::Initializer
         ));
 
-        let predicate = facts_for_kind(&compilation, &keys, BoundUnitKind::PredicateDefinition);
+        let predicate = types_for_kind(&compilation, &keys, BoundUnitKind::PredicateDefinition);
 
         assert!(has_value_kind(
             predicate.value(),
@@ -2529,12 +2529,12 @@ mod tests {
             .iter()
             .filter(|key| key.kind() == BoundUnitKind::CallableBody)
             .filter_map(|key| compilation.declared_value_type_templates(key.clone()).ok())
-            .find(|facts| has_value_kind(facts.value(), SymbolKind::ReceiverParameter))
+            .find(|analysis| has_value_kind(analysis.value(), SymbolKind::ReceiverParameter))
             .unwrap_or_else(|| panic!("type callable body must publish receiver evidence"));
 
         assert!(receiver.value().callable_result().is_some());
 
-        let contract = facts_for_kind(&compilation, &keys, BoundUnitKind::ContractClause);
+        let contract = types_for_kind(&compilation, &keys, BoundUnitKind::ContractClause);
 
         assert!(has_value_kind(
             contract.value(),
@@ -2565,12 +2565,12 @@ mod tests {
             .iter()
             .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
             .map(|key| {
-                let facts = match compilation.declared_value_type_templates(key.clone()) {
-                    Ok(facts) => facts,
+                let analysis = match compilation.declared_value_type_templates(key.clone()) {
+                    Ok(analysis) => analysis,
                     Err(error) => panic!("runtime default types must publish: {error:?}"),
                 };
 
-                let [evidence] = facts.value().evidence() else {
+                let [evidence] = analysis.value().evidence() else {
                     panic!("runtime default must publish one declared type");
                 };
 
@@ -2607,12 +2607,12 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         let first = match compilation.declared_value_type_templates(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("recovered declared value types must publish: {error:?}"),
         };
 
         let second = match compilation.declared_value_type_templates(key) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("repeated recovered request must publish: {error:?}"),
         };
 
@@ -2628,7 +2628,7 @@ mod tests {
     }
 
     #[test]
-    fn expression_typing_and_call_selection_converge_into_cached_facts() {
+    fn expression_typing_and_call_selection_converge_into_cached_results() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
@@ -2833,7 +2833,7 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &repeated));
 
-        let flow = match compilation.storage_flow_facts(source_callable_body_key(&compilation)) {
+        let flow = match compilation.storage_flow(source_callable_body_key(&compilation)) {
             Ok(flow) => flow,
             Err(error) => panic!("storage flow must publish: {error:?}"),
         };
@@ -2887,7 +2887,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let valid = compilation
             .memory_operations(source_function_body_key(&compilation, "valid_callback"))
-            .unwrap_or_else(|error| panic!("valid callback memory facts must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("valid callback memory analysis must publish: {error:?}"));
 
         assert!(valid.diagnostics().is_empty(), "{valid:#?}");
 
@@ -2910,7 +2910,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             let invalid = compilation
                 .memory_operations(source_function_body_key(&compilation, name))
                 .unwrap_or_else(|error| {
-                    panic!("invalid callback memory facts must publish: {error:?}")
+                    panic!("invalid callback memory analysis must publish: {error:?}")
                 });
 
             assert!(
@@ -2982,7 +2982,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         assert_eq!(operation.kind(), CheckedMemoryOperationKind::RawAllocate);
 
         let flow = compilation
-            .storage_flow_facts(source_callable_body_key(&compilation))
+            .storage_flow(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("allocation storage flow must publish: {error:?}"));
 
         assert!(flow.diagnostics().is_empty(), "{:?}", flow.diagnostics());
@@ -3340,7 +3340,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             let compilation = compilation_with_target_operations(source, true, true);
 
             let flow = compilation
-                .storage_flow_facts(source_callable_body_key(&compilation))
+                .storage_flow(source_callable_body_key(&compilation))
                 .unwrap_or_else(|error| {
                     panic!("invalid memory storage flow must publish: {error:?}")
                 });
@@ -3407,7 +3407,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         );
 
         let flow = compilation
-            .storage_flow_facts(source_callable_body_key(&compilation))
+            .storage_flow(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("branch memory flow must publish: {error:?}"));
 
         let diagnostic = flow
@@ -3803,18 +3803,18 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let key = source_function_body_key(&compilation, "use_lock");
 
-        let facts = compilation
-            .async_facts(key)
-            .unwrap_or_else(|error| panic!("lifecycle facts must publish: {error:?}"));
+        let analysis = compilation
+            .async_analysis(key)
+            .unwrap_or_else(|error| panic!("lifecycle analysis must publish: {error:?}"));
 
         assert!(
-            facts
+            analysis
                 .value()
                 .scope_exits()
                 .iter()
                 .any(|exit| { !exit.lifecycle_resolution().is_empty() }),
             "plans={:#?}",
-            facts.value().scope_exits()
+            analysis.value().scope_exits()
         );
     }
 
@@ -3846,7 +3846,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         let key = source_trait_callable_fulfillment_body_key(&compilation, "swap");
 
         let flow = compilation
-            .storage_flow_facts(key)
+            .storage_flow(key)
             .unwrap_or_else(|error| panic!("fulfillment storage flow must publish: {error:?}"));
 
         assert!(
@@ -4750,7 +4750,7 @@ func convert(pos value: Value) -> i32
         assert!(matches!(call.target(), BoundCallableTarget::Anonymous(_)));
     }
 
-    fn facts_for_kind(
+    fn types_for_kind(
         compilation: &Compilation,
         keys: &[bray_bound_tree::BoundUnitKey],
         kind: BoundUnitKind,
@@ -4761,7 +4761,7 @@ func convert(pos value: Value) -> i32
             .unwrap_or_else(|| panic!("test source must publish a {kind:?} unit"));
 
         match compilation.declared_value_type_templates(key.clone()) {
-            Ok(facts) => facts,
+            Ok(analysis) => analysis,
             Err(error) => panic!("{kind:?} declared value types must publish: {error:?}"),
         }
     }
@@ -4849,14 +4849,14 @@ func convert(pos value: Value) -> i32
     }
 
     fn has_constraint_kind(
-        facts: &DeclaredValueTypeTemplates,
+        analysis: &DeclaredValueTypeTemplates,
         kind: DeclaredValueTypeConstraintKind,
     ) -> bool {
-        facts.constraints().iter().any(|entry| entry.kind() == kind)
+        analysis.constraints().iter().any(|entry| entry.kind() == kind)
     }
 
-    fn has_value_kind(facts: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bool {
-        facts.evidence().iter().any(|entry| match entry.term() {
+    fn has_value_kind(analysis: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bool {
+        analysis.evidence().iter().any(|entry| match entry.term() {
             DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(symbol)) => {
                 symbol.kind() == kind
             }
@@ -4868,7 +4868,7 @@ func convert(pos value: Value) -> i32
     }
 
     #[test]
-    fn repeated_and_concurrent_requests_share_production_semantic_facts() {
+    fn repeated_and_concurrent_requests_share_production_semantics() {
         let worker_budget = crate::WorkerBudget::new(2)
             .unwrap_or_else(|error| panic!("test worker budget must be valid: {error:?}"));
 
@@ -4902,7 +4902,7 @@ func main()
             .declared_value_type_templates
             .set_test_observer(&key, declared_gate.observer())
         {
-            panic!("declared value type fact must accept a test observer: {error:?}");
+            panic!("declared value type result must accept a test observer: {error:?}");
         }
 
         let declared = std::thread::scope(|scope| {
@@ -4918,7 +4918,7 @@ func main()
             declared_gate.release();
 
             [owner, waiter].map(|handle| match handle.join() {
-                Ok(Ok(facts)) => facts,
+                Ok(Ok(analysis)) => analysis,
                 Ok(Err(error)) => panic!("concurrent declared value types failed: {error:?}"),
                 Err(_) => panic!("concurrent declared value type request panicked"),
             })
@@ -4933,7 +4933,7 @@ func main()
             .expression_semantics
             .set_test_observer(&key, expression_gate.observer())
         {
-            panic!("expression semantic fact must accept a test observer: {error:?}");
+            panic!("expression semantic result must accept a test observer: {error:?}");
         }
 
         let (types, selections) = std::thread::scope(|scope| {
@@ -4975,7 +4975,7 @@ func main()
             .checked_control_flow
             .set_test_observer(&key, gate.observer())
         {
-            panic!("control-flow fact must accept a test observer: {error:?}");
+            panic!("control-flow analysis must accept a test observer: {error:?}");
         }
 
         // Bound-unit keys are Arc-backed immutable identities shared by concurrent requests.
@@ -5019,7 +5019,7 @@ func main()
             .bound_units
             .set_test_observer(&key, bound_gate.observer())
         {
-            panic!("bound-unit fact must accept a test observer: {error:?}");
+            panic!("bound unit must accept a test observer: {error:?}");
         }
 
         let bound = std::thread::scope(|scope| {
@@ -5058,7 +5058,7 @@ func main()
             .checked_control_flow
             .set_test_observer(&key, checked_gate.observer())
         {
-            panic!("control-flow fact must accept a test observer: {error:?}");
+            panic!("control-flow analysis must accept a test observer: {error:?}");
         }
 
         let checked = std::thread::scope(|scope| {
@@ -5095,7 +5095,7 @@ func main()
             .expression_semantics
             .set_test_observer(&key, expression_gate.observer())
         {
-            panic!("expression semantic fact must accept a test observer: {error:?}");
+            panic!("expression semantic result must accept a test observer: {error:?}");
         }
 
         let expression_semantics = std::thread::scope(|scope| {
@@ -5146,7 +5146,7 @@ func main()
     }
 
     #[test]
-    fn recursive_callable_references_do_not_form_body_fact_cycles() {
+    fn recursive_callable_references_do_not_form_body_query_cycles() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func recurse()\n",
@@ -5166,7 +5166,7 @@ func main()
     }
 
     #[test]
-    fn unit_fact_requests_do_not_force_nested_units() {
+    fn unit_queries_do_not_force_nested_units() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
@@ -5199,7 +5199,7 @@ func main()
         );
 
         if let Err(error) = compilation.control_flow(key.clone()) {
-            panic!("parent control-flow facts must be available: {error:?}");
+            panic!("parent control-flow analysis must be available: {error:?}");
         }
 
         assert_eq!(
@@ -5286,7 +5286,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_publish_exhaustive_boolean_match_coverage() {
+    fn patterns_publish_exhaustive_boolean_match_coverage() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -5308,9 +5308,9 @@ func other()
             Ok(false)
         );
 
-        let facts = match compilation.pattern_facts(key.clone()) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key.clone()) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
         assert_eq!(
@@ -5318,22 +5318,22 @@ func other()
             Ok(true)
         );
 
-        let repeated = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("repeated pattern facts must be available: {error:?}"),
+        let repeated = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("repeated pattern analysis must be available: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&facts, &repeated));
+        assert!(Arc::ptr_eq(&analysis, &repeated));
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
 
-        let literal_patterns = facts
+        let literal_patterns = analysis
             .value()
             .patterns()
             .iter()
@@ -5349,7 +5349,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_use_constant_paths_for_boolean_coverage() {
+    fn patterns_use_constant_paths_for_boolean_coverage() {
         let compilation = compilation(concat!(
             "module app;\n",
             "const yes: bool = true;\n",
@@ -5371,21 +5371,21 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("constant-backed pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("constant-backed pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
 
         assert_eq!(
-            facts
+            analysis
                 .value()
                 .patterns()
                 .iter()
@@ -5396,7 +5396,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_report_subsumed_constant_alternatives() {
+    fn patterns_report_subsumed_constant_alternatives() {
         let compilation = compilation(concat!(
             "module app;\n",
             "const yes: bool = true;\n",
@@ -5417,23 +5417,23 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("constant alternative facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("constant alternative analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingUnreachablePatternAlternative]
         );
 
-        let diagnostic = facts
+        let diagnostic = analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingUnreachablePatternAlternative)
             .next()
@@ -5451,13 +5451,13 @@ func other()
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingUnreachablePatternAlternative,
         );
     }
 
     #[test]
-    fn pattern_facts_use_constant_guard_truth_for_coverage() {
+    fn patterns_use_constant_guard_truth_for_coverage() {
         let compilation = compilation(concat!(
             "module app;\n",
             "const enabled: bool = true;\n",
@@ -5483,31 +5483,31 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("constant guard facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("constant guard analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert_eq!(coverage.unreachable_arms(), &[0]);
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingUnreachableMatchArm]
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingUnreachableMatchArm,
         );
     }
 
     #[test]
-    fn pattern_facts_evaluate_closed_local_constant_patterns() {
+    fn patterns_evaluate_closed_local_constant_patterns() {
         let compilation = pattern_compilation(concat!(
             "    const base: bool = true;\n",
             "    const yes: bool = base;\n",
@@ -5526,21 +5526,21 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("local constant pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("local constant pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_reject_constant_paths_with_incompatible_types() {
+    fn patterns_reject_constant_paths_with_incompatible_types() {
         let compilation = compilation(concat!(
             "module app;\n",
             "const one: i32 = 1;\n",
@@ -5557,21 +5557,21 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
             Err(error) => panic!("incompatible constant pattern must recover: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
 
-        assert!(facts.value().is_recovered());
+        assert!(analysis.value().is_recovered());
     }
 
     #[test]
-    fn pattern_facts_report_non_exhaustive_matches() {
+    fn patterns_report_non_exhaustive_matches() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -5584,22 +5584,22 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingNonExhaustiveMatch]
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingNonExhaustiveMatch,
         );
 
-        let missing = facts
+        let missing = analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
             .next()
@@ -5615,7 +5615,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_report_nullable_union_and_open_domain_missing_cases() {
+    fn patterns_report_nullable_union_and_open_domain_missing_cases() {
         let nullable = pattern_compilation(concat!(
             "    let value: i32? = none;\n",
             "    match value\n",
@@ -5624,11 +5624,11 @@ func other()
             "    }\n",
         ));
 
-        let nullable_facts = nullable
-            .pattern_facts(source_callable_body_key(&nullable))
+        let nullable_analysis = nullable
+            .patterns(source_callable_body_key(&nullable))
             .unwrap_or_else(|error| panic!("nullable coverage must publish: {error:?}"));
 
-        let nullable_missing = nullable_facts
+        let nullable_missing = nullable_analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
             .next()
@@ -5654,11 +5654,11 @@ func other()
             "}\n",
         ));
 
-        let union_facts = union
-            .pattern_facts(source_callable_body_key(&union))
+        let union_analysis = union
+            .patterns(source_callable_body_key(&union))
             .unwrap_or_else(|error| panic!("union coverage must publish: {error:?}"));
 
-        let union_missing = union_facts
+        let union_missing = union_analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
             .next()
@@ -5682,11 +5682,11 @@ func other()
             "    match value { case 1 {} }\n",
         ));
 
-        let open_facts = open
-            .pattern_facts(source_callable_body_key(&open))
+        let open_analysis = open
+            .patterns(source_callable_body_key(&open))
             .unwrap_or_else(|error| panic!("open-domain coverage must publish: {error:?}"));
 
-        let open_missing = open_facts
+        let open_missing = open_analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
             .next()
@@ -5705,7 +5705,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_bound_missing_union_cases_and_retain_every_covering_origin() {
+    fn patterns_bound_missing_union_cases_and_retain_every_covering_origin() {
         let bounded = compilation(concat!(
             "module app;\n",
             "union Choice { A; B; C; D; E; F; G; H; I; J; }\n",
@@ -5715,11 +5715,11 @@ func other()
             "}\n",
         ));
 
-        let bounded_facts = bounded
-            .pattern_facts(source_callable_body_key(&bounded))
+        let bounded_analysis = bounded
+            .patterns(source_callable_body_key(&bounded))
             .unwrap_or_else(|error| panic!("bounded union coverage must publish: {error:?}"));
 
-        let coverage = bounded_facts
+        let coverage = bounded_analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
             .next()
@@ -5744,7 +5744,7 @@ func other()
         ));
 
         let covered_facts = covered
-            .pattern_facts(source_callable_body_key(&covered))
+            .patterns(source_callable_body_key(&covered))
             .unwrap_or_else(|error| panic!("covered alternatives must publish: {error:?}"));
 
         let diagnostic = covered_facts
@@ -5766,7 +5766,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_report_unreachable_match_arms() {
+    fn patterns_report_unreachable_match_arms() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -5787,23 +5787,23 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
         assert_eq!(coverage.unreachable_arms(), &[1]);
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingUnreachableMatchArm]
         );
 
-        let diagnostic = facts
+        let diagnostic = analysis
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingUnreachableMatchArm)
             .next()
@@ -5821,13 +5821,13 @@ func other()
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingUnreachableMatchArm,
         );
     }
 
     #[test]
-    fn pattern_facts_report_patterns_incompatible_with_the_subject() {
+    fn patterns_report_patterns_incompatible_with_the_subject() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -5840,45 +5840,45 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingIncompatiblePattern,
         );
     }
 
     #[test]
-    fn pattern_facts_reject_refutable_declaration_patterns() {
+    fn patterns_reject_refutable_declaration_patterns() {
         let compilation = pattern_compilation("    let true: bool = true;\n");
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingRefutablePattern]
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            analysis.diagnostics(),
             DiagnosticKind::CheckingRefutablePattern,
         );
     }
 
     #[test]
-    fn pattern_facts_publish_exhaustive_nullable_match_coverage() {
+    fn patterns_publish_exhaustive_nullable_match_coverage() {
         let compilation = pattern_compilation(concat!(
             "    let value: i32? = none;\n",
             "    match value\n",
@@ -5895,22 +5895,22 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
         assert!(coverage.is_exhaustive());
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_compose_nested_nullable_coverage() {
+    fn patterns_compose_nested_nullable_coverage() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool? = none;\n",
             "    match value\n",
@@ -5931,21 +5931,21 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("nullable pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("nullable pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_publish_exhaustive_closed_union_coverage() {
+    fn patterns_publish_exhaustive_closed_union_coverage() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
@@ -5970,18 +5970,18 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6005,22 +6005,22 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("borrowed pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("borrowed pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(!facts.value().is_recovered());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(!analysis.value().is_recovered());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_resolve_bare_variants_through_the_expected_subject_type() {
+    fn patterns_resolve_bare_variants_through_the_expected_subject_type() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
@@ -6048,19 +6048,19 @@ func other()
         assert!(bound.value().local_symbols().bindings().is_empty());
         assert!(bound.diagnostics().is_empty(), "{:?}", bound.diagnostics());
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("bare variant pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("bare variant pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(facts.value().binding_types().is_empty());
-        assert!(!facts.value().is_recovered());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(analysis.value().binding_types().is_empty());
+        assert!(!analysis.value().is_recovered());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6110,19 +6110,19 @@ func other()
                 .contains(&DiagnosticKind::BindingUnresolvedName)
         );
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("late subject pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("late subject pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(facts.value().binding_types().is_empty());
-        assert!(!facts.value().is_recovered());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(analysis.value().binding_types().is_empty());
+        assert!(!analysis.value().is_recovered());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6150,14 +6150,14 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("nested pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("nested pattern analysis must be available: {error:?}"),
         };
 
-        assert!(facts.value().binding_types().is_empty());
-        assert!(!facts.value().is_recovered());
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.value().binding_types().is_empty());
+        assert!(!analysis.value().is_recovered());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6214,12 +6214,12 @@ func other()
             )))
         );
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("late binding pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("late binding pattern analysis must be available: {error:?}"),
         };
 
-        let Some(binding_type) = facts.value().binding_type(binding) else {
+        let Some(binding_type) = analysis.value().binding_type(binding) else {
             panic!("resolved binding must publish its checked type");
         };
 
@@ -6229,7 +6229,7 @@ func other()
             RepresentationRole::ScalarBool,
         );
 
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6297,7 +6297,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_introduce_bare_bindings_after_pattern_name_resolution_fails() {
+    fn patterns_introduce_bare_bindings_after_pattern_name_resolution_fails() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -6329,12 +6329,12 @@ func other()
 
         assert!(bound.diagnostics().is_empty(), "{:?}", bound.diagnostics());
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("bare binding pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("bare binding pattern analysis must be available: {error:?}"),
         };
 
-        let Some(binding) = facts
+        let Some(binding) = analysis
             .value()
             .binding_types()
             .iter()
@@ -6345,7 +6345,7 @@ func other()
         };
 
         assert_type_representation(&compilation, binding.ty(), RepresentationRole::ScalarBool);
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6398,7 +6398,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_do_not_treat_bare_variant_alternatives_as_bindings() {
+    fn patterns_do_not_treat_bare_variant_alternatives_as_bindings() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Choice\n",
@@ -6427,17 +6427,17 @@ func other()
         assert!(bound.value().local_symbols().bindings().is_empty());
         assert!(bound.diagnostics().is_empty(), "{:?}", bound.diagnostics());
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("bare variant alternative facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("bare variant alternative analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
-        assert!(coverage.is_exhaustive(), "{facts:?}");
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(coverage.is_exhaustive(), "{analysis:?}");
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6476,7 +6476,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_report_arms_after_a_catch_all_as_unreachable() {
+    fn patterns_report_arms_after_a_catch_all_as_unreachable() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match value\n",
@@ -6493,12 +6493,12 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("pattern analysis must be available: {error:?}"),
         };
 
-        let [coverage] = facts.value().matches() else {
+        let [coverage] = analysis.value().matches() else {
             panic!("test source must contain one match expression");
         };
 
@@ -6507,30 +6507,30 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_check_fixed_array_shape_before_proving_irrefutability() {
+    fn patterns_check_fixed_array_shape_before_proving_irrefutability() {
         let valid = pattern_compilation("    let [first, .., last]: [i32; 3] = [1, 2, 3];\n");
         let invalid = pattern_compilation("    let [first]: [i32; 2] = [1, 2];\n");
 
         let valid_key = source_callable_body_key(&valid);
         let invalid_key = source_callable_body_key(&invalid);
 
-        let valid_facts = match valid.pattern_facts(valid_key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("valid array-pattern facts must be available: {error:?}"),
+        let valid_patterns = match valid.patterns(valid_key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("valid array-pattern analysis must be available: {error:?}"),
         };
 
-        let invalid_facts = match invalid.pattern_facts(invalid_key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("invalid array-pattern facts must be available: {error:?}"),
+        let invalid_patterns = match invalid.patterns(invalid_key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("invalid array-pattern analysis must be available: {error:?}"),
         };
 
         assert!(
-            valid_facts.diagnostics().is_empty(),
+            valid_patterns.diagnostics().is_empty(),
             "{:?}",
-            valid_facts.diagnostics()
+            valid_patterns.diagnostics()
         );
 
-        let [first, last] = valid_facts.value().binding_types() else {
+        let [first, last] = valid_patterns.value().binding_types() else {
             panic!("array pattern must publish its two binding types");
         };
 
@@ -6544,16 +6544,16 @@ func other()
             Some(PatternProjection::ElementFromEnd(SymbolOrdinal::new(0)))
         );
 
-        assert!(!valid_facts.value().is_recovered());
+        assert!(!valid_patterns.value().is_recovered());
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(invalid_patterns.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
     #[test]
-    fn pattern_facts_check_product_field_coverage() {
+    fn patterns_check_product_field_coverage() {
         let valid = compilation(concat!(
             "module app;\n",
             "struct Point\n",
@@ -6583,30 +6583,30 @@ func other()
         let valid_key = source_callable_body_key(&valid);
         let invalid_key = source_callable_body_key(&invalid);
 
-        let valid_facts = match valid.pattern_facts(valid_key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("valid product-pattern facts must be available: {error:?}"),
+        let valid_patterns = match valid.patterns(valid_key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("valid product-pattern analysis must be available: {error:?}"),
         };
 
-        let invalid_facts = match invalid.pattern_facts(invalid_key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("invalid product-pattern facts must be available: {error:?}"),
+        let invalid_patterns = match invalid.patterns(invalid_key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("invalid product-pattern analysis must be available: {error:?}"),
         };
 
         assert!(
-            valid_facts.diagnostics().is_empty(),
+            valid_patterns.diagnostics().is_empty(),
             "{:?}",
-            valid_facts.diagnostics()
+            valid_patterns.diagnostics()
         );
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(invalid_facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(invalid_patterns.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
     #[test]
-    fn pattern_facts_check_and_project_generic_product_fields() {
+    fn patterns_check_and_project_generic_product_fields() {
         let compilation = compilation(concat!(
             "module app;\n",
             "struct Wrapper<T>\n",
@@ -6621,12 +6621,12 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("generic product-pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("generic product-pattern analysis must be available: {error:?}"),
         };
 
-        let [binding] = facts.value().binding_types() else {
+        let [binding] = analysis.value().binding_types() else {
             panic!("field shorthand must publish one binding type");
         };
 
@@ -6639,11 +6639,11 @@ func other()
             Some(PatternProjection::ProductField(_))
         ));
 
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_check_and_project_generic_union_payload_fields() {
+    fn patterns_check_and_project_generic_union_payload_fields() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Maybe<T>\n",
@@ -6668,12 +6668,12 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("generic payload-pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("generic payload-pattern analysis must be available: {error:?}"),
         };
 
-        let [binding] = facts.value().binding_types() else {
+        let [binding] = analysis.value().binding_types() else {
             panic!("payload pattern must publish one binding type");
         };
 
@@ -6684,11 +6684,11 @@ func other()
             Some(PatternProjection::ActiveUnionPayloadField { .. })
         ));
 
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
-    fn pattern_facts_bind_positional_generic_union_payload_fields() {
+    fn patterns_bind_positional_generic_union_payload_fields() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Maybe<T>\n",
@@ -6712,12 +6712,12 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("positional payload-pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("positional payload-pattern analysis must be available: {error:?}"),
         };
 
-        let [binding] = facts.value().binding_types() else {
+        let [binding] = analysis.value().binding_types() else {
             panic!("positional payload pattern must publish one binding type");
         };
 
@@ -6730,7 +6730,7 @@ func other()
             Some(PatternProjection::ActiveUnionPayloadField { .. })
         ));
 
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
     }
 
     #[test]
@@ -6850,7 +6850,7 @@ func other()
     }
 
     #[test]
-    fn pattern_facts_do_not_treat_unknown_named_payload_fields_as_positional() {
+    fn patterns_do_not_treat_unknown_named_payload_fields_as_positional() {
         let compilation = compilation(concat!(
             "module app;\n",
             "union Maybe<T>\n",
@@ -6870,19 +6870,19 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("invalid payload-pattern facts must recover: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("invalid payload-pattern analysis must recover: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
     #[test]
-    fn pattern_facts_check_nested_product_patterns_against_field_types() {
+    fn patterns_check_nested_product_patterns_against_field_types() {
         let compilation = compilation(concat!(
             "module app;\n",
             "struct Point\n",
@@ -6898,19 +6898,19 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("nested product-pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("nested product-pattern analysis must be available: {error:?}"),
         };
 
         assert_eq!(
-            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
     }
 
     #[test]
-    fn pattern_facts_retain_consuming_match_operations() {
+    fn patterns_retain_consuming_match_operations() {
         let compilation = pattern_compilation(concat!(
             "    let value: bool = true;\n",
             "    match consume value\n",
@@ -6923,13 +6923,13 @@ func other()
 
         let key = source_callable_body_key(&compilation);
 
-        let facts = match compilation.pattern_facts(key) {
-            Ok(facts) => facts,
-            Err(error) => panic!("consuming pattern facts must be available: {error:?}"),
+        let analysis = match compilation.patterns(key) {
+            Ok(analysis) => analysis,
+            Err(error) => panic!("consuming pattern analysis must be available: {error:?}"),
         };
 
         assert!(
-            facts
+            analysis
                 .value()
                 .patterns()
                 .iter()

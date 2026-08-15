@@ -2,7 +2,7 @@ use crate::analysis::analyze_storage_liveness;
 use crate::analysis::check_control_flow;
 use crate::analysis::check_refinements;
 use crate::analysis::check_storage_flow;
-use crate::asynchronous::check_async_facts;
+use crate::asynchronous::check_async_analysis;
 use crate::behavior::collect_body_behavior;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
@@ -20,17 +20,17 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedAsyncFacts, CheckedControlFlowFacts,
+    BodyBehaviorContributions, CheckedAsync, CheckedControlFlow,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, LivenessFacts, SelectedCall,
-    SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
+    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, SelectedCall,
+    SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
 };
 use bray_symbols::{
-    CallableSignatureFact, ConstantTermId, ConstantValueId, DeclarationDirectivesFact,
-    GenericConstraintsFact,
+    CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,
+    GenericConstraintsQuery,
 };
-use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
+use bray_symbols::{StructFieldTypeQuery, UnionPayloadFieldTypeQuery};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -72,7 +72,7 @@ pub struct DefaultStoragePlanner;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultLivenessAnalyzer;
 
-/// The standard Bray flow-sensitive fact analyzer.
+/// The standard Bray flow-sensitive analyzer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultRefinementAnalyzer;
 
@@ -143,8 +143,8 @@ impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
 pub trait PatternChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     /// Checks patterns in one committed bound unit.
@@ -153,15 +153,15 @@ where
         request: CheckerUnitView<'_, C>,
         expression_types: &CheckedExpressionTypes,
         input: &PatternCheckInput,
-    ) -> CheckerOutcome<CheckedPatternFacts> {
+    ) -> CheckerOutcome<CheckedPatterns> {
         check_patterns(request, expression_types, input)
     }
 }
 
 impl<C> PatternChecker<C> for DefaultPatternChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized
 {
 }
@@ -169,7 +169,7 @@ impl<C> PatternChecker<C> for DefaultPatternChecker where
 /// Storage identity and occurrence-specific access planning over one checked bound unit.
 pub trait StoragePlanner<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Constructs persistent storage identities and evaluated access plans.
     fn plan_storage(
@@ -177,7 +177,7 @@ where
         request: CheckerUnitView<'_, C>,
         declared_types: &DeclaredValueTypeTemplates,
         types: &CheckedExpressionTypes,
-        patterns: &CheckedPatternFacts,
+        patterns: &CheckedPatterns,
         selections: &CheckedSemanticSelections,
     ) -> CheckerOutcome<StoragePlan> {
         plan_storage(request, declared_types, types, patterns, selections)
@@ -185,14 +185,14 @@ where
 }
 
 impl<C> StoragePlanner<C> for DefaultStoragePlanner where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
 /// Storage, access, capability, and obligation liveness over one checked bound unit.
 pub trait LivenessAnalyzer<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable last-use and lexical scope-boundary decisions.
     fn analyze_liveness(
@@ -201,29 +201,29 @@ where
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<LivenessFacts> {
+    ) -> CheckerOutcome<Liveness> {
         analyze_storage_liveness(request, selections, storage, memory)
     }
 }
 
 impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
-/// Flow-sensitive semantic facts over one checked bound unit.
+/// Flow-sensitive semantic analysis over one checked bound unit.
 pub trait RefinementAnalyzer<C>: Sync
 where
     C: CheckerRequestContext + ?Sized,
 {
-    /// Computes durable facts available before checked operation occurrences.
+    /// Computes durable refinements available before checked operation occurrences.
     fn analyze_refinements(
         &self,
         request: CheckerUnitView<'_, C>,
-        patterns: &CheckedPatternFacts,
+        patterns: &CheckedPatterns,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-    ) -> CheckerOutcome<CheckedRefinementFacts> {
+    ) -> CheckerOutcome<CheckedRefinements> {
         check_refinements(request, patterns, selections, storage)
     }
 }
@@ -233,7 +233,7 @@ impl<C> RefinementAnalyzer<C> for DefaultRefinementAnalyzer where C: CheckerRequ
 /// Composite storage, ownership, movement, and borrow checking over one unit.
 pub trait StorageFlowChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable per-operation storage decisions.
     fn check_storage_flow(
@@ -241,23 +241,23 @@ where
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-        liveness: &LivenessFacts,
-        refinements: &CheckedRefinementFacts,
+        liveness: &Liveness,
+        refinements: &CheckedRefinements,
         memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<StorageFlowFacts> {
+    ) -> CheckerOutcome<StorageFlow> {
         check_storage_flow(request, selections, storage, liveness, refinements, memory)
     }
 }
 
 impl<C> StorageFlowChecker<C> for DefaultStorageFlowChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
 /// Value, access, borrow, witness, and selected-call dependency propagation over one unit.
 pub trait DependencyContractChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable normalized contracts without repeating storage analysis.
     fn check_dependency_contracts(
@@ -265,14 +265,14 @@ where
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-        flow: &StorageFlowFacts,
+        flow: &StorageFlow,
     ) -> CheckerOutcome<CheckedDependencyContracts> {
         check_dependency_contracts(request, selections, storage, flow)
     }
 }
 
 impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
@@ -280,11 +280,11 @@ impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
 pub trait MemoryOperationChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
-        + crate::CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticFactProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
-    /// Classifies checked memory calls and their ownership and fact effects.
+    /// Classifies checked memory calls and their ownership and storage effects.
     fn check_memory_operations(
         &self,
         request: CheckerUnitView<'_, C>,
@@ -297,8 +297,8 @@ where
 
 impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
-        + crate::CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticFactProvider<DeclarationDirectivesQuery>
         + ?Sized
 {
 }
@@ -306,25 +306,25 @@ impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
 /// Async frame, suspension, task ownership, and cleanup checking over one unit.
 pub trait AsyncChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
-    /// Computes durable async facts from independently checked semantic inputs.
+    /// Computes durable async analysis from independently checked semantic inputs.
     #[expect(
         clippy::too_many_arguments,
         reason = "the checker service keeps each independently materialized async input explicit"
     )]
-    fn check_async_facts(
+    fn check_async_analysis(
         &self,
         request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
-        liveness: &LivenessFacts,
+        liveness: &Liveness,
         dependencies: &CheckedDependencyContracts,
         storage: &StoragePlan,
-        refinements: &CheckedRefinementFacts,
-        flow: &StorageFlowFacts,
-    ) -> CheckerOutcome<CheckedAsyncFacts> {
-        check_async_facts(
+        refinements: &CheckedRefinements,
+        flow: &StorageFlow,
+    ) -> CheckerOutcome<CheckedAsync> {
+        check_async_analysis(
             request,
             types,
             selections,
@@ -338,7 +338,7 @@ where
 }
 
 impl<C> AsyncChecker<C> for DefaultAsyncChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
@@ -351,11 +351,11 @@ where
     fn collect_body_behavior(
         &self,
         request: CheckerUnitView<'_, C>,
-        control_flow: &CheckedControlFlowFacts,
+        control_flow: &CheckedControlFlow,
         selections: &CheckedSemanticSelections,
-        async_facts: &CheckedAsyncFacts,
+        async_analysis: &CheckedAsync,
     ) -> CheckerOutcome<BodyBehaviorContributions> {
-        collect_body_behavior(request, control_flow, selections, async_facts)
+        collect_body_behavior(request, control_flow, selections, async_analysis)
     }
 }
 
@@ -368,10 +368,10 @@ impl<C> BodyBehaviorCollector<C> for DefaultBodyBehaviorCollector where
 pub trait ExpressionSemanticChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
-        + crate::CheckerSemanticFactProvider<GenericConstraintsFact>
-        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     /// Computes final expression types and exact semantic selections together.
@@ -401,10 +401,10 @@ where
 
 impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
-        + crate::CheckerSemanticFactProvider<GenericConstraintsFact>
-        + crate::CheckerSemanticFactProvider<StructFieldTypeFact>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized
 {
 }

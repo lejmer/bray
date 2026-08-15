@@ -9,10 +9,10 @@ use bray_symbols::{
     SymbolOrigin,
 };
 
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 
 pub(in crate::compilation) fn type_binder<'facts>(
-    context: &'facts CompilationBinderFacts<'facts>,
+    context: &'facts CompilationBindingContext<'facts>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionBinder<'facts>> {
     let scope = type_scope(context, symbol)?;
@@ -27,7 +27,7 @@ pub(in crate::compilation) fn type_binder<'facts>(
 }
 
 pub(in crate::compilation) fn type_scope(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionScope> {
     let type_parameters = type_parameter_bindings(context, symbol)?;
@@ -48,7 +48,7 @@ pub(in crate::compilation) fn type_scope(
 }
 
 fn type_parameter_bindings(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<Vec<TypeParameterBinding>> {
     let mut bindings = Vec::new();
@@ -120,7 +120,7 @@ pub(in crate::compilation) fn has_visible_generic_parameters(
 }
 
 fn type_parameter_name(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     parameter: GenericTypeParameterSymbolId,
 ) -> BinderFactResult<SymbolName> {
@@ -145,7 +145,7 @@ fn type_parameter_name(
 }
 
 fn parameter_name(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     origin: SymbolOrigin,
     declaration: Option<bray_declarations::DeclarationId>,
@@ -165,16 +165,16 @@ fn parameter_name(
                 .ok_or(BinderFactError::DependencyUnavailable)
         }
         SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided => {
-            let fact = context
+            let semantics = context
                 .symbols
                 .compiler_known_provider()
-                .declaration_fact_for_symbol(owner)
+                .declaration_semantics_for_symbol(owner)
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
             let ordinal =
                 usize::try_from(ordinal).map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-            let signature = fact.surface().signature();
+            let signature = semantics.surface().signature();
 
             let parameter = signature
                 .generic_parameters()

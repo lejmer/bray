@@ -142,7 +142,7 @@ pub enum CompilerKnownCatalogCheckError {
     DeclarationDiagnostics,
     /// The private catalog-validation compilation could not be loaded.
     CompilationLoad(CompilationLoadError),
-    /// A compiler fact required by catalog validation failed.
+    /// A compiler query required by catalog validation failed.
     Fact(FactQueryError),
     /// The compiler-known semantic audit found an inconsistent identity or role.
     Audit(CompilerKnownCatalogAuditError),

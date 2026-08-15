@@ -38,7 +38,7 @@ pub(super) fn checked_integer_constant(
             Some(integer.clone())
         }
         ConstantTermData::Parameter(_)
-        | ConstantTermData::TargetFact(_)
+        | ConstantTermData::TargetProperty(_)
         | ConstantTermData::Unary { .. }
         | ConstantTermData::Binary { .. }
         | ConstantTermData::Conversion { .. }
@@ -83,12 +83,12 @@ pub(super) fn symbol_span(
         return Ok(SourceSpan::new(syntax.source_id(), syntax.full_range()));
     }
 
-    let fact = symbols
+    let semantics = symbols
         .compiler_known_provider()
-        .declaration_fact_for_symbol(symbol)
+        .declaration_semantics_for_symbol(symbol)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let fragment = fact
+    let fragment = semantics
         .surface()
         .syntax_fragment()
         .map_err(|_| FactQueryError::InfrastructureFailure)?;

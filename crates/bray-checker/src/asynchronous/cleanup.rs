@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlowFacts, StorageIdentity,
+    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlow, StorageIdentity,
     StorageIdentityId, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
@@ -207,7 +207,7 @@ where
 pub(super) fn scope_exit_plans<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    flow: &StorageFlowFacts,
+    flow: &StorageFlow,
 ) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerFactError>
 where
     C: CheckerRequestContext + ?Sized,

@@ -13,8 +13,8 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionFact,
-    GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateFact,
+    ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionQuery,
+    GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
     GenericSubstitutionData, GenericSubstitutionId, ImplementationCandidate,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SemanticFactResult,
     SymbolFactRequest, TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate,
@@ -32,7 +32,7 @@ impl Compilation {
     pub fn generic_constraint_satisfaction(
         &self,
         key: GenericConstraintObligationKey,
-    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionQuery>>, FactQueryError> {
         self.generic_constraint_satisfaction_with_cancellation(key, &self.state.cancellation)
     }
 
@@ -40,7 +40,7 @@ impl Compilation {
         &self,
         key: GenericConstraintObligationKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionQuery>>, FactQueryError> {
         let cell = self.state.generic_constraint_satisfaction.cell(key)?;
 
         let result = cell.get_or_compute(
@@ -60,7 +60,7 @@ impl Compilation {
         &self,
         key: GenericConstraintObligationKey,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<GenericConstraintSatisfactionFact>, FactQueryError> {
+    ) -> Result<SemanticFactResult<GenericConstraintSatisfactionQuery>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
         let substitution = values
@@ -71,10 +71,10 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let template = facts
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+        let template = binding_context
+            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
                 key.owner(),
             ))
             .map_err(super::binder::binder_fact_error)?;
@@ -338,7 +338,7 @@ impl Compilation {
             return Ok(DiagnosticResult::without_diagnostics(ty));
         };
 
-        let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+        let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
         if let Some(result) =
             bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
@@ -392,7 +392,7 @@ impl Compilation {
         let (references, reference_diagnostics) = references;
 
         let context = CompilationCheckerContext::new(
-            self.binder_facts_for(bound.result().value().key(), cancellation)?,
+            self.binding_context_for(bound.result().value().key(), cancellation)?,
         );
 
         let semantic_context =
@@ -446,17 +446,17 @@ impl Compilation {
             return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
         };
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let Some(address) = facts
-            .imported_fact_address(owner.symbol())
+        let Some(address) = binding_context
+            .imported_semantic_address(owner.symbol())
             .map_err(super::binder::binder_fact_error)?
         else {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
         let template_result = super::binder::imported_declaration_template_at(
-            &facts,
+            &binding_context,
             address,
             bray_bound_tree::CheckedTemplateKind::GenericConstraint,
             ordinal,
@@ -474,7 +474,7 @@ impl Compilation {
             .as_deref()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let context = CompilationCheckerContext::new(facts);
+        let context = CompilationCheckerContext::new(binding_context);
 
         let resolver =
             super::constant::CompilationConstantTemplateResolver::new(self, cancellation, imported);
@@ -586,7 +586,7 @@ impl Compilation {
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+        let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
         let built_in =
             bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
@@ -643,7 +643,7 @@ impl Compilation {
                 let key = self.constraint_unit_key(owner, unit)?;
 
                 let context =
-                    CompilationCheckerContext::new(self.binder_facts_for(&key, cancellation)?);
+                    CompilationCheckerContext::new(self.binding_context_for(&key, cancellation)?);
 
                 let semantic_context = bray_checker::SemanticUnitContext::Constraint(
                     bray_checker::DeclaredUnitContext::new(key, owner, owner),
@@ -656,7 +656,7 @@ impl Compilation {
                 ))?
             }
             None => {
-                let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+                let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
                 checker_result(closed_type_is_copyable(&context, subject))?
             }
@@ -916,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_constraint_facts_are_cached_by_exact_substitution() {
+    fn generic_constraint_results_are_cached_by_exact_substitution() {
         let compilation = compilation(concat!(
             "module app;\n",
             "\n",
@@ -960,11 +960,11 @@ mod tests {
 
         let first = compilation
             .generic_constraint_satisfaction(obligation)
-            .unwrap_or_else(|error| panic!("constraint fact must be available: {error:?}"));
+            .unwrap_or_else(|error| panic!("constraint result must be available: {error:?}"));
 
         let second = compilation
             .generic_constraint_satisfaction(obligation)
-            .unwrap_or_else(|error| panic!("constraint fact must be reusable: {error:?}"));
+            .unwrap_or_else(|error| panic!("constraint result must be reusable: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));
     }

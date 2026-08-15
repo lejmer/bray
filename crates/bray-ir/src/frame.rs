@@ -18,17 +18,17 @@ pub enum MirFrameReference {
     Erased,
 }
 
-/// Checked lane, affinity, and storage facts for one protected-frame state.
+/// Checked lane, affinity, and storage state for one protected-frame state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirFrameStateFacts {
+pub struct MirFrameState {
     state: MirFrameStateId,
     entry: MirBlockId,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
     initialized_storages: Arc<[MirStorageId]>,
 }
 
-impl MirFrameStateFacts {
-    /// Creates state-indexed frame facts.
+impl MirFrameState {
+    /// Creates state-indexed frame state.
     pub fn new(
         state: MirFrameStateId,
         entry: MirBlockId,
@@ -71,7 +71,7 @@ pub struct MirFrameDescriptor {
     abi_version: RuntimeAbiVersion,
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
-    states: Arc<[MirFrameStateFacts]>,
+    states: Arc<[MirFrameState]>,
 }
 
 impl MirFrameDescriptor {
@@ -82,7 +82,7 @@ impl MirFrameDescriptor {
         abi_version: RuntimeAbiVersion,
         frame_abi: ProtectedFrameAbiVersions,
         result_type: TypeId,
-        states: impl IntoIterator<Item = MirFrameStateFacts>,
+        states: impl IntoIterator<Item = MirFrameState>,
     ) -> Result<Self, MirFrameDescriptorBuildError> {
         let states: Vec<_> = states.into_iter().collect();
 
@@ -137,7 +137,7 @@ impl MirFrameDescriptor {
     }
 
     /// Returns resumable states in descriptor order.
-    pub fn states(&self) -> &[MirFrameStateFacts] {
+    pub fn states(&self) -> &[MirFrameState] {
         &self.states
     }
 }
@@ -163,7 +163,7 @@ mod tests {
     use bray_testing::test_bound_unit;
 
     use super::{
-        MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts, MirFrameStateId,
+        MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameState, MirFrameStateId,
     };
     use crate::{MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind};
 
@@ -196,14 +196,14 @@ mod tests {
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
         );
 
-        let non_contiguous = MirFrameStateFacts::new(MirFrameStateId::new(1), entry, [], []);
+        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [non_contiguous]),

@@ -10,7 +10,7 @@ use crate::semantic::model::{
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
     InterfaceDependencyRequirement, InterfaceDependencyRequirementKind, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot, InterfaceImplementationInstanceId, InterfacePredicateSummary,
-    InterfaceSemanticFacts, InterfaceTrustedCapabilityRequirement,
+    InterfaceSemantics, InterfaceTrustedCapabilityRequirement,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -52,7 +52,7 @@ pub(super) fn decode_contracts(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_contract_tables(section, context)?;
 
@@ -66,9 +66,9 @@ pub(super) fn decode_contracts(
         decode_callable_contract(reader, limits, context)
     })?;
 
-    facts.dependency_contracts = dependencies.into();
-    facts.constraints = constraints.into();
-    facts.callable_contracts = callables.into();
+    semantics.dependency_contracts = dependencies.into();
+    semantics.constraints = constraints.into();
+    semantics.callable_contracts = callables.into();
 
     Ok(())
 }

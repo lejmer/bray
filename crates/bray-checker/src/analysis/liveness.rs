@@ -4,10 +4,10 @@ use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject,
     BoundExpression, BoundExpressionId, BoundUnit, CheckedMemoryOperations,
     CheckedSemanticSelections, DependencyContractInstantiationError, LastUse, LiveAcrossScope,
-    LiveAcrossSuspension, LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding,
+    LiveAcrossSuspension, Liveness, SemanticSelection, StorageAccessRoot, StorageBinding,
     StoragePlan,
 };
-use bray_symbols::{CallableSignatureFact, TypeData};
+use bray_symbols::{CallableSignatureQuery, TypeData};
 
 use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
@@ -30,9 +30,9 @@ pub(crate) fn analyze_storage_liveness<C>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<LivenessFacts>
+) -> CheckerOutcome<Liveness>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     if selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
@@ -40,7 +40,7 @@ where
         || storage.kind() != request.unit().key().kind()
     {
         return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidLivenessFacts,
+            CheckerInfrastructureError::InvalidLiveness,
         );
     }
 
@@ -77,7 +77,7 @@ where
         }
     };
 
-    let facts = collect_facts(
+    let liveness = collect_liveness(
         &graph,
         &reachability,
         &effects,
@@ -86,10 +86,10 @@ where
         storage.kind(),
     );
 
-    match facts {
-        Ok(facts) => CheckerOutcome::without_diagnostics(facts),
+    match liveness {
+        Ok(liveness) => CheckerOutcome::without_diagnostics(liveness),
         Err(_) => {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLivenessFacts)
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLiveness)
         }
     }
 }
@@ -115,7 +115,7 @@ impl OperationEffects {
         memory: &CheckedMemoryOperations,
     ) -> Result<Self, CheckerInfrastructureError>
     where
-        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
@@ -270,7 +270,7 @@ impl OperationEffects {
         storage: &StoragePlan,
     ) -> Result<(), CheckerInfrastructureError>
     where
-        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
     {
         for entry in selections.entries() {
             let SemanticSelection::Call(call) = entry.selection() else {
@@ -292,7 +292,7 @@ impl OperationEffects {
                         return Err(error);
                     }
                     Err(DependencyContractInstantiationError::ForeignUnit) => {
-                        return Err(CheckerInfrastructureError::InvalidLivenessFacts);
+                        return Err(CheckerInfrastructureError::InvalidLiveness);
                     }
                 };
 
@@ -672,14 +672,14 @@ fn merge_state(
     target.len() != previous_len
 }
 
-fn collect_facts(
+fn collect_liveness(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
     effects: &OperationEffects,
     universe: &BTreeSet<BoundDependencySubject>,
     result: &super::fixed_point::FixedPointResult<BTreeSet<BoundDependencySubject>>,
     kind: bray_bound_tree::BoundUnitKind,
-) -> Result<LivenessFacts, bray_bound_tree::LivenessFactsBuildError> {
+) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
     let mut live_across_scopes = Vec::new();
     let mut live_across_suspensions = Vec::new();
@@ -770,7 +770,7 @@ fn collect_facts(
         is_recovered = true;
     }
 
-    LivenessFacts::try_new(
+    Liveness::try_new(
         graph.unit(),
         kind,
         last_uses,

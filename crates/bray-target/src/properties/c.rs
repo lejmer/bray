@@ -1,8 +1,8 @@
-use super::{TargetScalarFacts, TargetScalarKind};
+use super::{TargetScalarSupport, TargetScalarKind};
 
 const C_SCALAR_KIND_COUNT: usize = 18;
 
-/// C scalar identities described by the language-defined `target.c` facts.
+/// C scalar identities described by the language-defined `target.c` properties.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetCScalarKind {
     /// Plain C `char`.
@@ -70,11 +70,11 @@ impl TargetCScalarKind {
 
 /// Exact Bray scalar mappings for one target's C scalar data model.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetCAbiFacts {
+pub struct TargetCDataModel {
     mappings: [Option<TargetScalarKind>; C_SCALAR_KIND_COUNT],
 }
 
-impl TargetCAbiFacts {
+impl TargetCDataModel {
     /// Creates a C model from the target-dependent scalar choices.
     ///
     /// Returns absence when the choices do not form one of Bray's supported C data models.
@@ -124,7 +124,7 @@ impl TargetCAbiFacts {
         self.mappings[kind.index()]
     }
 
-    pub(crate) fn is_supported_by(self, scalars: TargetScalarFacts) -> bool {
+    pub(crate) fn is_supported_by(self, scalars: TargetScalarSupport) -> bool {
         self.mappings
             .into_iter()
             .flatten()
@@ -149,13 +149,13 @@ const fn valid_long_double(long_double: Option<TargetScalarKind>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TargetCAbiFacts, TargetCScalarKind};
+    use super::{TargetCDataModel, TargetCScalarKind};
     use crate::TargetScalarKind;
 
     #[test]
     fn c_models_reject_mismatched_signed_and_unsigned_long_widths() {
         assert_eq!(
-            TargetCAbiFacts::try_new(
+            TargetCDataModel::try_new(
                 TargetScalarKind::I8,
                 TargetScalarKind::I32,
                 TargetScalarKind::U64,
@@ -168,20 +168,20 @@ mod tests {
 
     #[test]
     fn c_models_keep_unsupported_long_double_explicit() {
-        let facts = TargetCAbiFacts::try_new(
+        let properties = TargetCDataModel::try_new(
             TargetScalarKind::I8,
             TargetScalarKind::I64,
             TargetScalarKind::U64,
             TargetScalarKind::I32,
             None,
         )
-        .unwrap_or_else(|| panic!("test C ABI facts must be valid"));
+        .unwrap_or_else(|| panic!("test C ABI properties must be valid"));
 
         assert_eq!(
-            facts.mapping(TargetCScalarKind::Long),
+            properties.mapping(TargetCScalarKind::Long),
             Some(TargetScalarKind::I64)
         );
 
-        assert_eq!(facts.mapping(TargetCScalarKind::LongDouble), None);
+        assert_eq!(properties.mapping(TargetCScalarKind::LongDouble), None);
     }
 }

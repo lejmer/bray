@@ -107,7 +107,7 @@ pub enum CodeModel {
     Kernel,
 }
 
-/// Validated machine representation facts shared by backend-neutral compiler phases.
+/// Validated machine representation properties shared by backend-neutral compiler phases.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetMachineProperties {
     architecture: TargetArchitecture,
@@ -119,7 +119,7 @@ pub struct TargetMachineProperties {
 }
 
 impl TargetMachineProperties {
-    /// Creates machine facts when pointer and alignment values are valid.
+    /// Creates machine properties when pointer and alignment values are valid.
     pub const fn try_new(
         architecture: TargetArchitecture,
         object_format: ObjectFormat,
@@ -183,7 +183,7 @@ mod tests {
     use super::{Endianness, ObjectFormat, TargetArchitecture, TargetMachineProperties};
 
     #[test]
-    fn machine_properties_reject_invalid_pointer_and_alignment_facts() {
+    fn machine_properties_reject_invalid_pointer_and_alignment_properties() {
         let non_byte_addressable_width = NonZeroU16::new(12).unwrap_or(NonZeroU16::MIN);
         let alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
 

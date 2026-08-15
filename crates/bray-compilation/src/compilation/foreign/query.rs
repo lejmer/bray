@@ -5,7 +5,7 @@ use bray_base::NonEmptySharedStr;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableAbi, CallableContractsFact, CallableSignatureFact, CallableSymbolId, DirectiveKind,
+    CallableAbi, CallableContractsQuery, CallableSignatureQuery, CallableSymbolId, DirectiveKind,
     ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolFactRequest,
     SymbolOrigin,
 };
@@ -69,9 +69,9 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<Option<ForeignCallableContract>>>, FactQueryError> {
         cancellation.check()?;
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let record = facts
+        let record = binding_context
             .function(function)
             .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -88,8 +88,8 @@ impl Compilation {
             .find_descendant::<FunctionDeclarationSyntax>(self.syntax_tree())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let signature = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature = binding_context
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
                 CallableSymbolId::from(function),
             ))
             .map_err(binder_fact_error)?;
@@ -177,8 +177,8 @@ impl Compilation {
         };
 
         if abi != CallableAbi::Bray && direction == ForeignCallableDirection::Import {
-            let contracts = facts
-                .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+            let contracts = binding_context
+                .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
                     function.into(),
                 ))
                 .map_err(binder_fact_error)?;
@@ -260,7 +260,7 @@ mod tests {
     };
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
     use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
-    use bray_target::{TargetAbiFacts, TargetForeignAbiFacts, TargetProfile};
+    use bray_target::{TargetAbiSupport, TargetForeignAbiContract, TargetProfile};
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     use crate::test_support::{
@@ -1093,13 +1093,13 @@ func third()
 
     fn compilation_with_foreign_alignment(source: &str, maximum: u64) -> crate::Compilation {
         let baseline = crate::SelectedTarget::baseline();
-        let baseline_facts = baseline.profile().facts();
+        let baseline_properties = baseline.profile().properties();
 
         let maximum = NonZeroU64::new(maximum)
             .unwrap_or_else(|| panic!("test foreign ABI alignment must be nonzero"));
 
-        let foreign = TargetForeignAbiFacts::new(
-            baseline_facts
+        let foreign = TargetForeignAbiContract::new(
+            baseline_properties
                 .abis()
                 .c_contract()
                 .unwrap_or_else(|| panic!("baseline target must provide a C ABI"))
@@ -1111,21 +1111,21 @@ func third()
             maximum,
         );
 
-        let facts = bray_target::TargetFacts::new(
-            baseline_facts.identity().clone(),
-            baseline_facts.scalars(),
-            baseline_facts.atomics(),
-            TargetAbiFacts::new(Some(foreign), Some(foreign)),
-            baseline_facts.c_abi(),
-            baseline_facts.address_spaces(),
-            baseline_facts.alignments(),
-            baseline_facts.operations(),
+        let properties = bray_target::TargetProperties::new(
+            baseline_properties.identity().clone(),
+            baseline_properties.scalars(),
+            baseline_properties.atomics(),
+            TargetAbiSupport::new(Some(foreign), Some(foreign)),
+            baseline_properties.c_abi(),
+            baseline_properties.address_spaces(),
+            baseline_properties.alignments(),
+            baseline_properties.operations(),
         );
 
         let profile = TargetProfile::try_new(
             baseline.profile().identity().clone(),
             baseline.profile().machine().clone(),
-            facts,
+            properties,
         )
         .unwrap_or_else(|error| panic!("test target profile must be valid: {error:?}"));
 

@@ -97,7 +97,7 @@ impl TargetOutputName {
     }
 }
 
-/// Validated target and external artifact naming facts used by output phases.
+/// Validated target and external artifact naming properties used by output phases.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetOutputDescription {
     profile: TargetProfile,
@@ -105,7 +105,7 @@ pub struct TargetOutputDescription {
 }
 
 impl TargetOutputDescription {
-    /// Creates output naming facts for one native toolchain target.
+    /// Creates output naming properties for one native toolchain target.
     pub fn for_native(
         target: NativeTarget,
         kinds: impl IntoIterator<Item = TargetOutputKind>,
@@ -121,7 +121,7 @@ impl TargetOutputDescription {
         .unwrap_or_else(|error| panic!("native output description must be valid: {error:?}"))
     }
 
-    /// Creates target output facts with at most one naming rule per artifact category.
+    /// Creates target output properties with at most one naming rule per artifact category.
     pub fn try_new(
         profile: TargetProfile,
         names: impl IntoIterator<Item = TargetOutputName>,
@@ -149,7 +149,7 @@ impl TargetOutputDescription {
         })
     }
 
-    /// Returns the target identity covered by these output facts.
+    /// Returns the target identity covered by these output properties.
     pub const fn identity(&self) -> &TargetIdentity {
         self.profile.identity()
     }
@@ -159,7 +159,7 @@ impl TargetOutputDescription {
         self.profile.machine()
     }
 
-    /// Returns the target profile covered by these output facts.
+    /// Returns the target profile covered by these output properties.
     pub const fn profile(&self) -> &TargetProfile {
         &self.profile
     }

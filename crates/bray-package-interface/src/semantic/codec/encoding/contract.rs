@@ -1,4 +1,4 @@
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
@@ -14,15 +14,15 @@ use crate::semantic::model::{
 };
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use crate::{InterfaceSectionTag, InterfaceSemantics};
 use bray_symbols::BorrowKind;
 
-pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
     encode_record_table(
         &mut encoder,
-        &facts.dependency_contracts,
+        &semantics.dependency_contracts,
         |encoder, contract| {
             write_count(encoder, contract.requirements.len());
 
@@ -32,7 +32,7 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
         },
     );
 
-    encode_record_table(&mut encoder, &facts.constraints, |encoder, constraint| {
+    encode_record_table(&mut encoder, &semantics.constraints, |encoder, constraint| {
         write_symbol_reference(encoder, &constraint.owner);
         encoder.write_u32(constraint.ordinal.raw());
 
@@ -59,7 +59,7 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
 
     encode_record_table(
         &mut encoder,
-        &facts.callable_contracts,
+        &semantics.callable_contracts,
         |encoder, contract| {
             write_symbol_reference(encoder, &contract.owner);
             encode_callable_clauses(encoder, &contract.invocation_preconditions);
@@ -79,7 +79,7 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
 
     section(
         InterfaceSectionTag::Contracts,
-        facts.dependency_contracts.len() + facts.constraints.len() + facts.callable_contracts.len(),
+        semantics.dependency_contracts.len() + semantics.constraints.len() + semantics.callable_contracts.len(),
         encoder,
     )
 }

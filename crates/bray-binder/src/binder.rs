@@ -57,17 +57,17 @@ impl ControlTarget {
     }
 }
 
-/// A semantic fact observation that can invalidate one bound unit.
+/// A semantic dependency observation that can invalidate one bound unit.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum BinderDependency {
-    /// One exact symbol-owned semantic fact.
+    /// One exact symbol-owned semantic query.
     Symbol {
-        /// The exact symbol whose fact was observed.
+        /// The exact symbol whose query was observed.
         symbol: AnySymbolId,
-        /// The category of observed symbol fact.
+        /// The category of the observed symbol query.
         kind: SymbolFactKind,
     },
-    /// One target-profile fact represented by its compiler-known constant.
+    /// One target property represented by its compiler-known constant.
     Target(ConstantSymbolId),
     /// One nested or otherwise required checked semantic unit.
     Unit(BoundUnitKey),

@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn literal_value_facts_are_send_and_sync() {
+    fn literal_values_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedLiteralValueEntry>();

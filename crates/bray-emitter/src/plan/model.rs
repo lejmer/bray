@@ -408,7 +408,7 @@ fn validate_destination(
     }
 
     if !sinks.insert(sink.collision_key()) {
-        // Plan errors retain owned destination facts after validation returns.
+        // Plan errors retain owned destination destinations after validation returns.
         return Err(EmissionPlanBuildError::DuplicateSink(sink.clone()));
     }
 

@@ -461,11 +461,11 @@ fn translate_state_callback(
     let invalid = context.append_basic_block(function, "frame.state.invalid");
     let mut cases = Vec::with_capacity(descriptor.states().len());
 
-    for facts in descriptor.states() {
+    for state in descriptor.states() {
         let block = context.append_basic_block(function, "frame.state.known");
 
         let lane_requirements =
-            facts
+            state
                 .lane_requirements()
                 .iter()
                 .fold(0_u64, |requirements, lane| {
@@ -477,7 +477,7 @@ fn translate_state_callback(
                         }
                 });
 
-        let affinity = if facts
+        let affinity = if state
             .lane_requirements()
             .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
         {
@@ -499,7 +499,7 @@ fn translate_state_callback(
         cases.push((
             context
                 .i32_type()
-                .const_int(u64::from(facts.state().raw()), false),
+                .const_int(u64::from(state.state().raw()), false),
             block,
         ));
     }

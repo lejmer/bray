@@ -4,14 +4,14 @@ use bray_base::StableDigestHasher;
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::{TargetIdentity, TargetMachineProperties, TargetProfile};
 
-/// Target facts that affect MIR representation and operation selection.
+/// Target contract that affects MIR representation and operation selection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct MirTargetFacts {
+pub struct MirTargetContract {
     profile: TargetProfile,
     runtime_abi: RuntimeAbiVersion,
 }
 
-impl MirTargetFacts {
+impl MirTargetContract {
     /// Creates the target contract for one MIR unit.
     pub const fn new(profile: TargetProfile, runtime_abi: RuntimeAbiVersion) -> Self {
         Self {
@@ -40,7 +40,7 @@ impl MirTargetFacts {
         self.runtime_abi
     }
 
-    /// Returns a stable identity for every target fact that can affect MIR.
+    /// Returns a stable identity for every target property that can affect MIR.
     pub fn compatibility_digest(&self) -> [u8; 32] {
         let mut digest = StableDigestHasher::new();
 
@@ -56,15 +56,15 @@ impl MirTargetFacts {
 mod tests {
     use bray_runtime_interface::RuntimeAbiVersion;
 
-    use super::MirTargetFacts;
+    use super::MirTargetContract;
 
     #[test]
     fn compatibility_identity_covers_target_profile_and_runtime_abi() {
         let profile = bray_target::test_support::test_target_profile();
-        let baseline = MirTargetFacts::new(profile.clone(), RuntimeAbiVersion::new(1, 0));
-        let different_abi = MirTargetFacts::new(profile, RuntimeAbiVersion::new(1, 1));
+        let baseline = MirTargetContract::new(profile.clone(), RuntimeAbiVersion::new(1, 0));
+        let different_abi = MirTargetContract::new(profile, RuntimeAbiVersion::new(1, 1));
 
-        let different_target = MirTargetFacts::new(
+        let different_target = MirTargetContract::new(
             bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
             RuntimeAbiVersion::new(1, 0),
         );

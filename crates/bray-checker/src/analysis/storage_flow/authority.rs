@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableParameterMode, CallableSignatureFact, ReceiverMode, SymbolFactRequest, TypeData,
+    CallableParameterMode, CallableSignatureQuery, ReceiverMode, SymbolFactRequest, TypeData,
     TypeExpressionTemplate,
 };
 
@@ -17,7 +17,7 @@ pub(super) fn mutable_storage<C>(
     storage: &StoragePlan,
 ) -> CheckerFactResult<(BTreeSet<StorageIdentityId>, DiagnosticBag)>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     if matches!(
         request.semantic_context(),
@@ -43,7 +43,7 @@ where
     };
 
     let signature =
-        request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+        request.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))?;
 
     let mut mutable = BTreeSet::new();
 
@@ -51,7 +51,7 @@ where
 
     if modes.len() != signature.value().parameters().len() {
         return Err(CheckerFactError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+            CheckerInfrastructureError::InvalidStorageFlow,
         ));
     }
 
@@ -78,7 +78,7 @@ where
         );
     }
 
-    // The storage fact owns diagnostics independently of the shared symbol fact.
+    // The storage analysis owns diagnostics independently of the shared symbol query result.
     Ok((mutable, signature.diagnostics().clone()))
 }
 
@@ -104,7 +104,7 @@ where
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::InvalidStorageFlowFacts,
+                    CheckerInfrastructureError::InvalidStorageFlow,
                 ));
             };
 
@@ -123,7 +123,7 @@ where
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::OwnedIndirection { .. }
         | TypeExpressionTemplate::TraitView(_) => Err(CheckerFactError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+            CheckerInfrastructureError::InvalidStorageFlow,
         )),
     }
 }

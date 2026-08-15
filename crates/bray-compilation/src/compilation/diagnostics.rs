@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
-    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsyncFacts,
-    CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
-    CheckedMemoryOperations, CheckedPatternFacts, CheckedRefinementFacts,
-    DeclaredValueTypeTemplates, LivenessFacts, SemanticSelection, StorageFlowFacts, StoragePlan,
+    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync,
+    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
+    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+    DeclaredValueTypeTemplates, Liveness, SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -21,10 +21,10 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, CallableContractsFact, CallableSymbolId, ConstantDefinitionState,
+    AnySymbolId, CallableContractsQuery, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
-    ModuleSurfaceFact, NamedTypeSymbolId, ProductKind, SemanticFactResult, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
+    ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, SemanticFactResult, SymbolFactRequest,
+    SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceQuery,
     diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 use bray_syntax::{
@@ -33,7 +33,7 @@ use bray_syntax::{
 
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
-use super::facts::{CheckedExpressionSemantics, Compilation};
+use super::state::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -195,8 +195,8 @@ impl Compilation {
         }
 
         let symbols = self.symbol_graph()?;
-        let mut facts = Vec::new();
-        let binder = self.binder_facts(cancellation)?;
+        let mut sources = Vec::new();
+        let binder = self.binding_context(cancellation)?;
 
         for module in symbols
             .modules()
@@ -204,10 +204,10 @@ impl Compilation {
             .filter(|module| module.origin() == SymbolOrigin::Source)
         {
             let surface = binder
-                .symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(module.id()))
+                .symbol_fact(SymbolFactRequest::<ModuleSurfaceQuery>::new(module.id()))
                 .map_err(super::binder::binder_fact_error)?;
 
-            facts.push(SemanticDiagnosticFact::ModuleSurface(surface));
+            sources.push(SemanticDiagnosticSource::ModuleSurface(surface));
         }
 
         let callables = source_graph
@@ -218,7 +218,7 @@ impl Compilation {
             .filter_map(CallableSymbolId::try_from_any)
             .collect::<Vec<_>>();
 
-        let contract_facts = self
+        let contract_results = self
             .state
             .fact_runtime
             .map_indexed(callables.len(), |index| {
@@ -227,12 +227,12 @@ impl Compilation {
                 let callable = callables[index];
 
                 binder
-                    .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
+                    .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(callable))
                     .map_err(super::binder::binder_fact_error)
             })?;
 
-        for contracts in contract_facts {
-            facts.push(SemanticDiagnosticFact::CallableContracts(contracts?));
+        for contracts in contract_results {
+            sources.push(SemanticDiagnosticSource::CallableContracts(contracts?));
         }
 
         for subject in symbols
@@ -248,7 +248,7 @@ impl Compilation {
                     .map(|symbol| NamedTypeSymbolId::from(symbol.id())),
             )
         {
-            facts.push(SemanticDiagnosticFact::TypeRepresentation(
+            sources.push(SemanticDiagnosticSource::TypeRepresentation(
                 self.declared_type_representation(subject)?,
             ));
         }
@@ -266,33 +266,33 @@ impl Compilation {
                     .map(|symbol| ImplementationSymbolId::from(symbol.id())),
             )
         {
-            facts.push(SemanticDiagnosticFact::TraitConformance(
+            sources.push(SemanticDiagnosticSource::TraitConformance(
                 self.trait_implementation_conformance(implementation)?,
             ));
         }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
-            let (bound, unit_facts) = self.semantic_unit_diagnostic_facts(key, cancellation)?;
+            let (bound, unit_facts) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
 
             for nested in bound.result().value().nested_units() {
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 pending.insert(unit_order_key(nested.clone()));
             }
 
-            facts.extend(unit_facts);
+            sources.extend(unit_facts);
         }
 
-        let fact_diagnostics =
-            DiagnosticBag::merged_all(facts.iter().map(SemanticDiagnosticFact::diagnostics));
+        let query_diagnostics =
+            DiagnosticBag::merged_all(sources.iter().map(SemanticDiagnosticSource::diagnostics));
 
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
-        let product = self.product_semantic_facts_with_cancellation(cancellation)?;
+        let product = self.product_semantics_with_cancellation(cancellation)?;
 
         Ok(DiagnosticBag::merged_all([
             source_graph.diagnostics(),
-            &fact_diagnostics,
+            &query_diagnostics,
             coherence,
             callable_overloads,
             foreign_callables,
@@ -305,25 +305,25 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticBag, FactQueryError> {
-        let (_, facts) = self.semantic_unit_diagnostic_facts(key, cancellation)?;
+        let (_, sources) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
 
         Ok(DiagnosticBag::merged_all(
-            facts.iter().map(SemanticDiagnosticFact::diagnostics),
+            sources.iter().map(SemanticDiagnosticSource::diagnostics),
         ))
     }
 
-    fn semantic_unit_diagnostic_facts(
+    fn semantic_unit_diagnostic_sources(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<
         (
             Arc<PublishedUnitFact<BoundUnit>>,
-            Vec<SemanticDiagnosticFact>,
+            Vec<SemanticDiagnosticSource>,
         ),
         FactQueryError,
     > {
-        // Each fact request owns the same Arc-backed unit identity independently.
+        // Each source request owns the same Arc-backed unit identity independently.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
         let declared_types =
@@ -345,17 +345,17 @@ impl Compilation {
             self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
         let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-        let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
         let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
-        let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
-        let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+        let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
+        let storage_flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
 
         let dependencies =
             self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
         let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
-        let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
+        let async_analysis = self.async_analysis_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         let target_validity = self.semantic_unit_target_validity(
@@ -364,22 +364,22 @@ impl Compilation {
             cancellation,
         )?;
 
-        let mut facts = vec![
-            SemanticDiagnosticFact::Bound(Arc::clone(bound.result())),
-            SemanticDiagnosticFact::DeclaredTypes(Arc::clone(declared_types.result())),
-            SemanticDiagnosticFact::EmbeddedConstants(embedded_constants),
-            SemanticDiagnosticFact::ExpressionSemantics(expression_semantics),
-            SemanticDiagnosticFact::ControlFlow(Arc::clone(control_flow.result())),
-            SemanticDiagnosticFact::Patterns(Arc::clone(patterns.result())),
-            SemanticDiagnosticFact::Storage(Arc::clone(storage.result())),
-            SemanticDiagnosticFact::Liveness(Arc::clone(liveness.result())),
-            SemanticDiagnosticFact::Refinements(Arc::clone(refinements.result())),
-            SemanticDiagnosticFact::StorageFlow(Arc::clone(storage_flow.result())),
-            SemanticDiagnosticFact::Dependencies(Arc::clone(dependencies.result())),
-            SemanticDiagnosticFact::Memory(Arc::clone(memory.result())),
-            SemanticDiagnosticFact::Async(Arc::clone(async_facts.result())),
-            SemanticDiagnosticFact::BodyBehavior(Arc::clone(behavior.result())),
-            SemanticDiagnosticFact::TargetValidity(target_validity),
+        let mut sources = vec![
+            SemanticDiagnosticSource::Bound(Arc::clone(bound.result())),
+            SemanticDiagnosticSource::DeclaredTypes(Arc::clone(declared_types.result())),
+            SemanticDiagnosticSource::EmbeddedConstants(embedded_constants),
+            SemanticDiagnosticSource::ExpressionSemantics(expression_semantics),
+            SemanticDiagnosticSource::ControlFlow(Arc::clone(control_flow.result())),
+            SemanticDiagnosticSource::Patterns(Arc::clone(patterns.result())),
+            SemanticDiagnosticSource::Storage(Arc::clone(storage.result())),
+            SemanticDiagnosticSource::Liveness(Arc::clone(liveness.result())),
+            SemanticDiagnosticSource::Refinements(Arc::clone(refinements.result())),
+            SemanticDiagnosticSource::StorageFlow(Arc::clone(storage_flow.result())),
+            SemanticDiagnosticSource::Dependencies(Arc::clone(dependencies.result())),
+            SemanticDiagnosticSource::Memory(Arc::clone(memory.result())),
+            SemanticDiagnosticSource::Async(Arc::clone(async_analysis.result())),
+            SemanticDiagnosticSource::BodyBehavior(Arc::clone(behavior.result())),
+            SemanticDiagnosticSource::TargetValidity(target_validity),
         ];
 
         if key.kind() == BoundUnitKind::ConstantTemplate {
@@ -394,7 +394,7 @@ impl Compilation {
 
             let template = self.constant_definition(definition)?;
 
-            facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
+            sources.push(SemanticDiagnosticSource::ConstantTemplate(template));
 
             if !has_visible_generic_parameters(symbols, owner) {
                 let substitution =
@@ -405,11 +405,11 @@ impl Compilation {
 
                 let value = self.constant_instance_with_cancellation(instance, cancellation)?;
 
-                facts.push(SemanticDiagnosticFact::ConstantInstance(value));
+                sources.push(SemanticDiagnosticSource::ConstantInstance(value));
             }
         }
 
-        Ok((bound, facts))
+        Ok((bound, sources))
     }
 
     pub(in crate::compilation) fn declared_unit_keys(
@@ -655,31 +655,31 @@ impl Compilation {
     }
 }
 
-enum SemanticDiagnosticFact {
+enum SemanticDiagnosticSource {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     EmbeddedConstants(DiagnosticResult<bray_checker::CheckedConstantTerms>),
     ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
-    ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
-    Patterns(Arc<DiagnosticResult<CheckedPatternFacts>>),
+    ControlFlow(Arc<DiagnosticResult<CheckedControlFlow>>),
+    Patterns(Arc<DiagnosticResult<CheckedPatterns>>),
     Storage(Arc<DiagnosticResult<StoragePlan>>),
-    Liveness(Arc<DiagnosticResult<LivenessFacts>>),
-    Refinements(Arc<DiagnosticResult<CheckedRefinementFacts>>),
-    StorageFlow(Arc<DiagnosticResult<StorageFlowFacts>>),
+    Liveness(Arc<DiagnosticResult<Liveness>>),
+    Refinements(Arc<DiagnosticResult<CheckedRefinements>>),
+    StorageFlow(Arc<DiagnosticResult<StorageFlow>>),
     Dependencies(Arc<DiagnosticResult<CheckedDependencyContracts>>),
     Memory(Arc<DiagnosticResult<CheckedMemoryOperations>>),
-    Async(Arc<DiagnosticResult<CheckedAsyncFacts>>),
+    Async(Arc<DiagnosticResult<CheckedAsync>>),
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     TargetValidity(DiagnosticBag),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
-    CallableContracts(Arc<SymbolFactResult<CallableContractsFact>>),
+    CallableContracts(Arc<SymbolFactResult<CallableContractsQuery>>),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
-    TraitConformance(Arc<SemanticFactResult<TraitImplementationConformanceFact>>),
+    TraitConformance(Arc<SemanticFactResult<TraitImplementationConformanceQuery>>),
 }
 
-impl SemanticDiagnosticFact {
+impl SemanticDiagnosticSource {
     fn diagnostics(&self) -> &DiagnosticBag {
         match self {
             Self::Bound(result) => result.diagnostics(),
@@ -894,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn check_diagnostics_lazily_request_and_cache_semantic_facts() {
+    fn check_diagnostics_lazily_request_and_cache_semantics() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
@@ -1305,7 +1305,7 @@ func main(value: r16)
     }
 
     #[test]
-    fn malformed_bodies_publish_recovered_semantic_facts_without_panicking() {
+    fn malformed_bodies_publish_recovered_semantics_without_panicking() {
         let cases = [
             concat!(
                 "module app;\n",
@@ -1366,7 +1366,7 @@ func main(value: r16)
             .check_diagnostics
             .set_test_observer(gate.observer())
         {
-            panic!("package diagnostic fact must accept a test observer: {error:?}");
+            panic!("package diagnostic source must accept a test observer: {error:?}");
         }
 
         let diagnostics = std::thread::scope(|scope| {
@@ -1457,7 +1457,7 @@ func main(value: r16)
                     .checked_control_flow
                     .set_test_observer(key, gate.observer())
                 {
-                    panic!("control-flow fact must accept a test observer: {error:?}");
+                    panic!("control-flow source must accept a test observer: {error:?}");
                 }
 
                 gate

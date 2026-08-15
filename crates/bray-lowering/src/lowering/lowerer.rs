@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 use bray_ir::{
-    MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameStateFacts,
+    MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameState,
     MirFrameStateId, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageId,
     MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
@@ -60,7 +60,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
-    pub(super) frame_states: Vec<MirFrameStateFacts>,
+    pub(super) frame_states: Vec<MirFrameState>,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -95,7 +95,7 @@ impl<'unit> Lowerer<'unit> {
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(MirFrameStateFacts::new(
+            self.frame_states.push(MirFrameState::new(
                 MirFrameStateId::new(0),
                 entry,
                 self.execution_lane_requirements(),
@@ -247,17 +247,17 @@ mod tests {
         BoundControlTransferKind, BoundDependencyContract, BoundErrorExpression, BoundExpression,
         BoundExpressionId, BoundLiteralExpression, BoundLiteralKind, BoundOperator,
         BoundResolvedCall, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts,
-        CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
+        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsync,
+        CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
         CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-        CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
+        CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        InlineAssemblyContract, LivenessFacts, MemoryAddressKind, MemoryCopyKind,
+        InlineAssemblyContract, Liveness, MemoryAddressKind, MemoryCopyKind,
         MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus,
         MemoryOrder, MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall,
         SelectedConversion, SelectedOperation, SelectedPropagation, SelectedPropagationBoundary,
-        SemanticSelection, SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
+        SemanticSelection, SemanticSelectionEntry, StorageFlow, StoragePlanBuilder,
         VolatileAddressSpace,
     };
     use bray_ir::{
@@ -636,17 +636,17 @@ mod tests {
 
     struct LoweringFixture {
         unit: BoundUnit,
-        control_flow: CheckedControlFlowFacts,
+        control_flow: CheckedControlFlow,
         types: CheckedExpressionTypes,
-        patterns: CheckedPatternFacts,
+        patterns: CheckedPatterns,
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
         storage: bray_bound_tree::StoragePlan,
-        liveness: LivenessFacts,
-        refinements: CheckedRefinementFacts,
-        storage_flow: StorageFlowFacts,
+        liveness: Liveness,
+        refinements: CheckedRefinements,
+        storage_flow: StorageFlow,
         dependencies: CheckedDependencyContracts,
-        async_facts: CheckedAsyncFacts,
+        async_analysis: CheckedAsync,
         behavior: CheckedBodyBehavior,
         values: SemanticValueStore,
     }
@@ -665,7 +665,7 @@ mod tests {
                 &self.refinements,
                 &self.storage_flow,
                 &self.dependencies,
-                &self.async_facts,
+                &self.async_analysis,
                 &self.behavior,
                 &self.values,
                 available_compiler_known_symbols(),
@@ -1137,24 +1137,24 @@ mod tests {
         expressions: &[BoundExpressionId],
         completion: impl IntoIterator<Item = ControlCompletionKind>,
     ) -> LoweringFixture {
-        let control_flow = CheckedControlFlowFacts::new(
+        let control_flow = CheckedControlFlow::new(
             unit.unit(),
             unit.key().kind(),
             ControlCompletion::from_kinds(completion),
         );
 
-        let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
+        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
         let storage_flow =
-            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
-        let liveness = LivenessFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
         let refinements =
-            CheckedRefinementFacts::try_new(unit.unit(), unit.key().kind(), [], false)
+            CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
                 .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
 
         let dependencies = CheckedDependencyContracts::try_new(
@@ -1171,9 +1171,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty dependencies must validate: {error:?}"));
 
-        let async_facts =
-            CheckedAsyncFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty async facts must validate: {error:?}"));
+        let async_analysis =
+            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
             unit.unit(),
@@ -1194,7 +1194,7 @@ mod tests {
             refinements,
             storage_flow,
             dependencies,
-            async_facts,
+            async_analysis,
             behavior,
             values,
         }

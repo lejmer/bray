@@ -285,7 +285,7 @@ impl<'host> ArtifactPublisher<'host> {
             )?,
         };
 
-        // Publication records own stable plan facts independently of the borrowed plan.
+        // Publication records own stable plan records independently of the borrowed plan.
         Ok(EmittedArtifact::new(
             planned.id().clone(),
             sink.clone(),

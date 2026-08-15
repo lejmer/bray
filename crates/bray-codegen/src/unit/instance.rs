@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bray_base::{StableDigestHasher, shared_slice, sorted_unique_shared_slice};
-use bray_ir::{MirTargetFacts, MirUnit, MirUnitKey, MirUnitKind};
+use bray_ir::{MirTargetContract, MirUnit, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::SymbolKey;
 
@@ -93,7 +93,7 @@ struct CodegenInstanceData {
     template: MirUnitKey,
     specialization: CodegenSpecialization,
     witnesses: Arc<[CodegenImplementationWitness]>,
-    target: MirTargetFacts,
+    target: MirTargetContract,
 }
 
 /// Stable identity of one concrete MIR definition generated for one target.
@@ -106,7 +106,7 @@ impl CodegenInstanceKey {
         template: MirUnitKey,
         specialization: CodegenSpecialization,
         witnesses: impl IntoIterator<Item = CodegenImplementationWitness>,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         Self(Arc::new(CodegenInstanceData {
             template,
@@ -142,7 +142,7 @@ impl CodegenInstanceKey {
     }
 
     /// Returns the target affecting this generated definition.
-    pub fn target(&self) -> &MirTargetFacts {
+    pub fn target(&self) -> &MirTargetContract {
         &self.0.target
     }
 }
@@ -285,8 +285,8 @@ pub enum CodegenInstanceBuildError {
 #[cfg(test)]
 mod tests {
     use bray_ir::{
-        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
-        MirTargetFacts, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+        MirBlockKind, MirFrameDescriptor, MirFrameState, MirFrameStateId, MirSourceAnchor,
+        MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn target_facts_separate_otherwise_equal_concrete_instances() {
+    fn target_properties_separate_otherwise_equal_concrete_instances() {
         let mir = test_mir_unit(4);
         let original = CodegenInstanceKey::non_generic(&mir);
 
@@ -381,12 +381,12 @@ mod tests {
         let Ok(profile) = TargetProfile::try_new(
             identity,
             bray_target::test_support::test_target_machine(),
-            bray_target::test_support::test_target_facts(),
+            bray_target::test_support::test_target_properties(),
         ) else {
             panic!("alternate target profile must be valid");
         };
 
-        let alternate_target = MirTargetFacts::new(profile, mir.target().runtime_abi());
+        let alternate_target = MirTargetContract::new(profile, mir.target().runtime_abi());
 
         let alternate = CodegenInstanceKey::new(
             mir.key().clone(),
@@ -500,7 +500,7 @@ mod tests {
             panic!("test protected-frame terminator must validate");
         };
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
         let Ok(descriptor) = MirFrameDescriptor::try_new(
             frame,

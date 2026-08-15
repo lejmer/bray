@@ -1,57 +1,59 @@
 use bray_binder::{BinderFactError, BinderFactResult};
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{
-    ImportedImplementationFact, ImportedSemanticFact, InterfacePredicateDefinitionState,
-    InterfaceSemanticFactKind,
+    ImportedImplementation, ImportedSemanticRecord, InterfacePredicateDefinitionState,
+    InterfaceSemanticRecordKind,
 };
 use bray_symbols::{
     CallableContractTemplate, CallableSignatureTemplate, GenericArgumentTemplate,
-    GenericDeclarationTemplate, GenericOwnerId, ImportedSymbolFactAddress,
+    GenericDeclarationTemplate, GenericOwnerId, ImportedSemanticAddress,
     TraitApplicationTemplate, UnevaluatedDefaultTemplate,
 };
 
-use crate::compilation::binder::CompilationBinderFacts;
-use crate::fact::ImportedSemanticFactKey;
+use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::ImportedSemanticRecordKey;
 
 pub(super) fn imported_callable_signature(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<CallableSignatureTemplate>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::CallableSignature,
+        InterfaceSemanticRecordKind::CallableSignature,
     )?;
 
-    let [ImportedSemanticFact::CallableSignature(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::CallableSignature(signature)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
-    // Candidate-facing facts retain shallow Arc-backed templates and diagnostics.
+    // Candidate-facing results retain shallow Arc-backed templates and diagnostics.
     Ok(DiagnosticResult::new(
-        fact.signature().clone(),
+        signature.signature().clone(),
         result.diagnostics().clone(),
     ))
 }
 
 pub(super) fn imported_generic_declaration(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: GenericOwnerId,
-    address: ImportedSymbolFactAddress,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<GenericDeclarationTemplate>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::GenericDeclaration,
+        InterfaceSemanticRecordKind::GenericDeclaration,
     )?;
 
     let declaration = match result.value().as_ref() {
-        [ImportedSemanticFact::GenericDeclaration(fact)] => fact.declaration().clone(),
+        [ImportedSemanticRecord::GenericDeclaration(declaration)] => {
+            declaration.declaration().clone()
+        }
         [] => GenericDeclarationTemplate::new(owner, [], []),
         _ => return Err(BinderFactError::DependencyUnavailable),
     };
 
-    // The returned fact owns immutable declaration data and diagnostics beyond this exact query.
+    // The returned result owns immutable declaration data and diagnostics beyond this exact query.
     Ok(DiagnosticResult::new(
         declaration,
         result.diagnostics().clone(),
@@ -59,129 +61,129 @@ pub(super) fn imported_generic_declaration(
 }
 
 pub(super) fn imported_callable_parameter_default(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::CallableParameterDefault,
+        InterfaceSemanticRecordKind::CallableParameterDefault,
     )?;
 
-    let [ImportedSemanticFact::CallableParameterDefault(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::CallableParameterDefault(default)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
-    // Imported fact results share immutable diagnostic storage.
+    // Imported results share immutable diagnostic storage.
     Ok(DiagnosticResult::new(
-        fact.default(),
+        default.default(),
         result.diagnostics().clone(),
     ))
 }
 
 pub(super) fn imported_predicate_definition_state(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<InterfacePredicateDefinitionState>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::PredicateDefinition,
+        InterfaceSemanticRecordKind::PredicateDefinition,
     )?;
 
-    let [ImportedSemanticFact::PredicateDefinition(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::PredicateDefinition(definition)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
     Ok(DiagnosticResult::new(
-        fact.state(),
+        definition.state(),
         result.diagnostics().clone(),
     ))
 }
 
 pub(super) fn imported_declared_type(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>> {
-    let result = imported_facts(context, address, InterfaceSemanticFactKind::DeclaredType)?;
+    let result = imported_records(context, address, InterfaceSemanticRecordKind::DeclaredType)?;
 
-    let [ImportedSemanticFact::DeclaredType(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::DeclaredType(declared)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
     Ok(DiagnosticResult::new(
-        bray_symbols::TypeExpressionTemplate::Resolved(fact.ty()),
+        bray_symbols::TypeExpressionTemplate::Resolved(declared.ty()),
         result.diagnostics().clone(),
     ))
 }
 
 pub(super) fn imported_callable_contract(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<CallableContractTemplate>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::CallableContracts,
+        InterfaceSemanticRecordKind::CallableContracts,
     )?;
 
-    let [ImportedSemanticFact::CallableContracts(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::CallableContracts(contracts)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
     // The candidate-facing result shares the imported contract and diagnostics.
     Ok(DiagnosticResult::new(
-        CallableContractTemplate::Resolved(fact.contract().clone()),
+        CallableContractTemplate::Resolved(contracts.contract().clone()),
         result.diagnostics().clone(),
     ))
 }
 
 pub(super) fn imported_callable_contracts(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<bray_symbols::CallableContractSet>> {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::CallableContracts,
+        InterfaceSemanticRecordKind::CallableContracts,
     )?;
 
-    let [ImportedSemanticFact::CallableContracts(fact)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::CallableContracts(contracts)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
     Ok(DiagnosticResult::new(
-        fact.contract().clone(),
+        contracts.contract().clone(),
         result.diagnostics().clone(),
     ))
 }
 
 pub(in crate::compilation) fn imported_declaration_template(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
     kind: bray_bound_tree::CheckedTemplateKind,
 ) -> BinderFactResult<
-    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplateFact>>,
+    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplate>>,
 > {
     imported_declaration_template_at(context, address, kind, bray_symbols::SymbolOrdinal::new(0))
 }
 
 pub(in crate::compilation) fn imported_declaration_template_at(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
     kind: bray_bound_tree::CheckedTemplateKind,
     ordinal: bray_symbols::SymbolOrdinal,
 ) -> BinderFactResult<
-    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplateFact>>,
+    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplate>>,
 > {
-    let result = imported_facts(
+    let result = imported_records(
         context,
         address,
-        InterfaceSemanticFactKind::DeclarationTemplate,
+        InterfaceSemanticRecordKind::DeclarationTemplate,
     )?;
 
-    let mut templates = result.value().iter().filter_map(|fact| match fact {
-        ImportedSemanticFact::DeclarationTemplate(template)
+    let mut templates = result.value().iter().filter_map(|record| match record {
+        ImportedSemanticRecord::DeclarationTemplate(template)
             if template.kind() == kind && template.ordinal() == ordinal =>
         {
             Some(template)
@@ -195,7 +197,7 @@ pub(in crate::compilation) fn imported_declaration_template_at(
         return Err(BinderFactError::DependencyUnavailable);
     }
 
-    // The imported fact result and this typed view share the same immutable template graph.
+    // The imported result and this typed view share the same immutable template graph.
     Ok(DiagnosticResult::new(
         template.cloned(),
         result.diagnostics().clone(),
@@ -203,16 +205,16 @@ pub(in crate::compilation) fn imported_declaration_template_at(
 }
 
 pub(in crate::compilation) fn imported_implementation(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
-) -> BinderFactResult<DiagnosticResult<ImportedImplementationFact>> {
-    let result = imported_facts(context, address, InterfaceSemanticFactKind::Implementation)?;
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
+) -> BinderFactResult<DiagnosticResult<ImportedImplementation>> {
+    let result = imported_records(context, address, InterfaceSemanticRecordKind::Implementation)?;
 
-    let [ImportedSemanticFact::Implementation(implementation)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::Implementation(implementation)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
-    // The adapter owns an Arc-backed header independently of the exact fact result.
+    // The adapter owns an Arc-backed header independently of the exact query result.
     Ok(DiagnosticResult::new(
         implementation.clone(),
         result.diagnostics().clone(),
@@ -220,12 +222,12 @@ pub(in crate::compilation) fn imported_implementation(
 }
 
 pub(super) fn imported_implemented_trait_application(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
 ) -> BinderFactResult<DiagnosticResult<Option<TraitApplicationTemplate>>> {
-    let result = imported_facts(context, address, InterfaceSemanticFactKind::Implementation)?;
+    let result = imported_records(context, address, InterfaceSemanticRecordKind::Implementation)?;
 
-    let [ImportedSemanticFact::Implementation(implementation)] = result.value().as_ref() else {
+    let [ImportedSemanticRecord::Implementation(implementation)] = result.value().as_ref() else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
@@ -252,22 +254,22 @@ pub(super) fn imported_implemented_trait_application(
             .map(|binding| GenericArgumentTemplate::Resolved(binding.argument())),
     );
 
-    // The reconstructed fact owns imported diagnostics beyond the shared interface query.
+    // The reconstructed result owns imported diagnostics beyond the shared interface query.
     Ok(DiagnosticResult::new(
         Some(template),
         result.diagnostics().clone(),
     ))
 }
 
-fn imported_facts(
-    context: &CompilationBinderFacts<'_>,
-    address: ImportedSymbolFactAddress,
-    kind: InterfaceSemanticFactKind,
-) -> BinderFactResult<std::sync::Arc<DiagnosticResult<std::sync::Arc<[ImportedSemanticFact]>>>> {
+fn imported_records(
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
+    kind: InterfaceSemanticRecordKind,
+) -> BinderFactResult<std::sync::Arc<DiagnosticResult<std::sync::Arc<[ImportedSemanticRecord]>>>> {
     context
         .compilation
-        .imported_semantic_fact_result_with_cancellation(
-            ImportedSemanticFactKey::new(address.interface(), address.symbol(), kind),
+        .imported_semantics_with_cancellation(
+            ImportedSemanticRecordKey::new(address.interface(), address.symbol(), kind),
             context.cancellation,
         )
         .map_err(|error| match error {

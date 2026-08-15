@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
+    AnyBoundNodeId, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
     RefinementOccurrence, StoragePlan,
 };
 use bray_diagnostics::{
@@ -20,15 +20,15 @@ use super::super::model::{
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use super::super::reachability::{ReachabilityResult, analyze_reachability};
-use super::set::FactSet;
+use super::set::RefinementSet;
 use super::universe::{RefinementUniverse, RefinementUniverseError};
 
 pub(crate) fn check_refinements<C>(
     request: CheckerUnitView<'_, C>,
-    patterns: &CheckedPatternFacts,
+    patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
-) -> CheckerOutcome<CheckedRefinementFacts>
+) -> CheckerOutcome<CheckedRefinements>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -87,21 +87,21 @@ where
         .iter()
         .any(|operation| matches!(operation.kind(), AnalysisOperationKind::Recovery(_)));
 
-    let facts = CheckedRefinementFacts::try_new(
+    let refinements = CheckedRefinements::try_new(
         graph.unit(),
         request.view().kind(),
         occurrences,
         is_recovered,
     )
-    .unwrap_or_else(|error| panic!("checker produced invalid refinement facts: {error:?}"));
+    .unwrap_or_else(|error| panic!("checker produced invalid refinements: {error:?}"));
 
-    CheckerOutcome::without_diagnostics(facts)
+    CheckerOutcome::without_diagnostics(refinements)
 }
 
 fn capacity_recovery<C>(
     request: CheckerUnitView<'_, C>,
     capacity: DiagnosticRefinementCapacity,
-) -> CheckerOutcome<CheckedRefinementFacts>
+) -> CheckerOutcome<CheckedRefinements>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -112,13 +112,13 @@ where
 
     let diagnostic = capacity_diagnostic(source.span(), capacity);
 
-    let facts =
-        CheckedRefinementFacts::try_new(request.view().unit(), request.view().kind(), [], true)
+    let refinements =
+        CheckedRefinements::try_new(request.view().unit(), request.view().kind(), [], true)
             .unwrap_or_else(|error| {
-                panic!("empty recovery refinement facts must be valid: {error:?}")
+                panic!("empty recovery refinements must be valid: {error:?}")
             });
 
-    CheckerOutcome::complete(facts, DiagnosticBag::single(diagnostic))
+    CheckerOutcome::complete(refinements, DiagnosticBag::single(diagnostic))
 }
 
 fn capacity_diagnostic(
@@ -149,7 +149,7 @@ impl RefinementResult<'_> {
         graph: &ControlFlowGraph,
         storage: &StoragePlan,
     ) -> Vec<RefinementOccurrence> {
-        let mut occurrence_facts = BTreeMap::new();
+        let mut occurrence_refinements = BTreeMap::new();
 
         for block in graph.blocks() {
             let Some(mut state) = self.result.state(block.id()).cloned() else {
@@ -161,12 +161,12 @@ impl RefinementResult<'_> {
                     continue;
                 };
 
-                match occurrence_facts.entry(operation.kind().node()) {
+                match occurrence_refinements.entry(operation.kind().node()) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(state.facts.clone());
+                        entry.insert(state.refinements.clone());
                     }
                     std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().intersect(&state.facts);
+                        entry.get_mut().intersect(&state.refinements);
                     }
                 }
 
@@ -174,11 +174,11 @@ impl RefinementResult<'_> {
             }
         }
 
-        occurrence_facts
+        occurrence_refinements
             .into_iter()
-            .filter(|(_, facts)| !facts.is_empty())
-            .map(|(node, facts)| {
-                RefinementOccurrence::new(node, self.universe.active_facts(&facts))
+            .filter(|(_, refinements)| !refinements.is_empty())
+            .map(|(node, refinements)| {
+                RefinementOccurrence::new(node, self.universe.active_refinements(&refinements))
             })
             .collect()
     }
@@ -212,7 +212,7 @@ where
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RefinementState {
-    facts: FactSet,
+    refinements: RefinementSet,
 }
 
 struct RefinementDomain<'analysis> {
@@ -231,14 +231,14 @@ impl FixedPointDomain for RefinementDomain<'_> {
 
     fn bottom(&self) -> Self::State {
         RefinementState {
-            facts: FactSet::empty(self.universe.len()),
+            refinements: RefinementSet::empty(self.universe.len()),
         }
     }
 
     fn initial(&self, block: &AnalysisBlock) -> Self::State {
         if self.reachability.is_block_reachable(block.id()) {
             RefinementState {
-                facts: FactSet::full(self.universe.len()),
+                refinements: RefinementSet::full(self.universe.len()),
             }
         } else {
             self.bottom()
@@ -250,7 +250,7 @@ impl FixedPointDomain for RefinementDomain<'_> {
     }
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
-        target.facts.replace(&boundary.facts)
+        target.refinements.replace(&boundary.refinements)
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
@@ -270,13 +270,13 @@ impl FixedPointDomain for RefinementDomain<'_> {
         let mut incoming = source.clone();
 
         if edge.kind() == AnalysisEdgeKind::Recovery {
-            incoming.facts.clear();
+            incoming.refinements.clear();
         } else if let Some(refinement) = edge.refinement() {
             self.universe
-                .insert_refinement(&mut incoming.facts, refinement);
+                .insert_refinement(&mut incoming.refinements, refinement);
         }
 
-        target.facts.intersect(&incoming.facts)
+        target.refinements.intersect(&incoming.refinements)
     }
 
     fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {
@@ -310,21 +310,21 @@ fn transfer_operation(
     storage: &StoragePlan,
 ) {
     match operation.kind() {
-        AnalysisOperationKind::Recovery(_) => state.facts.clear(),
+        AnalysisOperationKind::Recovery(_) => state.refinements.clear(),
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..
         } => {}
         AnalysisOperationKind::Bound(node) => {
-            universe.invalidate_for_operation(&mut state.facts, node, storage);
-            universe.finish_operation(&mut state.facts, node);
+            universe.invalidate_for_operation(&mut state.refinements, node, storage);
+            universe.finish_operation(&mut state.refinements, node);
         }
         AnalysisOperationKind::Suspension { expression, .. }
         | AnalysisOperationKind::TaskOperation { expression, .. } => {
             let node = AnyBoundNodeId::Expression(expression);
 
-            universe.invalidate_for_operation(&mut state.facts, node, storage);
-            universe.finish_operation(&mut state.facts, node);
+            universe.invalidate_for_operation(&mut state.refinements, node, storage);
+            universe.finish_operation(&mut state.refinements, node);
         }
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
@@ -342,7 +342,7 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::super::universe::{MAX_REFINEMENT_CELLS, MAX_REFINEMENT_FACTS};
+    use super::super::universe::{MAX_REFINEMENT_CELLS, MAX_REFINEMENT_REFINEMENTS};
     use super::capacity_diagnostic;
 
     #[test]
@@ -355,7 +355,7 @@ mod tests {
         let capacities = [
             capacity(
                 DiagnosticRefinementCapacitySurface::RefinementEntries,
-                MAX_REFINEMENT_FACTS,
+                MAX_REFINEMENT_REFINEMENTS,
             ),
             capacity(
                 DiagnosticRefinementCapacitySurface::RetainedStateCells,

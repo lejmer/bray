@@ -13,7 +13,7 @@ use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
 use super::super::specialization::ConcreteCodegenInstance;
-use super::error::NativeProductFactError;
+use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -27,7 +27,7 @@ impl Compilation {
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Option<ExecutableHostContract>, NativeProductFactError> {
+    ) -> Result<Option<ExecutableHostContract>, NativeProductPlanningError> {
         if kind == ProductKind::Library {
             return Ok(None);
         }
@@ -37,7 +37,7 @@ impl Compilation {
         for root_realization in roots {
             let root = reachability
                 .and_then(|reachability| reachability.instance(root_realization.key()))
-                .ok_or(NativeProductFactError::MissingProductRoot)?;
+                .ok_or(NativeProductPlanningError::MissingProductRoot)?;
 
             let entry_result_type = root
                 .mir()
@@ -64,7 +64,7 @@ impl Compilation {
         }
 
         if entries.is_empty() && kind != ProductKind::Test {
-            return Err(NativeProductFactError::MissingProductRoot);
+            return Err(NativeProductPlanningError::MissingProductRoot);
         }
 
         let has_async_entries = entries
@@ -112,7 +112,7 @@ impl Compilation {
         }
 
         if runtime_contract.is_none() && (has_async_entries || synchronous_host_runtime) {
-            return Err(NativeProductFactError::MissingRuntime);
+            return Err(NativeProductPlanningError::MissingRuntime);
         }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
@@ -144,7 +144,7 @@ impl Compilation {
         );
 
         let native_entry =
-            BinarySymbolName::try_new("main").ok_or(NativeProductFactError::InvalidSymbolName)?;
+            BinarySymbolName::try_new("main").ok_or(NativeProductPlanningError::InvalidSymbolName)?;
 
         let mut entries = entries.into_iter();
 
@@ -195,7 +195,7 @@ impl Compilation {
         builder
             .finish()
             .map(Some)
-            .map_err(NativeProductFactError::InvalidExecutableHost)
+            .map_err(NativeProductPlanningError::InvalidExecutableHost)
     }
 
     fn executable_entry_result(
@@ -203,7 +203,7 @@ impl Compilation {
         root: &ConcreteCodegenInstance,
         async_result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
-    ) -> Result<ExecutableEntryResult, NativeProductFactError> {
+    ) -> Result<ExecutableEntryResult, NativeProductPlanningError> {
         let ty = match async_result {
             Some(ty) => ty,
             None => match self
@@ -225,7 +225,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
-            return Err(NativeProductFactError::InvalidEntryResult);
+            return Err(NativeProductPlanningError::InvalidEntryResult);
         };
 
         let role = super::super::super::foreign::compiler_known_representation(self, *definition);
@@ -240,7 +240,7 @@ impl Compilation {
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let bray_symbols::TypeData::Named { substitution, .. } = data.as_ref() else {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 };
 
                 let substitution = values
@@ -248,11 +248,11 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
                 let [success, error] = substitution.bindings() else {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 };
 
                 let GenericArgument::Type(success) = success.argument() else {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 };
 
                 let success = values
@@ -260,17 +260,17 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
                 let bray_symbols::TypeData::Named { definition, .. } = success.as_ref() else {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 };
 
                 if super::super::super::foreign::compiler_known_representation(self, *definition)
                     != Some(RepresentationRole::Unit)
                 {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 }
 
                 let GenericArgument::Type(error) = error.argument() else {
-                    return Err(NativeProductFactError::InvalidEntryResult);
+                    return Err(NativeProductPlanningError::InvalidEntryResult);
                 };
 
                 Ok(ExecutableEntryResult::Fallible {
@@ -279,7 +279,7 @@ impl Compilation {
                     success_variant: representation.success_variant(),
                 })
             }
-            _ => Err(NativeProductFactError::InvalidEntryResult),
+            _ => Err(NativeProductPlanningError::InvalidEntryResult),
         }
     }
 }

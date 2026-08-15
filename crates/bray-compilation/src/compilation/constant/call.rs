@@ -10,7 +10,7 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureFact, ImportedSymbolSkeleton, SymbolFactRequest, SymbolKey,
+    CallableConstness, CallableSignatureQuery, ImportedSymbolSkeleton, SymbolFactRequest, SymbolKey,
     SymbolKeyData, TypeData,
 };
 
@@ -161,10 +161,10 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<bool, FactQueryError> {
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let signature = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature = binding_context
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
                 callable.definition().callable_symbol(),
             ))
             .map_err(binder_fact_error)?;
@@ -220,25 +220,25 @@ impl Compilation {
             .callable_instance_data(key.callable())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let signature_fact = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature_result = binding_context
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
                 callable.definition().callable_symbol(),
             ))
             .map_err(binder_fact_error)?;
 
         let checked_terms = self.checked_constant_terms_for_templates_with_cancellation(
             [
-                signature_fact.value().callable_type(),
-                signature_fact.value().result(),
+                signature_result.value().callable_type(),
+                signature_result.value().result(),
             ],
             cancellation,
         )?;
 
         let signature = resolve_callable_signature_template(
             values,
-            signature_fact.value(),
+            signature_result.value(),
             callable.substitution(),
             checked_terms.value(),
         )
@@ -262,8 +262,8 @@ impl Compilation {
         }
 
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            let address = facts
-                .imported_fact_address(callable.definition().callable_symbol().into_any())
+            let address = binding_context
+                .imported_semantic_address(callable.definition().callable_symbol().into_any())
                 .map_err(binder_fact_error)?;
 
             let Some(address) = address else {
@@ -277,7 +277,7 @@ impl Compilation {
                 return Ok(DiagnosticResult::new(
                     None,
                     DiagnosticBag::merged_all([
-                        signature_fact.diagnostics(),
+                        signature_result.diagnostics(),
                         checked_terms.diagnostics(),
                         body.diagnostics(),
                     ]),
@@ -317,7 +317,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(
                 Some(*evaluated.value()),
                 DiagnosticBag::merged_all([
-                    signature_fact.diagnostics(),
+                    signature_result.diagnostics(),
                     checked_terms.diagnostics(),
                     body.diagnostics(),
                     evaluated.diagnostics(),
@@ -331,18 +331,18 @@ impl Compilation {
             return Ok(DiagnosticResult::new(
                 None,
                 DiagnosticBag::merged_all([
-                    signature_fact.diagnostics(),
+                    signature_result.diagnostics(),
                     checked_terms.diagnostics(),
                     bound.result().diagnostics(),
                 ]),
             ));
         };
 
-        // Independently cached body facts each retain the Arc-backed unit key.
+        // Independently cached body binding_context each retain the Arc-backed unit key.
         let semantics =
             self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
 
-        let patterns = self.pattern_facts_with_cancellation(body_key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
 
         let context = self.checker_context_for(&body_key, cancellation)?;
 
@@ -371,7 +371,7 @@ impl Compilation {
 
         let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
             .with_block_root(root, key.result_type())
-            .with_pattern_facts(patterns.result().value())
+            .with_patterns(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(key.limits());
@@ -388,7 +388,7 @@ impl Compilation {
         )?;
 
         let diagnostics = DiagnosticBag::merged_all([
-            signature_fact.diagnostics(),
+            signature_result.diagnostics(),
             checked_terms.diagnostics(),
             bound.result().diagnostics(),
             semantics.result().diagnostics(),

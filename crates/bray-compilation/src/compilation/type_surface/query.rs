@@ -4,16 +4,16 @@ use std::sync::Arc;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationCoherenceFact,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCoherenceQuery,
     ImplementationSymbolId, InherentImplementationSymbol, InherentImplementationSymbolId,
-    NamedTypeSymbolId, StructSymbol, SymbolFactRequest, TargetFactDependency,
+    NamedTypeSymbolId, StructSymbol, SymbolFactRequest, TargetPropertyDependency,
     TypeAssociatedImplementation, TypeAssociatedSurface, UnionSymbol,
 };
 
 use super::aggregation::{collect_implementation_members, collect_named_type_members};
 use super::diagnostic::lifecycle_slot_diagnostics;
 use crate::compilation::Compilation;
-use crate::compilation::binder::{self, CompilationBinderFacts};
+use crate::compilation::binder::{self, CompilationBindingContext};
 use crate::compilation::source_graph::{
     source_declaration_module_parts, source_symbol_contribution_gate,
 };
@@ -54,20 +54,20 @@ impl Compilation {
         subject: NamedTypeSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<TypeAssociatedSurface>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let record = named_type_record(&facts, subject)?;
+        let record = named_type_record(&binding_context, subject)?;
 
         let generic_owner = GenericOwnerId::try_new(subject.into_any())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let generic = facts
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+        let generic = binding_context
+            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
                 generic_owner,
             ))
             .map_err(binder::binder_fact_error)?;
 
-        let (direct_members, direct_lifecycle) = collect_named_type_members(&facts, record)?;
+        let (direct_members, direct_lifecycle) = collect_named_type_members(&binding_context, record)?;
 
         let implementation_ids = self
             .type_associated_implementation_index(cancellation)?
@@ -88,8 +88,8 @@ impl Compilation {
             let generic_owner = GenericOwnerId::try_new(implementation.into())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let implementation_generic = facts
-                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+            let implementation_generic = binding_context
+                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
                     generic_owner,
                 ))
                 .map_err(binder::binder_fact_error)?;
@@ -97,13 +97,13 @@ impl Compilation {
             diagnostics.add_range(implementation_generic.diagnostics().iter().cloned());
 
             let (target_dependencies, implementation_diagnostics) =
-                implementation_metadata(&facts, implementation, &source_module_parts)?;
+                implementation_metadata(&binding_context, implementation, &source_module_parts)?;
 
             diagnostics.add_range(implementation_diagnostics.iter().cloned());
 
-            let record = inherent_implementation_record(&facts, implementation)?;
+            let record = inherent_implementation_record(&binding_context, implementation)?;
 
-            let (members, lifecycle_members) = collect_implementation_members(&facts, record)?;
+            let (members, lifecycle_members) = collect_implementation_members(&binding_context, record)?;
 
             // The surface independently retains this immutable generic template publication.
             implementations.push(TypeAssociatedImplementation::new(
@@ -126,7 +126,7 @@ impl Compilation {
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         diagnostics.add_range(
-            lifecycle_slot_diagnostics(&facts, &surface)?
+            lifecycle_slot_diagnostics(&binding_context, &surface)?
                 .iter()
                 .cloned(),
         );
@@ -140,21 +140,21 @@ pub(super) enum NamedTypeRecord<'a> {
     Union(&'a UnionSymbol),
 }
 
-fn named_type_record<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
+fn named_type_record<'binding_context>(
+    binding_context: &'binding_context CompilationBindingContext<'_>,
     subject: NamedTypeSymbolId,
-) -> Result<NamedTypeRecord<'facts>, FactQueryError> {
-    let imported = facts
+) -> Result<NamedTypeRecord<'binding_context>, FactQueryError> {
+    let imported = binding_context
         .imported_symbols()
         .map_err(binder::binder_fact_error)?;
 
     match subject {
-        NamedTypeSymbolId::Struct(id) => facts
+        NamedTypeSymbolId::Struct(id) => binding_context
             .symbols()
             .structure(id)
             .or_else(|| imported.and_then(|symbols| symbols.structure(id)))
             .map(NamedTypeRecord::Struct),
-        NamedTypeSymbolId::Union(id) => facts
+        NamedTypeSymbolId::Union(id) => binding_context
             .symbols()
             .union(id)
             .or_else(|| imported.and_then(|symbols| symbols.union(id)))
@@ -163,15 +163,15 @@ fn named_type_record<'facts>(
     .ok_or(FactQueryError::InfrastructureFailure)
 }
 
-fn inherent_implementation_record<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
+fn inherent_implementation_record<'binding_context>(
+    binding_context: &'binding_context CompilationBindingContext<'_>,
     implementation: InherentImplementationSymbolId,
-) -> Result<&'facts InherentImplementationSymbol, FactQueryError> {
-    if let Some(record) = facts.symbols().inherent_implementation(implementation) {
+) -> Result<&'binding_context InherentImplementationSymbol, FactQueryError> {
+    if let Some(record) = binding_context.symbols().inherent_implementation(implementation) {
         return Ok(record);
     }
 
-    facts
+    binding_context
         .imported_symbols()
         .map_err(binder::binder_fact_error)?
         .and_then(|symbols| symbols.inherent_implementation(implementation))
@@ -179,38 +179,38 @@ fn inherent_implementation_record<'facts>(
 }
 
 fn implementation_metadata(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     implementation: InherentImplementationSymbolId,
     source_module_parts: &BTreeMap<
         bray_declarations::DeclarationId,
         bray_declarations::ModulePartId,
     >,
-) -> Result<(Vec<TargetFactDependency>, DiagnosticBag), FactQueryError> {
-    if let Some(address) = facts
-        .imported_fact_address(implementation.into())
+) -> Result<(Vec<TargetPropertyDependency>, DiagnosticBag), FactQueryError> {
+    if let Some(address) = binding_context
+        .imported_semantic_address(implementation.into())
         .map_err(binder::binder_fact_error)?
     {
         let imported =
-            binder::imported_implementation(facts, address).map_err(binder::binder_fact_error)?;
+            binder::imported_implementation(binding_context, address).map_err(binder::binder_fact_error)?;
 
-        // The contribution retains imported diagnostics beyond the exact fact result.
+        // The contribution retains imported diagnostics beyond the exact query result.
         return Ok((
             imported.value().target_dependencies().to_vec(),
             imported.diagnostics().clone(),
         ));
     }
 
-    let coherence = facts
-        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+    let coherence = binding_context
+        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
             ImplementationSymbolId::from(implementation),
         ))
         .map_err(binder::binder_fact_error)?;
 
-    let source_graph = facts.compilation().product_source_graph()?;
+    let source_graph = binding_context.compilation().product_source_graph()?;
 
     let dependencies = source_symbol_contribution_gate(
         source_graph,
-        facts.symbols(),
+        binding_context.symbols(),
         source_module_parts,
         implementation.into(),
     )
@@ -364,8 +364,8 @@ module app
             compilation
                 .available_compiler_known_symbols()
                 .provider()
-                .symbol_target_fact(dependency.fact()),
-            Some(bray_target::TargetFactKind::ScalarU64)
+                .symbol_target_property(dependency.property()),
+            Some(bray_target::TargetPropertyKind::ScalarU64)
         );
     }
 

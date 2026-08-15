@@ -12,7 +12,7 @@ use crate::relationship::{
     VariantRelationships,
 };
 use crate::{
-    AnySymbolId, ImportedInterfaceId, ImportedSymbolFactKey, InterfaceSymbolId, SymbolKey,
+    AnySymbolId, ImportedInterfaceId, ImportedSemanticKey, InterfaceSymbolId, SymbolKey,
     SymbolName, SymbolOrigin,
 };
 
@@ -107,8 +107,8 @@ impl ImportedSymbolBacking {
         Self { interface, symbol }
     }
 
-    pub(crate) fn fact_key<I: crate::ExactSymbolId>(self) -> ImportedSymbolFactKey<I> {
-        ImportedSymbolFactKey::from_validated(self.interface, self.symbol)
+    pub(crate) fn semantic_key<I: crate::ExactSymbolId>(self) -> ImportedSemanticKey<I> {
+        ImportedSemanticKey::from_validated(self.interface, self.symbol)
     }
 }
 
@@ -246,9 +246,9 @@ impl DeclarationSymbolIdentity {
         }
     }
 
-    fn imported_fact_key<I: crate::ExactSymbolId>(&self) -> Option<ImportedSymbolFactKey<I>> {
+    fn imported_semantic_key<I: crate::ExactSymbolId>(&self) -> Option<ImportedSemanticKey<I>> {
         match self {
-            Self::Imported { backing, .. } => Some(backing.fact_key()),
+            Self::Imported { backing, .. } => Some(backing.semantic_key()),
             Self::Source { .. }
             | Self::InferredImplementationParameter { .. }
             | Self::CompilerKnown { .. } => None,
@@ -357,9 +357,9 @@ macro_rules! define_declaration_symbol_records {
                     }
                 }
 
-                /// Returns the imported semantic-fact key, when available.
-                pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
-                    self.identity.imported_fact_key()
+                /// Returns the imported semantic key, when available.
+                pub fn imported_semantic_key(&self) -> Option<ImportedSemanticKey<crate::$id>> {
+                    self.identity.imported_semantic_key()
                 }
 
                 /// Returns whether the introducing syntax contains parser recovery.
@@ -952,11 +952,11 @@ impl ReceiverParameterSymbol {
         0
     }
 
-    /// Returns the imported semantic-fact key, when available.
-    pub fn imported_fact_key(
+    /// Returns the imported semantic key, when available.
+    pub fn imported_semantic_key(
         &self,
-    ) -> Option<ImportedSymbolFactKey<crate::ReceiverParameterSymbolId>> {
-        self.imported.map(ImportedSymbolBacking::fact_key)
+    ) -> Option<ImportedSemanticKey<crate::ReceiverParameterSymbolId>> {
+        self.imported.map(ImportedSymbolBacking::semantic_key)
     }
 }
 impl_defaultable_field!(

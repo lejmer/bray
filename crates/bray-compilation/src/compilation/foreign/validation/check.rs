@@ -9,7 +9,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticType};
 use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
-    FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeFact,
+    FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeQuery,
     StructSymbolId, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
     diagnostic_callable_abi, diagnostic_callable_execution,
 };
@@ -60,7 +60,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
         trust,
         execution,
         parameters,
-        // The boundary view owns its result template independently of the signature fact.
+        // The boundary view owns its result template independently of the signature query result.
         result: signature.result().clone(),
     })
 }
@@ -595,9 +595,9 @@ fn c_struct_matches(
         return Ok(false);
     }
 
-    let facts = compilation.binder_facts(cancellation)?;
+    let binding_context = compilation.binding_context(cancellation)?;
 
-    let structure = facts
+    let structure = binding_context
         .structure(*structure)
         .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -618,8 +618,8 @@ fn c_struct_matches(
     }
 
     for (field, expected) in structure.fields().iter().zip(expected_fields) {
-        let field = facts
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
+        let field = binding_context
+            .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(*field))
             .map_err(super::super::super::binder::binder_fact_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
@@ -676,9 +676,9 @@ fn platform_status_matches(
         return Ok(false);
     }
 
-    let facts = compilation.binder_facts(cancellation)?;
+    let binding_context = compilation.binding_context(cancellation)?;
 
-    let structure = facts
+    let structure = binding_context
         .structure(*structure)
         .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -703,8 +703,8 @@ fn platform_status_matches(
         RepresentationRole::ScalarU32,
         RepresentationRole::ScalarI64,
     ]) {
-        let field = facts
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
+        let field = binding_context
+            .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(*field))
             .map_err(super::super::super::binder::binder_fact_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
@@ -867,14 +867,14 @@ fn named_type_is_supported(
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .abis()
             .c_contract(),
         CallableAbi::System => compilation
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .abis()
             .system_contract(),
         CallableAbi::Bray => None,

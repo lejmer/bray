@@ -79,7 +79,7 @@ pub(super) fn foreign_link_requirements(
         let module_directives = compilation.declaration_directives(module.id().into())?;
         diagnostics.add_range(module_directives.diagnostics().iter().cloned());
 
-        // Link requirements outlive the module directive fact borrowed in this branch.
+        // Link requirements outlive the module directive query borrowed in this branch.
         directives_of_kind(module_directives.value(), DirectiveKind::Link)
     } else {
         own_links

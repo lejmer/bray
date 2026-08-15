@@ -1,4 +1,4 @@
-// rust-style: allow(module-too-large, reason = "target-control checking is one correlated validation pipeline over shared literal, type, and target facts")
+// rust-style: allow(module-too-large, reason = "target-control checking is one correlated validation pipeline over shared literal, type, and target properties")
 
 use std::collections::BTreeMap;
 
@@ -12,7 +12,7 @@ use bray_bound_tree::{
 use bray_compiler_known::{ImplementationHook, IntegerRepresentation, RepresentationRole};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableExecution, ConstantValueId, ConstantValueKind, TypeData, TypeId};
-use bray_target::{InlineAssemblyOptions, TargetControlFacts};
+use bray_target::{InlineAssemblyOptions, TargetControlSupport};
 
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
@@ -148,10 +148,10 @@ pub(crate) fn check_contract<C>(
 ) -> Result<TargetControlCheck, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureFact>
+        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
-    let control = TargetControlFacts::for_profile(request.selected_target());
+    let control = TargetControlSupport::for_profile(request.selected_target());
 
     match hook {
         ImplementationHook::TargetFeatureEnabled => {
@@ -239,7 +239,7 @@ fn assembly_contract<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[BoundExpressionId],
     literals: &CheckedLiteralValues,
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     inputs_type: TypeId,
     output_type: Option<TypeId>,
     labels_type: Option<TypeId>,
@@ -247,7 +247,7 @@ fn assembly_contract<C>(
 ) -> Result<Option<InlineAssemblyContract>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureFact>
+        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
     let (template, constraints, clobbers, features, options, inputs) = match arguments {
@@ -353,7 +353,7 @@ where
 fn checked_operands<C>(
     request: CheckerUnitView<'_, C>,
     literals: &CheckedLiteralValues,
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     constraints: &str,
     ranges: &[(usize, usize)],
     inputs_type: TypeId,
@@ -366,7 +366,7 @@ fn checked_operands<C>(
 >
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureFact>
+        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
     if ranges.len() > MAX_INLINE_ASSEMBLY_OPERANDS {
@@ -847,7 +847,7 @@ where
 #[cfg(test)]
 mod tests {
     use bray_compiler_known::RepresentationRole;
-    use bray_target::{NativeTarget, TargetArchitecture, TargetControlFacts};
+    use bray_target::{NativeTarget, TargetArchitecture, TargetControlSupport};
 
     use bray_target::InlineAssemblyOptions;
 
@@ -855,7 +855,7 @@ mod tests {
 
     #[test]
     fn constraints_are_target_checked_and_structurally_classified() {
-        let control = TargetControlFacts::for_architecture(TargetArchitecture::X86_64);
+        let control = TargetControlSupport::for_architecture(TargetArchitecture::X86_64);
         use bray_bound_tree::InlineAssemblyOperandKind as Kind;
 
         assert_eq!(
@@ -925,7 +925,7 @@ mod tests {
     #[test]
     fn clobbers_require_known_registers_and_coherent_options() {
         let profile = NativeTarget::X86_64WindowsMsvc.profile();
-        let control = TargetControlFacts::for_profile(&profile);
+        let control = TargetControlSupport::for_profile(&profile);
 
         let Some(impure) = InlineAssemblyOptions::try_new(0) else {
             panic!("empty inline assembly options must be valid");

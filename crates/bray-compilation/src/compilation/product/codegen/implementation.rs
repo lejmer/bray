@@ -23,23 +23,23 @@ use super::super::super::binder::has_visible_generic_parameters;
 use super::super::super::implementation::implementation_fulfillments;
 use super::super::super::substitution::empty_substitution;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
-use super::error::NativeProductFactError;
-use super::facts::NativeProductFacts;
+use super::error::NativeProductPlanningError;
+use super::plan::NativeProductPlan;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey};
 
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
 impl Compilation {
-    /// Returns the native facts required to emit one selected product.
-    pub fn native_product_facts(
+    /// Returns the native plan required to emit one selected product.
+    pub fn native_product_plan(
         &self,
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
         runtime: Option<RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
-    ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
-        self.native_product_facts_with_cancellation(
+    ) -> Result<Arc<NativeProductPlan>, Arc<NativeProductPlanningError>> {
+        self.native_product_plan_with_cancellation(
             product,
             configuration,
             runtime,
@@ -49,7 +49,7 @@ impl Compilation {
         )
     }
 
-    fn native_product_facts_with_cancellation(
+    fn native_product_plan_with_cancellation(
         &self,
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
@@ -57,7 +57,7 @@ impl Compilation {
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
+    ) -> Result<Arc<NativeProductPlan>, Arc<NativeProductPlanningError>> {
         let mut required_capabilities: Vec<_> = required_capabilities.into_iter().collect();
 
         if matches!(
@@ -103,7 +103,7 @@ impl Compilation {
             .state
             .native_products
             .cell(key.clone())
-            .map_err(|error| Arc::new(NativeProductFactError::Query(error)))?;
+            .map_err(|error| Arc::new(NativeProductPlanningError::Query(error)))?;
 
         let result = cell
             .get_or_compute(
@@ -112,7 +112,7 @@ impl Compilation {
                 cancellation,
                 || {
                     Ok(self
-                        .compute_native_product_facts(
+                        .compute_native_product_plan(
                             product,
                             configuration,
                             runtime,
@@ -124,12 +124,12 @@ impl Compilation {
                         .map_err(Arc::new))
                 },
             )
-            .map_err(|error| Arc::new(NativeProductFactError::Query(error)))?;
+            .map_err(|error| Arc::new(NativeProductPlanningError::Query(error)))?;
 
         result.clone()
     }
 
-    fn compute_native_product_facts(
+    fn compute_native_product_plan(
         &self,
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
@@ -137,19 +137,19 @@ impl Compilation {
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         linker: Option<&Linker>,
         cancellation: &CancellationToken,
-    ) -> Result<NativeProductFacts, NativeProductFactError> {
+    ) -> Result<NativeProductPlan, NativeProductPlanningError> {
         let target = self
             .selected_target()
             .target()
             .codegen_target()
-            .map_err(NativeProductFactError::InvalidCodegenTarget)?;
+            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
 
         let options = configuration.codegen_options();
 
-        let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
+        let semantic = self.product_semantics_with_cancellation(cancellation)?;
 
         let test_discovery = if semantic.value().kind() == ProductKind::Test {
-            // Discovery owns the product identity used by its independently cached fact key.
+            // Discovery owns the product identity used by its independently cached query key.
             let discovery = self.test_discovery_with_cancellation(product.clone(), cancellation)?;
 
             Some(discovery)
@@ -164,7 +164,7 @@ impl Compilation {
             cancellation,
         )?;
 
-        // Native product facts retain the exact immutable catalog selected for this host.
+        // Native product plans retain the exact immutable catalog selected for this host.
         let test_catalog = test_discovery
             .as_ref()
             .map(|discovery| discovery.value().catalog().clone());
@@ -200,7 +200,7 @@ impl Compilation {
                 Some(host) => {
                     let host_target = source_roots.first().map_or_else(
                         || {
-                            bray_ir::MirTargetFacts::new(
+                            bray_ir::MirTargetContract::new(
                                 target.profile().clone(),
                                 self.selected_target().target().runtime_abi(),
                             )
@@ -219,7 +219,7 @@ impl Compilation {
                             host_target,
                         ),
                     )
-                    .map_err(NativeProductFactError::InvalidHostMir)?;
+                    .map_err(NativeProductPlanningError::InvalidHostMir)?;
 
                     let host = ConcreteCodegenInstance::generated(CodegenInstanceKey::non_generic(
                         &host_mir,
@@ -234,7 +234,7 @@ impl Compilation {
 
                     reachability
                 }
-                None => source_reachability.ok_or(NativeProductFactError::MissingProductRoot)?,
+                None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
             };
 
             let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
@@ -261,7 +261,7 @@ impl Compilation {
                 reachability.graph(),
                 |instance| compatibility.get(instance.key()).cloned(),
             )
-            .map_err(NativeProductFactError::InvalidCodegenPartition)?;
+            .map_err(NativeProductPlanningError::InvalidCodegenPartition)?;
 
             let mappings = units
                 .iter()
@@ -285,7 +285,7 @@ impl Compilation {
             .state
             .codegen
             .as_ref()
-            .ok_or(NativeProductFactError::CodegenUnavailable)?;
+            .ok_or(NativeProductPlanningError::CodegenUnavailable)?;
 
         let debug_output = match options.debug_information() {
             DebugInformationMode::None => DebugInformationOutputMode::Omit,
@@ -307,7 +307,7 @@ impl Compilation {
             units.iter().map(|unit| unit.key().clone()),
             policy,
         )
-        .map_err(NativeProductFactError::InvalidEmissionBackend)?;
+        .map_err(NativeProductPlanningError::InvalidEmissionBackend)?;
 
         let runtime = self.select_runtime(semantic.value().kind(), runtime, host.as_ref())?;
 
@@ -315,7 +315,7 @@ impl Compilation {
 
         let link = linker
             .map(|_| {
-                self.product_link_facts(
+                self.product_link_inputs(
                     semantic.value().kind(),
                     host.as_ref(),
                     runtime,
@@ -326,7 +326,7 @@ impl Compilation {
             })
             .transpose()?;
 
-        Ok(NativeProductFacts {
+        Ok(NativeProductPlan {
             backend,
             target,
             options,
@@ -343,7 +343,7 @@ impl Compilation {
         kind: ProductKind,
         runtime: Option<RuntimeArtifact>,
         host: Option<&bray_runtime_interface::ExecutableHostContract>,
-    ) -> Result<Option<RuntimeArtifactSelection>, NativeProductFactError> {
+    ) -> Result<Option<RuntimeArtifactSelection>, NativeProductPlanningError> {
         let (Some(runtime), Some(host)) = (runtime, host) else {
             return Ok(None);
         };
@@ -361,7 +361,7 @@ impl Compilation {
         runtime
             .select(purpose, host.requirements())
             .map(Some)
-            .map_err(NativeProductFactError::InvalidRuntimeSelection)
+            .map_err(NativeProductPlanningError::InvalidRuntimeSelection)
     }
 
     fn profile_runtime_selection(&self, runtime: Option<&RuntimeArtifactSelection>) {
@@ -403,12 +403,12 @@ impl Compilation {
 
     fn product_root_instances(
         &self,
-        semantic: &bray_symbols::ProductSemanticFacts,
+        semantic: &bray_symbols::ProductSemantics,
         test_discovery: Option<&super::super::super::testing::TestDiscovery>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductFactError> {
-        let facts = self.binder_facts(cancellation)?;
+    ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductPlanningError> {
+        let binding_context = self.binding_context(cancellation)?;
 
         let mut symbols: Vec<_> = match semantic.kind() {
             ProductKind::Executable => semantic
@@ -438,7 +438,7 @@ impl Compilation {
                 .filter_map(bray_symbols::ImplementationSymbolId::try_from_any)
             {
                 symbols.extend(
-                    implementation_fulfillments(&facts, implementation)?
+                    implementation_fulfillments(&binding_context, implementation)?
                         .callables
                         .iter()
                         .copied()
@@ -450,7 +450,7 @@ impl Compilation {
         let mut roots = Vec::new();
 
         for symbol in symbols {
-            if has_visible_generic_parameters(facts.symbols(), symbol) {
+            if has_visible_generic_parameters(binding_context.symbols(), symbol) {
                 continue;
             }
 
@@ -459,7 +459,7 @@ impl Compilation {
             };
 
             let (callable, witnesses) =
-                self.product_root_callable(symbol, definition, &facts, cancellation)?;
+                self.product_root_callable(symbol, definition, &binding_context, cancellation)?;
 
             let callable =
                 self.concrete_codegen_callable(callable, witnesses, target, cancellation)?;
@@ -477,7 +477,7 @@ impl Compilation {
         }
 
         if roots.is_empty() && semantic.kind() == ProductKind::Executable {
-            return Err(NativeProductFactError::MissingProductRoot);
+            return Err(NativeProductPlanningError::MissingProductRoot);
         }
 
         Ok(roots)
@@ -487,16 +487,16 @@ impl Compilation {
         &self,
         symbol: AnySymbolId,
         definition: CallableDefinitionId,
-        facts: &super::super::super::binder::CompilationBinderFacts<'_>,
+        binding_context: &super::super::super::binder::CompilationBindingContext<'_>,
         cancellation: &CancellationToken,
     ) -> Result<
         (
             CallableInstanceData,
             Vec<bray_symbols::ImplementationInstanceId>,
         ),
-        NativeProductFactError,
+        NativeProductPlanningError,
     > {
-        let Some(implementation) = facts
+        let Some(implementation) = binding_context
             .symbols()
             .containing_symbol(symbol)
             .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
@@ -529,7 +529,7 @@ impl Compilation {
             symbol,
             [application.substitution(), implementation_substitution],
         )
-        .map_err(NativeProductFactError::from)?;
+        .map_err(NativeProductPlanningError::from)?;
 
         let witness = values
             .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
@@ -547,7 +547,7 @@ impl Compilation {
         generated_host: Option<(MirUnit, Vec<ConcreteCodegenInstance>)>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenReachability, NativeProductFactError> {
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         let roots: Vec<_> = roots.into_iter().collect();
 
         let mut realizations: BTreeMap<_, _> = roots
@@ -559,7 +559,7 @@ impl Compilation {
         let mut builder = CodegenReachabilityBuilder::try_new(
             roots.iter().map(|instance| instance.key().clone()),
         )
-        .map_err(NativeProductFactError::InvalidReachability)?;
+        .map_err(NativeProductPlanningError::InvalidReachability)?;
 
         let generated_host = generated_host.map(|(mir, source_roots)| {
             for root in &source_roots {
@@ -590,7 +590,7 @@ impl Compilation {
                 ) {
                     builder
                         .push_external(key.clone())
-                        .map_err(NativeProductFactError::InvalidReachability)?;
+                        .map_err(NativeProductPlanningError::InvalidReachability)?;
 
                     continue;
                 }
@@ -657,17 +657,17 @@ impl Compilation {
                 }
 
                 let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
-                    .map_err(NativeProductFactError::InvalidCodegenInstance)?;
+                    .map_err(NativeProductPlanningError::InvalidCodegenInstance)?;
 
                 builder
                     .push_instance(instance)
-                    .map_err(NativeProductFactError::InvalidReachability)?;
+                    .map_err(NativeProductPlanningError::InvalidReachability)?;
             }
         }
 
         let graph = builder
             .finish()
-            .map_err(NativeProductFactError::InvalidReachability)?;
+            .map_err(NativeProductPlanningError::InvalidReachability)?;
 
         Ok(ConcreteCodegenReachability::new(graph, realizations))
     }
@@ -675,14 +675,14 @@ impl Compilation {
     #[cfg(test)]
     pub(in crate::compilation) fn imported_codegen_instance_count_for_test(
         &self,
-    ) -> Result<usize, NativeProductFactError> {
+    ) -> Result<usize, NativeProductPlanningError> {
         let target = self
             .selected_target()
             .target()
             .codegen_target()
-            .map_err(NativeProductFactError::InvalidCodegenTarget)?;
+            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
 
-        let semantic = self.product_semantic_facts()?;
+        let semantic = self.product_semantics()?;
 
         let roots = self.product_root_instances(
             semantic.value(),
@@ -707,9 +707,9 @@ impl Compilation {
 
 fn bound_template(
     key: &CodegenInstanceKey,
-) -> Result<bray_bound_tree::BoundUnitKey, NativeProductFactError> {
+) -> Result<bray_bound_tree::BoundUnitKey, NativeProductPlanningError> {
     let MirUnitKey::Bound(template) = key.template() else {
-        return Err(NativeProductFactError::MissingProductRoot);
+        return Err(NativeProductPlanningError::MissingProductRoot);
     };
 
     Ok(template.clone())
@@ -742,8 +742,8 @@ mod tests {
         LinkerDriverKind,
     };
     use bray_package_interface::{
-        ImportedSemanticFact, InterfaceExecutableTemplate, InterfaceLanguageRevision,
-        InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFactKind,
+        ImportedSemanticRecord, InterfaceExecutableTemplate, InterfaceLanguageRevision,
+        InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticRecordKind,
         InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
         PackageInterfaceIdentity, ValidatedPackageInterface, encode_package_interface,
     };
@@ -767,15 +767,15 @@ mod tests {
         ProductKind, SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::{
-        NativeTarget, TargetAddressSpaceFacts, TargetFacts, TargetProfile,
+        NativeTarget, TargetAddressSpaces, TargetProperties, TargetProfile,
     };
     use bray_testing::TemporaryFile;
 
-    use super::NativeProductFactError;
-    use crate::compilation::CodegenFactError;
+    use super::NativeProductPlanningError;
+    use crate::compilation::CodegenPreparationError;
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        ImportedSemanticFactKey, PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
+        ImportedSemanticRecordKey, PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
     };
 
     const CONCRETE_GENERIC_SOURCE: &str = concat!(
@@ -1478,27 +1478,27 @@ mod tests {
 
         let product = test_product_identity();
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 product.clone(),
                 crate::BuildConfiguration::Development,
                 None,
                 [],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("native facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("native plan must resolve: {error:?}"));
 
         let release = compilation
-            .native_product_facts(
+            .native_product_plan(
                 product.clone(),
                 crate::BuildConfiguration::Release,
                 None,
                 [],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("release native facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("release native plan must resolve: {error:?}"));
 
-        let host = facts
+        let host = plan
             .executable_host()
             .unwrap_or_else(|| panic!("executable must retain its host"));
 
@@ -1509,7 +1509,7 @@ mod tests {
         let available_runtime = runtime_artifact(&compilation, archive.path());
 
         compilation
-            .native_product_facts(
+            .native_product_plan(
                 product,
                 crate::BuildConfiguration::Development,
                 Some(available_runtime),
@@ -1520,10 +1520,10 @@ mod tests {
                 panic!("unused available runtime must not create an empty selection: {error:?}")
             });
 
-        assert_eq!(facts.options().optimization(), OptimizationLevel::Basic);
+        assert_eq!(plan.options().optimization(), OptimizationLevel::Basic);
 
         assert_eq!(
-            facts.options().debug_information(),
+            plan.options().debug_information(),
             DebugInformationMode::LineTables
         );
 
@@ -1534,9 +1534,9 @@ mod tests {
             DebugInformationMode::None
         );
 
-        assert!(!Arc::ptr_eq(&facts, &release));
+        assert!(!Arc::ptr_eq(&plan, &release));
 
-        assert!(facts.mappings().iter().any(|mappings| {
+        assert!(plan.mappings().iter().any(|mappings| {
             mappings
                 .debug_locations()
                 .iter()
@@ -1550,7 +1550,7 @@ mod tests {
                 .all(|mappings| mappings.debug_locations().is_empty())
         );
 
-        let host = facts
+        let host = plan
             .executable_host()
             .unwrap_or_else(|| panic!("executable must own a host"));
 
@@ -1558,7 +1558,7 @@ mod tests {
         assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -1583,8 +1583,8 @@ mod tests {
             ProductKind::Library,
         );
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
@@ -1593,7 +1593,7 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("borrowed literal must remain reachable: {error:?}"));
 
-        let mappings = facts
+        let mappings = plan
             .mappings()
             .iter()
             .flat_map(bray_codegen::CodegenMappings::constants)
@@ -1622,8 +1622,8 @@ mod tests {
         let (backend, compilation) =
             codegen_compilation_for_product(TARGET_FENCE_SOURCE, ProductKind::Library);
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
@@ -1633,7 +1633,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("target fence wrapper must realize: {error:?}"));
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -1715,8 +1715,8 @@ mod tests {
             MirTerminatorKind::Unreachable
         ));
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
@@ -1726,7 +1726,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("structural assembly must realize: {error:?}"));
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -1739,8 +1739,8 @@ mod tests {
             ProductKind::Library,
         );
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
@@ -1750,7 +1750,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("memory assembly must realize: {error:?}"));
 
         let artifacts =
-            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
 
         assert!(artifacts.iter().any(|artifact| {
             std::str::from_utf8(artifact)
@@ -1773,8 +1773,8 @@ mod tests {
             ProductKind::Library,
         );
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Release,
                 None,
@@ -1784,7 +1784,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("diverging assembly must realize: {error:?}"));
 
         let artifacts =
-            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
 
         assert!(artifacts.iter().any(|artifact| {
             std::str::from_utf8(artifact)
@@ -1793,14 +1793,14 @@ mod tests {
     }
 
     #[test]
-    fn device_volatile_contracts_accept_device_pointer_storage_facts() {
+    fn device_volatile_contracts_accept_device_pointer_storage_contracts() {
         let native = NativeTarget::X86_64LinuxGnu.profile();
-        let baseline = native.facts();
+        let baseline = native.properties();
 
-        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+        let address_spaces = TargetAddressSpaces::try_new(true, true)
             .unwrap_or_else(|| panic!("test target must expose host and device address spaces"));
 
-        let facts = TargetFacts::new(
+        let properties = TargetProperties::new(
             baseline.identity().clone(),
             baseline.scalars(),
             baseline.atomics(),
@@ -1814,7 +1814,7 @@ mod tests {
         let profile = TargetProfile::try_new(
             native.identity().clone(),
             native.machine().clone(),
-            facts,
+            properties,
         )
         .unwrap_or_else(|error| panic!("device-capable target profile must validate: {error:?}"));
 
@@ -1848,12 +1848,12 @@ mod tests {
         let (backend, compilation) =
             codegen_compilation_for_product(source, ProductKind::Library);
 
-        let facts = compilation
-            .native_product_facts(test_product_identity(), configuration, None, [], None)
+        let plan = compilation
+            .native_product_plan(test_product_identity(), configuration, None, [], None)
             .unwrap_or_else(|error| panic!("target-control source must realize: {error:?}"));
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -1869,11 +1869,11 @@ mod tests {
 
     #[test]
     fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
-        let (backend, facts) = runtime_native_facts(include_str!(
+        let (backend, plan) = runtime_native_plan(include_str!(
             "../../../../../../xtask/fixtures/native-execution/async-i32.bray"
         ));
 
-        let host = facts
+        let host = plan
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must own a host"));
 
@@ -1883,7 +1883,7 @@ mod tests {
 
         assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
-        let frame_unit = facts
+        let frame_unit = plan
             .units()
             .iter()
             .find(|unit| {
@@ -1893,10 +1893,10 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("concrete root frame unit must be retained"));
 
-        let frame_mapping = facts
+        let frame_mapping = plan
             .units()
             .iter()
-            .zip(facts.mappings())
+            .zip(plan.mappings())
             .find_map(|(unit, mappings)| (unit.key() == frame_unit.key()).then_some(mappings))
             .unwrap_or_else(|| panic!("root frame mappings must be retained"));
 
@@ -1926,11 +1926,11 @@ mod tests {
             );
         }
 
-        let first = generated_artifacts(&backend, &facts);
-        let second = generated_artifacts(&backend, &facts);
+        let first = generated_artifacts(&backend, &plan);
+        let second = generated_artifacts(&backend, &plan);
 
         assert_eq!(first, second);
-        assert_eq!(first.len(), facts.units().len());
+        assert_eq!(first.len(), plan.units().len());
         assert!(first.iter().all(|artifact| !artifact.is_empty()));
     }
 
@@ -1950,9 +1950,9 @@ mod tests {
         ];
 
         for (source, fallible) in cases {
-            let (backend, facts) = runtime_native_facts(source);
+            let (backend, plan) = runtime_native_plan(source);
 
-            let host = facts
+            let host = plan
                 .executable_host()
                 .unwrap_or_else(|| panic!("async executable must own a host"));
 
@@ -1967,7 +1967,7 @@ mod tests {
                     panic!("Result root must retain its concrete error type");
                 };
 
-                let helper_references = facts
+                let helper_references = plan
                     .mappings()
                     .iter()
                     .flat_map(bray_codegen::CodegenMappings::operations)
@@ -1980,7 +1980,7 @@ mod tests {
                 assert!(helper_references.contains(&&MirHelperReference::Destroy(error)));
 
                 let ir =
-                    generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr)
+                    generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>();
@@ -1995,7 +1995,7 @@ mod tests {
             }
 
             assert!(
-                generated_artifacts(&backend, &facts)
+                generated_artifacts(&backend, &plan)
                     .iter()
                     .all(|artifact| !artifact.is_empty())
             );
@@ -2004,11 +2004,11 @@ mod tests {
 
     #[test]
     fn synchronous_panics_emit_a_runtime_owned_host_boundary() {
-        let (backend, facts) = runtime_native_facts(include_str!(
+        let (backend, plan) = runtime_native_plan(include_str!(
             "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
         ));
 
-        let host = facts
+        let host = plan
             .executable_host()
             .unwrap_or_else(|| panic!("executable must own a host"));
 
@@ -2027,7 +2027,7 @@ mod tests {
         }
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -2049,7 +2049,7 @@ mod tests {
 
         let product = test_product_identity();
 
-        let result = compilation.native_product_facts(
+        let result = compilation.native_product_plan(
             product,
             crate::BuildConfiguration::Development,
             Some(runtime),
@@ -2064,7 +2064,7 @@ mod tests {
         assert!(
             matches!(
                 error.as_ref(),
-                NativeProductFactError::InvalidExecutableHost(
+                NativeProductPlanningError::InvalidExecutableHost(
                     ExecutableHostContractBuildError::IncompatibleRuntime(
                         RuntimeCompatibilityError::MissingRole(RuntimeAbiRole::PanicPropagation)
                     )
@@ -2093,8 +2093,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2243,8 +2243,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2293,8 +2293,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2378,8 +2378,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2393,18 +2393,18 @@ mod tests {
         let (backend, compilation) =
             codegen_compilation_for_product(ATOMIC_FENCE_SOURCE, ProductKind::Library);
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
                 [],
                 None,
             )
-            .unwrap_or_else(|error| panic!("atomic fence facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("atomic fence plan must resolve: {error:?}"));
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -2429,8 +2429,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("consumer product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2492,7 +2492,7 @@ mod tests {
                     .map(|compatibility| (instance.key().clone(), compatibility))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()
-            .unwrap_or_else(|error| panic!("consumer partition facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("consumer partition plan must resolve: {error:?}"));
 
         let units = partition_codegen_units(
             CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -2529,14 +2529,14 @@ mod tests {
         let address = imported_nested_template_address(&compilation).symbol();
 
         let runtime = compilation
-            .imported_semantic_fact_result(ImportedSemanticFactKey::new(
+            .imported_semantics(ImportedSemanticRecordKey::new(
                 address.interface(),
                 address.symbol(),
-                InterfaceSemanticFactKind::Runtime,
+                InterfaceSemanticRecordKind::Runtime,
             ))
             .unwrap_or_else(|error| panic!("runtime requirement must resolve: {error:?}"));
 
-        let [ImportedSemanticFact::Runtime(runtime)] = runtime.value().as_ref() else {
+        let [ImportedSemanticRecord::Runtime(runtime)] = runtime.value().as_ref() else {
             panic!("generic callable must import one family runtime requirement");
         };
 
@@ -2550,8 +2550,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("consumer product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(
@@ -2696,8 +2696,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("consumer product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2708,7 +2708,7 @@ mod tests {
             Err(error) => error,
         };
 
-        let NativeProductFactError::Codegen(CodegenFactError::Diagnostics(diagnostics)) = error
+        let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) = error
         else {
             panic!("missing imported template must preserve its diagnostics: {error:?}");
         };
@@ -2892,11 +2892,11 @@ mod tests {
         assert_eq!(realization.implementation_witnesses(), [witness]);
     }
 
-    fn runtime_native_facts(
+    fn runtime_native_plan(
         source: &str,
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-        Arc<super::NativeProductFacts>,
+        Arc<super::NativeProductPlan>,
     ) {
         let (backend, compilation) = codegen_compilation(source);
 
@@ -2905,8 +2905,8 @@ mod tests {
 
         let product = test_product_identity();
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 product,
                 crate::BuildConfiguration::Development,
                 Some(runtime),
@@ -2916,9 +2916,9 @@ mod tests {
                 ],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("runtime native facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("runtime native plan must resolve: {error:?}"));
 
-        (backend, facts)
+        (backend, plan)
     }
 
     fn codegen_compilation(
@@ -2956,8 +2956,8 @@ mod tests {
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 Some(runtime),
@@ -2967,11 +2967,11 @@ mod tests {
                 ],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("native test facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("native test plan must resolve: {error:?}"));
 
-        let catalog = facts
+        let catalog = plan
             .test_catalog()
-            .unwrap_or_else(|| panic!("native test facts must retain their catalog"));
+            .unwrap_or_else(|| panic!("native test plan must retain their catalog"));
 
         assert_eq!(
             catalog
@@ -2982,9 +2982,9 @@ mod tests {
             ["alpha", "beta", "gamma"]
         );
 
-        let host = facts
+        let host = plan
             .executable_host()
-            .unwrap_or_else(|| panic!("native test facts must retain their host"));
+            .unwrap_or_else(|| panic!("native test plan must retain their host"));
 
         assert_eq!(host.entries().len(), catalog.entries().len());
         assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
@@ -2995,12 +2995,12 @@ mod tests {
             RootExecution::Asynchronous { .. }
         ));
 
-        let host_mir = facts
+        let host_mir = plan
             .units()
             .iter()
             .flat_map(bray_codegen::CodegenUnit::mir_units)
             .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
-            .unwrap_or_else(|| panic!("native test facts must retain generated host MIR"));
+            .unwrap_or_else(|| panic!("native test plan must retain generated host MIR"));
 
         let executed_entries = host_mir
             .operations()
@@ -3016,7 +3016,7 @@ mod tests {
         assert_eq!(executed_entries, [0, 1, 2]);
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -3027,34 +3027,34 @@ mod tests {
         let (backend, compilation) =
             codegen_compilation_for_product("module app.tests;\n", ProductKind::Test);
 
-        let facts = compilation
-            .native_product_facts(
+        let plan = compilation
+            .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
                 None,
                 [],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("empty native test facts must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("empty native test plan must resolve: {error:?}"));
 
-        let catalog = facts
+        let catalog = plan
             .test_catalog()
-            .unwrap_or_else(|| panic!("empty native test facts must retain their catalog"));
+            .unwrap_or_else(|| panic!("empty native test plan must retain their catalog"));
 
         assert!(catalog.entries().is_empty());
 
-        let host = facts
+        let host = plan
             .executable_host()
-            .unwrap_or_else(|| panic!("empty native test facts must retain their host"));
+            .unwrap_or_else(|| panic!("empty native test plan must retain their host"));
 
         assert!(host.entries().is_empty());
 
-        let host_mir = facts
+        let host_mir = plan
             .units()
             .iter()
             .flat_map(bray_codegen::CodegenUnit::mir_units)
             .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
-            .unwrap_or_else(|| panic!("empty native test facts must retain generated host MIR"));
+            .unwrap_or_else(|| panic!("empty native test plan must retain generated host MIR"));
 
         assert!(matches!(
             host_mir.operations(),
@@ -3066,7 +3066,7 @@ mod tests {
         ));
 
         assert!(
-            generated_artifacts(&backend, &facts)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
@@ -3229,20 +3229,20 @@ mod tests {
 
     fn generated_artifacts(
         backend: &bray_codegen_llvm::LlvmCodeGenerator,
-        facts: &super::NativeProductFacts,
+        plan: &super::NativeProductPlan,
     ) -> Vec<Vec<u8>> {
-        generated_artifacts_of_kind(backend, facts, BackendArtifactKind::RelocatableObject)
+        generated_artifacts_of_kind(backend, plan, BackendArtifactKind::RelocatableObject)
     }
 
     fn generated_artifacts_of_kind(
         backend: &bray_codegen_llvm::LlvmCodeGenerator,
-        facts: &super::NativeProductFacts,
+        plan: &super::NativeProductPlan,
         kind: BackendArtifactKind,
     ) -> Vec<Vec<u8>> {
-        facts
+        plan
             .units()
             .iter()
-            .zip(facts.mappings())
+            .zip(plan.mappings())
             .map(|(unit, mappings)| {
                 let artifact = BackendArtifactId::new(unit.key().clone(), kind, 0);
 
@@ -3252,7 +3252,7 @@ mod tests {
                         artifact,
                         BackendArtifactRequirement::Required,
                     )],
-                    facts.backend().policy().debug_output(),
+                    plan.backend().policy().debug_output(),
                     (kind == BackendArtifactKind::RelocatableObject).then(|| {
                         LinkableArtifactRequirement::new(
                             LinkableArtifactKind::RelocatableObject,
@@ -3272,9 +3272,9 @@ mod tests {
                     backend.identity(),
                     backend.capabilities().revision(),
                     ProductKind::Executable,
-                    facts.target(),
+                    plan.target(),
                     mappings,
-                    facts.options(),
+                    plan.options(),
                     &artifacts,
                     &cancellation,
                 )
@@ -3430,8 +3430,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
         let semantic = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -3626,14 +3626,14 @@ mod tests {
 
         match fixture.runtime_frames {
             Some(expected) => {
-                let [runtime] = bundle.semantic_facts().runtime_requirements() else {
+                let [runtime] = bundle.semantics().runtime_requirements() else {
                     panic!("generic callable family must publish one runtime requirement");
                 };
 
                 assert_eq!(runtime.frames().len(), expected);
                 assert!(runtime.requirements().capabilities().is_empty());
             }
-            None => assert!(bundle.semantic_facts().runtime_requirements().is_empty()),
+            None => assert!(bundle.semantics().runtime_requirements().is_empty()),
         }
 
         let interface = encode_package_interface(bundle)
@@ -3665,7 +3665,7 @@ mod tests {
         let implementation = PackageImplementationArtifact::try_new(
             &validated,
             bundle.surface(),
-            bundle.semantic_facts(),
+            bundle.semantics(),
             bundle.implementation_configuration().clone(),
             [],
             templates,
@@ -3694,7 +3694,7 @@ mod tests {
 
     fn first_imported_function_address(
         compilation: &crate::Compilation,
-    ) -> bray_symbols::ImportedSymbolFactAddress {
+    ) -> bray_symbols::ImportedSemanticAddress {
         let skeleton = compilation
             .imported_symbol_skeleton_result()
             .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
@@ -3707,9 +3707,9 @@ mod tests {
         skeleton
             .functions()
             .iter()
-            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
+            .filter_map(|function| skeleton.imported_semantic_address(function.id().into()))
             .next()
-            .unwrap_or_else(|| panic!("imported generic function must have a fact address"))
+            .unwrap_or_else(|| panic!("imported generic function must have a template address"))
     }
 
     fn imported_nested_template_address(
@@ -3727,7 +3727,7 @@ mod tests {
         skeleton
             .functions()
             .iter()
-            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
+            .filter_map(|function| skeleton.imported_semantic_address(function.id().into()))
             .find_map(|symbol| {
                 let root = compilation
                     .imported_executable_template_with_cancellation(

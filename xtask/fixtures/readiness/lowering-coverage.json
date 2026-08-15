@@ -74,8 +74,8 @@
     { "name": "Expression", "production": "lower_expression", "test": "runtime_default_expression_roots_lower_to_mir" },
     { "name": "ExpressionSequence", "production": "lower_block", "test": "runtime_default_expression_roots_lower_to_mir" }
   ],
-  "semantic_facts": [
-    { "name": "Async", "production": "async_facts", "test": "async_callables_lower_to_protected_frames_and_explicit_suspension" },
+  "semantics": [
+    { "name": "Async", "production": "async_analysis", "test": "async_callables_lower_to_protected_frames_and_explicit_suspension" },
     { "name": "BodyBehavior", "production": "body_behavior", "test": "lowering_retains_selected_call_behavior_and_runtime_defaults" },
     { "name": "ConstantReferences", "production": "constant_reference_values", "test": "constant_references_lower_to_closed_mir_operands" },
     { "name": "ControlFlow", "production": "control_flow", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
@@ -83,7 +83,7 @@
     { "name": "ExpressionTypes", "production": "expression_types", "test": "input_rejects_bound_expressions_without_final_types" },
     { "name": "Liveness", "production": "liveness", "test": "input_rejects_same_unit_liveness_for_another_storage_plan" },
     { "name": "LiteralValues", "production": "literal_values", "test": "input_rejects_literal_values_adapted_for_another_target_width" },
-    { "name": "PatternFacts", "production": "pattern_facts", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
+    { "name": "Patterns", "production": "patterns", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "Refinements", "production": "refinements", "test": "lowering_makes_nullable_propagation_and_early_cleanup_explicit" },
     { "name": "SemanticSelections", "production": "semantic_selections", "test": "input_rejects_valid_expressions_without_required_semantic_selections" },
     { "name": "StorageFlow", "production": "storage_flow", "test": "input_rejects_storage_flow_that_disagrees_with_the_storage_plan" },

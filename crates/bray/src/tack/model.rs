@@ -19,7 +19,7 @@ pub enum TackCommandKind {
     Test,
     /// Formats project or standard-input source.
     Format,
-    /// Inspects the project graph or one compiler fact.
+    /// Inspects the project graph or one compiler query.
     Inspect,
     /// Displays or compares compiler profile reports.
     Profile,

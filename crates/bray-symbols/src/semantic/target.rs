@@ -2,30 +2,34 @@ use std::sync::Arc;
 
 use crate::{ConstantSymbolId, ConstantValueId, SymbolKey};
 
-/// One exact compiler-known target fact and the value required from it.
+/// One exact compiler-known target property and the value required from it.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetFactDependency {
+pub struct TargetPropertyDependency {
     key: SymbolKey,
-    fact: ConstantSymbolId,
+    property: ConstantSymbolId,
     value: ConstantValueId,
 }
 
-impl TargetFactDependency {
-    /// Creates one target-fact dependency.
+impl TargetPropertyDependency {
+    /// Creates one target-property dependency.
     ///
-    /// `key` must be the stable semantic key for `fact`.
-    pub const fn new(key: SymbolKey, fact: ConstantSymbolId, value: ConstantValueId) -> Self {
-        Self { key, fact, value }
+    /// `key` must be the stable semantic key for `property`.
+    pub const fn new(key: SymbolKey, property: ConstantSymbolId, value: ConstantValueId) -> Self {
+        Self {
+            key,
+            property,
+            value,
+        }
     }
 
-    /// Returns the target fact's stable semantic key.
+    /// Returns the target property's stable semantic key.
     pub const fn key(&self) -> &SymbolKey {
         &self.key
     }
 
-    /// Returns the compiler-known target fact declaration.
-    pub const fn fact(&self) -> ConstantSymbolId {
-        self.fact
+    /// Returns the compiler-known target property declaration.
+    pub const fn property(&self) -> ConstantSymbolId {
+        self.property
     }
 
     /// Returns the required canonical value.
@@ -38,14 +42,14 @@ impl TargetFactDependency {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModuleContributionGate {
     enabled: bool,
-    dependencies: Arc<[TargetFactDependency]>,
+    dependencies: Arc<[TargetPropertyDependency]>,
 }
 
 impl ModuleContributionGate {
-    /// Creates a contribution gate from its result and observed target facts.
+    /// Creates a contribution gate from its result and observed target properties.
     pub fn new(
         enabled: bool,
-        dependencies: impl IntoIterator<Item = TargetFactDependency>,
+        dependencies: impl IntoIterator<Item = TargetPropertyDependency>,
     ) -> Self {
         let mut dependencies = dependencies.into_iter().collect::<Vec<_>>();
 
@@ -63,8 +67,8 @@ impl ModuleContributionGate {
         self.enabled
     }
 
-    /// Returns the exact target facts observed while evaluating the gate.
-    pub fn dependencies(&self) -> &[TargetFactDependency] {
+    /// Returns the exact target properties observed while evaluating the gate.
+    pub fn dependencies(&self) -> &[TargetPropertyDependency] {
         &self.dependencies
     }
 }

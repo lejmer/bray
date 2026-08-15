@@ -2,19 +2,19 @@ use std::collections::BTreeSet;
 
 use bray_symbols::{ExternalSymbolKey, SymbolKind};
 
-use crate::semantic::model::{InterfaceSemanticFacts, InterfaceSupportEntity};
+use crate::semantic::model::{InterfaceSemantics, InterfaceSupportEntity};
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceValidationError, PackageInterfaceSurface, semantic::validation::fact::validate_index,
+    InterfaceValidationError, PackageInterfaceSurface, semantic::validation::surface::validate_index,
 };
 
 use super::checked_index;
 
 pub(super) fn validate_support_entities(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     surface: &PackageInterfaceSurface,
 ) -> Result<Vec<(usize, usize)>, InterfaceValidationError> {
-    if !is_strictly_sorted(&facts.support_entities) {
+    if !is_strictly_sorted(&semantics.support_entities) {
         return Err(InterfaceValidationError::Malformed);
     }
 
@@ -22,11 +22,11 @@ pub(super) fn validate_support_entities(
     let mut declaration_keys = BTreeSet::new();
     let mut template_entities = Vec::new();
 
-    for (entity_index, entity) in facts.support_entities.iter().enumerate() {
+    for (entity_index, entity) in semantics.support_entities.iter().enumerate() {
         match entity {
             InterfaceSupportEntity::CheckedTemplate(template) => {
                 let template_index =
-                    checked_index(template.to_index(), facts.checked_templates.len())?;
+                    checked_index(template.to_index(), semantics.checked_templates.len())?;
 
                 if !template_ids.insert(template_index) {
                     return Err(InterfaceValidationError::Malformed);
@@ -50,7 +50,7 @@ pub(super) fn validate_support_entities(
                     return Err(InterfaceValidationError::Malformed);
                 }
 
-                validate_index(implementation.subject().to_index(), facts.types.len())?;
+                validate_index(implementation.subject().to_index(), semantics.types.len())?;
 
                 match (
                     implementation.declaration().kind(),
@@ -61,7 +61,7 @@ pub(super) fn validate_support_entities(
                         SymbolKind::UnnamedTraitImplementation
                         | SymbolKind::NamedTraitImplementation,
                         Some(application),
-                    ) => validate_index(application.to_index(), facts.trait_applications.len())?,
+                    ) => validate_index(application.to_index(), semantics.trait_applications.len())?,
                     _ => return Err(InterfaceValidationError::Malformed),
                 }
             }

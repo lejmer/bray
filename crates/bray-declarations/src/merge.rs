@@ -122,7 +122,7 @@ impl TableBuilder {
         // ModulePath clones share immutable segment storage across records and indexes.
         let module_name = Some(DeclarationName::Path(part.path.clone()));
 
-        // Cached chunks and table records are independent immutable facts.
+        // Cached chunks and table records have independent immutable ownership.
         let module_declaration_surface = part.surface.clone();
         let module_part_surface = part.surface.clone();
 
@@ -182,7 +182,7 @@ impl TableBuilder {
         let child_container =
             self.child_container_for_declaration(declaration.kind, owning_container);
 
-        // Cached chunks and table records are independent immutable facts.
+        // Cached chunks and table records have independent immutable ownership.
         let name = declaration.name.clone();
         let surface = declaration.surface.clone();
 

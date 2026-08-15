@@ -33,7 +33,7 @@ use super::support::{FORMAT_VERSION, write_bool, write_count, write_optional};
 
 /// Maps compilation-local semantic identities into one package interface's tables.
 pub trait ExecutableTemplateEncodeContext {
-    /// Error reported while completing a required interface semantic fact.
+    /// Error reported while completing a required interface semantic record.
     type Error;
 
     /// Maps one semantic type.
@@ -91,7 +91,7 @@ pub trait ExecutableTemplateEncodeContext {
 /// Failure while encoding one checked executable template.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutableTemplateEncodeError<E> {
-    /// Completing one referenced semantic fact failed.
+    /// Completing one referenced semantic record failed.
     Semantic(E),
     /// Compiler-generated product-host MIR cannot be exported as a callable template.
     InvalidUnitKind,
@@ -192,7 +192,7 @@ struct Encoder<'context, C> {
 }
 
 impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
-    fn target(&mut self, target: &bray_ir::MirTargetFacts) {
+    fn target(&mut self, target: &bray_ir::MirTargetContract) {
         self.wire.write_bytes(&target.compatibility_digest());
     }
 

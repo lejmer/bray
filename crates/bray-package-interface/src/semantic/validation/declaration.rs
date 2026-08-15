@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_symbols::{SymbolKind, SymbolOrdinal};
 
-use super::fact::{local_symbol, validate_symbol_kind};
+use super::surface::{local_symbol, validate_symbol_kind};
 use crate::{
     InterfaceDeclarationTemplate, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
-    InterfaceSemanticFacts, InterfaceValidationError, PackageInterfaceSurface,
+    InterfaceSemantics, InterfaceValidationError, PackageInterfaceSurface,
 };
 
 pub(crate) fn validate_predicate_definition(
@@ -65,17 +65,17 @@ pub(crate) fn validate_predicate_template_count(
 }
 
 pub(super) fn validate_predicate_templates(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let mut template_counts = BTreeMap::new();
 
-    for template in &*facts.declaration_templates {
+    for template in &*semantics.declaration_templates {
         if validate_predicate_template(template)? {
             *template_counts.entry(template.owner()).or_insert(0_usize) += 1;
         }
     }
 
-    for definition in &*facts.predicate_definitions {
+    for definition in &*semantics.predicate_definitions {
         let actual = template_counts.remove(definition.owner()).unwrap_or(0);
 
         validate_predicate_template_count(definition, actual)?;

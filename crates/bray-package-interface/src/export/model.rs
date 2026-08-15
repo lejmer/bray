@@ -6,7 +6,7 @@ use bray_symbols::{
 
 use crate::{
     DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
+    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
     InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceSurface,
     PackageInterfaceSurfaceBuildError, SymbolRelationshipKind,
 };
@@ -178,8 +178,8 @@ pub enum PackageInterfaceExportSurfaceError {
 /// Failure while validating a package-interface export bundle.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportBuildError {
-    /// One exported declaration has no completed semantic fact in the bundle.
-    MissingSemanticFacts(ExternalSymbolKey),
+    /// One exported declaration has no completed semantic record in the bundle.
+    MissingSemantics(ExternalSymbolKey),
     /// Structural semantic or support-graph validation rejected the bundle.
     Validation(InterfaceValidationError),
     /// Two executable templates claim the same callable owner and artifact-local identity.
@@ -194,7 +194,7 @@ pub enum PackageInterfaceExportBuildError {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
-    semantic_facts: InterfaceSemanticFacts,
+    semantics: InterfaceSemantics,
     implementation_configuration: crate::PackageImplementationConfiguration,
     executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
     native_boundaries: Arc<[crate::InterfaceNativeBoundary]>,
@@ -205,24 +205,24 @@ impl PackageInterfaceExportBundle {
     /// Creates an export bundle after validating structural and semantic completeness.
     pub fn try_new(
         surface: PackageInterfaceSurface,
-        semantic_facts: InterfaceSemanticFacts,
+        semantics: InterfaceSemantics,
         language_revision: InterfaceLanguageRevision,
         implementation_configuration: crate::PackageImplementationConfiguration,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
-        let semantic_facts = canonicalize_owner_addressed_facts(semantic_facts);
+        let semantics = canonicalize_owner_addressed_semantics(semantics);
 
-        validate_semantic_coverage(&surface, &semantic_facts)?;
+        validate_semantic_coverage(&surface, &semantics)?;
 
-        semantic_facts
+        semantics
             .validate(&surface, crate::InterfaceValidationLimits::default())
             .map_err(PackageInterfaceExportBuildError::Validation)?;
 
-        crate::semantic::validate_constraint_templates(&semantic_facts)
+        crate::semantic::validate_constraint_templates(&semantics)
             .map_err(PackageInterfaceExportBuildError::Validation)?;
 
         Ok(Self {
             surface,
-            semantic_facts,
+            semantics,
             implementation_configuration,
             executable_templates: Arc::from([]),
             native_boundaries: Arc::from([]),
@@ -262,8 +262,8 @@ impl PackageInterfaceExportBundle {
     }
 
     /// Returns the complete semantic and private support graph.
-    pub const fn semantic_facts(&self) -> &InterfaceSemanticFacts {
-        &self.semantic_facts
+    pub const fn semantics(&self) -> &InterfaceSemantics {
+        &self.semantics
     }
 
     /// Returns the exact target, runtime, and ABI identity of implementation payloads.
@@ -311,17 +311,17 @@ impl PackageInterfaceExportBundle {
 
 fn validate_semantic_coverage(
     surface: &PackageInterfaceSurface,
-    semantic_facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
 ) -> Result<(), PackageInterfaceExportBuildError> {
-    let fact_directory = semantic_facts.fact_directory();
+    let semantic_directory = semantics.semantic_directory();
 
     for symbol in surface.symbols().symbols() {
         if symbol.kind().is_callable() {
-            require_owned_semantic_fact(
-                &fact_directory,
+            require_owned_semantic_record(
+                &semantic_directory,
                 symbol.id(),
                 symbol.key(),
-                InterfaceSemanticFactKind::CallableSignature,
+                InterfaceSemanticRecordKind::CallableSignature,
             )?;
         }
 
@@ -329,20 +329,20 @@ fn validate_semantic_coverage(
             relationship.kind() == SymbolRelationshipKind::GenericParameter
                 && relationship.owner() == symbol.id()
         }) {
-            require_owned_semantic_fact(
-                &fact_directory,
+            require_owned_semantic_record(
+                &semantic_directory,
                 symbol.id(),
                 symbol.key(),
-                InterfaceSemanticFactKind::GenericDeclaration,
+                InterfaceSemanticRecordKind::GenericDeclaration,
             )?;
         }
 
         if symbol.kind() == SymbolKind::CallableParameter {
-            require_owned_semantic_fact(
-                &fact_directory,
+            require_owned_semantic_record(
+                &semantic_directory,
                 symbol.id(),
                 symbol.key(),
-                InterfaceSemanticFactKind::CallableParameterDefault,
+                InterfaceSemanticRecordKind::CallableParameterDefault,
             )?;
         }
 
@@ -352,32 +352,32 @@ fn validate_semantic_coverage(
                 | SymbolKind::TraitPredicateMember
                 | SymbolKind::TraitPredicateFulfillment
         ) {
-            require_owned_semantic_fact(
-                &fact_directory,
+            require_owned_semantic_record(
+                &semantic_directory,
                 symbol.id(),
                 symbol.key(),
-                InterfaceSemanticFactKind::PredicateDefinition,
+                InterfaceSemanticRecordKind::PredicateDefinition,
             )?;
         }
 
         if symbol.kind().is_implementation() {
-            require_owned_semantic_fact(
-                &fact_directory,
+            require_owned_semantic_record(
+                &semantic_directory,
                 symbol.id(),
                 symbol.key(),
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
             )?;
         }
 
-        if !requires_owned_semantic_fact(symbol.kind()) {
+        if !requires_owned_semantic_record(symbol.kind()) {
             continue;
         }
 
-        if !fact_directory.iter().any(|fact| {
-            matches!(fact.owner(), InterfaceSymbolReference::Local(owner) if *owner == symbol.id())
+        if !semantic_directory.iter().any(|record| {
+            matches!(record.owner(), InterfaceSymbolReference::Local(owner) if *owner == symbol.id())
         }) {
             // External keys are Arc-backed and make the failure independent of local table IDs.
-            return Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+            return Err(PackageInterfaceExportBuildError::MissingSemantics(
                 symbol.key().clone(),
             ));
         }
@@ -386,50 +386,50 @@ fn validate_semantic_coverage(
     Ok(())
 }
 
-fn require_owned_semantic_fact(
-    fact_directory: &[InterfaceSemanticFactEntry],
+fn require_owned_semantic_record(
+    semantic_directory: &[InterfaceSemanticRecord],
     owner: InterfaceSymbolId,
     key: &ExternalSymbolKey,
-    kind: InterfaceSemanticFactKind,
+    kind: InterfaceSemanticRecordKind,
 ) -> Result<(), PackageInterfaceExportBuildError> {
-    let present = fact_directory.iter().any(|fact| {
-        fact.kind() == kind
-            && matches!(fact.owner(), InterfaceSymbolReference::Local(id) if *id == owner)
+    let present = semantic_directory.iter().any(|record| {
+        record.kind() == kind
+            && matches!(record.owner(), InterfaceSymbolReference::Local(id) if *id == owner)
     });
 
     if present {
         Ok(())
     } else {
-        Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+        Err(PackageInterfaceExportBuildError::MissingSemantics(
             key.clone(),
         ))
     }
 }
 
-fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> InterfaceSemanticFacts {
-    for contract in Arc::make_mut(&mut facts.dependency_contracts) {
+fn canonicalize_owner_addressed_semantics(mut semantics: InterfaceSemantics) -> InterfaceSemantics {
+    for contract in Arc::make_mut(&mut semantics.dependency_contracts) {
         Arc::make_mut(&mut contract.requirements).sort();
     }
 
-    Arc::make_mut(&mut facts.constraints).sort();
-    Arc::make_mut(&mut facts.callable_contracts).sort();
-    Arc::make_mut(&mut facts.callable_signatures).sort();
-    Arc::make_mut(&mut facts.generic_declarations).sort();
-    Arc::make_mut(&mut facts.callable_parameter_defaults).sort();
-    Arc::make_mut(&mut facts.predicate_definitions).sort();
-    Arc::make_mut(&mut facts.declared_types).sort();
-    Arc::make_mut(&mut facts.type_representations).sort();
-    Arc::make_mut(&mut facts.declaration_templates).sort();
-    Arc::make_mut(&mut facts.implementations).sort();
-    Arc::make_mut(&mut facts.coherence).sort();
-    Arc::make_mut(&mut facts.target_dependencies).sort();
-    Arc::make_mut(&mut facts.abi_dependencies).sort();
-    Arc::make_mut(&mut facts.provenance).sort();
+    Arc::make_mut(&mut semantics.constraints).sort();
+    Arc::make_mut(&mut semantics.callable_contracts).sort();
+    Arc::make_mut(&mut semantics.callable_signatures).sort();
+    Arc::make_mut(&mut semantics.generic_declarations).sort();
+    Arc::make_mut(&mut semantics.callable_parameter_defaults).sort();
+    Arc::make_mut(&mut semantics.predicate_definitions).sort();
+    Arc::make_mut(&mut semantics.declared_types).sort();
+    Arc::make_mut(&mut semantics.type_representations).sort();
+    Arc::make_mut(&mut semantics.declaration_templates).sort();
+    Arc::make_mut(&mut semantics.implementations).sort();
+    Arc::make_mut(&mut semantics.coherence).sort();
+    Arc::make_mut(&mut semantics.target_dependencies).sort();
+    Arc::make_mut(&mut semantics.abi_dependencies).sort();
+    Arc::make_mut(&mut semantics.provenance).sort();
 
-    facts
+    semantics
 }
 
-const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
+const fn requires_owned_semantic_record(kind: bray_symbols::SymbolKind) -> bool {
     !matches!(
         kind,
         bray_symbols::SymbolKind::Package
@@ -456,18 +456,18 @@ mod tests {
 
     use crate::test_support::package_interface_export_bundle;
     use crate::{
-        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticFactKind,
-        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
+        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticRecordKind,
+        InterfaceSemantics, InterfaceSymbolReference, InterfaceValidationError,
         PackageInterfaceExportBuildError, PackageInterfaceExportBundle, encode_package_interface,
     };
 
     #[test]
     fn overload_sets_are_fully_described_by_surface_relationships() {
-        assert!(!super::requires_owned_semantic_fact(
+        assert!(!super::requires_owned_semantic_record(
             SymbolKind::CallableOverload
         ));
 
-        assert!(!super::requires_owned_semantic_fact(
+        assert!(!super::requires_owned_semantic_record(
             SymbolKind::ImplementationOverload
         ));
     }
@@ -476,10 +476,10 @@ mod tests {
     fn bundles_reject_incomplete_support_graphs_before_encoding() {
         let complete = package_interface_export_bundle();
 
-        let facts = complete.semantic_facts().clone().with_templates(
-            complete.semantic_facts().checked_templates.iter().cloned(),
+        let semantics = complete.semantics().clone().with_templates(
+            complete.semantics().checked_templates.iter().cloned(),
             complete
-                .semantic_facts()
+                .semantics()
                 .declaration_templates
                 .iter()
                 .cloned(),
@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
                 complete.surface().clone(),
-                facts,
+                semantics,
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
@@ -503,21 +503,21 @@ mod tests {
     fn bundles_require_checked_templates_for_predicate_constraints() {
         let complete = package_interface_export_bundle();
 
-        let facts = complete.semantic_facts().clone().with_templates(
+        let semantics = complete.semantics().clone().with_templates(
             complete
-                .semantic_facts()
+                .semantics()
                 .checked_templates
                 .iter()
                 .filter(|template| template.kind() != CheckedTemplateKind::GenericConstraint)
                 .cloned(),
             complete
-                .semantic_facts()
+                .semantics()
                 .declaration_templates
                 .iter()
                 .filter(|template| template.kind() != CheckedTemplateKind::GenericConstraint)
                 .cloned(),
             complete
-                .semantic_facts()
+                .semantics()
                 .support_entities
                 .iter()
                 .take(2)
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
                 complete.surface().clone(),
-                facts,
+                semantics,
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
@@ -538,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn bundles_reject_declaration_identities_without_semantic_facts() {
+    fn bundles_reject_declaration_identities_without_semantics() {
         let complete = package_interface_export_bundle();
 
         let first_declaration = complete
@@ -546,25 +546,25 @@ mod tests {
             .symbols()
             .symbols()
             .iter()
-            .find(|symbol| super::requires_owned_semantic_fact(symbol.kind()))
+            .find(|symbol| super::requires_owned_semantic_record(symbol.kind()))
             .map(|symbol| symbol.key().clone())
             .unwrap_or_else(|| panic!("test surface must contain one declaration"));
 
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
                 complete.surface().clone(),
-                InterfaceSemanticFacts::new(),
+                InterfaceSemantics::new(),
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
-            Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+            Err(PackageInterfaceExportBuildError::MissingSemantics(
                 first_declaration
             ))
         );
     }
 
     #[test]
-    fn implementation_auxiliary_facts_do_not_replace_the_header() {
+    fn implementation_auxiliary_semantics_do_not_replace_the_header() {
         let complete = package_interface_export_bundle();
 
         let implementation = complete
@@ -576,65 +576,65 @@ mod tests {
             .map(|symbol| symbol.key().clone())
             .unwrap_or_else(|| panic!("test surface must contain one implementation"));
 
-        let facts = complete
-            .semantic_facts()
+        let semantics = complete
+            .semantics()
             .clone()
             .with_implementations([], []);
 
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
                 complete.surface().clone(),
-                facts,
+                semantics,
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
-            Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+            Err(PackageInterfaceExportBuildError::MissingSemantics(
                 implementation
             ))
         );
     }
 
     #[test]
-    fn declaration_facts_are_each_required() {
-        const REQUIRED_FACTS: &[InterfaceSemanticFactKind] = &[
-            InterfaceSemanticFactKind::CallableSignature,
-            InterfaceSemanticFactKind::GenericDeclaration,
-            InterfaceSemanticFactKind::CallableParameterDefault,
-            InterfaceSemanticFactKind::PredicateDefinition,
+    fn declaration_semantics_are_each_required() {
+        const REQUIRED_RECORDS: &[InterfaceSemanticRecordKind] = &[
+            InterfaceSemanticRecordKind::CallableSignature,
+            InterfaceSemanticRecordKind::GenericDeclaration,
+            InterfaceSemanticRecordKind::CallableParameterDefault,
+            InterfaceSemanticRecordKind::PredicateDefinition,
         ];
 
-        for &missing in REQUIRED_FACTS {
+        for &missing in REQUIRED_RECORDS {
             let complete = package_interface_export_bundle();
-            let facts = complete.semantic_facts();
+            let semantics = complete.semantics();
 
-            let incomplete = facts.clone().with_declarations(
-                facts
+            let incomplete = semantics.clone().with_declarations(
+                semantics
                     .callable_signatures()
                     .iter()
-                    .filter(|_| missing != InterfaceSemanticFactKind::CallableSignature)
+                    .filter(|_| missing != InterfaceSemanticRecordKind::CallableSignature)
                     .cloned(),
-                facts
+                semantics
                     .generic_declarations()
                     .iter()
-                    .filter(|_| missing != InterfaceSemanticFactKind::GenericDeclaration)
+                    .filter(|_| missing != InterfaceSemanticRecordKind::GenericDeclaration)
                     .cloned(),
-                facts
+                semantics
                     .callable_parameter_defaults()
                     .iter()
-                    .filter(|_| missing != InterfaceSemanticFactKind::CallableParameterDefault)
+                    .filter(|_| missing != InterfaceSemanticRecordKind::CallableParameterDefault)
                     .cloned(),
-                facts
+                semantics
                     .predicate_definitions()
                     .iter()
-                    .filter(|_| missing != InterfaceSemanticFactKind::PredicateDefinition)
+                    .filter(|_| missing != InterfaceSemanticRecordKind::PredicateDefinition)
                     .cloned(),
             );
 
             let owner_kind = match missing {
-                InterfaceSemanticFactKind::CallableParameterDefault => {
+                InterfaceSemanticRecordKind::CallableParameterDefault => {
                     SymbolKind::CallableParameter
                 }
-                InterfaceSemanticFactKind::PredicateDefinition => SymbolKind::Predicate,
+                InterfaceSemanticRecordKind::PredicateDefinition => SymbolKind::Predicate,
                 _ => SymbolKind::Function,
             };
 
@@ -654,7 +654,7 @@ mod tests {
                     InterfaceLanguageRevision::new(0),
                     crate::test_support::implementation_configuration(),
                 ),
-                Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+                Err(PackageInterfaceExportBuildError::MissingSemantics(
                     owner
                 ))
             );
@@ -662,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn owner_addressed_semantic_fact_order_does_not_affect_encoded_artifacts() {
+    fn owner_addressed_semantic_record_order_does_not_affect_encoded_artifacts() {
         let complete = package_interface_export_bundle();
         let symbols = complete.surface().symbols().symbols();
 
@@ -677,11 +677,11 @@ mod tests {
             .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap_or_else(|_| panic!("test surface must contain two semantic fact owners"));
+            .unwrap_or_else(|_| panic!("test surface must contain two semantic record owners"));
 
-        let first_facts = complete.semantic_facts().clone().with_target_dependencies(
+        let first_semantics = complete.semantics().clone().with_target_dependencies(
             complete
-                .semantic_facts()
+                .semantics()
                 .target_dependencies()
                 .iter()
                 .cloned(),
@@ -691,9 +691,9 @@ mod tests {
             ],
         );
 
-        let second_facts = complete.semantic_facts().clone().with_target_dependencies(
+        let second_semantics = complete.semantics().clone().with_target_dependencies(
             complete
-                .semantic_facts()
+                .semantics()
                 .target_dependencies()
                 .iter()
                 .cloned(),
@@ -705,27 +705,27 @@ mod tests {
 
         let first = PackageInterfaceExportBundle::try_new(
             complete.surface().clone(),
-            first_facts,
+            first_semantics,
             InterfaceLanguageRevision::new(0),
             crate::test_support::implementation_configuration(),
         )
-        .unwrap_or_else(|error| panic!("forward semantic facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("forward semantics must build: {error:?}"));
 
         let second = PackageInterfaceExportBundle::try_new(
             complete.surface().clone(),
-            second_facts,
+            second_semantics,
             InterfaceLanguageRevision::new(0),
             crate::test_support::implementation_configuration(),
         )
-        .unwrap_or_else(|error| panic!("reversed semantic facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("reversed semantics must build: {error:?}"));
 
         assert_eq!(first, second);
 
         let first = encode_package_interface(&first)
-            .unwrap_or_else(|error| panic!("forward semantic facts must encode: {error:?}"));
+            .unwrap_or_else(|error| panic!("forward semantics must encode: {error:?}"));
 
         let second = encode_package_interface(&second)
-            .unwrap_or_else(|error| panic!("reversed semantic facts must encode: {error:?}"));
+            .unwrap_or_else(|error| panic!("reversed semantics must encode: {error:?}"));
 
         assert_eq!(first, second);
     }

@@ -9,7 +9,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 use super::semantic_unit_context_for;
 use crate::compilation::checker::checker_result;
-use crate::compilation::facts::Compilation;
+use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {

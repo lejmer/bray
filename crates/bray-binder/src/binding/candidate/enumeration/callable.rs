@@ -11,11 +11,11 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplateFact, CallableDefinitionId, CallableOverloadSymbolId,
-    CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
+    AnySymbolId, CallableContractTemplateQuery, CallableDefinitionId, CallableOverloadSymbolId,
+    CallableOverloadTemplateQuery, CallableParameterDefaultTemplateQuery, CallableSignatureQuery,
     CallableSymbolId, GenericArgumentTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, NamedTypeSymbolId,
-    OverloadArmTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
+    GenericDeclarationTemplateQuery, GenericOwnerId, MemberLookupResult, NamedTypeSymbolId,
+    OverloadArmTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
     SymbolFactContract, SymbolFactRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
@@ -51,20 +51,20 @@ where
 pub(super) enum DeclarationCandidateOutcome {
     Added,
     Ignored,
-    UnavailableFacts,
+    UnavailableSemantics,
 }
 
 impl DeclarationCandidateOutcome {
     pub(super) const fn absence(self) -> CandidateAbsence {
         match self {
             Self::Added | Self::Ignored => CandidateAbsence::UnresolvedReference,
-            Self::UnavailableFacts => CandidateAbsence::UnavailableDeclarationFacts,
+            Self::UnavailableSemantics => CandidateAbsence::UnavailableDeclarationSemantics,
         }
     }
 
     pub(super) const fn merge(self, other: Self) -> Self {
         match (self, other) {
-            (Self::UnavailableFacts, _) | (_, Self::UnavailableFacts) => Self::UnavailableFacts,
+            (Self::UnavailableSemantics, _) | (_, Self::UnavailableSemantics) => Self::UnavailableSemantics,
             (Self::Added, _) | (_, Self::Added) => Self::Added,
             (Self::Ignored, Self::Ignored) => Self::Ignored,
         }
@@ -81,12 +81,12 @@ pub(super) fn bind_call_candidates<C>(
 ) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     let Some(callee_expression) = unit.view().expression(callee) else {
         return Err(BinderFactError::DependencyUnavailable);
@@ -151,7 +151,7 @@ where
         }
     };
 
-    if absence == CandidateAbsence::UnavailableDeclarationFacts {
+    if absence == CandidateAbsence::UnavailableDeclarationSemantics {
         candidates.clear();
     }
 
@@ -174,12 +174,12 @@ fn bind_reference_target<C>(
 ) -> BinderFactResult<CandidateAbsence>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     match target {
         BoundReferenceTarget::Surface(AnySymbolId::CallableOverload(overload)) => {
@@ -245,15 +245,15 @@ fn bind_overload_candidates<C>(
 ) -> BinderFactResult<CandidateAbsence>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     let (template, has_diagnostics) =
-        symbol_fact_value::<_, CallableOverloadTemplateFact>(context, overload)?;
+        symbol_fact_value::<_, CallableOverloadTemplateQuery>(context, overload)?;
 
     let state = combine_recovery(state, has_diagnostics);
     let mut outcome = DeclarationCandidateOutcome::Ignored;
@@ -284,8 +284,8 @@ where
     }
 
     Ok(match outcome {
-        DeclarationCandidateOutcome::UnavailableFacts => {
-            CandidateAbsence::UnavailableDeclarationFacts
+        DeclarationCandidateOutcome::UnavailableSemantics => {
+            CandidateAbsence::UnavailableDeclarationSemantics
         }
         DeclarationCandidateOutcome::Added | DeclarationCandidateOutcome::Ignored => {
             CandidateAbsence::EmptyOverload
@@ -304,12 +304,12 @@ fn bind_source_overload_arm<C>(
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     let Some(module) = context.symbols().containing_module(overload.into()) else {
         return Ok(DeclarationCandidateOutcome::Ignored);
@@ -388,12 +388,12 @@ pub(super) fn bind_resolved_name_candidate<C>(
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     if let ResolvedName::Surface(symbol) = name {
         if symbol.kind().is_callable() {
@@ -434,10 +434,10 @@ pub(super) fn bind_declaration_candidate<C>(
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>,
 {
     let Some(definition) = CallableDefinitionId::try_new(symbol) else {
         return Ok(DeclarationCandidateOutcome::Ignored);
@@ -457,17 +457,17 @@ where
     };
 
     let (signature, signature_diagnostics) =
-        symbol_fact_value::<_, CallableSignatureFact>(context, callable)?;
+        symbol_fact_value::<_, CallableSignatureQuery>(context, callable)?;
 
     let (contract, contract_diagnostics) =
-        symbol_fact_value::<_, CallableContractTemplateFact>(context, callable)?;
+        symbol_fact_value::<_, CallableContractTemplateQuery>(context, callable)?;
 
     let generic_source = inherited_generic
         .and_then(|subject| GenericOwnerId::try_new(subject.into_any()))
         .unwrap_or(generic_owner);
 
     let (generic, generic_diagnostics) =
-        symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_source)?;
+        symbol_fact_value::<_, GenericDeclarationTemplateQuery>(context, generic_source)?;
 
     let Some(generic_arguments) =
         bind_generic_arguments(context, call_generic, &generic, diagnostics)?
@@ -484,7 +484,7 @@ where
 
     for parameter in signature.parameters() {
         let (value, default_diagnostics) =
-            symbol_fact_value::<_, CallableParameterDefaultTemplateFact>(context, *parameter)?;
+            symbol_fact_value::<_, CallableParameterDefaultTemplateQuery>(context, *parameter)?;
 
         has_diagnostics |= default_diagnostics;
 
@@ -575,8 +575,8 @@ fn bind_predicate_candidate<C>(
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>,
 {
     let Some(definition) = PredicateDefinitionSymbolId::try_from_any(symbol) else {
         return Ok(DeclarationCandidateOutcome::Ignored);
@@ -591,10 +591,10 @@ where
     };
 
     let (signature, signature_diagnostics) =
-        symbol_fact_value::<_, PredicateSignatureTemplateFact>(context, definition)?;
+        symbol_fact_value::<_, PredicateSignatureTemplateQuery>(context, definition)?;
 
     let (generic, generic_diagnostics) =
-        symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
+        symbol_fact_value::<_, GenericDeclarationTemplateQuery>(context, generic_owner)?;
 
     let Some(generic_arguments) =
         bind_generic_arguments(context, call_generic, &generic, diagnostics)?
@@ -631,15 +631,15 @@ where
     C: BinderFactContext + ?Sized,
     F: SymbolFactContract,
     F::Value: Clone,
-    C::SymbolFacts: SymbolFactProvider<F>,
+    C::SymbolSemantics: SymbolFactProvider<F>,
 {
     let result = context
-        .symbol_facts()
+        .symbol_semantics()
         .symbol_fact(SymbolFactRequest::<F>::new(owner))?;
 
     let has_diagnostics = !result.diagnostics().is_empty();
 
-    // The candidate owns the fact value while recursive semantic storage remains Arc-shared.
+    // The candidate owns the query value while recursive semantic storage remains Arc-shared.
     Ok((result.value().clone(), has_diagnostics))
 }
 
@@ -687,11 +687,11 @@ const fn preferred_absence(
     candidate: CandidateAbsence,
 ) -> CandidateAbsence {
     match (current, candidate) {
-        (_, CandidateAbsence::UnavailableDeclarationFacts) => {
-            CandidateAbsence::UnavailableDeclarationFacts
+        (_, CandidateAbsence::UnavailableDeclarationSemantics) => {
+            CandidateAbsence::UnavailableDeclarationSemantics
         }
-        (CandidateAbsence::UnavailableDeclarationFacts, _) => {
-            CandidateAbsence::UnavailableDeclarationFacts
+        (CandidateAbsence::UnavailableDeclarationSemantics, _) => {
+            CandidateAbsence::UnavailableDeclarationSemantics
         }
         (_, CandidateAbsence::EmptyOverload) => CandidateAbsence::EmptyOverload,
         (CandidateAbsence::EmptyOverload, _) => CandidateAbsence::EmptyOverload,

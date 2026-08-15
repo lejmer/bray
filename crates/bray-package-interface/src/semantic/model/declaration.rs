@@ -13,7 +13,7 @@ pub struct InterfaceDeclaredType {
 }
 
 impl InterfaceDeclaredType {
-    /// Creates one declaration-owned type fact.
+    /// Creates one declaration-owned type record.
     pub const fn new(owner: InterfaceSymbolReference, ty: InterfaceTypeId) -> Self {
         Self { owner, ty }
     }
@@ -116,7 +116,7 @@ impl InterfaceUnionTag {
     }
 }
 
-/// Source-level representation facts required by consumers of one declared type.
+/// Source-level representation semantics required by consumers of one declared type.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceTypeRepresentation {
     pub(crate) owner: InterfaceSymbolReference,
@@ -421,7 +421,7 @@ pub struct InterfacePredicateDefinition {
 }
 
 impl InterfacePredicateDefinition {
-    /// Creates one durable predicate definition fact.
+    /// Creates one durable predicate definition record.
     pub const fn new(
         owner: InterfaceSymbolReference,
         state: InterfacePredicateDefinitionState,
@@ -429,7 +429,7 @@ impl InterfacePredicateDefinition {
         Self { owner, state }
     }
 
-    /// Returns the predicate declaration that owns this fact.
+    /// Returns the predicate declaration that owns this record.
     pub const fn owner(&self) -> &InterfaceSymbolReference {
         &self.owner
     }
@@ -441,7 +441,7 @@ impl InterfacePredicateDefinition {
 }
 
 impl InterfaceCallableParameterDefault {
-    /// Creates one durable callable parameter default fact.
+    /// Creates one durable callable parameter default record.
     pub const fn new(parameter: InterfaceSymbolReference, is_present: bool) -> Self {
         Self {
             parameter,

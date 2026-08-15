@@ -125,8 +125,8 @@ pub enum InterfaceInspectionRecordKind {
     Relationships,
     /// Exported lookup edges.
     ExportedLookups,
-    /// Symbol-owned fact addresses.
-    SymbolFacts,
+    /// Symbol-owned record addresses.
+    SymbolSemantics,
     /// Canonical generic substitutions.
     GenericSubstitutions,
     /// Canonical trait applications.
@@ -147,26 +147,26 @@ pub enum InterfaceInspectionRecordKind {
     Constraints,
     /// Callable contracts.
     CallableContracts,
-    /// Callable signature facts.
+    /// Callable signature semantics.
     CallableSignatures,
-    /// Generic declaration facts.
+    /// Generic declaration semantics.
     GenericDeclarations,
-    /// Callable parameter default-availability facts.
+    /// Callable parameter default-availability semantics.
     CallableParameterDefaults,
-    /// Predicate definition-state facts.
+    /// Predicate definition-state semantics.
     PredicateDefinitions,
-    /// Declared type representation facts.
+    /// Declared type representation semantics.
     TypeRepresentations,
     /// Source-independent checked templates.
     CheckedTemplates,
-    /// Declaration-owned template facts.
+    /// Declaration-owned template semantics.
     DeclarationTemplates,
     /// Public implementation records.
     Implementations,
     /// Implementation coherence records.
     Coherence,
-    /// Required target facts.
-    TargetFacts,
+    /// Required target semantics.
+    TargetProperties,
     /// Required callable ABIs.
     AbiDependencies,
     /// Required private runtime ABI surfaces.
@@ -187,7 +187,7 @@ impl InterfaceInspectionRecordKind {
             Self::SymbolIdentities => "symbol_identities",
             Self::Relationships => "relationships",
             Self::ExportedLookups => "exported_lookups",
-            Self::SymbolFacts => "symbol_facts",
+            Self::SymbolSemantics => "symbol_semantics",
             Self::GenericSubstitutions => "generic_substitutions",
             Self::TraitApplications => "trait_applications",
             Self::CallableInstances => "callable_instances",
@@ -207,7 +207,7 @@ impl InterfaceInspectionRecordKind {
             Self::DeclarationTemplates => "declaration_templates",
             Self::Implementations => "implementations",
             Self::Coherence => "coherence",
-            Self::TargetFacts => "target_facts",
+            Self::TargetProperties => "target_properties",
             Self::AbiDependencies => "abi_dependencies",
             Self::RuntimeRequirements => "runtime_requirements",
             Self::SourceProvenance => "source_provenance",
@@ -344,11 +344,11 @@ fn decode_surface_inspection_records(
                 exports.len(),
             )
         }
-        InterfaceSectionTag::SymbolFactDirectory
+        InterfaceSectionTag::SemanticRecordDirectory
         | InterfaceSectionTag::SemanticTypes
         | InterfaceSectionTag::Constants
         | InterfaceSectionTag::Contracts
-        | InterfaceSectionTag::DeclarationFacts
+        | InterfaceSectionTag::DeclarationSemantics
         | InterfaceSectionTag::DeclarationTemplates
         | InterfaceSectionTag::Implementations
         | InterfaceSectionTag::TargetDependencies
@@ -385,11 +385,11 @@ fn decode_strings_index<'strings>(
 const fn is_semantic_section(section: InterfaceSectionTag) -> bool {
     matches!(
         section,
-        InterfaceSectionTag::SymbolFactDirectory
+        InterfaceSectionTag::SemanticRecordDirectory
             | InterfaceSectionTag::SemanticTypes
             | InterfaceSectionTag::Constants
             | InterfaceSectionTag::Contracts
-            | InterfaceSectionTag::DeclarationFacts
+            | InterfaceSectionTag::DeclarationSemantics
             | InterfaceSectionTag::DeclarationTemplates
             | InterfaceSectionTag::Implementations
             | InterfaceSectionTag::TargetDependencies
@@ -456,12 +456,12 @@ mod tests {
     }
 
     #[test]
-    fn declaration_fact_inspection_reports_each_record_category() {
+    fn declaration_record_inspection_reports_each_record_category() {
         let interface = validated_test_interface();
 
         let inspection = interface
-            .inspect(&[InterfaceSectionTag::DeclarationFacts])
-            .unwrap_or_else(|error| panic!("declaration facts must inspect: {error:?}"));
+            .inspect(&[InterfaceSectionTag::DeclarationSemantics])
+            .unwrap_or_else(|error| panic!("declaration semantics must inspect: {error:?}"));
 
         assert_eq!(
             inspection.sections()[0]
@@ -559,7 +559,7 @@ mod tests {
                 .map(|record| record.kind())
                 .collect::<Vec<_>>(),
             [
-                InterfaceInspectionRecordKind::TargetFacts,
+                InterfaceInspectionRecordKind::TargetProperties,
                 InterfaceInspectionRecordKind::AbiDependencies,
                 InterfaceInspectionRecordKind::RuntimeRequirements,
             ]
@@ -594,7 +594,7 @@ mod tests {
             .into_iter()
             .map(EncodedArtifactSection::from_surface)
             .chain(
-                crate::semantic::encode_validated_semantic_facts(bundle.semantic_facts())
+                crate::semantic::encode_validated_semantics(bundle.semantics())
                     .into_iter()
                     .map(EncodedArtifactSection::from_semantic),
             )

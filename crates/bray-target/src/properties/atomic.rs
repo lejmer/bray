@@ -56,7 +56,7 @@ impl TargetAtomicRepresentation {
 
 /// Operations natively available for one atomic representation.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAtomicOperationFacts {
+pub struct TargetAtomicOperations {
     load_store: bool,
     exchange: bool,
     compare_exchange: bool,
@@ -64,7 +64,7 @@ pub struct TargetAtomicOperationFacts {
     fetch_bitwise: bool,
 }
 
-impl TargetAtomicOperationFacts {
+impl TargetAtomicOperations {
     /// Creates the exact operation matrix for one representation.
     pub const fn new(
         load_store: bool,
@@ -129,18 +129,18 @@ impl TargetAtomicOperationFacts {
 
 /// Availability and guarantees for one atomic representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAtomicRepresentationFacts {
-    operations: TargetAtomicOperationFacts,
+pub struct TargetAtomicRepresentationSupport {
+    operations: TargetAtomicOperations,
     required_alignment: NonZeroU64,
     always_lock_free: bool,
     wait_notify: bool,
     cross_process: bool,
 }
 
-impl TargetAtomicRepresentationFacts {
-    /// Creates internally consistent representation facts.
+impl TargetAtomicRepresentationSupport {
+    /// Creates internally consistent representation properties.
     pub const fn try_new(
-        operations: TargetAtomicOperationFacts,
+        operations: TargetAtomicOperations,
         required_alignment: NonZeroU64,
         always_lock_free: bool,
         wait_notify: bool,
@@ -166,7 +166,7 @@ impl TargetAtomicRepresentationFacts {
     /// Creates an unavailable representation with its natural alignment.
     pub const fn unavailable(required_alignment: NonZeroU64) -> Self {
         Self {
-            operations: TargetAtomicOperationFacts::new(false, false, false, false, false),
+            operations: TargetAtomicOperations::new(false, false, false, false, false),
             required_alignment,
             always_lock_free: false,
             wait_notify: false,
@@ -175,7 +175,7 @@ impl TargetAtomicRepresentationFacts {
     }
 
     /// Returns the exact operation matrix.
-    pub const fn operations(self) -> TargetAtomicOperationFacts {
+    pub const fn operations(self) -> TargetAtomicOperations {
         self.operations
     }
 
@@ -200,21 +200,21 @@ impl TargetAtomicRepresentationFacts {
     }
 }
 
-/// Atomic representation and operation facts for one target.
+/// Atomic representation and operation properties for one target.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAtomicFacts {
-    representations: [TargetAtomicRepresentationFacts; ATOMIC_REPRESENTATION_COUNT],
+pub struct TargetAtomicSupport {
+    representations: [TargetAtomicRepresentationSupport; ATOMIC_REPRESENTATION_COUNT],
 }
 
-impl TargetAtomicFacts {
-    /// Creates complete per-representation target facts.
+impl TargetAtomicSupport {
+    /// Creates complete per-representation target properties.
     pub const fn new(
-        u8: TargetAtomicRepresentationFacts,
-        u16: TargetAtomicRepresentationFacts,
-        u32: TargetAtomicRepresentationFacts,
-        u64: TargetAtomicRepresentationFacts,
-        u128: TargetAtomicRepresentationFacts,
-        pointer: TargetAtomicRepresentationFacts,
+        u8: TargetAtomicRepresentationSupport,
+        u16: TargetAtomicRepresentationSupport,
+        u32: TargetAtomicRepresentationSupport,
+        u64: TargetAtomicRepresentationSupport,
+        u128: TargetAtomicRepresentationSupport,
+        pointer: TargetAtomicRepresentationSupport,
     ) -> Self {
         Self {
             representations: [u8, u16, u32, u64, u128, pointer],
@@ -226,11 +226,11 @@ impl TargetAtomicFacts {
         self.u8() || self.u16() || self.u32() || self.u64() || self.u128() || self.pointer()
     }
 
-    /// Returns facts for one representation.
+    /// Returns properties for one representation.
     pub const fn representation(
         self,
         representation: TargetAtomicRepresentation,
-    ) -> TargetAtomicRepresentationFacts {
+    ) -> TargetAtomicRepresentationSupport {
         self.representations[representation.index()]
     }
 
@@ -277,7 +277,7 @@ impl TargetAtomicFacts {
     }
 }
 
-impl Default for TargetAtomicFacts {
+impl Default for TargetAtomicSupport {
     fn default() -> Self {
         Self::new(
             unavailable(1),
@@ -290,12 +290,12 @@ impl Default for TargetAtomicFacts {
     }
 }
 
-const fn unavailable(alignment: u64) -> TargetAtomicRepresentationFacts {
+const fn unavailable(alignment: u64) -> TargetAtomicRepresentationSupport {
     let Some(alignment) = NonZeroU64::new(alignment) else {
         panic!("atomic alignment must be nonzero");
     };
 
-    TargetAtomicRepresentationFacts::unavailable(alignment)
+    TargetAtomicRepresentationSupport::unavailable(alignment)
 }
 
 #[cfg(test)]
@@ -303,7 +303,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use super::{
-        TargetAtomicOperationFacts, TargetAtomicRepresentation, TargetAtomicRepresentationFacts,
+        TargetAtomicOperations, TargetAtomicRepresentation, TargetAtomicRepresentationSupport,
     };
 
     #[test]
@@ -320,10 +320,10 @@ mod tests {
     #[test]
     fn wait_requires_atomic_load_support() {
         let alignment = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
-        let exchange_only = TargetAtomicOperationFacts::new(false, true, false, false, false);
+        let exchange_only = TargetAtomicOperations::new(false, true, false, false, false);
 
         assert_eq!(
-            TargetAtomicRepresentationFacts::try_new(
+            TargetAtomicRepresentationSupport::try_new(
                 exchange_only,
                 alignment,
                 false,

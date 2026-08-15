@@ -206,7 +206,7 @@ where
             .add_range(imported.diagnostics().iter().cloned());
 
         if let Some(result) = imported.value() {
-            // Imported representation facts own Arc-backed tag storage.
+            // Imported representation records own Arc-backed tag storage.
             let result = result.clone();
 
             self.completed.insert(subject, result.clone());

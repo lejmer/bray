@@ -6,7 +6,7 @@ use bray_diagnostics::{
     DiagnosticKind, DiagnosticProjectManifestField, SeverityKind,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity};
-use bray_target::{TargetFactKind, TargetIdentity};
+use bray_target::{TargetPropertyKind, TargetIdentity};
 
 use super::diagnostic::invalid_manifest_diagnostic;
 use crate::TargetPredicateValueKind;
@@ -79,7 +79,7 @@ pub(super) enum ProjectManifestViolation {
     },
     TargetPredicateValueKindMismatch {
         field: DiagnosticProjectManifestField,
-        property: TargetFactKind,
+        property: TargetPropertyKind,
         expected: TargetPredicateValueKind,
         actual: TargetPredicateValueKind,
     },
@@ -494,7 +494,7 @@ impl ProjectLoadError {
     pub(crate) fn target_predicate_value_kind_mismatch(
         path: PathBuf,
         field: DiagnosticProjectManifestField,
-        property: TargetFactKind,
+        property: TargetPropertyKind,
         expected: TargetPredicateValueKind,
         actual: TargetPredicateValueKind,
     ) -> Self {

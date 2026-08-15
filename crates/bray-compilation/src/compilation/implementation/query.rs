@@ -3,10 +3,10 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationCandidate,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCandidate,
     ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceEvidence,
-    ImplementationCoherenceFact, ImplementationCoherenceParticipant,
-    ImplementationHeadTemplateFact, ImplementationRequirementKey, SymbolFactRequest,
+    ImplementationCoherenceQuery, ImplementationCoherenceParticipant,
+    ImplementationHeadTemplateQuery, ImplementationRequirementKey, SymbolFactRequest,
 };
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
@@ -63,7 +63,7 @@ impl super::super::Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
         let source_graph = self.product_source_graph()?;
         let declarations = source_graph.declarations();
         let symbols = self.symbol_graph()?;
@@ -83,18 +83,18 @@ impl super::super::Compilation {
 
             let implementation = participant.implementation();
 
-            if let Some(address) = facts
-                .imported_fact_address(implementation.into_any())
+            if let Some(address) = binding_context
+                .imported_semantic_address(implementation.into_any())
                 .map_err(super::super::binder::binder_fact_error)?
             {
-                let imported = super::super::binder::imported_implementation(&facts, address)
+                let imported = super::super::binder::imported_implementation(&binding_context, address)
                     .map_err(super::super::binder::binder_fact_error)?;
 
                 let owner = GenericOwnerId::try_new(implementation.into_any())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let generic = facts
-                    .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+                let generic = binding_context
+                    .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
                         owner,
                     ))
                     .map_err(super::super::binder::binder_fact_error)?;
@@ -127,14 +127,14 @@ impl super::super::Compilation {
                 implementation.into_any(),
             );
 
-            let head = facts
-                .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
+            let head = binding_context
+                .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateQuery>::new(
                     implementation,
                 ))
                 .map_err(super::super::binder::binder_fact_error)?;
 
-            let coherence = facts
-                .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+            let coherence = binding_context
+                .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
                     implementation,
                 ))
                 .map_err(super::super::binder::binder_fact_error)?;
@@ -146,7 +146,7 @@ impl super::super::Compilation {
                 continue;
             };
 
-            // The index owns the immutable generic template beyond the borrowed fact result.
+            // The index owns the immutable generic template beyond the borrowed query result.
             let generic = head.value().generic().clone();
 
             // Headers retain their stable key and Arc-backed target dependencies.
@@ -273,7 +273,7 @@ mod tests {
         ImplementationSymbolId, NamedTraitImplementationSymbolId, NamedTypeSymbolId,
         StructSymbolId, SymbolOrigin, TraitApplicationData, TypeData,
     };
-    use bray_target::TargetFactKind;
+    use bray_target::TargetPropertyKind;
 
     use crate::fact::CompilationFactKey;
     use crate::test_support::{
@@ -400,8 +400,8 @@ impl WrapperConverts = Wrapper<T>(Converts<T>)
             compilation
                 .available_compiler_known_symbols()
                 .provider()
-                .symbol_target_fact(dependency.fact()),
-            Some(TargetFactKind::ScalarU64)
+                .symbol_target_property(dependency.property()),
+            Some(TargetPropertyKind::ScalarU64)
         );
     }
 
@@ -734,9 +734,9 @@ impl WrapperConverts = Wrapper<T>(Converts<T>)
             .unwrap_or_else(|error| panic!("fixture substitution must be interned: {error:?}"))
     }
 
-    fn target_gated_implementations(target_fact: &str) -> String {
+    fn target_gated_implementations(target_property: &str) -> String {
         format!(
-            r#"@target({target_fact})
+            r#"@target({target_property})
 module app
 {{
     impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)

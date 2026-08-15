@@ -43,7 +43,7 @@ Examples of semantic restrictions include duplicate modifiers, incompatible modi
 invalid types, invalid traits, and context-specific callable body requirements.
 
 The parser may use syntax context to choose between grammar alternatives.
-It must not use name resolution, type information, target facts, package facts, or later compiler phase state.
+It must not use name resolution, type information, target properties, package semantics, or later compiler phase state.
 
 ---
 

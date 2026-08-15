@@ -1,4 +1,4 @@
-// rust-style: allow(module-too-large, reason = "the compilation checker context keeps one complete lazy checker-fact adapter")
+// rust-style: allow(module-too-large, reason = "the compilation checker context keeps one complete lazy checker-query adapter")
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
@@ -23,7 +23,7 @@ use bray_standard_library::{
 };
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationInstanceId,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationInstanceId,
     ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, ModuleOwnerId,
     ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, StructSymbol,
     StructSymbolId, SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolName,
@@ -33,7 +33,7 @@ use bray_symbols::{
 use bray_target::{TargetAtomicRepresentation, TargetProfile};
 
 use super::Compilation;
-use super::binder::CompilationBinderFacts;
+use super::binder::CompilationBindingContext;
 use super::implementation::{
     TypeValuedMemberResolution, implementation_fulfillments, implementation_instance_requirement,
     selected_type_valued_member,
@@ -41,16 +41,16 @@ use super::implementation::{
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
-    facts: CompilationBinderFacts<'compilation>,
+    binding_context: CompilationBindingContext<'compilation>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
     recognized_standard_library_implementations:
         OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerFactError>>,
 }
 
 impl<'compilation> CompilationCheckerContext<'compilation> {
-    pub(super) fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
+    pub(super) fn new(binding_context: CompilationBindingContext<'compilation>) -> Self {
         Self {
-            facts,
+            binding_context,
             implementation_witnesses: Arc::from([]),
             recognized_standard_library_implementations: OnceLock::new(),
         }
@@ -66,7 +66,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     }
 
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
-        self.facts.symbols()
+        self.binding_context.symbols()
     }
 
     fn matching_implementation_witness(
@@ -74,7 +74,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         requirement: ImplementationRequirementKey,
     ) -> CheckerFactResult<Option<ImplementationInstanceId>> {
         for witness in self.implementation_witnesses.iter().copied() {
-            let witness_requirement = implementation_instance_requirement(&self.facts, witness)
+            let witness_requirement = implementation_instance_requirement(&self.binding_context, witness)
                 .map_err(checker_fact_error)?;
 
             if requirement == witness_requirement {
@@ -135,8 +135,8 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         ty: TypeId,
     ) -> CheckerFactResult<bool> {
         let generic = self
-            .facts
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+            .binding_context
+            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
                 owner,
             ))
             .map_err(|error| match error {
@@ -158,7 +158,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             let constants = self.checked_constraint_constants(subject, application)?;
 
             let Some(subject) =
-                resolve_type_expression_template(self.facts.semantic_values(), subject, &constants)
+                resolve_type_expression_template(self.binding_context.semantic_values(), subject, &constants)
                     .map_err(CheckerFactError::Infrastructure)?
             else {
                 continue;
@@ -185,9 +185,9 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             .chain(application.constant_expressions())
         {
             let result = self
-                .facts
+                .binding_context
                 .compilation()
-                .embedded_constant_term_with_cancellation(occurrence, self.facts.cancellation())
+                .embedded_constant_term_with_cancellation(occurrence, self.binding_context.cancellation())
                 .map_err(checker_fact_error)?;
 
             if result.diagnostics().has_errors() {
@@ -217,9 +217,9 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         let mut implementations = self.source_standard_library_implementations()?;
 
         let imported = self
-            .facts
+            .binding_context
             .compilation()
-            .imported_symbol_skeleton_result_with_cancellation(self.facts.cancellation())
+            .imported_symbol_skeleton_result_with_cancellation(self.binding_context.cancellation())
             .map_err(checker_fact_error)?;
 
         let Some(imported) = imported.value() else {
@@ -229,7 +229,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         let standard_library = standard_library_package_identity()?;
 
         let all = Arc::clone(imported).recognize_standard_library(&standard_library, |_| true);
-        let target = self.facts.compilation().selected_target().target();
+        let target = self.binding_context.compilation().selected_target().target();
 
         let available = Arc::clone(imported)
             .recognize_standard_library(&standard_library, |rule| target.supports(rule));
@@ -260,7 +260,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     fn source_standard_library_implementations(
         &self,
     ) -> CheckerFactResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        if !is_public_standard_library_source(self.facts.compilation()) {
+        if !is_public_standard_library_source(self.binding_context.compilation()) {
             return Ok(BTreeMap::new());
         }
 
@@ -275,7 +275,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             return Ok(BTreeMap::new());
         };
 
-        let target = self.facts.compilation().selected_target().target();
+        let target = self.binding_context.compilation().selected_target().target();
         let mut implementations = BTreeMap::new();
         let mut declarations = BTreeMap::new();
 
@@ -360,7 +360,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
-        self.facts.semantic_values()
+        self.binding_context.semantic_values()
     }
 
     fn symbols(&self) -> &bray_symbols::SymbolGraph {
@@ -371,7 +371,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         symbol: AnySymbolId,
     ) -> CheckerFactResult<Option<&bray_symbols::SymbolKey>> {
-        self.facts.symbol_key(symbol).map_err(checker_binder_error)
+        self.binding_context.symbol_key(symbol).map_err(checker_binder_error)
     }
 
     fn lookup_member(
@@ -379,41 +379,41 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         owner: AnySymbolId,
         name: &str,
     ) -> CheckerFactResult<MemberLookupResult<AnySymbolId>> {
-        self.facts
+        self.binding_context
             .lookup_member(owner, name)
             .map_err(checker_binder_error)
     }
 
     fn member_name(&self, member: AnySymbolId) -> CheckerFactResult<Option<&SymbolName>> {
-        self.facts.member_name(member).map_err(checker_binder_error)
+        self.binding_context.member_name(member).map_err(checker_binder_error)
     }
 
     fn structure(&self, id: StructSymbolId) -> CheckerFactResult<Option<&StructSymbol>> {
-        self.facts.structure(id).map_err(checker_binder_error)
+        self.binding_context.structure(id).map_err(checker_binder_error)
     }
 
     fn union(&self, id: UnionSymbolId) -> CheckerFactResult<Option<&UnionSymbol>> {
-        self.facts.union(id).map_err(checker_binder_error)
+        self.binding_context.union(id).map_err(checker_binder_error)
     }
 
     fn union_variant(
         &self,
         id: UnionVariantSymbolId,
     ) -> CheckerFactResult<Option<&UnionVariantSymbol>> {
-        self.facts.union_variant(id).map_err(checker_binder_error)
+        self.binding_context.union_variant(id).map_err(checker_binder_error)
     }
 
     fn union_payload_field(
         &self,
         id: bray_symbols::UnionPayloadFieldSymbolId,
     ) -> CheckerFactResult<Option<&bray_symbols::UnionPayloadFieldSymbol>> {
-        self.facts
+        self.binding_context
             .union_payload_field(id)
             .map_err(checker_binder_error)
     }
 
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
-        self.facts
+        self.binding_context
             .compilation()
             .selected_target()
             .available_compiler_known_symbols()
@@ -430,7 +430,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
     }
 
     fn selected_target(&self) -> &TargetProfile {
-        self.facts
+        self.binding_context
             .compilation()
             .selected_target()
             .target()
@@ -442,9 +442,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         occurrence: bray_symbols::ConstantExpressionOccurrence,
     ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ConstantTermId>> {
         // The checker request contract returns an owned result across the crate boundary.
-        self.facts
+        self.binding_context
             .compilation()
-            .embedded_constant_term_with_cancellation(occurrence, self.facts.cancellation())
+            .embedded_constant_term_with_cancellation(occurrence, self.binding_context.cancellation())
             .map(|result| (*result).clone())
             .map_err(checker_fact_error)
     }
@@ -454,11 +454,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         obligation: bray_symbols::GenericConstraintObligationKey,
     ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ProofOutcome>> {
         match self
-            .facts
+            .binding_context
             .compilation()
             .generic_constraint_satisfaction_with_cancellation(
                 obligation,
-                self.facts.cancellation(),
+                self.binding_context.cancellation(),
             ) {
             Ok(result) => Ok((*result).clone()),
             Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
@@ -472,11 +472,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         requirement: ImplementationRequirementKey,
     ) -> CheckerFactResult<DiagnosticResult<ImplementationSelection>> {
-        self.facts
+        self.binding_context
             .compilation()
             .implementation_selection_result_with_cancellation(
                 requirement,
-                self.facts.cancellation(),
+                self.binding_context.cancellation(),
             )
             .map(|result| (*result).clone())
             .map_err(checker_fact_error)
@@ -502,11 +502,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 (instance, bray_diagnostics::DiagnosticBag::new())
             } else {
                 let selection = self
-                    .facts
+                    .binding_context
                     .compilation()
                     .implementation_selection_result_with_cancellation(
                         requirement,
-                        self.facts.cancellation(),
+                        self.binding_context.cancellation(),
                     )
                     .map_err(checker_fact_error)?;
 
@@ -528,11 +528,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 )
             })?;
 
-        let fulfillments = implementation_fulfillments(&self.facts, instance.definition())
+        let fulfillments = implementation_fulfillments(&self.binding_context, instance.definition())
             .map_err(checker_fact_error)?;
 
         let resolved = selected_type_valued_member(
-            &self.facts,
+            &self.binding_context,
             instance.substitution(),
             fulfillments.types,
             member,
@@ -553,9 +553,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>> {
         // The checker request contract returns an owned result across the crate boundary.
-        self.facts
+        self.binding_context
             .compilation()
-            .declared_type_representation_with_cancellation(subject, self.facts.cancellation())
+            .declared_type_representation_with_cancellation(subject, self.binding_context.cancellation())
             .map(|result| (*result).clone())
             .map_err(checker_fact_error)
     }
@@ -564,9 +564,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         ty: TypeId,
     ) -> CheckerFactResult<Option<TargetAtomicRepresentation>> {
-        self.facts
+        self.binding_context
             .compilation()
-            .plain_storage_atomic_representation(ty, self.facts.cancellation())
+            .plain_storage_atomic_representation(ty, self.binding_context.cancellation())
             .map_err(checker_fact_error)
     }
 
@@ -575,9 +575,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<bool>> {
         let surface = self
-            .facts
+            .binding_context
             .compilation()
-            .type_associated_surface_result_with_cancellation(subject, self.facts.cancellation())
+            .type_associated_surface_result_with_cancellation(subject, self.binding_context.cancellation())
             .map_err(checker_fact_error)?;
 
         let has_lifecycle = surface.value().lifecycle_members().iter().any(|member| {
@@ -606,18 +606,18 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         anchor: BoundSourceAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
-        checker_source(self.facts.compilation(), anchor)
+        checker_source(self.binding_context.compilation(), anchor)
     }
 
     fn source_syntax(
         &self,
         anchor: bray_declarations::SyntaxAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
-        checker_syntax_source(self.facts.compilation(), anchor)
+        checker_syntax_source(self.binding_context.compilation(), anchor)
     }
 
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
-        self.facts.cancellation()
+        self.binding_context.cancellation()
     }
 }
 
@@ -722,13 +722,13 @@ fn checker_binder_error(error: BinderFactError) -> CheckerFactError {
 impl<'compilation, C> CheckerSemanticFactProvider<C> for CompilationCheckerContext<'compilation>
 where
     C: SymbolFactContract,
-    CompilationBinderFacts<'compilation>: SymbolFactProvider<C>,
+    CompilationBindingContext<'compilation>: SymbolFactProvider<C>,
 {
     fn symbol_fact(
         &self,
         request: SymbolFactRequest<C>,
     ) -> CheckerFactResult<Arc<SymbolFactResult<C>>> {
-        self.facts
+        self.binding_context
             .symbol_fact(request)
             .map_err(|error| match error {
                 BinderFactError::Cancelled => CheckerFactError::Cancelled,
@@ -783,9 +783,9 @@ impl Compilation {
         &'compilation self,
         cancellation: &'compilation CancellationToken,
     ) -> Result<CompilationCheckerContext<'compilation>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        Ok(CompilationCheckerContext::new(facts))
+        Ok(CompilationCheckerContext::new(binding_context))
     }
 
     pub(super) fn checker_context_for<'compilation>(
@@ -793,9 +793,9 @@ impl Compilation {
         key: &BoundUnitKey,
         cancellation: &'compilation CancellationToken,
     ) -> Result<CompilationCheckerContext<'compilation>, FactQueryError> {
-        let facts = self.binder_facts_for(key, cancellation)?;
+        let binding_context = self.binding_context_for(key, cancellation)?;
 
-        Ok(CompilationCheckerContext::new(facts))
+        Ok(CompilationCheckerContext::new(binding_context))
     }
 }
 
@@ -825,7 +825,7 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_source::SourceVersion;
     use bray_symbols::{
-        CallableSignatureFact, CallableSymbolId, PackageIdentity, SymbolFactRequest, SymbolOrigin,
+        CallableSignatureQuery, CallableSymbolId, PackageIdentity, SymbolFactRequest, SymbolOrigin,
     };
 
     use super::{Compilation, is_public_standard_library_source};
@@ -887,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn contexts_supply_typed_symbol_facts_without_origin_specific_apis() {
+    fn contexts_supply_typed_symbol_semantics_without_origin_specific_apis() {
         let compilation = callable_compilation();
         let key = source_callable_body_key(&compilation);
 
@@ -927,7 +927,7 @@ mod tests {
         };
 
         let signature_request =
-            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function.id()));
+            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function.id()));
 
         let signature = request.symbol_fact(signature_request);
 
@@ -935,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn target_validity_reuses_one_exact_published_fact() {
+    fn target_validity_reuses_one_exact_published_result() {
         let compilation = callable_compilation();
         let source = source_callable_body_key(&compilation).source();
 

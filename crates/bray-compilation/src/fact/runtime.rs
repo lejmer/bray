@@ -854,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_local_fact_keys_are_not_compared_across_snapshots() {
+    fn snapshot_local_semantic_keys_are_not_compared_across_snapshots() {
         let mut runtime = FactRuntime::default();
         let key = CompilationFactKey::ModuleContributionGate(ModulePartId::new(7));
         let mut inputs = CompilationInputs::default();

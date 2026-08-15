@@ -43,7 +43,7 @@
     {
       "name": "companion outputs",
       "production": "fn complete_linked_outputs(",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
       "name": "tool failures",
@@ -68,32 +68,32 @@
     {
       "name": "async host entry",
       "production": "pub fn entry_point(&self)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
       "name": "runtime ABI and startup inputs",
       "production": "pub const fn executable_host(&self)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
       "name": "root frame descriptor",
       "production": "pub const fn executable_host(&self)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
       "name": "main thread lane",
       "production": "pub const fn executable_host(&self)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
       "name": "structured shutdown inputs",
       "production": "pub const fn executable_host(&self)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     },
     {
-      "name": "typed fact boundary",
+      "name": "typed input boundary",
       "production": "fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation)",
-      "test": "async_link_forwards_resolved_host_runtime_and_companion_facts"
+      "test": "async_link_forwards_resolved_host_runtime_and_companion_inputs"
     }
   ]
 }

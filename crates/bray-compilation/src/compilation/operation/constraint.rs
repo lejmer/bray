@@ -4,15 +4,15 @@ use std::collections::BTreeSet;
 
 use bray_symbols::{
     AnySymbolId, CallableParameterData, CallableTypeData, CheckedConstraint, CheckedConstraintKind,
-    GenericArgument, GenericConstraintsFact, GenericOwnerId, GenericSubstitutionData,
+    GenericArgument, GenericConstraintsQuery, GenericOwnerId, GenericSubstitutionData,
     SemanticValueStore, SymbolFactRequest, TraitApplicationData, TypeData, TypeId,
 };
 
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
 use crate::fact::FactQueryError;
 
 pub(super) fn enclosing_generic_constraints(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     mut owner: AnySymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Vec<(GenericOwnerId, CheckedConstraint)>, FactQueryError> {
@@ -20,8 +20,8 @@ pub(super) fn enclosing_generic_constraints(
 
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-            let constraints = facts
-                .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+            let constraints = binding_context
+                .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(
                     generic_owner,
                 ))
                 .map_err(binder_fact_error)?;
@@ -38,7 +38,7 @@ pub(super) fn enclosing_generic_constraints(
             );
         }
 
-        let Some(container) = facts.symbols().containing_symbol(owner) else {
+        let Some(container) = binding_context.symbols().containing_symbol(owner) else {
             break;
         };
 

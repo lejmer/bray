@@ -147,7 +147,7 @@ pub(super) fn validate_terminator(
                 .states()
                 .iter()
                 .find(|state| state.state() == *resume_state)
-                .map(crate::MirFrameStateFacts::entry);
+                .map(crate::MirFrameState::entry);
 
             if expected != Some(resume.target()) {
                 return Err(MirUnitBuildError::InvalidFrameStateEntry(resume.target()));

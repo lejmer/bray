@@ -111,7 +111,7 @@ where
     ) -> Option<ImplementationHook> {
         if let Some(bray_bound_tree::SemanticSelection::Call(selection)) = self
             .selections()
-            .and_then(|facts| facts.expression(expression))
+            .and_then(|analysis| analysis.expression(expression))
             && let Some(hook) = selection.implementation_hook()
         {
             return Some(hook);

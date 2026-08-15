@@ -767,7 +767,7 @@ impl<'values> SemanticUnifier<'values> {
             }
             ConstantTermData::Value(_)
             | ConstantTermData::IntegerLiteral { .. }
-            | ConstantTermData::TargetFact(_) => Ok(false),
+            | ConstantTermData::TargetProperty(_) => Ok(false),
         }
     }
 

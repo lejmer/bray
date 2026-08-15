@@ -280,7 +280,7 @@ where
             .map_err(|_| TaskResumeError::SynchronizationPoisoned)
     }
 
-    /// Captures immutable task, frame, cancellation, and observation facts.
+    /// Captures immutable task, frame, cancellation, and observation state.
     pub fn snapshot(&self) -> Result<TaskSnapshot, TaskObservationError> {
         let data = self
             .data

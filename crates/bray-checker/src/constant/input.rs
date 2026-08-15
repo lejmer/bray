@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatternFacts,
+    BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatterns,
     CheckedSemanticSelections,
 };
 use bray_source::SourceSpan;
@@ -37,29 +37,29 @@ pub enum ConstantReferenceResolution {
 }
 
 /// Checked semantic inputs for one constant-expression checking or evaluation request.
-pub struct ConstantEvaluationInput<'facts> {
-    expression_types: &'facts CheckedExpressionTypes,
-    semantic_selections: &'facts CheckedSemanticSelections,
-    pattern_facts: Option<&'facts CheckedPatternFacts>,
+pub struct ConstantEvaluationInput<'input> {
+    expression_types: &'input CheckedExpressionTypes,
+    semantic_selections: &'input CheckedSemanticSelections,
+    patterns: Option<&'input CheckedPatterns>,
     root: Option<ConstantEvaluationRoot>,
     result_type: Option<TypeId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     is_consistent: bool,
-    call_resolver: Option<&'facts dyn ConstantCallResolver>,
+    call_resolver: Option<&'input dyn ConstantCallResolver>,
     limits: ConstantEvaluationLimits,
 }
 
-impl<'facts> ConstantEvaluationInput<'facts> {
+impl<'input> ConstantEvaluationInput<'input> {
     /// Creates an evaluation input with the standard deterministic limits.
     pub fn new(
-        expression_types: &'facts CheckedExpressionTypes,
-        semantic_selections: &'facts CheckedSemanticSelections,
+        expression_types: &'input CheckedExpressionTypes,
+        semantic_selections: &'input CheckedSemanticSelections,
     ) -> Self {
         Self {
             expression_types,
             semantic_selections,
-            pattern_facts: None,
+            patterns: None,
             root: None,
             result_type: None,
             references: BTreeMap::new(),
@@ -86,14 +86,14 @@ impl<'facts> ConstantEvaluationInput<'facts> {
     }
 
     /// Supplies checked pattern structure for constant match evaluation.
-    pub const fn with_pattern_facts(mut self, facts: &'facts CheckedPatternFacts) -> Self {
-        self.pattern_facts = Some(facts);
+    pub const fn with_patterns(mut self, patterns: &'input CheckedPatterns) -> Self {
+        self.patterns = Some(patterns);
 
         self
     }
 
     /// Supplies the demand-driven dependency boundary for selected constant calls.
-    pub const fn with_call_resolver(mut self, resolver: &'facts dyn ConstantCallResolver) -> Self {
+    pub const fn with_call_resolver(mut self, resolver: &'input dyn ConstantCallResolver) -> Self {
         self.call_resolver = Some(resolver);
 
         self
@@ -162,8 +162,8 @@ impl<'facts> ConstantEvaluationInput<'facts> {
         self.result_type
     }
 
-    pub(crate) const fn pattern_facts(&self) -> Option<&CheckedPatternFacts> {
-        self.pattern_facts
+    pub(crate) const fn patterns(&self) -> Option<&CheckedPatterns> {
+        self.patterns
     }
 
     /// Returns the caller-resolved dependency for one constant reference occurrence.

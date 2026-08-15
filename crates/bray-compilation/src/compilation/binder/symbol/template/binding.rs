@@ -3,17 +3,17 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractExpressionTemplate, CallableContractTemplate,
-    CallableContractTemplateFact, CallableOverloadTemplateFact,
-    CallableParameterDefaultTemplateFact, CallableParameterSymbolId, CallableSymbolId,
+    CallableContractTemplateQuery, CallableOverloadTemplateQuery,
+    CallableParameterDefaultTemplateQuery, CallableParameterSymbolId, CallableSymbolId,
     DeclarationCapabilityTemplate, DeclarationExpressionTemplate, DeclarationPredicateClauseKind,
     ExactSymbolId, GenericConstraintTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationHeadTemplate,
-    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
-    ImplementationSymbolId, ImplementedTraitApplicationFact, OverloadArmTemplate,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationHeadTemplate,
+    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery, ImplementationSubjectQuery,
+    ImplementationSymbolId, ImplementedTraitApplicationQuery, OverloadArmTemplate,
     OverloadSignatureTemplate, PredicateDefinitionSymbolId, PredicateParameterTemplate,
-    PredicateSignatureTemplate, PredicateSignatureTemplateFact, StructFieldDefaultTemplateFact,
+    PredicateSignatureTemplate, PredicateSignatureTemplateQuery, StructFieldDefaultTemplateQuery,
     SymbolFactRequest, SymbolFactResult, UnevaluatedDefaultTemplate,
-    UnionPayloadFieldDefaultTemplateFact,
+    UnionPayloadFieldDefaultTemplateQuery,
 };
 use bray_syntax::{
     ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SourceSyntaxNode,
@@ -22,81 +22,81 @@ use bray_syntax::{
 };
 
 use super::super::binding::CompilationSymbolFactBinding;
-use super::super::cache::CompilationSymbolFacts;
+use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::{generic_parameter_ids, type_binder};
 use super::super::surface::{declaration_callable_surface, symbol_ordinal, with_declaration_root};
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::binder::symbol::imported::{
     imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,
 };
 use crate::fact::SymbolFactCache;
 
-impl CompilationSymbolFactBinding<GenericDeclarationTemplateFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<GenericDeclarationTemplateFact> {
+impl CompilationSymbolFactBinding<GenericDeclarationTemplateQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<GenericDeclarationTemplateQuery> {
         &self.generic_declaration_templates
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<GenericDeclarationTemplateFact>,
-    ) -> BinderFactResult<SymbolFactResult<GenericDeclarationTemplateFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<GenericDeclarationTemplateQuery>,
+    ) -> BinderFactResult<SymbolFactResult<GenericDeclarationTemplateQuery>> {
         bind_generic_declaration_template(context, request.owner())
     }
 }
 
-impl CompilationSymbolFactBinding<CallableContractTemplateFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<CallableContractTemplateFact> {
+impl CompilationSymbolFactBinding<CallableContractTemplateQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<CallableContractTemplateQuery> {
         &self.callable_contract_templates
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<CallableContractTemplateFact>,
-    ) -> BinderFactResult<SymbolFactResult<CallableContractTemplateFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<CallableContractTemplateQuery>,
+    ) -> BinderFactResult<SymbolFactResult<CallableContractTemplateQuery>> {
         bind_callable_contract_template(context, request.owner())
     }
 }
 
-impl CompilationSymbolFactBinding<PredicateSignatureTemplateFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<PredicateSignatureTemplateFact> {
+impl CompilationSymbolFactBinding<PredicateSignatureTemplateQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<PredicateSignatureTemplateQuery> {
         &self.predicate_signature_templates
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<PredicateSignatureTemplateFact>,
-    ) -> BinderFactResult<SymbolFactResult<PredicateSignatureTemplateFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<PredicateSignatureTemplateQuery>,
+    ) -> BinderFactResult<SymbolFactResult<PredicateSignatureTemplateQuery>> {
         bind_predicate_signature_template(context, request.owner())
     }
 }
 
-impl CompilationSymbolFactBinding<ImplementationHeadTemplateFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<ImplementationHeadTemplateFact> {
+impl CompilationSymbolFactBinding<ImplementationHeadTemplateQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<ImplementationHeadTemplateQuery> {
         &self.implementation_head_templates
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<ImplementationHeadTemplateFact>,
-    ) -> BinderFactResult<SymbolFactResult<ImplementationHeadTemplateFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<ImplementationHeadTemplateQuery>,
+    ) -> BinderFactResult<SymbolFactResult<ImplementationHeadTemplateQuery>> {
         bind_implementation_head_template(context, request.owner())
     }
 }
 
 macro_rules! impl_default_template_binding {
     ($contract:ty, $field:ident) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolFacts {
+        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolSemantics {
             fn cache(&self) -> &SymbolFactCache<$contract> {
                 &self.$field
             }
 
             fn bind(
                 &self,
-                context: &CompilationBinderFacts<'_>,
+                context: &CompilationBindingContext<'_>,
                 request: SymbolFactRequest<$contract>,
             ) -> BinderFactResult<SymbolFactResult<$contract>> {
                 bind_default_template(context, request.symbol())
@@ -106,28 +106,28 @@ macro_rules! impl_default_template_binding {
 }
 
 impl_default_template_binding!(
-    CallableParameterDefaultTemplateFact,
+    CallableParameterDefaultTemplateQuery,
     callable_parameter_default_templates
 );
 impl_default_template_binding!(
-    StructFieldDefaultTemplateFact,
+    StructFieldDefaultTemplateQuery,
     struct_field_default_templates
 );
 impl_default_template_binding!(
-    UnionPayloadFieldDefaultTemplateFact,
+    UnionPayloadFieldDefaultTemplateQuery,
     union_payload_field_default_templates
 );
 
 macro_rules! impl_overload_template_binding {
     ($contract:ty, $cache:ident, $accessor:ident) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolFacts {
+        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolSemantics {
             fn cache(&self) -> &SymbolFactCache<$contract> {
                 &self.$cache
             }
 
             fn bind(
                 &self,
-                context: &CompilationBinderFacts<'_>,
+                context: &CompilationBindingContext<'_>,
                 request: SymbolFactRequest<$contract>,
             ) -> BinderFactResult<SymbolFactResult<$contract>> {
                 let symbol = if let Some(symbol) = context.symbols.$accessor(request.owner()) {
@@ -150,23 +150,23 @@ macro_rules! impl_overload_template_binding {
 }
 
 impl_overload_template_binding!(
-    CallableOverloadTemplateFact,
+    CallableOverloadTemplateQuery,
     callable_overload_templates,
     callable_overload
 );
 impl_overload_template_binding!(
-    ImplementationOverloadTemplateFact,
+    ImplementationOverloadTemplateQuery,
     implementation_overload_templates,
     implementation_overload
 );
 
 fn bind_generic_declaration_template(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: GenericOwnerId,
 ) -> BinderFactResult<DiagnosticResult<GenericDeclarationTemplate>> {
     let symbol = owner.symbol();
 
-    if let Some(address) = context.imported_fact_address(symbol)? {
+    if let Some(address) = context.imported_semantic_address(symbol)? {
         return imported_generic_declaration(context, owner, address);
     }
 
@@ -248,12 +248,12 @@ fn source_constraint(
 }
 
 fn bind_callable_contract_template(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
 ) -> BinderFactResult<DiagnosticResult<CallableContractTemplate>> {
     let symbol = owner.into_any();
 
-    if let Some(address) = context.imported_fact_address(symbol)? {
+    if let Some(address) = context.imported_semantic_address(symbol)? {
         return imported_callable_contract(context, address);
     }
 
@@ -356,7 +356,7 @@ fn push_contract_expressions(
 }
 
 fn bind_predicate_signature_template(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: PredicateDefinitionSymbolId,
 ) -> BinderFactResult<DiagnosticResult<PredicateSignatureTemplate>> {
     let symbol = owner.into_any();
@@ -434,20 +434,20 @@ fn predicate_is_trusted(
 }
 
 fn bind_implementation_head_template(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     implementation: ImplementationSymbolId,
 ) -> BinderFactResult<DiagnosticResult<ImplementationHeadTemplate>> {
-    let generic = context.symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+    let generic = context.symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
         GenericOwnerId::try_new(implementation.into_any())
             .ok_or(BinderFactError::DependencyUnavailable)?,
     ))?;
 
-    let subject = context.symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
+    let subject = context.symbol_fact(SymbolFactRequest::<ImplementationSubjectQuery>::new(
         implementation,
     ))?;
 
     let trait_application = context.symbol_fact(SymbolFactRequest::<
-        ImplementedTraitApplicationFact,
+        ImplementedTraitApplicationQuery,
     >::new(implementation))?;
 
     let diagnostics = generic
@@ -455,7 +455,7 @@ fn bind_implementation_head_template(
         .merged(subject.diagnostics())
         .merged(trait_application.diagnostics());
 
-    // The composed head shares immutable values owned by its dependency facts.
+    // The composed head shares immutable values owned by its dependency binding_context.
     Ok(DiagnosticResult::new(
         ImplementationHeadTemplate::new(
             implementation,
@@ -468,11 +468,11 @@ fn bind_implementation_head_template(
 }
 
 fn bind_default_template(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
     if let Some(parameter) = CallableParameterSymbolId::try_from_any(owner) {
-        if let Some(address) = context.imported_fact_address(owner)? {
+        if let Some(address) = context.imported_semantic_address(owner)? {
             return imported_callable_parameter_default(context, address);
         }
 
@@ -487,7 +487,7 @@ fn bind_default_template(
         }
     }
 
-    if context.imported_fact_address(owner)?.is_some()
+    if context.imported_semantic_address(owner)?.is_some()
         && matches!(
             owner,
             AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
@@ -502,7 +502,7 @@ fn bind_default_template(
         };
 
         let address = context
-            .imported_fact_address(provider)?
+            .imported_semantic_address(provider)?
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         let imported = super::super::imported::imported_declaration_template(
@@ -538,7 +538,7 @@ fn bind_default_template(
 }
 
 fn bind_compiler_known_callable_parameter_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     parameter: CallableParameterSymbolId,
 ) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
     let parameter_symbol = context
@@ -625,15 +625,15 @@ mod tests {
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
-        CallableContractTemplate, CallableContractTemplateFact, CallableOverloadTemplateFact,
-        CallableParameterDefaultTemplateFact, CallableSymbolId, GenericDeclarationTemplateFact,
-        GenericOwnerId, ImplementationHeadTemplateFact, ImplementationSymbolId, PackageIdentity,
-        PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, SymbolFactRequest,
+        CallableContractTemplate, CallableContractTemplateQuery, CallableOverloadTemplateQuery,
+        CallableParameterDefaultTemplateQuery, CallableSymbolId, GenericDeclarationTemplateQuery,
+        GenericOwnerId, ImplementationHeadTemplateQuery, ImplementationSymbolId, PackageIdentity,
+        PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, SymbolFactRequest,
         SymbolOrigin, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
     };
 
     use crate::compilation::binder::symbol::test_support::{
-        binder_facts, published_fact, source_id, symbol_graph,
+        binding_context, published_fact, source_id, symbol_graph,
     };
     use crate::fact::CancellationToken;
     use crate::test_support::compilation;
@@ -682,7 +682,7 @@ overload choose_any = {fast}
 
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let function = source_id(
             symbols.functions(),
@@ -695,8 +695,8 @@ overload choose_any = {fast}
         };
 
         let generic = published_fact(
-            &facts,
-            SymbolFactRequest::<GenericDeclarationTemplateFact>::new(owner),
+            &binding_context,
+            SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(owner),
         );
 
         assert_eq!(generic.value().parameters().len(), 2);
@@ -708,8 +708,8 @@ overload choose_any = {fast}
         );
 
         let contract = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractTemplateFact>::new(CallableSymbolId::from(
+            &binding_context,
+            SymbolFactRequest::<CallableContractTemplateQuery>::new(CallableSymbolId::from(
                 function,
             )),
         );
@@ -730,8 +730,8 @@ overload choose_any = {fast}
         };
 
         let default = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(*parameter),
+            &binding_context,
+            SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(*parameter),
         );
 
         let UnevaluatedDefaultTemplate::Present(default) = default.value() else {
@@ -746,7 +746,7 @@ overload choose_any = {fast}
         let compilation = compilation(DECLARATION_TEMPLATES);
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let predicate = source_id(
             symbols.predicates(),
@@ -755,8 +755,8 @@ overload choose_any = {fast}
         );
 
         let predicate = published_fact(
-            &facts,
-            SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+            &binding_context,
+            SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
                 PredicateDefinitionSymbolId::from(predicate),
             ),
         );
@@ -775,8 +775,8 @@ overload choose_any = {fast}
         );
 
         let head = published_fact(
-            &facts,
-            SymbolFactRequest::<ImplementationHeadTemplateFact>::new(implementation),
+            &binding_context,
+            SymbolFactRequest::<ImplementationHeadTemplateQuery>::new(implementation),
         );
 
         assert_eq!(head.value().implementation(), implementation);
@@ -791,13 +791,13 @@ overload choose_any = {fast}
         );
 
         let first = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableOverloadTemplateFact>::new(overload),
+            &binding_context,
+            SymbolFactRequest::<CallableOverloadTemplateQuery>::new(overload),
         );
 
         let second = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableOverloadTemplateFact>::new(overload),
+            &binding_context,
+            SymbolFactRequest::<CallableOverloadTemplateQuery>::new(overload),
         );
 
         assert!(Arc::ptr_eq(&first, &second));
@@ -815,7 +815,7 @@ overload choose_any = {fast}
 
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let predicates = symbols
             .predicates()
@@ -829,15 +829,15 @@ overload choose_any = {fast}
         };
 
         let plain = published_fact(
-            &facts,
-            SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+            &binding_context,
+            SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
                 PredicateDefinitionSymbolId::from(*plain),
             ),
         );
 
         let opaque = published_fact(
-            &facts,
-            SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+            &binding_context,
+            SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
                 PredicateDefinitionSymbolId::from(*opaque),
             ),
         );
@@ -864,7 +864,7 @@ overload choose_any = {fast}
 
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let functions = symbols
             .functions()
@@ -877,8 +877,8 @@ overload choose_any = {fast}
 
         for function in functions {
             let contract = published_fact(
-                &facts,
-                SymbolFactRequest::<CallableContractTemplateFact>::new(CallableSymbolId::from(
+                &binding_context,
+                SymbolFactRequest::<CallableContractTemplateQuery>::new(CallableSymbolId::from(
                     function,
                 )),
             );
@@ -918,7 +918,7 @@ overload choose_any = {fast}
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
 
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let imported = compilation
             .imported_symbol_skeleton_result()
@@ -942,8 +942,8 @@ overload choose_any = {fast}
         };
 
         let generic = published_fact(
-            &facts,
-            SymbolFactRequest::<GenericDeclarationTemplateFact>::new(generic_owner),
+            &binding_context,
+            SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(generic_owner),
         );
 
         assert_eq!(generic.value().parameters().len(), 2);
@@ -951,8 +951,8 @@ overload choose_any = {fast}
         assert!(generic.value().constraints()[0].resolved().is_some());
 
         let contract = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractTemplateFact>::new(CallableSymbolId::from(
+            &binding_context,
+            SymbolFactRequest::<CallableContractTemplateQuery>::new(CallableSymbolId::from(
                 function,
             )),
         );

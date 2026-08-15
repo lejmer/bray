@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bray_linker::{BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget};
 use bray_runtime_interface::RuntimeArtifactSelection;
 
-/// Already resolved product, target, and host facts needed for native link planning.
+/// Already resolved product, target, and host inputs needed for native link planning.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ProductLinkFacts {
+pub struct ProductLinkInputs {
     pub(super) target: LinkTarget,
     pub(super) policy: LinkPolicy,
     pub(super) startup_inputs: Arc<[LinkInputSpec]>,
@@ -18,8 +18,8 @@ pub struct ProductLinkFacts {
     pub(super) search_paths: Arc<[LinkSearchPath]>,
 }
 
-impl ProductLinkFacts {
-    /// Creates product link facts from the selected target and platform policy.
+impl ProductLinkInputs {
+    /// Creates product link inputs from the selected target and platform policy.
     pub fn new(target: LinkTarget, policy: LinkPolicy) -> Self {
         Self {
             target,

@@ -1246,7 +1246,7 @@ fn json_output_serializes_declaration_diagnostic_args() {
 }
 
 #[test]
-fn json_output_serializes_typed_artifact_facts() {
+fn json_output_serializes_typed_artifact_details() {
     let sink = DiagnosticOutputSink::Memory("host.output".to_owned());
     let sink = DiagnosticOutputSinkJson::from_sink(&sink);
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     AnySymbolId, GenericDeclarationTemplate, InherentImplementationSymbolId, MemberEntry,
-    MemberLookupIndex, MemberLookupResult, NamedTypeSymbolId, TargetFactDependency,
+    MemberLookupIndex, MemberLookupResult, NamedTypeSymbolId, TargetPropertyDependency,
 };
 
 /// Identifies one type-wide lifecycle declaration category.
@@ -180,7 +180,7 @@ impl TypeAssociatedLifecycleMember {
 pub struct TypeAssociatedImplementation {
     implementation: InherentImplementationSymbolId,
     generic: GenericDeclarationTemplate,
-    target_dependencies: Arc<[TargetFactDependency]>,
+    target_dependencies: Arc<[TargetPropertyDependency]>,
     members: Arc<[TypeAssociatedMember]>,
     lifecycle_members: Arc<[TypeAssociatedLifecycleMember]>,
 }
@@ -190,7 +190,7 @@ impl TypeAssociatedImplementation {
     pub fn new(
         implementation: InherentImplementationSymbolId,
         generic: GenericDeclarationTemplate,
-        target_dependencies: impl IntoIterator<Item = TargetFactDependency>,
+        target_dependencies: impl IntoIterator<Item = TargetPropertyDependency>,
         members: impl IntoIterator<Item = (AnySymbolId, Option<MemberEntry<AnySymbolId>>)>,
         lifecycle_members: impl IntoIterator<Item = (AnySymbolId, TypeAssociatedLifecycleSlot)>,
     ) -> Self {
@@ -225,8 +225,8 @@ impl TypeAssociatedImplementation {
         &self.generic
     }
 
-    /// Returns target facts required by this contribution.
-    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
+    /// Returns target properties required by this contribution.
+    pub fn target_dependencies(&self) -> &[TargetPropertyDependency] {
         &self.target_dependencies
     }
 

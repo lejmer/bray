@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 
 use crate::{
     GenericConstraintTemplate, GenericSubstitutionId, ImplementationRequirementKey,
-    ImplementationSymbolId, SymbolKey, TargetFactDependency,
+    ImplementationSymbolId, SymbolKey, TargetPropertyDependency,
 };
 
 /// Reports malformed evidence for one exact implementation coherence key.
@@ -107,8 +107,8 @@ pub enum ImplementationCandidateError {
     MissingCoherenceParticipant,
     /// One declaration-order position names conflicting generic constraint templates.
     ConflictingConstraintOrdinal,
-    /// One stable target-fact key names conflicting dependencies.
-    ConflictingTargetFactKey,
+    /// One stable target-property key names conflicting dependencies.
+    ConflictingTargetProperty,
 }
 
 /// One uncommitted implementation candidate and the evidence required to check applicability.
@@ -118,7 +118,7 @@ pub struct ImplementationCandidate {
     implementation: ImplementationSymbolId,
     substitution: GenericSubstitutionId,
     constraints: Arc<[GenericConstraintTemplate]>,
-    target_dependencies: Arc<[TargetFactDependency]>,
+    target_dependencies: Arc<[TargetPropertyDependency]>,
     coherence: ImplementationCoherenceEvidence,
 }
 
@@ -126,13 +126,13 @@ impl ImplementationCandidate {
     /// Creates one candidate without evaluating its constraints or target availability.
     ///
     /// Returns an error when the candidate is absent from its coherence evidence, one ordinal names
-    /// conflicting constraints, or one stable target-fact key names conflicting dependencies.
+    /// conflicting constraints, or one stable target-property key names conflicting dependencies.
     pub fn try_new(
         key: SymbolKey,
         implementation: ImplementationSymbolId,
         substitution: GenericSubstitutionId,
         constraints: impl IntoIterator<Item = GenericConstraintTemplate>,
-        target_dependencies: impl IntoIterator<Item = TargetFactDependency>,
+        target_dependencies: impl IntoIterator<Item = TargetPropertyDependency>,
         coherence: ImplementationCoherenceEvidence,
     ) -> Result<Self, ImplementationCandidateError> {
         let participant = coherence
@@ -163,7 +163,7 @@ impl ImplementationCandidate {
 
         ordered_target_dependencies.sort_by(|left, right| left.key().cmp(right.key()));
 
-        let mut canonical_target_dependencies: Vec<TargetFactDependency> =
+        let mut canonical_target_dependencies: Vec<TargetPropertyDependency> =
             Vec::with_capacity(ordered_target_dependencies.len());
 
         for dependency in ordered_target_dependencies {
@@ -171,7 +171,7 @@ impl ImplementationCandidate {
                 && previous.key() == dependency.key()
             {
                 if previous != &dependency {
-                    return Err(ImplementationCandidateError::ConflictingTargetFactKey);
+                    return Err(ImplementationCandidateError::ConflictingTargetProperty);
                 }
 
                 continue;
@@ -210,8 +210,8 @@ impl ImplementationCandidate {
         &self.constraints
     }
 
-    /// Returns target-fact dependencies in canonical order.
-    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
+    /// Returns target-property dependencies in canonical order.
+    pub fn target_dependencies(&self) -> &[TargetPropertyDependency] {
         &self.target_dependencies
     }
 
@@ -291,7 +291,7 @@ mod tests {
         GenericConstraintTemplate, GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId,
         ImplementationRequirementKey, NamedTraitImplementationSymbolId, PackageIdentity,
         PredicateSemanticSummary, SemanticValueStore, SymbolId, SymbolKey, SymbolKind,
-        SymbolOrdinal, TargetFactDependency, TraitApplicationData, TraitSymbolId, TypeData,
+        SymbolOrdinal, TargetPropertyDependency, TraitApplicationData, TraitSymbolId, TypeData,
     };
 
     use super::{
@@ -627,7 +627,7 @@ mod tests {
 
         let coherence = fixture.coherence();
 
-        let conflicting_target = TargetFactDependency::new(
+        let conflicting_target = TargetPropertyDependency::new(
             constant_key(30),
             ConstantSymbolId::from_symbol_id(SymbolId::new(31)),
             fixture.second_value,
@@ -645,7 +645,7 @@ mod tests {
                 ],
                 coherence,
             ),
-            Err(ImplementationCandidateError::ConflictingTargetFactKey)
+            Err(ImplementationCandidateError::ConflictingTargetProperty)
         );
 
         let first_only = coherence_for(
@@ -726,8 +726,8 @@ mod tests {
         evidence
     }
 
-    fn target_dependency(declaration: u32, value: ConstantValueId) -> TargetFactDependency {
-        TargetFactDependency::new(
+    fn target_dependency(declaration: u32, value: ConstantValueId) -> TargetPropertyDependency {
+        TargetPropertyDependency::new(
             constant_key(declaration),
             ConstantSymbolId::from_symbol_id(SymbolId::new(declaration)),
             value,

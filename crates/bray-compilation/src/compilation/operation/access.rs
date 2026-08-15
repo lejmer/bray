@@ -15,18 +15,18 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
-    CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateFact,
+    CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
     CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-    CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
-    ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId, ReceiverParameterSignature,
-    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    CallableSignatureQuery, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
+    ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, ReceiverParameterSignature,
+    SelfTypeContext, StructFieldTypeQuery, SymbolFactContract, SymbolFactRequest,
     TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
     TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBinderFacts, binder_fact_error, type_binder};
+use super::super::binder::{CompilationBindingContext, binder_fact_error, type_binder};
 use super::super::implementation::{
     implementation_fulfillments, match_implementation_subject, selected_callable,
 };
@@ -58,14 +58,14 @@ fn member_callable_signature(
 }
 
 fn normalize_callable_type_equalities(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     signature: CallableSignature,
     constraints: &[(
         bray_symbols::GenericOwnerId,
         bray_symbols::CheckedConstraint,
     )],
 ) -> Result<CallableSignature, FactQueryError> {
-    let values = facts.semantic_values();
+    let values = binding_context.semantic_values();
 
     transform_callable_signature(signature, |ty| {
         super::constraint::normalize_type_equalities(values, ty, constraints)
@@ -73,12 +73,12 @@ fn normalize_callable_type_equalities(
 }
 
 fn substitute_callable_self(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     signature: CallableSignature,
     context: SelfTypeContext,
     replacement: TypeId,
 ) -> Result<CallableSignature, FactQueryError> {
-    let values = facts.semantic_values();
+    let values = binding_context.semantic_values();
 
     transform_callable_signature(signature, |ty| {
         values
@@ -120,7 +120,7 @@ fn transform_callable_signature(
 impl Compilation {
     pub(super) fn resolve_member_operation(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
@@ -130,7 +130,7 @@ impl Compilation {
             unit.view().expression(expression)
         {
             return self.resolve_trait_qualified_member_operation(
-                facts,
+                binding_context,
                 unit,
                 types,
                 expression,
@@ -147,9 +147,9 @@ impl Compilation {
         let raw_receiver_type = expression_type(types, receiver)?;
 
         let receiver_type =
-            self.resolve_access_subject_type(facts, raw_receiver_type, diagnostics)?;
+            self.resolve_access_subject_type(binding_context, raw_receiver_type, diagnostics)?;
 
-        let data = facts
+        let data = binding_context
             .semantic_values()
             .type_data(receiver_type)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -173,7 +173,7 @@ impl Compilation {
             && let Some(BoundMemberSelector::Name(name)) = selector
         {
             return self.resolve_constrained_member_operation(
-                facts,
+                binding_context,
                 unit,
                 expression,
                 receiver_type,
@@ -193,7 +193,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let surface = facts
+        let surface = binding_context
             .type_associated_surface(*definition)
             .map_err(binder_fact_error)?;
 
@@ -212,8 +212,8 @@ impl Compilation {
         let (result_type, operation) = match member {
             AnySymbolId::StructField(field) => {
                 let result_type = self.resolve_member_type(
-                    facts,
-                    SymbolFactRequest::<StructFieldTypeFact>::new(field),
+                    binding_context,
+                    SymbolFactRequest::<StructFieldTypeQuery>::new(field),
                     *substitution,
                     diagnostics,
                 )?;
@@ -239,7 +239,7 @@ impl Compilation {
                             .ok_or(FactQueryError::InfrastructureFailure)?;
 
                         let pattern = self.resolve_implementation_self_type(
-                            facts,
+                            binding_context,
                             implementation.into(),
                             diagnostics,
                         )?;
@@ -249,7 +249,7 @@ impl Compilation {
                             contribution.generic().parameters(),
                             pattern,
                             receiver_type,
-                            facts.semantic_values(),
+                            binding_context.semantic_values(),
                         ) {
                             Ok(Some(substitution)) => substitution,
                             Ok(None) => return Ok(None),
@@ -259,7 +259,7 @@ impl Compilation {
                 };
 
                 let Some(callable) = self.resolve_callable_member_signature(
-                    facts,
+                    binding_context,
                     member,
                     member_substitution,
                     diagnostics,
@@ -271,7 +271,7 @@ impl Compilation {
                 let result_type = callable.signature.callable_type();
 
                 let defaults =
-                    self.resolve_callable_defaults(facts, &callable.signature, diagnostics)?;
+                    self.resolve_callable_defaults(binding_context, &callable.signature, diagnostics)?;
 
                 let signature = member_callable_signature(callable.signature, receiver_type);
 
@@ -299,32 +299,32 @@ impl Compilation {
 
     fn resolve_constrained_member_operation(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         expression: BoundExpressionId,
         receiver_type: TypeId,
         name: &str,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
-        let owner = facts
+        let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let constraints =
-            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
+            super::constraint::enclosing_generic_constraints(binding_context, owner, diagnostics)?;
 
         let requirements = Self::trait_constraint_requirements(&constraints, receiver_type);
 
         let mut matches = Vec::new();
 
         for (application, dispatch) in requirements {
-            let application_data = facts
+            let application_data = binding_context
                 .semantic_values()
                 .trait_application_data(application)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            let MemberLookupResult::Found(member) = facts
+            let MemberLookupResult::Found(member) = binding_context
                 .lookup_member(application_data.definition().into(), name)
                 .map_err(binder_fact_error)?
             else {
@@ -343,7 +343,7 @@ impl Compilation {
         };
 
         self.resolve_constrained_trait_member_operation(
-            facts,
+            binding_context,
             expression,
             receiver_type,
             *application,
@@ -360,7 +360,7 @@ impl Compilation {
     )]
     fn resolve_constrained_trait_member_operation(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         expression: BoundExpressionId,
         subject_type: TypeId,
         application: TraitApplicationId,
@@ -372,13 +372,13 @@ impl Compilation {
         )],
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
-        let application = facts
+        let application = binding_context
             .semantic_values()
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let callable = self.resolve_callable_signature(
-            facts,
+            binding_context,
             member.into(),
             [application.substitution()],
             diagnostics,
@@ -391,12 +391,12 @@ impl Compilation {
         let trait_context = SelfTypeContext::Trait(application.definition());
 
         let signature =
-            substitute_callable_self(facts, callable.signature, trait_context, subject_type)?;
+            substitute_callable_self(binding_context, callable.signature, trait_context, subject_type)?;
 
-        let signature = normalize_callable_type_equalities(facts, signature, constraints)?;
+        let signature = normalize_callable_type_equalities(binding_context, signature, constraints)?;
 
         let result_type = signature.callable_type();
-        let defaults = self.resolve_callable_defaults(facts, &signature, diagnostics)?;
+        let defaults = self.resolve_callable_defaults(binding_context, &signature, diagnostics)?;
 
         let signature = member_callable_signature(signature, subject_type);
 
@@ -442,12 +442,12 @@ impl Compilation {
 
     fn resolve_access_subject_type(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         mut ty: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TypeId, FactQueryError> {
         loop {
-            let data = facts
+            let data = binding_context
                 .semantic_values()
                 .type_data(ty)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -456,10 +456,10 @@ impl Compilation {
                 TypeData::Borrow { target, .. } => ty = *target,
                 TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) => {
                     ty =
-                        self.resolve_implementation_self_type(facts, *implementation, diagnostics)?;
+                        self.resolve_implementation_self_type(binding_context, *implementation, diagnostics)?;
                 }
                 TypeData::ContextualSelf(context) => {
-                    ty = contextual_self_type(facts, *context)?;
+                    ty = contextual_self_type(binding_context, *context)?;
                 }
                 _ => return Ok(ty),
             }
@@ -468,12 +468,12 @@ impl Compilation {
 
     fn resolve_implementation_self_type(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         implementation: bray_symbols::ImplementationSymbolId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TypeId, FactQueryError> {
-        let subject = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
+        let subject = binding_context
+            .symbol_fact(SymbolFactRequest::<ImplementationSubjectQuery>::new(
                 implementation,
             ))
             .map_err(binder_fact_error)?;
@@ -485,7 +485,7 @@ impl Compilation {
         *diagnostics = diagnostics.merged(checked.diagnostics());
 
         resolve_type_expression_template(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             subject.value().ty(),
             checked.value(),
         )
@@ -495,7 +495,7 @@ impl Compilation {
 
     fn resolve_trait_qualified_member_operation(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
@@ -508,35 +508,35 @@ impl Compilation {
 
         let receiver_type = expression_type(types, member.receiver())?;
 
-        let owner = facts
+        let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let syntax = member
             .trait_syntax()
-            .find_descendant::<TraitApplicationSyntax>(facts.syntax())
+            .find_descendant::<TraitApplicationSyntax>(binding_context.syntax())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let bound = type_binder(facts, owner)
+        let bound = type_binder(binding_context, owner)
             .map_err(binder_fact_error)?
             .bind_trait_application(&syntax)
             .map_err(binder_fact_error)?;
 
         *diagnostics = diagnostics.merged(bound.diagnostics());
 
-        let application = type_binder(facts, owner)
+        let application = type_binder(binding_context, owner)
             .map_err(binder_fact_error)?
             .resolve_trait_application_template(bound.value())
             .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let application_data = facts
+        let application_data = binding_context
             .semantic_values()
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let lookup = facts
+        let lookup = binding_context
             .lookup_member(application_data.definition().into(), name.as_str())
             .map_err(binder_fact_error)?;
 
@@ -549,10 +549,10 @@ impl Compilation {
         };
 
         let constraints =
-            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
+            super::constraint::enclosing_generic_constraints(binding_context, owner, diagnostics)?;
 
         let dereferenced_type =
-            self.resolve_access_subject_type(facts, receiver_type, diagnostics)?;
+            self.resolve_access_subject_type(binding_context, receiver_type, diagnostics)?;
 
         let mut selected_implementation = None;
 
@@ -565,7 +565,7 @@ impl Compilation {
 
             if let Some(dispatch) = requirements.get(&application).copied() {
                 return self.resolve_constrained_trait_member_operation(
-                    facts,
+                    binding_context,
                     expression,
                     subject_type,
                     application,
@@ -581,7 +581,7 @@ impl Compilation {
 
             let selected = self.implementation_selection_result_with_cancellation(
                 requirement,
-                facts.cancellation(),
+                binding_context.cancellation(),
             )?;
 
             *diagnostics = diagnostics.merged(selected.diagnostics());
@@ -597,20 +597,20 @@ impl Compilation {
             return Ok(None);
         };
 
-        let instance = facts
+        let instance = binding_context
             .semantic_values()
             .implementation_instance_data(witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let fulfillments = implementation_fulfillments(facts, instance.definition())?;
+        let fulfillments = implementation_fulfillments(binding_context, instance.definition())?;
 
-        let Some(fulfillment) = selected_callable(facts, fulfillments.callables, trait_member)
+        let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, trait_member)
         else {
             return Ok(None);
         };
 
         let callable = self.resolve_callable_signature(
-            facts,
+            binding_context,
             fulfillment.into(),
             [application_data.substitution(), instance.substitution()],
             diagnostics,
@@ -621,7 +621,7 @@ impl Compilation {
         };
 
         let result_type = callable.signature.callable_type();
-        let defaults = self.resolve_callable_defaults(facts, &callable.signature, diagnostics)?;
+        let defaults = self.resolve_callable_defaults(binding_context, &callable.signature, diagnostics)?;
 
         let signature = member_callable_signature(callable.signature, subject_type);
 
@@ -642,17 +642,17 @@ impl Compilation {
 
     fn resolve_callable_member_signature(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         member: AnySymbolId,
         receiver_substitution: bray_symbols::GenericSubstitutionId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        self.resolve_callable_signature(facts, member, [receiver_substitution], diagnostics)
+        self.resolve_callable_signature(binding_context, member, [receiver_substitution], diagnostics)
     }
 
     fn resolve_callable_defaults(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         signature: &CallableSignature,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<
@@ -667,9 +667,9 @@ impl Compilation {
         for parameter in signature.parameters() {
             let parameter = parameter.parameter();
 
-            let result = facts
+            let result = binding_context
                 .symbol_fact(
-                    SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(parameter),
+                    SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
                 )
                 .map_err(binder_fact_error)?;
 
@@ -679,7 +679,7 @@ impl Compilation {
                 continue;
             }
 
-            let provider = facts
+            let provider = binding_context
                 .callable_parameter_default_provider(parameter)
                 .map_err(binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -692,7 +692,7 @@ impl Compilation {
 
     fn resolve_callable_signature(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         member: AnySymbolId,
         substitutions: impl IntoIterator<Item = bray_symbols::GenericSubstitutionId>,
         diagnostics: &mut DiagnosticBag,
@@ -702,23 +702,23 @@ impl Compilation {
 
         let callable = definition.callable_symbol();
 
-        let result = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        let result = binding_context
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
             .map_err(binder_fact_error)?;
 
         *diagnostics = diagnostics.merged(result.diagnostics());
 
         let checked = self.checked_constant_terms_for_templates_with_cancellation(
             [result.value().callable_type(), result.value().result()],
-            facts.cancellation(),
+            binding_context.cancellation(),
         )?;
 
         *diagnostics = diagnostics.merged(checked.diagnostics());
 
-        let substitution = substitution_for_owner(facts.semantic_values(), member, substitutions)?;
+        let substitution = substitution_for_owner(binding_context.semantic_values(), member, substitutions)?;
 
         let signature = resolve_callable_signature_template(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             result.value(),
             substitution,
             checked.value(),
@@ -731,18 +731,18 @@ impl Compilation {
         }))
     }
 
-    pub(super) fn resolve_member_type<'facts, F>(
+    pub(super) fn resolve_member_type<'binding_context, F>(
         &self,
-        facts: &CompilationBinderFacts<'facts>,
+        binding_context: &CompilationBindingContext<'binding_context>,
         request: SymbolFactRequest<F>,
         substitution: bray_symbols::GenericSubstitutionId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<TypeId>, FactQueryError>
     where
         F: SymbolFactContract<Value = TypeExpressionTemplate>,
-        CompilationBinderFacts<'facts>: SymbolFactProvider<F>,
+        CompilationBindingContext<'binding_context>: SymbolFactProvider<F>,
     {
-        let result = facts.symbol_fact(request).map_err(binder_fact_error)?;
+        let result = binding_context.symbol_fact(request).map_err(binder_fact_error)?;
 
         *diagnostics = diagnostics.merged(result.diagnostics());
 
@@ -751,7 +751,7 @@ impl Compilation {
         *diagnostics = diagnostics.merged(checked.diagnostics());
 
         let Some(ty) = resolve_type_expression_template(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             result.value(),
             checked.value(),
         )
@@ -760,7 +760,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        facts
+        binding_context
             .semantic_values()
             .substitute_type(ty, substitution)
             .map(Some)
@@ -769,7 +769,7 @@ impl Compilation {
 
     pub(super) fn resolve_index_operation(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
@@ -784,12 +784,12 @@ impl Compilation {
         };
 
         let receiver_type = self.resolve_access_subject_type(
-            facts,
+            binding_context,
             expression_type(types, receiver)?,
             diagnostics,
         )?;
 
-        let data = facts
+        let data = binding_context
             .semantic_values()
             .type_data(receiver_type)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -803,14 +803,14 @@ impl Compilation {
             }
             (BoundStructuredExpressionKind::SliceIndex, TypeData::Array { element, .. }) => Some((
                 IndexTarget::ArraySlice,
-                facts
+                binding_context
                     .semantic_values()
                     .intern_type(TypeData::Slice(*element))
                     .map_err(|_| FactQueryError::InfrastructureFailure)?,
             )),
             (BoundStructuredExpressionKind::SliceIndex, TypeData::Slice(element)) => Some((
                 IndexTarget::Slice,
-                facts
+                binding_context
                     .semantic_values()
                     .intern_type(TypeData::Slice(*element))
                     .map_err(|_| FactQueryError::InfrastructureFailure)?,
@@ -827,11 +827,11 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let substitution = super::super::substitution::empty_substitution(
-                facts.semantic_values(),
+                binding_context.semantic_values(),
                 usize_type.into(),
             )?;
 
-            let usize_type = facts
+            let usize_type = binding_context
                 .semantic_values()
                 .intern_type(TypeData::Named {
                     definition: NamedTypeSymbolId::Struct(usize_type),
@@ -865,7 +865,7 @@ impl Compilation {
     pub(super) fn resolve_custom_index_operation(
         &self,
         key: &OperationSelectionFactKey,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
@@ -911,7 +911,7 @@ impl Compilation {
                     return Ok(None);
                 };
 
-                let nullable_bound = facts
+                let nullable_bound = binding_context
                     .semantic_values()
                     .intern_type(TypeData::Nullable(bound))
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -933,13 +933,13 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let owner = facts
+        let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let candidate = self.trait_operation_candidate_data(
-            facts,
+            binding_context,
             owner,
             role,
             subject,
@@ -963,7 +963,7 @@ impl Compilation {
             };
 
             let shared = self.trait_operation_candidate_data(
-                facts,
+                binding_context,
                 owner,
                 shared_role,
                 subject,
@@ -1012,7 +1012,7 @@ impl Compilation {
 
         self.select_operation(
             key,
-            facts,
+            binding_context,
             unit,
             types,
             index.operands().iter().copied(),

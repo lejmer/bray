@@ -2,7 +2,7 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, CallableSymbolId,
+    AnySymbolId, CallableContractClauseKind, CallableSignatureQuery, CallableSymbolId,
     LocalSymbolRegionId, MemberLookupResult, PredicateSemanticSummary, TrustedCapabilitySymbolId,
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
@@ -64,7 +64,7 @@ pub fn bind_predicate_clause<C>(
 ) -> BinderFactResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let has_result = match context {
         PredicateClauseBindingContext::CallableContract(CallableContractClauseKind::Ensures) => {
@@ -129,7 +129,7 @@ pub fn bind_trusted_capability_clause<C>(
 ) -> BinderFactResult<DiagnosticResult<Box<[BoundTrustedCapability]>>>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     bind_surface(
         facts,
@@ -166,7 +166,7 @@ fn bind_surface<C, T>(
 ) -> BinderFactResult<DiagnosticResult<T>>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     if facts.is_cancelled() {
         return Err(BinderFactError::Cancelled);

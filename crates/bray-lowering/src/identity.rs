@@ -2,14 +2,14 @@ use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
 use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitRoot};
-use bray_ir::{MirTargetFacts, MirUnitKind};
+use bray_ir::{MirTargetContract, MirUnitKind};
 use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::CallableExecution;
 
 const ASYNC_FRAME_IDENTITY_REVISION: u32 = 1;
 
 /// Selects the MIR representation category for one executable bound unit.
-pub fn executable_unit_kind(unit: &BoundUnit, target: &MirTargetFacts) -> MirUnitKind {
+pub fn executable_unit_kind(unit: &BoundUnit, target: &MirTargetContract) -> MirUnitKind {
     let execution = match unit.root() {
         BoundUnitRoot::CallableBody { execution, .. }
         | BoundUnitRoot::AnonymousCallable { execution, .. } => Some(execution),
@@ -24,7 +24,7 @@ pub fn executable_unit_kind(unit: &BoundUnit, target: &MirTargetFacts) -> MirUni
     }
 }
 
-fn protected_frame_identity(key: &BoundUnitKey, target: &MirTargetFacts) -> ProtectedAsyncFrameId {
+fn protected_frame_identity(key: &BoundUnitKey, target: &MirTargetContract) -> ProtectedAsyncFrameId {
     // This is the target-specific template identity. The concrete codegen instance
     // adds its specialization arguments and selected implementation witnesses.
     let mut hasher = StableDigestHasher::new();
@@ -57,11 +57,11 @@ mod tests {
     }
 
     #[test]
-    fn protected_frame_identity_includes_target_and_runtime_abi_facts() {
+    fn protected_frame_identity_includes_target_and_runtime_abi_inputs() {
         let unit = test_bound_unit(7);
         let target = bray_testing::test_mir_target();
 
-        let alternate_abi = bray_ir::MirTargetFacts::new(
+        let alternate_abi = bray_ir::MirTargetContract::new(
             target.profile().clone(),
             RuntimeAbiVersion::new(
                 target.runtime_abi().major(),

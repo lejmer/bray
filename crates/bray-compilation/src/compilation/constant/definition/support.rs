@@ -18,9 +18,9 @@ use crate::fact::FactQueryError;
 
 pub(super) fn imported_constant_definition(
     definition: AnyConstantDefinitionId,
-    fact: Option<&bray_package_interface::ImportedDeclarationTemplateFact>,
+    template: Option<&bray_package_interface::ImportedDeclarationTemplate>,
 ) -> Result<ConstantDefinitionState, FactQueryError> {
-    let Some(fact) = fact else {
+    let Some(template) = template else {
         return match definition {
             AnyConstantDefinitionId::TraitMember(_) => Ok(ConstantDefinitionState::Required),
             AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => {
@@ -29,7 +29,7 @@ pub(super) fn imported_constant_definition(
         };
     };
 
-    let template = fact.template();
+    let template = template.template();
 
     let index = usize::try_from(template.result().raw())
         .map_err(|_| FactQueryError::InfrastructureFailure)?;

@@ -213,7 +213,7 @@ impl RuntimeDefaultBehavior {
 pub enum RuntimeDefaultTemplateReference {
     /// A source-backed template selected by its declaration-owned expression anchor.
     ///
-    /// Consumers request the runtime-default facts for this anchor and must not rebind the syntax
+    /// Consumers request the runtime-default semantics for this anchor and must not rebind the syntax
     /// independently.
     Source(SyntaxAnchor),
     /// A stable template record in a loaded compiled package interface.
@@ -294,7 +294,7 @@ macro_rules! define_runtime_default_contract {
             }
         }
 
-        #[doc = concat!("Marks an invalid `", stringify!($surface), "` whose diagnostics belong to the fact result.")]
+        #[doc = concat!("Marks an invalid `", stringify!($surface), "` whose diagnostics belong to the query result.")]
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $error;
 
@@ -303,7 +303,7 @@ macro_rules! define_runtime_default_contract {
         pub enum $value {
             /// A valid checked runtime-default surface.
             Valid($surface),
-            /// Checking failed and diagnostics are retained by the fact result.
+            /// Checking failed and diagnostics are retained by the query result.
             Error($error),
         }
 
@@ -316,7 +316,7 @@ macro_rules! define_runtime_default_contract {
         }
 
         impl $checked {
-            /// Creates a checked runtime-default fact value.
+            /// Creates a checked runtime-default value.
             pub const fn new(owner: $owner, provider: $provider, value: $value) -> Self {
                 Self {
                     owner,

@@ -2,7 +2,7 @@ mod common;
 mod contract;
 mod declaration;
 mod directory;
-mod facts;
+mod bundle;
 mod inspection;
 mod selection;
 mod support;
@@ -12,10 +12,10 @@ mod template;
 mod test_support;
 mod value;
 
-pub use facts::decode_semantic_facts;
-pub(crate) use facts::{
-    COMPLETE_FACT_SECTIONS, decode_selected_semantic_fact_graph, decode_semantic_fact_graph,
-    selected_fact_sections, validate_decode_allocation,
+pub use bundle::decode_semantics;
+pub(crate) use bundle::{
+    COMPLETE_SEMANTIC_SECTIONS, decode_selected_semantic_graph, decode_semantic_graph,
+    selected_semantic_sections, validate_decode_allocation,
 };
 pub(crate) use inspection::decode_inspection_records;
 pub(crate) use template::decode_template_payload;

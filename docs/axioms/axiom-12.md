@@ -15,7 +15,7 @@ Every executing operation belongs to one run. Direct calls and direct awaits rem
 processes create owned child runs. The executable host owns the root process, main thread, and root run. An async entrypoint is driven
 as a host-owned root task without a source-visible task owner.
 
-Suspension preserves every value, borrow, capability, effect, execution requirement, fact dependency, and lifecycle obligation
+Suspension preserves every value, borrow, capability, effect, execution requirement, query dependency, and lifecycle obligation
 needed to resume or resolve the computation. Moving `Future<T>` or `Task<T>` transfers these dependencies.
 
 Every ordinary lexical block is a structured task boundary. A task can outlive its creating block only when its handle is moved to an
@@ -36,8 +36,8 @@ source pinning. Independent task storage begins at the start boundary, while dyn
 runtime-managed storage.
 
 Asynchronous behavior and execution requirements are part of behavioral contracts. `blocking_execution()` and
-`compute_execution()` describe progress-policy facts, while `main_thread_execution()` describes the distinguished initial-thread
-fact. Async invocation defers them, direct await checks them, and task start selects a compatible lane.
+`compute_execution()` describe progress-policy requirements, while `main_thread_execution()` describes the distinguished initial-thread
+requirement. Async invocation defers them, direct await checks them, and task start selects a compatible lane.
 
 `RunResult<T>` makes a child run's normal, panicked, or cancelled terminal state explicit. Matching preserves that state as a value.
 `try` unwraps normal completion and forwards panic or cancellation into the current run. `catch` converts only panic in the current

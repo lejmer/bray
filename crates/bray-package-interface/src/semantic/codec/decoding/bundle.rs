@@ -2,12 +2,12 @@ use super::{contract, declaration, directory, selection, support, surface, templ
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
+    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError,
     InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
-pub(crate) const COMPLETE_FACT_SECTIONS: &[InterfaceSectionTag] = &[
-    InterfaceSectionTag::SymbolFactDirectory,
+pub(crate) const COMPLETE_SEMANTIC_SECTIONS: &[InterfaceSectionTag] = &[
+    InterfaceSectionTag::SemanticRecordDirectory,
     InterfaceSectionTag::SemanticTypes,
     InterfaceSectionTag::Constants,
     InterfaceSectionTag::Contracts,
@@ -15,76 +15,76 @@ pub(crate) const COMPLETE_FACT_SECTIONS: &[InterfaceSectionTag] = &[
     InterfaceSectionTag::Implementations,
     InterfaceSectionTag::TargetDependencies,
     InterfaceSectionTag::SupportGraph,
-    InterfaceSectionTag::DeclarationFacts,
+    InterfaceSectionTag::DeclarationSemantics,
 ];
 
-/// Decodes and validates every semantic fact section in one package interface.
-pub fn decode_semantic_facts(
+/// Decodes and validates every semantic record section in one package interface.
+pub fn decode_semantics(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     limits: InterfaceValidationLimits,
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     validate_decode_allocation(sections, limits)?;
 
     let mut context = SemanticDecodeContext::new(limits);
 
-    let directory = required_section(sections, InterfaceSectionTag::SymbolFactDirectory)?;
+    let directory = required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
     let types = required_section(sections, InterfaceSectionTag::SemanticTypes)?;
     let constants = required_section(sections, InterfaceSectionTag::Constants)?;
     let contracts = required_section(sections, InterfaceSectionTag::Contracts)?;
-    let declarations = required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
+    let declarations = required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
     let templates = required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
     let implementations = required_section(sections, InterfaceSectionTag::Implementations)?;
     let targets = required_section(sections, InterfaceSectionTag::TargetDependencies)?;
     let provenance = optional_section(sections, InterfaceSectionTag::SourceProvenance);
     let support = required_section(sections, InterfaceSectionTag::SupportGraph)?;
 
-    let mut facts = value::decode_types(types, limits, &mut context)?;
+    let mut semantics = value::decode_types(types, limits, &mut context)?;
 
-    value::decode_constants(constants, limits, &mut context, &mut facts)?;
-    contract::decode_contracts(contracts, limits, &mut context, &mut facts)?;
-    declaration::decode_declarations(declarations, limits, &mut context, &mut facts)?;
-    template::decode_templates(templates, limits, &mut context, &mut facts)?;
-    surface::decode_implementations(implementations, limits, &mut context, &mut facts)?;
-    surface::decode_target_dependencies(targets, limits, &mut context, &mut facts)?;
-    support::decode_support_graph(support, limits, &mut context, &mut facts)?;
+    value::decode_constants(constants, limits, &mut context, &mut semantics)?;
+    contract::decode_contracts(contracts, limits, &mut context, &mut semantics)?;
+    declaration::decode_declarations(declarations, limits, &mut context, &mut semantics)?;
+    template::decode_templates(templates, limits, &mut context, &mut semantics)?;
+    surface::decode_implementations(implementations, limits, &mut context, &mut semantics)?;
+    surface::decode_target_dependencies(targets, limits, &mut context, &mut semantics)?;
+    support::decode_support_graph(support, limits, &mut context, &mut semantics)?;
 
     if let Some(provenance) = provenance {
-        surface::decode_provenance(provenance, limits, &mut context, &mut facts)?;
+        surface::decode_provenance(provenance, limits, &mut context, &mut semantics)?;
     }
 
-    let encoded_directory = directory::decode_fact_directory(directory, limits, &mut context)?;
+    let encoded_directory = directory::decode_semantic_directory(directory, limits, &mut context)?;
 
-    if encoded_directory.as_ref() != facts.fact_directory().as_ref() {
+    if encoded_directory.as_ref() != semantics.semantic_directory().as_ref() {
         return Err(InterfaceValidationError::Malformed);
     }
 
-    facts.validate(surface, limits)?;
+    semantics.validate(surface, limits)?;
 
-    Ok(facts)
+    Ok(semantics)
 }
 
-pub(crate) fn decode_semantic_fact_graph(
+pub(crate) fn decode_semantic_graph(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: bray_symbols::InterfaceSymbolId,
-    kind: crate::InterfaceSemanticFactKind,
+    kind: crate::InterfaceSemanticRecordKind,
     limits: InterfaceValidationLimits,
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
-    match decode_selected_semantic_fact_graph(sections, surface, owner, kind, limits)? {
-        Some(facts) => Ok(facts),
-        None => decode_semantic_facts(sections, surface, limits),
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
+    match decode_selected_semantic_graph(sections, surface, owner, kind, limits)? {
+        Some(semantics) => Ok(semantics),
+        None => decode_semantics(sections, surface, limits),
     }
 }
 
-pub(crate) fn decode_selected_semantic_fact_graph(
+pub(crate) fn decode_selected_semantic_graph(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: bray_symbols::InterfaceSymbolId,
-    kind: crate::InterfaceSemanticFactKind,
+    kind: crate::InterfaceSemanticRecordKind,
     limits: InterfaceValidationLimits,
-) -> Result<Option<InterfaceSemanticFacts>, InterfaceValidationError> {
-    let Some(required_tags) = selected_fact_sections(kind) else {
+) -> Result<Option<InterfaceSemantics>, InterfaceValidationError> {
+    let Some(required_tags) = selected_semantic_sections(kind) else {
         return Ok(None);
     };
 
@@ -96,42 +96,42 @@ pub(crate) fn decode_selected_semantic_fact_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    selection::decode_selected_fact_graph(sections, surface, owner, kind, limits).map(Some)
+    selection::decode_selected_record_graph(sections, surface, owner, kind, limits).map(Some)
 }
 
-pub(crate) fn selected_fact_sections(
-    kind: crate::InterfaceSemanticFactKind,
+pub(crate) fn selected_semantic_sections(
+    kind: crate::InterfaceSemanticRecordKind,
 ) -> Option<&'static [InterfaceSectionTag]> {
     const GENERIC_CONSTRAINT_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticRecordDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
         InterfaceSectionTag::Contracts,
     ];
 
     const CALLABLE_SIGNATURE_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticRecordDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
         InterfaceSectionTag::Contracts,
-        InterfaceSectionTag::DeclarationFacts,
+        InterfaceSectionTag::DeclarationSemantics,
     ];
 
     const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = CALLABLE_SIGNATURE_SECTIONS;
 
     const CALLABLE_PARAMETER_DEFAULT_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
-        InterfaceSectionTag::DeclarationFacts,
+        InterfaceSectionTag::SemanticRecordDirectory,
+        InterfaceSectionTag::DeclarationSemantics,
     ];
 
     const PREDICATE_DEFINITION_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
-        InterfaceSectionTag::DeclarationFacts,
+        InterfaceSectionTag::SemanticRecordDirectory,
+        InterfaceSectionTag::DeclarationSemantics,
         InterfaceSectionTag::DeclarationTemplates,
     ];
 
     const IMPLEMENTATION_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticRecordDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
         InterfaceSectionTag::Contracts,
@@ -139,8 +139,8 @@ pub(crate) fn selected_fact_sections(
         InterfaceSectionTag::TargetDependencies,
     ];
 
-    const TARGET_FACT_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
+    const TARGET_SEMANTIC_SECTIONS: &[InterfaceSectionTag] = &[
+        InterfaceSectionTag::SemanticRecordDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
         InterfaceSectionTag::Contracts,
@@ -148,23 +148,23 @@ pub(crate) fn selected_fact_sections(
     ];
 
     match kind {
-        crate::InterfaceSemanticFactKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
-        crate::InterfaceSemanticFactKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
-        crate::InterfaceSemanticFactKind::CallableParameterDefault => {
+        crate::InterfaceSemanticRecordKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
+        crate::InterfaceSemanticRecordKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
+        crate::InterfaceSemanticRecordKind::CallableParameterDefault => {
             Some(CALLABLE_PARAMETER_DEFAULT_SECTIONS)
         }
-        crate::InterfaceSemanticFactKind::PredicateDefinition => {
+        crate::InterfaceSemanticRecordKind::PredicateDefinition => {
             Some(PREDICATE_DEFINITION_SECTIONS)
         }
-        crate::InterfaceSemanticFactKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
-        crate::InterfaceSemanticFactKind::TypeRepresentation => None,
-        crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
-        crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
-        crate::InterfaceSemanticFactKind::TargetFact => Some(TARGET_FACT_SECTIONS),
-        crate::InterfaceSemanticFactKind::Runtime => Some(TARGET_FACT_SECTIONS),
-        crate::InterfaceSemanticFactKind::CallableContracts
-        | crate::InterfaceSemanticFactKind::DeclarationTemplate
-        | crate::InterfaceSemanticFactKind::Abi => None,
+        crate::InterfaceSemanticRecordKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
+        crate::InterfaceSemanticRecordKind::TypeRepresentation => None,
+        crate::InterfaceSemanticRecordKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
+        crate::InterfaceSemanticRecordKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
+        crate::InterfaceSemanticRecordKind::TargetProperty => Some(TARGET_SEMANTIC_SECTIONS),
+        crate::InterfaceSemanticRecordKind::Runtime => Some(TARGET_SEMANTIC_SECTIONS),
+        crate::InterfaceSemanticRecordKind::CallableContracts
+        | crate::InterfaceSemanticRecordKind::DeclarationTemplate
+        | crate::InterfaceSemanticRecordKind::Abi => None,
     }
 }
 
@@ -181,11 +181,11 @@ pub(crate) fn validate_decode_allocation(
         .filter(|section| {
             matches!(
                 section.tag(),
-                InterfaceSectionTag::SymbolFactDirectory
+                InterfaceSectionTag::SemanticRecordDirectory
                     | InterfaceSectionTag::SemanticTypes
                     | InterfaceSectionTag::Constants
                     | InterfaceSectionTag::Contracts
-                    | InterfaceSectionTag::DeclarationFacts
+                    | InterfaceSectionTag::DeclarationSemantics
                     | InterfaceSectionTag::DeclarationTemplates
                     | InterfaceSectionTag::Implementations
                     | InterfaceSectionTag::TargetDependencies
@@ -241,8 +241,8 @@ mod tests {
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
         record_range_with_local_owner,
     };
-    use super::{decode_semantic_fact_graph, decode_semantic_facts, selected_fact_sections};
-    use crate::semantic::codec::{encode_semantic_facts, encode_validated_semantic_facts};
+    use super::{decode_semantic_graph, decode_semantics, selected_semantic_sections};
+    use crate::semantic::codec::{encode_semantics, encode_validated_semantics};
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
         InterfaceCallableParameterDefault, InterfaceCallableSignature,
@@ -250,28 +250,28 @@ mod tests {
         InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
         InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfaceGenericSubstitutionId, InterfacePredicateDefinitionState,
-        InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticFactKind,
-        InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape,
+        InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticRecordKind,
+        InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
         InterfaceSymbolReference, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
         InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
-    fn implementation_fact_decoding_ignores_unrelated_template_bytes() {
+    fn implementation_record_decoding_ignores_unrelated_template_bytes() {
         let (surface, owner, mut sections) = implementation_fixture();
 
         section_mut(&mut sections, InterfaceSectionTag::DeclarationTemplates)
             .2
             .clear();
 
-        let decoded = decode_semantic_fact_graph(
+        let decoded = decode_semantic_graph(
             &owned_section_views(&sections),
             &surface,
             owner,
-            InterfaceSemanticFactKind::Implementation,
+            InterfaceSemanticRecordKind::Implementation,
             InterfaceValidationLimits::default(),
         )
-        .unwrap_or_else(|error| panic!("implementation fact must decode: {error:?}"));
+        .unwrap_or_else(|error| panic!("implementation record must decode: {error:?}"));
 
         assert_eq!(decoded.implementations().len(), 1);
         assert_eq!(decoded.constraints().len(), 1);
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_fact_decoding_ignores_unrelated_semantic_records() {
+    fn implementation_record_decoding_ignores_unrelated_semantic_records() {
         const UNRELATED_RECORDS: &[(InterfaceSectionTag, usize)] = &[
             (InterfaceSectionTag::SemanticTypes, 4),
             (InterfaceSectionTag::Constants, 0),
@@ -305,11 +305,11 @@ mod tests {
             append_record(&mut section.2, table_index, &[u8::MAX]);
             section.1 += 1;
 
-            let decoded = decode_semantic_fact_graph(
+            let decoded = decode_semantic_graph(
                 &owned_section_views(&sections),
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             )
             .unwrap_or_else(|error| {
@@ -323,7 +323,7 @@ mod tests {
             assert_eq!(decoded.coherence().len(), 1);
 
             assert!(
-                decode_semantic_facts(
+                decode_semantics(
                     &owned_section_views(&sections),
                     &surface,
                     InterfaceValidationLimits::default(),
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_fact_decoding_rejects_missing_header() {
+    fn implementation_record_decoding_rejects_missing_header() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
 
@@ -344,16 +344,16 @@ mod tests {
             panic!("test implementation must be local");
         };
 
-        let facts = bundle.semantic_facts().clone().with_implementations([], []);
+        let semantics = bundle.semantics().clone().with_implementations([], []);
 
-        let sections = semantic_sections(&facts, &surface);
+        let sections = semantic_sections(&semantics, &surface);
 
         assert_eq!(
-            decode_semantic_fact_graph(
+            decode_semantic_graph(
                 &owned_section_views(&sections),
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             ),
             Err(InterfaceValidationError::Malformed)
@@ -361,41 +361,41 @@ mod tests {
     }
 
     #[test]
-    fn exact_fact_decoding_is_independent_of_request_order() {
+    fn exact_record_decoding_is_independent_of_request_order() {
         let (surface, owner, sections) = implementation_fixture();
 
         let sections = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
 
-        let forward_implementation = decode_semantic_fact_graph(
+        let forward_implementation = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::Implementation,
+            InterfaceSemanticRecordKind::Implementation,
             limits,
         );
 
-        let forward_constraint = decode_semantic_fact_graph(
+        let forward_constraint = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::GenericConstraint,
+            InterfaceSemanticRecordKind::GenericConstraint,
             limits,
         );
 
-        let reverse_constraint = decode_semantic_fact_graph(
+        let reverse_constraint = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::GenericConstraint,
+            InterfaceSemanticRecordKind::GenericConstraint,
             limits,
         );
 
-        let reverse_implementation = decode_semantic_fact_graph(
+        let reverse_implementation = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::Implementation,
+            InterfaceSemanticRecordKind::Implementation,
             limits,
         );
 
@@ -404,31 +404,31 @@ mod tests {
     }
 
     #[test]
-    fn runtime_requirements_round_trip_and_decode_as_exact_owner_facts() {
+    fn runtime_requirements_round_trip_and_decode_as_exact_owner_semantics() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
         let owner = local_by_kind(&surface, SymbolKind::Function);
 
-        let facts = bundle
-            .semantic_facts()
+        let semantics = bundle
+            .semantics()
             .clone()
             .with_runtime_requirements([runtime_requirement(owner.clone())]);
 
-        let sections = semantic_sections(&facts, &surface);
+        let sections = semantic_sections(&semantics, &surface);
         let views = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
 
         assert_eq!(
-            decode_semantic_facts(&views, &surface, limits),
-            Ok(facts.clone())
+            decode_semantics(&views, &surface, limits),
+            Ok(semantics.clone())
         );
 
         let InterfaceSymbolReference::Local(owner_id) = owner else {
             panic!("test runtime requirement owner must be local");
         };
 
-        let selected_tags = selected_fact_sections(InterfaceSemanticFactKind::Runtime)
-            .unwrap_or_else(|| panic!("runtime facts must support selective decoding"));
+        let selected_tags = selected_semantic_sections(InterfaceSemanticRecordKind::Runtime)
+            .unwrap_or_else(|| panic!("runtime semantics must support selective decoding"));
 
         let selected_views = views
             .iter()
@@ -436,22 +436,22 @@ mod tests {
             .filter(|section| selected_tags.contains(&section.tag()))
             .collect::<Vec<_>>();
 
-        let decoded = decode_semantic_fact_graph(
+        let decoded = decode_semantic_graph(
             &selected_views,
             &surface,
             owner_id,
-            InterfaceSemanticFactKind::Runtime,
+            InterfaceSemanticRecordKind::Runtime,
             limits,
         )
         .unwrap_or_else(|error| panic!("runtime requirement must decode: {error:?}"));
 
-        assert_eq!(decoded.runtime_requirements(), facts.runtime_requirements());
+        assert_eq!(decoded.runtime_requirements(), semantics.runtime_requirements());
         assert!(decoded.types().is_empty());
         assert!(decoded.callable_contracts().is_empty());
     }
 
     #[test]
-    fn runtime_requirements_reject_private_product_selection_facts() {
+    fn runtime_requirements_reject_private_product_selection_semantics() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface();
         let owner = local_by_kind(surface, SymbolKind::Function);
@@ -476,7 +476,7 @@ mod tests {
                 ))),
             ),
         ] {
-            let facts = bundle.semantic_facts().clone().with_runtime_requirements([
+            let semantics = bundle.semantics().clone().with_runtime_requirements([
                 InterfaceRuntimeRequirement::new(
                     owner.clone(),
                     [ProtectedAsyncFrameId::new([31; 32])],
@@ -485,7 +485,7 @@ mod tests {
             ]);
 
             assert_eq!(
-                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
                 Err(InterfaceValidationError::Malformed)
             );
         }
@@ -512,13 +512,13 @@ mod tests {
         ];
 
         for requirement in cases {
-            let facts = bundle
-                .semantic_facts()
+            let semantics = bundle
+                .semantics()
                 .clone()
                 .with_runtime_requirements([requirement]);
 
             assert_eq!(
-                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
                 Err(InterfaceValidationError::Malformed)
             );
         }
@@ -544,20 +544,20 @@ mod tests {
             .with_storage(InterfaceStorageShape::Union([].into()));
 
         for representation in [invalid_type, invalid_kind] {
-            let facts = bundle
-                .semantic_facts()
+            let semantics = bundle
+                .semantics()
                 .clone()
                 .with_type_representations([representation]);
 
             assert_eq!(
-                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
                 Err(InterfaceValidationError::Malformed)
             );
         }
     }
 
     #[test]
-    fn declaration_facts_decode_through_exact_narrow_sections() {
+    fn declaration_semantics_decode_through_exact_narrow_sections() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
 
@@ -588,33 +588,33 @@ mod tests {
             ),
         ];
 
-        let sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let sections = semantic_sections(bundle.semantics(), &surface);
         let sections = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
 
-        let signature = decode_semantic_fact_graph(
+        let signature = decode_semantic_graph(
             &sections,
             &surface,
             callable,
-            InterfaceSemanticFactKind::CallableSignature,
+            InterfaceSemanticRecordKind::CallableSignature,
             limits,
         )
         .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
 
-        let generic = decode_semantic_fact_graph(
+        let generic = decode_semantic_graph(
             &sections,
             &surface,
             callable,
-            InterfaceSemanticFactKind::GenericDeclaration,
+            InterfaceSemanticRecordKind::GenericDeclaration,
             limits,
         )
         .unwrap_or_else(|error| panic!("generic declaration must decode: {error:?}"));
 
-        let default = decode_semantic_fact_graph(
+        let default = decode_semantic_graph(
             &sections,
             &surface,
             parameter,
-            InterfaceSemanticFactKind::CallableParameterDefault,
+            InterfaceSemanticRecordKind::CallableParameterDefault,
             limits,
         )
         .unwrap_or_else(|error| panic!("callable default must decode: {error:?}"));
@@ -634,11 +634,11 @@ mod tests {
                 panic!("test predicate must be local");
             };
 
-            let predicate = decode_semantic_fact_graph(
+            let predicate = decode_semantic_graph(
                 &sections,
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::PredicateDefinition,
+                InterfaceSemanticRecordKind::PredicateDefinition,
                 limits,
             )
             .unwrap_or_else(|error| panic!("predicate definition must decode: {error:?}"));
@@ -659,23 +659,23 @@ mod tests {
             panic!("test structure must be local");
         };
 
-        let facts =
+        let semantics =
             bundle
-                .semantic_facts()
+                .semantics()
                 .clone()
                 .with_declared_types([InterfaceDeclaredType::new(
                     InterfaceSymbolReference::Local(owner),
                     InterfaceTypeId::new(1),
                 )]);
 
-        let sections = semantic_sections(&facts, &surface);
+        let sections = semantic_sections(&semantics, &surface);
         let sections = owned_section_views(&sections);
 
-        let decoded = decode_semantic_fact_graph(
+        let decoded = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::DeclaredType,
+            InterfaceSemanticRecordKind::DeclaredType,
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("declared type must decode: {error:?}"));
@@ -694,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn absent_generic_declarations_decode_as_empty_facts() {
+    fn absent_generic_declarations_decode_as_empty_semantics() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
 
@@ -703,14 +703,14 @@ mod tests {
             panic!("test structure must be local");
         };
 
-        let sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let sections = semantic_sections(bundle.semantics(), &surface);
         let sections = owned_section_views(&sections);
 
-        let decoded = decode_semantic_fact_graph(
+        let decoded = decode_semantic_graph(
             &sections,
             &surface,
             owner,
-            InterfaceSemanticFactKind::GenericDeclaration,
+            InterfaceSemanticRecordKind::GenericDeclaration,
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("absent generic declaration must decode: {error:?}"));
@@ -723,7 +723,7 @@ mod tests {
     fn predicate_definition_decoding_rejects_opaque_state_with_definition_template() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
-        let facts = bundle.semantic_facts();
+        let semantics = bundle.semantics();
 
         let opaque_owner = local_by_kind(&surface, SymbolKind::Predicate);
 
@@ -731,7 +731,7 @@ mod tests {
             panic!("test predicate must be local");
         };
 
-        let mut declarations = facts.declaration_templates().to_vec();
+        let mut declarations = semantics.declaration_templates().to_vec();
 
         let definition = declarations
             .iter_mut()
@@ -747,22 +747,22 @@ mod tests {
 
         declarations.sort();
 
-        let invalid = facts.clone().with_templates(
-            facts.checked_templates().iter().cloned(),
+        let invalid = semantics.clone().with_templates(
+            semantics.checked_templates().iter().cloned(),
             declarations,
-            facts.support_entities().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
-        let sections = encode_validated_semantic_facts(&invalid)
+        let sections = encode_validated_semantics(&invalid)
             .into_iter()
             .map(crate::EncodedSemanticSection::into_parts)
             .collect::<Vec<_>>();
 
-        let decoded = decode_semantic_fact_graph(
+        let decoded = decode_semantic_graph(
             &owned_section_views(&sections),
             &surface,
             owner,
-            InterfaceSemanticFactKind::PredicateDefinition,
+            InterfaceSemanticRecordKind::PredicateDefinition,
             InterfaceValidationLimits::default(),
         );
 
@@ -773,7 +773,7 @@ mod tests {
     fn callable_signature_decoding_ignores_corrupt_unrelated_contract_records() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
-        let base = bundle.semantic_facts();
+        let base = bundle.semantics();
 
         let dependency_contract =
             InterfaceDependencyContract::new([InterfaceDependencyRequirement::new(
@@ -784,14 +784,14 @@ mod tests {
                 InterfaceDependencyRequirementKind::StorageInitialized,
             )]);
 
-        let facts = base.clone().with_values(
+        let semantics = base.clone().with_values(
             [dependency_contract.clone()],
             base.types().iter().cloned(),
             base.constant_values().iter().cloned(),
             base.constant_terms().iter().cloned(),
         );
 
-        let mut sections = semantic_sections(&facts, &surface);
+        let mut sections = semantic_sections(&semantics, &surface);
 
         let InterfaceSymbolReference::Local(callable) =
             local_by_kind(&surface, SymbolKind::Function)
@@ -805,11 +805,11 @@ mod tests {
         contracts.2[unrelated_constraint.start..unrelated_constraint.start + 4]
             .copy_from_slice(&u32::MAX.to_le_bytes());
 
-        let signature = decode_semantic_fact_graph(
+        let signature = decode_semantic_graph(
             &owned_section_views(&sections),
             &surface,
             callable,
-            InterfaceSemanticFactKind::CallableSignature,
+            InterfaceSemanticRecordKind::CallableSignature,
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
@@ -822,7 +822,7 @@ mod tests {
         );
 
         assert!(
-            decode_semantic_facts(
+            decode_semantics(
                 &owned_section_views(&sections),
                 &surface,
                 InterfaceValidationLimits::default(),
@@ -834,20 +834,20 @@ mod tests {
     #[test]
     fn declaration_section_format_versions_are_rejected_before_record_decoding() {
         const VERSIONED_SECTIONS: &[InterfaceSectionTag] = &[
-            InterfaceSectionTag::DeclarationFacts,
+            InterfaceSectionTag::DeclarationSemantics,
             InterfaceSectionTag::DeclarationTemplates,
         ];
 
         for &tag in VERSIONED_SECTIONS {
             let bundle = package_interface_export_bundle();
             let surface = bundle.surface().clone();
-            let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
+            let mut sections = semantic_sections(bundle.semantics(), &surface);
             let section = section_mut(&mut sections, tag);
 
             section.2[..4].copy_from_slice(&u32::MAX.to_le_bytes());
 
             assert_eq!(
-                decode_semantic_facts(
+                decode_semantics(
                     &owned_section_views(&sections),
                     &surface,
                     InterfaceValidationLimits::default(),
@@ -859,10 +859,10 @@ mod tests {
     }
 
     #[test]
-    fn declaration_fact_validation_rejects_surface_mismatches() {
+    fn declaration_record_validation_rejects_surface_mismatches() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface();
-        let base = bundle.semantic_facts();
+        let base = bundle.semantics();
         let signature = &base.callable_signatures()[0];
 
         let invalid_signature = InterfaceCallableSignature::new(
@@ -874,7 +874,7 @@ mod tests {
         )
         .with_body(signature.has_body());
 
-        let invalid_signature_facts = base.clone().with_declarations(
+        let invalid_signature_semantics = base.clone().with_declarations(
             [invalid_signature],
             base.generic_declarations().iter().cloned(),
             base.callable_parameter_defaults().iter().cloned(),
@@ -882,8 +882,8 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
-                &invalid_signature_facts,
+            encode_semantics(
+                &invalid_signature_semantics,
                 surface,
                 InterfaceValidationLimits::default(),
             ),
@@ -897,7 +897,7 @@ mod tests {
             generic.parameters().iter().rev().cloned(),
         );
 
-        let reversed_generic_facts = base.clone().with_declarations(
+        let reversed_generic_semantics = base.clone().with_declarations(
             base.callable_signatures().iter().cloned(),
             [reversed_generic],
             base.callable_parameter_defaults().iter().cloned(),
@@ -905,8 +905,8 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
-                &reversed_generic_facts,
+            encode_semantics(
+                &reversed_generic_semantics,
                 surface,
                 InterfaceValidationLimits::default(),
             ),
@@ -918,7 +918,7 @@ mod tests {
         let absent_default =
             InterfaceCallableParameterDefault::new(default.parameter().clone(), false);
 
-        let absent_default_facts = base.clone().with_declarations(
+        let absent_default_semantics = base.clone().with_declarations(
             base.callable_signatures().iter().cloned(),
             base.generic_declarations().iter().cloned(),
             [absent_default],
@@ -926,8 +926,8 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
-                &absent_default_facts,
+            encode_semantics(
+                &absent_default_semantics,
                 surface,
                 InterfaceValidationLimits::default(),
             ),
@@ -946,11 +946,11 @@ mod tests {
             .copy_from_slice(&u32::MAX.to_le_bytes());
 
         let decode = || {
-            decode_semantic_fact_graph(
+            decode_semantic_graph(
                 &owned_section_views(&sections),
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             )
         };
@@ -973,11 +973,11 @@ mod tests {
             .copy_from_slice(&u32::MAX.to_le_bytes());
 
         let decode = || {
-            decode_semantic_fact_graph(
+            decode_semantic_graph(
                 &owned_section_views(&sections),
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             )
         };
@@ -1003,11 +1003,11 @@ mod tests {
         section.2[unrelated.start..unrelated.start + 4].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
-            decode_semantic_fact_graph(
+            decode_semantic_graph(
                 &owned_section_views(&sections),
                 &surface,
                 owner,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             ),
             Err(InterfaceValidationError::Malformed)
@@ -1028,17 +1028,17 @@ mod tests {
             panic!("test implementation must be local");
         };
 
-        let sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let sections = semantic_sections(bundle.semantics(), &surface);
 
         (surface, owner, sections)
     }
 
     fn semantic_sections(
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         surface: &PackageInterfaceSurface,
     ) -> Vec<OwnedSection> {
-        encode_semantic_facts(facts, surface, InterfaceValidationLimits::default())
-            .unwrap_or_else(|error| panic!("test semantic facts must encode: {error:?}"))
+        encode_semantics(semantics, surface, InterfaceValidationLimits::default())
+            .unwrap_or_else(|error| panic!("test semantics must encode: {error:?}"))
             .into_iter()
             .map(crate::EncodedSemanticSection::into_parts)
             .collect()

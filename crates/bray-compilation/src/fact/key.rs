@@ -6,7 +6,7 @@ use bray_codegen::{
 };
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
-use bray_package_interface::InterfaceSemanticFactKind;
+use bray_package_interface::InterfaceSemanticRecordKind;
 use bray_runtime_interface::{
     RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactPurpose, RuntimeCapability,
 };
@@ -15,7 +15,7 @@ use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
     ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
     ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, ImportedInterfaceId, ImportedSymbolFactAddress, InterfaceSymbolId,
+    ImplementationSymbolId, ImportedInterfaceId, ImportedSemanticAddress, InterfaceSymbolId,
     NamedTypeSymbolId, ProductIdentity, SymbolFactKind, TypeId,
 };
 use bray_target::TargetProfile;
@@ -23,26 +23,26 @@ use bray_target::TargetProfile;
 /// Exact declaration-owned executable template selected from an imported implementation artifact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ImportedExecutableTemplateAddress {
-    symbol: ImportedSymbolFactAddress,
+    symbol: ImportedSemanticAddress,
     template: bray_ir::MirExecutableTemplateId,
 }
 
 impl ImportedExecutableTemplateAddress {
     /// Creates the root executable-template address for one imported declaration.
-    pub(crate) const fn root(symbol: ImportedSymbolFactAddress) -> Self {
+    pub(crate) const fn root(symbol: ImportedSemanticAddress) -> Self {
         Self::new(symbol, bray_ir::MirExecutableTemplateId::ROOT)
     }
 
     /// Creates one imported root or nested executable-template address.
     pub(crate) const fn new(
-        symbol: ImportedSymbolFactAddress,
+        symbol: ImportedSemanticAddress,
         template: bray_ir::MirExecutableTemplateId,
     ) -> Self {
         Self { symbol, template }
     }
 
     /// Returns the declaration's imported interface address.
-    pub(crate) const fn symbol(self) -> ImportedSymbolFactAddress {
+    pub(crate) const fn symbol(self) -> ImportedSemanticAddress {
         self.symbol
     }
 
@@ -111,18 +111,18 @@ impl RuntimeComponentFactIdentity {
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedSemanticFactKey {
+pub struct ImportedSemanticRecordKey {
     interface: ImportedInterfaceId,
     owner: InterfaceSymbolId,
-    kind: InterfaceSemanticFactKind,
+    kind: InterfaceSemanticRecordKind,
 }
 
-impl ImportedSemanticFactKey {
+impl ImportedSemanticRecordKey {
     /// Creates one exact imported semantic-fact address.
     pub const fn new(
         interface: ImportedInterfaceId,
         owner: InterfaceSymbolId,
-        kind: InterfaceSemanticFactKind,
+        kind: InterfaceSemanticRecordKind,
     ) -> Self {
         Self {
             interface,
@@ -142,7 +142,7 @@ impl ImportedSemanticFactKey {
     }
 
     /// Returns the exact semantic fact category.
-    pub const fn kind(self) -> InterfaceSemanticFactKind {
+    pub const fn kind(self) -> InterfaceSemanticRecordKind {
         self.kind
     }
 }
@@ -380,7 +380,7 @@ pub(crate) enum CompilationFactKey {
     ConstantCall(ConstantCallFactKey),
     /// The semantic identity shared by nested evaluations of one selected constant call.
     ConstantCallCycle(ConstantCallDependencyKey),
-    /// Durable control-flow facts for one bound unit.
+    /// Durable control-flow analysis for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Final expression types for one bound unit.
     CheckedExpressionTypes(BoundUnitKey),
@@ -395,15 +395,15 @@ pub(crate) enum CompilationFactKey {
     /// Durable last-use and lexical scope-boundary decisions for one bound unit.
     Liveness(BoundUnitKey),
     /// Durable flow-sensitive facts available at checked operation occurrences.
-    RefinementFacts(BoundUnitKey),
+    Refinements(BoundUnitKey),
     /// Checked storage, ownership, movement, and borrow decisions for one bound unit.
-    StorageFlowFacts(BoundUnitKey),
+    StorageFlow(BoundUnitKey),
     /// Normalized dependency contracts for semantic occurrences in one bound unit.
     DependencyContracts(BoundUnitKey),
     /// Checked compiler-provided memory operations for one bound unit.
     MemoryOperations(BoundUnitKey),
     /// Async frame, suspension, task, and cleanup facts for one bound unit.
-    AsyncFacts(BoundUnitKey),
+    AsyncAnalysis(BoundUnitKey),
     /// Direct callable and runtime-default behavior contributions from one bound unit.
     BodyBehaviorContributions(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
@@ -456,9 +456,9 @@ pub(crate) enum CompilationFactKey {
     /// Decoded and remapped semantic facts for one compiled dependency interface.
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
-    ImportedSemanticFact(ImportedSemanticFactKey),
+    ImportedSemanticRecord(ImportedSemanticRecordKey),
     /// One checked imported const-callable body selected from an implementation artifact.
-    ImportedConstantCallableBody(ImportedSymbolFactAddress),
+    ImportedConstantCallableBody(ImportedSemanticAddress),
     /// One imported executable template selected from an implementation artifact.
     ImportedExecutableTemplate(ImportedExecutableTemplateAddress),
     /// Implementations participating in one package coherence domain.
@@ -527,11 +527,11 @@ impl CompilationFactKey {
             | Self::CheckedSemanticSelections(key)
             | Self::StoragePlan(key)
             | Self::Liveness(key)
-            | Self::RefinementFacts(key)
-            | Self::StorageFlowFacts(key)
+            | Self::Refinements(key)
+            | Self::StorageFlow(key)
             | Self::DependencyContracts(key)
             | Self::MemoryOperations(key)
-            | Self::AsyncFacts(key)
+            | Self::AsyncAnalysis(key)
             | Self::BodyBehaviorContributions(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)
@@ -570,7 +570,7 @@ impl CompilationFactKey {
             | Self::GenericConstraintSatisfaction(_)
             | Self::ImplementationSelection(_)
             | Self::ImportedSemanticGraph(_)
-            | Self::ImportedSemanticFact(_)
+            | Self::ImportedSemanticRecord(_)
             | Self::ImportedConstantCallableBody(_)
             | Self::ImportedExecutableTemplate(_)
             | Self::ImplementationParticipation(_)
@@ -605,11 +605,11 @@ mod tests {
 
     use super::{
         CompilationFactKey, ConstantCallDependencyKey, ConstantCallFactKey,
-        ConstantInstanceFactKey, ImportedSemanticFactKey, SymbolFactKey,
+        ConstantInstanceFactKey, ImportedSemanticRecordKey, SymbolFactKey,
     };
 
     #[test]
-    fn symbol_fact_keys_keep_exact_identity_and_category() {
+    fn symbol_semantic_keys_keep_exact_identity_and_category() {
         let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(7)));
         let key = SymbolFactKey::new(symbol, SymbolFactKind::CallableSignature);
 
@@ -623,14 +623,14 @@ mod tests {
     }
 
     #[test]
-    fn compilation_fact_keys_are_send_and_sync() {
+    fn compilation_semantic_keys_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CompilationFactKey>();
         assert_send_sync::<ConstantCallDependencyKey>();
         assert_send_sync::<ConstantCallFactKey>();
         assert_send_sync::<ConstantInstanceFactKey>();
-        assert_send_sync::<ImportedSemanticFactKey>();
+        assert_send_sync::<ImportedSemanticRecordKey>();
         assert_send_sync::<SymbolFactKey>();
     }
 }

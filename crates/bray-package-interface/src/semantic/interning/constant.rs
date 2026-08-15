@@ -8,7 +8,7 @@ use bray_symbols::{
 
 use crate::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
-    InterfaceSemanticFacts,
+    InterfaceSemantics,
 };
 
 use super::common::{
@@ -19,11 +19,11 @@ use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 impl InternState {
     pub(super) fn intern_constant_values(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.constant_values.iter().enumerate() {
+        for (index, input) in semantics.constant_values.iter().enumerate() {
             if self.constant_values[index].is_some() {
                 continue;
             }
@@ -118,11 +118,11 @@ impl InternState {
 
     pub(super) fn intern_constant_terms(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.constant_terms.iter().enumerate() {
+        for (index, input) in semantics.constant_terms.iter().enumerate() {
             if self.constant_terms[index].is_some() {
                 continue;
             }
@@ -156,8 +156,8 @@ impl InternState {
             InterfaceConstantTerm::Parameter(parameter) => Some(ConstantTermData::Parameter(
                 resolve_exact(symbols, parameter)?,
             )),
-            InterfaceConstantTerm::TargetFact(fact) => {
-                Some(ConstantTermData::TargetFact(resolve_exact(symbols, fact)?))
+            InterfaceConstantTerm::TargetProperty(record) => {
+                Some(ConstantTermData::TargetProperty(resolve_exact(symbols, record)?))
             }
             InterfaceConstantTerm::Unary { operation, operand } => self
                 .constant_term_id(*operand)

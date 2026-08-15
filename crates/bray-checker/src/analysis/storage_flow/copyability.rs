@@ -199,7 +199,7 @@ where
 
                 let representation = self.context.declared_type_representation(*definition)?;
 
-                // The storage-flow result owns diagnostics independently of representation facts.
+                // The storage-flow result owns diagnostics independently of representation queries.
                 self.diagnostics
                     .add_range(representation.diagnostics().iter().cloned());
 

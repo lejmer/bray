@@ -7,8 +7,8 @@ use bray_bound_tree::{
     AsyncTaskOperationKind, BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem,
     BoundCallResult, BoundCallableTarget, BoundDependencyContractId, BoundDependencySubject,
     BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor, BoundUnitRoot,
-    CheckedAsyncFacts, CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinementFacts,
-    CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts, StorageIdentity,
+    CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinements,
+    CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow, StorageIdentity,
     StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
@@ -17,7 +17,7 @@ use bray_diagnostics::{
     DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
     SeverityKind,
 };
-use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureFact, TypeData};
+use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, TypeData};
 
 use super::cleanup::scope_exit_plans;
 use super::dependency::{
@@ -36,20 +36,20 @@ use crate::{
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "async checking consumes independently materialized semantic fact sets explicitly"
+    reason = "async checking consumes independently materialized semantic analysis sets explicitly"
 )]
-pub(crate) fn check_async_facts<C>(
+pub(crate) fn check_async_analysis<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
-    liveness: &LivenessFacts,
+    liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
-    refinements: &CheckedRefinementFacts,
-    flow: &StorageFlowFacts,
-) -> CheckerOutcome<CheckedAsyncFacts>
+    refinements: &CheckedRefinements,
+    flow: &StorageFlow,
+) -> CheckerOutcome<CheckedAsync>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -66,7 +66,7 @@ where
         flow,
     ) {
         return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+            CheckerInfrastructureError::InvalidStorageFlow,
         );
     }
 
@@ -265,7 +265,7 @@ where
 
     diagnostics.add_range(cleanup_diagnostics);
 
-    let facts = match CheckedAsyncFacts::try_new(
+    let analysis = match CheckedAsync::try_new(
         request.unit().unit(),
         request.unit().key().kind(),
         frame_dependencies,
@@ -274,15 +274,15 @@ where
         scope_exits,
         is_recovered,
     ) {
-        Ok(facts) => facts,
+        Ok(analysis) => analysis,
         Err(_) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlowFacts,
+                CheckerInfrastructureError::InvalidStorageFlow,
             );
         }
     };
 
-    CheckerOutcome::complete(facts, diagnostics)
+    CheckerOutcome::complete(analysis, diagnostics)
 }
 
 fn add_selected_task_operations<C>(
@@ -322,17 +322,17 @@ where
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "input validation compares every independently materialized fact set consumed by async checking"
+    reason = "input validation compares every independently materialized analysis set consumed by async checking"
 )]
 fn inputs_match<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
-    liveness: &LivenessFacts,
+    liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
-    refinements: &CheckedRefinementFacts,
-    flow: &StorageFlowFacts,
+    refinements: &CheckedRefinements,
+    flow: &StorageFlow,
 ) -> bool
 where
     C: CheckerRequestContext + ?Sized,
@@ -360,7 +360,7 @@ fn containing_execution<C>(
     request: CheckerUnitView<'_, C>,
 ) -> Result<Option<CallableExecution>, CheckerFactError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let execution = match request.unit().root() {
         BoundUnitRoot::CallableBody { execution, .. }
@@ -665,7 +665,7 @@ fn await_dependency_failure<C>(
     request: CheckerUnitView<'_, C>,
     dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
-    refinements: &CheckedRefinementFacts,
+    refinements: &CheckedRefinements,
     expression: BoundExpressionId,
     dependency_contract: Option<BoundDependencyContractId>,
     suspension_state: Option<&bray_bound_tree::StorageSuspensionState>,
@@ -679,11 +679,11 @@ where
     }
 
     let Some(dependency_contract) = dependency_contract else {
-        return Err(CheckerInfrastructureError::InvalidStorageFlowFacts);
+        return Err(CheckerInfrastructureError::InvalidStorageFlow);
     };
 
     let Some(contract) = dependencies.contract(dependency_contract) else {
-        return Err(CheckerInfrastructureError::InvalidStorageFlowFacts);
+        return Err(CheckerInfrastructureError::InvalidStorageFlow);
     };
 
     let Some(suspension_state) = suspension_state else {
@@ -891,10 +891,10 @@ mod tests {
         BorrowCapabilityOrigin, BoundAwaitExpression, BoundCallResult, BoundCallableTarget,
         BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
         BoundDependencySubject, BoundErrorExpression, BoundExpression, BoundResolvedCall,
-        BoundUnit, BoundUnitId, CheckedDependencyContracts, CheckedRefinementFacts,
-        CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, LivenessFacts,
+        BoundUnit, BoundUnitId, CheckedDependencyContracts, CheckedRefinements,
+        CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, Liveness,
         PlannedBorrowCapability, SelectedCall, SemanticSelection, StorageAccess, StorageAccessRoot,
-        StorageFlowFacts, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
+        StorageFlow, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
     };
     use bray_diagnostics::{
         DiagnosticArgValue, DiagnosticBag, DiagnosticDependencyRequirementKind,
@@ -907,7 +907,7 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
-        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_facts,
+        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_analysis,
         selected_task_operation,
     };
     use crate::test_support::{
@@ -1002,7 +1002,7 @@ mod tests {
         assert_eq!(
             await_outcome(false, true),
             CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::InvalidStorageFlowFacts
+                crate::CheckerInfrastructureError::InvalidStorageFlow
             )
         );
     }
@@ -1136,7 +1136,7 @@ mod tests {
     fn await_outcome(
         include_dependency_contract: bool,
         include_suspension_state: bool,
-    ) -> CheckerOutcome<bray_bound_tree::CheckedAsyncFacts> {
+    ) -> CheckerOutcome<bray_bound_tree::CheckedAsync> {
         await_outcome_with(
             |_, _, _| include_dependency_contract.then(|| BoundDependencyContract::new([])),
             include_suspension_state,
@@ -1167,7 +1167,7 @@ mod tests {
             &mut StoragePlanBuilder,
         ) -> Option<BoundDependencyContract>,
         include_suspension_state: bool,
-    ) -> CheckerOutcome<bray_bound_tree::CheckedAsyncFacts> {
+    ) -> CheckerOutcome<bray_bound_tree::CheckedAsync> {
         let (unit, expressions) = expression_unit(BoundUnitId::new(72), |tree, origin| {
             let [_, operand_origin, _] = test_source_origins();
 
@@ -1209,21 +1209,21 @@ mod tests {
                     panic!("test dependency contracts must validate: {error:?}")
                 });
 
-        let liveness = LivenessFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty test liveness must validate: {error:?}"));
 
         let refinements =
-            CheckedRefinementFacts::try_new(unit.unit(), unit.key().kind(), [], false)
+            CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
                 .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
 
         let suspension = include_suspension_state
             .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
 
         let flow =
-            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
                 .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
-        check_async_facts(
+        check_async_analysis(
             request,
             &types,
             &selections,

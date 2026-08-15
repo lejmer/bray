@@ -320,7 +320,7 @@ where
         self.context.source_syntax(anchor)
     }
 
-    /// Requests one exact symbol-owned semantic fact.
+    /// Requests one exact symbol-owned semantic query.
     pub fn symbol_fact<F>(
         self,
         request: SymbolFactRequest<F>,

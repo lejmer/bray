@@ -804,7 +804,7 @@ mod tests {
     };
 
     #[test]
-    fn observed_schedulers_publish_structured_queue_facts_on_demand() {
+    fn observed_schedulers_publish_structured_queue_observations_on_demand() {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 

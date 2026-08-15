@@ -259,19 +259,19 @@ fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bo
         }
         BoundUnitKeyData::AnonymousCallable(_) => anonymous_region_matches(key, actual),
         BoundUnitKeyData::RuntimeDefault(declared) => {
-            let Some(fact) = runtime_default_fact(declared.owner().kind()) else {
+            let Some(query_kind) = runtime_default_query_kind(declared.owner().kind()) else {
                 return false;
             };
 
             declared_region_matches(
                 declared,
-                LocalSymbolRegionRole::DeclarationFact(fact),
+                LocalSymbolRegionRole::DeclarationQuery(query_kind),
                 actual,
             )
         }
         BoundUnitKeyData::ConstantTemplate(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::ConstantDefinition),
             actual,
         ),
         BoundUnitKeyData::EmbeddedConstant(declared) => {
@@ -279,17 +279,17 @@ fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bo
         }
         BoundUnitKeyData::PredicateDefinition(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::PredicateDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::PredicateDefinition),
             actual,
         ),
         BoundUnitKeyData::Constraint(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::GenericConstraints),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::GenericConstraints),
             actual,
         ),
         BoundUnitKeyData::ContractClause(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableContracts),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::CallableContracts),
             actual,
         ),
         BoundUnitKeyData::TargetGate(declared) => {
@@ -338,7 +338,7 @@ fn anonymous_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -
         && actual.ordinal().is_none()
 }
 
-const fn runtime_default_fact(owner: SymbolKind) -> Option<SymbolFactKind> {
+const fn runtime_default_query_kind(owner: SymbolKind) -> Option<SymbolFactKind> {
     match owner {
         SymbolKind::CallableParameterDefaultProvider => {
             Some(SymbolFactKind::CallableParameterDefault)

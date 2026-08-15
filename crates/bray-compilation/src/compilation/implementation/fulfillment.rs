@@ -3,13 +3,13 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ExternalDeclarationIdentity,
     ExternalSymbolKeyData, GenericArgument, GenericOwnerId, GenericSubstitutionData,
-    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationRequirementKey,
+    ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSymbolId, SymbolFactRequest, SymbolKeyData, TraitApplicationData,
     TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
-    TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueFact, TraitTypeMemberSymbolId, TypeId,
+    TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery, TraitTypeMemberSymbolId, TypeId,
 };
 
-use super::super::binder::{CompilationBinderFacts, binder_fact_error};
+use super::super::binder::{CompilationBindingContext, binder_fact_error};
 use crate::fact::FactQueryError;
 
 #[derive(Clone, Copy)]
@@ -52,17 +52,17 @@ pub(in crate::compilation) fn implementation_requirement(
 }
 
 pub(in crate::compilation) fn implementation_instance_requirement(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     instance: ImplementationInstanceId,
 ) -> Result<ImplementationRequirementKey, FactQueryError> {
-    let values = facts.semantic_values();
+    let values = binding_context.semantic_values();
 
     let instance = values
         .implementation_instance_data(instance)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let coherence = facts
-        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+    let coherence = binding_context
+        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
             instance.definition(),
         ))
         .map_err(binder_fact_error)?;
@@ -84,17 +84,17 @@ pub(in crate::compilation) fn implementation_instance_requirement(
 }
 
 pub(in crate::compilation) fn selected_type_valued_member(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     substitution: bray_symbols::GenericSubstitutionId,
     fulfillments: &[TraitTypeFulfillmentSymbolId],
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeValuedMemberResolution, FactQueryError> {
     let expected_name =
-        fulfillment_name(facts, member.into()).ok_or(FactQueryError::InfrastructureFailure)?;
+        fulfillment_name(binding_context, member.into()).ok_or(FactQueryError::InfrastructureFailure)?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into()).is_some_and(|name| name == expected_name)
+        fulfillment_name(binding_context, (*fulfillment).into()).is_some_and(|name| name == expected_name)
     });
 
     let Some(fulfillment) = matching.next() else {
@@ -105,8 +105,8 @@ pub(in crate::compilation) fn selected_type_valued_member(
         return Ok(TypeValuedMemberResolution::Invalid);
     }
 
-    let result = facts
-        .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueFact>::new(
+    let result = binding_context
+        .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueQuery>::new(
             fulfillment,
         ))
         .map_err(binder_fact_error)?;
@@ -117,12 +117,12 @@ pub(in crate::compilation) fn selected_type_valued_member(
         return Ok(TypeValuedMemberResolution::Invalid);
     }
 
-    let checked = facts.compilation().checked_constant_terms(result.value())?;
+    let checked = binding_context.compilation().checked_constant_terms(result.value())?;
 
     *diagnostics = diagnostics.merged(checked.diagnostics());
 
     let Some(ty) = bray_checker::resolve_type_expression_template(
-        facts.semantic_values(),
+        binding_context.semantic_values(),
         result.value(),
         checked.value(),
     )
@@ -131,34 +131,34 @@ pub(in crate::compilation) fn selected_type_valued_member(
         return Ok(TypeValuedMemberResolution::Deferred);
     };
 
-    facts
+    binding_context
         .semantic_values()
         .substitute_type(ty, substitution)
         .map(TypeValuedMemberResolution::Resolved)
         .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
-pub(in crate::compilation) fn implementation_fulfillments<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
+pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
+    binding_context: &'binding_context CompilationBindingContext<'_>,
     implementation: ImplementationSymbolId,
-) -> Result<ImplementationFulfillments<'facts>, FactQueryError> {
+) -> Result<ImplementationFulfillments<'binding_context>, FactQueryError> {
     let source =
         match implementation {
-            ImplementationSymbolId::Inherent(id) => facts
+            ImplementationSymbolId::Inherent(id) => binding_context
                 .symbols()
                 .inherent_implementation(id)
                 .map(|symbol| ImplementationFulfillments {
                     callables: symbol.callable_fulfillments(),
                     types: symbol.type_fulfillments(),
                 }),
-            ImplementationSymbolId::UnnamedTrait(id) => facts
+            ImplementationSymbolId::UnnamedTrait(id) => binding_context
                 .symbols()
                 .unnamed_trait_implementation(id)
                 .map(|symbol| ImplementationFulfillments {
                     callables: symbol.callable_fulfillments(),
                     types: symbol.type_fulfillments(),
                 }),
-            ImplementationSymbolId::NamedTrait(id) => facts
+            ImplementationSymbolId::NamedTrait(id) => binding_context
                 .symbols()
                 .named_trait_implementation(id)
                 .map(|symbol| ImplementationFulfillments {
@@ -171,7 +171,7 @@ pub(in crate::compilation) fn implementation_fulfillments<'facts>(
         return Ok(fulfillments);
     }
 
-    let imported = facts.imported_symbols().map_err(binder_fact_error)?;
+    let imported = binding_context.imported_symbols().map_err(binder_fact_error)?;
 
     let imported = match implementation {
         ImplementationSymbolId::Inherent(id) => imported
@@ -198,14 +198,14 @@ pub(in crate::compilation) fn implementation_fulfillments<'facts>(
 }
 
 pub(in crate::compilation) fn selected_callable(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     fulfillments: &[TraitCallableFulfillmentSymbolId],
     member: TraitCallableMemberSymbolId,
 ) -> Option<TraitCallableFulfillmentSymbolId> {
-    let expected_name = fulfillment_name(facts, member.into())?;
+    let expected_name = fulfillment_name(binding_context, member.into())?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into()).is_some_and(|name| name == expected_name)
+        fulfillment_name(binding_context, (*fulfillment).into()).is_some_and(|name| name == expected_name)
     });
 
     let fulfillment = matching.next()?;
@@ -231,15 +231,15 @@ pub(in crate::compilation) fn callable_instance(
     Ok(CallableInstanceData::new(definition, substitution))
 }
 
-fn fulfillment_name<'facts>(
-    facts: &'facts CompilationBinderFacts<'_>,
+fn fulfillment_name<'binding_context>(
+    binding_context: &'binding_context CompilationBindingContext<'_>,
     fulfillment: AnySymbolId,
-) -> Option<&'facts str> {
-    if let Some(name) = facts.symbols().member_name(fulfillment) {
+) -> Option<&'binding_context str> {
+    if let Some(name) = binding_context.symbols().member_name(fulfillment) {
         return Some(name.as_str());
     }
 
-    let key = facts.symbol_key(fulfillment).ok()??;
+    let key = binding_context.symbol_key(fulfillment).ok()??;
 
     let SymbolKeyData::External(key) = key.data() else {
         return None;

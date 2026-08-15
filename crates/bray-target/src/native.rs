@@ -1,9 +1,9 @@
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetAtomicFacts, TargetAtomicOperationFacts,
-    TargetAtomicRepresentationFacts, TargetCAbiFacts, TargetFacts, TargetIdentity,
-    TargetMachineProperties, TargetOperationFacts, TargetProfile, TargetScalarKind,
+    Endianness, ObjectFormat, TargetArchitecture, TargetAtomicSupport, TargetAtomicOperations,
+    TargetAtomicRepresentationSupport, TargetCDataModel, TargetProperties, TargetIdentity,
+    TargetMachineProperties, TargetOperationSupport, TargetProfile, TargetScalarKind,
 };
 
 /// Native target profiles provided by the Bray toolchain.
@@ -97,18 +97,18 @@ impl NativeTarget {
         )
         .unwrap_or_else(|| panic!("native target machine properties must be valid"));
 
-        let (vendor, system, environment, abi) = self.identity_facts();
+        let (vendor, system, environment, abi) = self.identity_properties();
 
-        let facts = TargetFacts::try_portable(vendor, system, environment, abi, self.c_abi_facts())
-            .map(|facts| {
-                facts
-                    .with_atomics(native_atomic_facts())
-                    .with_operations(TargetOperationFacts::new(true, true))
+        let properties = TargetProperties::try_portable(vendor, system, environment, abi, self.c_abi_properties())
+            .map(|properties| {
+                properties
+                    .with_atomics(native_atomic_properties())
+                    .with_operations(TargetOperationSupport::new(true, true))
                     .with_dynamic_loading(true)
             })
-            .unwrap_or_else(|| panic!("native target facts must be valid"));
+            .unwrap_or_else(|| panic!("native target properties must be valid"));
 
-        TargetProfile::try_new(self.identity(), machine, facts)
+        TargetProfile::try_new(self.identity(), machine, properties)
             .unwrap_or_else(|error| panic!("native target profile must be valid: {error:?}"))
     }
 
@@ -143,7 +143,7 @@ impl NativeTarget {
         }
     }
 
-    const fn identity_facts(self) -> (&'static str, &'static str, &'static str, &'static str) {
+    const fn identity_properties(self) -> (&'static str, &'static str, &'static str, &'static str) {
         match self {
             Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu => ("unknown", "linux", "gnu", "gnu"),
             Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => ("pc", "windows", "msvc", "msvc"),
@@ -151,7 +151,7 @@ impl NativeTarget {
         }
     }
 
-    fn c_abi_facts(self) -> TargetCAbiFacts {
+    fn c_abi_properties(self) -> TargetCDataModel {
         let char = if self == Self::Aarch64LinuxGnu {
             TargetScalarKind::U8
         } else {
@@ -181,13 +181,13 @@ impl NativeTarget {
             Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu | Self::X86_64MacOs => None,
         };
 
-        TargetCAbiFacts::try_new(char, long, unsigned_long, wide_char, long_double)
-            .unwrap_or_else(|| panic!("native target C ABI facts must be valid"))
+        TargetCDataModel::try_new(char, long, unsigned_long, wide_char, long_double)
+            .unwrap_or_else(|| panic!("native target C ABI properties must be valid"))
     }
 }
 
-fn native_atomic_facts() -> TargetAtomicFacts {
-    TargetAtomicFacts::new(
+fn native_atomic_properties() -> TargetAtomicSupport {
+    TargetAtomicSupport::new(
         lock_free_integer(1),
         lock_free_integer(2),
         lock_free_integer(4),
@@ -197,29 +197,29 @@ fn native_atomic_facts() -> TargetAtomicFacts {
     )
 }
 
-fn lock_free_integer(alignment: u64) -> TargetAtomicRepresentationFacts {
-    atomic_representation(TargetAtomicOperationFacts::integer(), alignment, true)
+fn lock_free_integer(alignment: u64) -> TargetAtomicRepresentationSupport {
+    atomic_representation(TargetAtomicOperations::integer(), alignment, true)
 }
 
-fn lock_free_pointer(alignment: u64) -> TargetAtomicRepresentationFacts {
-    atomic_representation(TargetAtomicOperationFacts::pointer(), alignment, true)
+fn lock_free_pointer(alignment: u64) -> TargetAtomicRepresentationSupport {
+    atomic_representation(TargetAtomicOperations::pointer(), alignment, true)
 }
 
-fn unavailable_atomic(alignment: u64) -> TargetAtomicRepresentationFacts {
+fn unavailable_atomic(alignment: u64) -> TargetAtomicRepresentationSupport {
     let alignment = NonZeroU64::new(alignment).unwrap_or(NonZeroU64::MIN);
 
-    TargetAtomicRepresentationFacts::unavailable(alignment)
+    TargetAtomicRepresentationSupport::unavailable(alignment)
 }
 
 fn atomic_representation(
-    operations: TargetAtomicOperationFacts,
+    operations: TargetAtomicOperations,
     alignment: u64,
     wait_notify: bool,
-) -> TargetAtomicRepresentationFacts {
+) -> TargetAtomicRepresentationSupport {
     let alignment = NonZeroU64::new(alignment).unwrap_or(NonZeroU64::MIN);
 
-    TargetAtomicRepresentationFacts::try_new(operations, alignment, true, wait_notify, true)
-        .unwrap_or_else(|| panic!("native atomic representation facts must be valid"))
+    TargetAtomicRepresentationSupport::try_new(operations, alignment, true, wait_notify, true)
+        .unwrap_or_else(|| panic!("native atomic representation properties must be valid"))
 }
 
 #[cfg(test)]
@@ -258,11 +258,11 @@ mod tests {
             assert_eq!(profile.machine().pointer_width_bits().get(), 64);
             assert_eq!(profile.machine().pointer_alignment_bytes().get(), 8);
             assert_eq!(profile.machine().stack_alignment_bytes().get(), 16);
-            assert!(profile.facts().operations().raw_memory());
-            assert!(profile.facts().operations().allocation());
-            assert!(profile.facts().dynamic_loading());
+            assert!(profile.properties().operations().raw_memory());
+            assert!(profile.properties().operations().allocation());
+            assert!(profile.properties().dynamic_loading());
 
-            let atomics = profile.facts().atomics();
+            let atomics = profile.properties().atomics();
 
             assert!(atomics.u8());
             assert!(atomics.u16());
@@ -288,18 +288,18 @@ mod tests {
             }
 
             assert_eq!(
-                profile.fact(crate::TargetFactKind::AtomicU64Alignment),
-                crate::TargetFactValue::Usize(8)
+                profile.property(crate::TargetPropertyKind::AtomicU64Alignment),
+                crate::TargetPropertyValue::Usize(8)
             );
 
             assert_eq!(
-                profile.fact(crate::TargetFactKind::AtomicU64AlwaysLockFree),
-                crate::TargetFactValue::Boolean(true)
+                profile.property(crate::TargetPropertyKind::AtomicU64AlwaysLockFree),
+                crate::TargetPropertyValue::Boolean(true)
             );
 
             assert_eq!(
-                profile.fact(crate::TargetFactKind::AtomicU128WaitNotify),
-                crate::TargetFactValue::Boolean(false)
+                profile.property(crate::TargetPropertyKind::AtomicU128WaitNotify),
+                crate::TargetPropertyValue::Boolean(false)
             );
 
             assert!(matches!(
@@ -322,7 +322,7 @@ mod tests {
             };
 
             assert_eq!(
-                profile.facts().c_abi().mapping(TargetCScalarKind::Long),
+                profile.properties().c_abi().mapping(TargetCScalarKind::Long),
                 Some(expected_long)
             );
         }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundReferenceTarget, BoundUnresolvedReferenceKind,
-    BoundWalkControl, BoundWalkEvent, CheckedPatternFacts, SemanticSelection,
+    BoundWalkControl, BoundWalkEvent, CheckedPatterns, SemanticSelection,
     SemanticSelectionEntry, walk_bound_unit_view,
 };
 use bray_diagnostics::{
@@ -68,7 +68,7 @@ where
 
 pub(super) fn prepare_pattern_binding_references<C>(
     request: CheckerUnitView<'_, C>,
-    facts: &CheckedPatternFacts,
+    patterns: &CheckedPatterns,
     expressions: BTreeSet<bray_bound_tree::BoundExpressionId>,
 ) -> Result<PreparedPatternReferences, CheckerInfrastructureError>
 where
@@ -92,7 +92,7 @@ where
 
         let binding_id = pattern_binding_id(*expression, bound)?;
 
-        if let Some(binding_type) = facts.binding_type(binding_id) {
+        if let Some(binding_type) = patterns.binding_type(binding_id) {
             evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
 
             if matches!(bound, BoundExpression::PatternReference(_)) {
@@ -113,7 +113,7 @@ where
             continue;
         };
 
-        let Some(pattern) = facts.pattern(reference.pattern()) else {
+        let Some(pattern) = patterns.pattern(reference.pattern()) else {
             return Err(CheckerInfrastructureError::InvalidBoundNode {
                 node: reference.pattern().into(),
             });
@@ -157,7 +157,7 @@ where
 
 pub(super) fn resolved_pattern_binding_evidence<C>(
     request: CheckerUnitView<'_, C>,
-    facts: &CheckedPatternFacts,
+    patterns: &CheckedPatterns,
     expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
 ) -> Result<Vec<ExpressionTypeEvidence>, CheckerInfrastructureError>
 where
@@ -174,7 +174,7 @@ where
 
         let binding = pattern_binding_id(*expression, bound)?;
 
-        let Some(binding_type) = facts.binding_type(binding) else {
+        let Some(binding_type) = patterns.binding_type(binding) else {
             continue;
         };
 

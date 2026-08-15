@@ -13,32 +13,32 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, MemberVisibility, ModulePathKey, ModuleReExport,
-    ModuleSurface, ModuleSurfaceFact, ModuleSymbolId, ModuleUsing, SymbolFactRequest,
+    ModuleSurface, ModuleSurfaceQuery, ModuleSymbolId, ModuleUsing, SymbolFactRequest,
     SymbolFactResult, SymbolKey, SymbolKeyData, SymbolKind, SymbolName, SymbolRootKey,
 };
 use bray_syntax::{ExportDeclarationSyntax, PathSyntax, SourceSyntaxNode, UsingDeclarationSyntax};
 
 use super::binding::CompilationSymbolFactBinding;
-use super::cache::CompilationSymbolFacts;
-use crate::compilation::binder::CompilationBinderFacts;
+use super::cache::CompilationSymbolSemantics;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::SymbolFactCache;
 
-impl CompilationSymbolFactBinding<ModuleSurfaceFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<ModuleSurfaceFact> {
+impl CompilationSymbolFactBinding<ModuleSurfaceQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<ModuleSurfaceQuery> {
         &self.module_surfaces
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<ModuleSurfaceFact>,
-    ) -> BinderFactResult<SymbolFactResult<ModuleSurfaceFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<ModuleSurfaceQuery>,
+    ) -> BinderFactResult<SymbolFactResult<ModuleSurfaceQuery>> {
         ModuleSurfaceResolver::new(context).bind(request.owner())
     }
 }
 
-struct ModuleSurfaceResolver<'facts, 'compilation> {
-    context: &'facts CompilationBinderFacts<'compilation>,
+struct ModuleSurfaceResolver<'binding_context, 'compilation> {
+    context: &'binding_context CompilationBindingContext<'compilation>,
     completed: BTreeMap<ModuleSymbolId, DiagnosticResult<ModuleSurface>>,
     active: Vec<ModuleSymbolId>,
     detected_cycles: usize,
@@ -46,8 +46,8 @@ struct ModuleSurfaceResolver<'facts, 'compilation> {
 
 type BoundModuleUsings = (Vec<ModuleUsing>, BTreeSet<Box<[String]>>);
 
-impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
-    fn new(context: &'facts CompilationBinderFacts<'compilation>) -> Self {
+impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'compilation> {
+    fn new(context: &'binding_context CompilationBindingContext<'compilation>) -> Self {
         Self {
             context,
             completed: BTreeMap::new(),
@@ -545,12 +545,12 @@ fn export_conflict_diagnostic(
 mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{
-        AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceFact, PackageIdentity,
+        AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceQuery, PackageIdentity,
         SymbolFactRequest,
     };
     use bray_testing::test_source_inputs;
 
-    use super::super::test_support::{binder_facts, published_fact, symbol_graph};
+    use super::super::test_support::{binding_context, published_fact, symbol_graph};
     use crate::fact::CancellationToken;
     use crate::{Compilation, CompilationRequest};
 
@@ -575,8 +575,8 @@ mod tests {
             .unwrap_or_else(|| panic!("module a must declare run"));
 
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
-        let b_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let binding_context = binding_context(&compilation, &cancellation);
+        let b_surface = published_fact(&binding_context, SymbolFactRequest::<ModuleSurfaceQuery>::new(b));
 
         assert_eq!(b_surface.value().usings()[0].target(), run);
 
@@ -585,7 +585,7 @@ mod tests {
             MemberLookupResult::Found(run)
         );
 
-        let c_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(c));
+        let c_surface = published_fact(&binding_context, SymbolFactRequest::<ModuleSurfaceQuery>::new(c));
 
         assert_eq!(c_surface.value().re_exports()[0].target(), run);
 
@@ -612,8 +612,12 @@ mod tests {
         let symbols = symbol_graph(&acknowledged);
         let b = module(symbols, "b");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&acknowledged, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let acknowledged_binding_context = binding_context(&acknowledged, &cancellation);
+
+        let surface = published_fact(
+            &acknowledged_binding_context,
+            SymbolFactRequest::<ModuleSurfaceQuery>::new(b),
+        );
 
         assert!(surface.diagnostics().is_empty());
 
@@ -630,8 +634,12 @@ mod tests {
         let symbols = symbol_graph(&unacknowledged);
         let b = module(symbols, "b");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&unacknowledged, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let unacknowledged_binding_context = binding_context(&unacknowledged, &cancellation);
+
+        let surface = published_fact(
+            &unacknowledged_binding_context,
+            SymbolFactRequest::<ModuleSurfaceQuery>::new(b),
+        );
 
         assert_eq!(
             surface
@@ -663,8 +671,12 @@ mod tests {
         let symbols = symbol_graph(&non_propagating);
         let c = module(symbols, "c");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&non_propagating, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(c));
+        let non_propagating_binding_context = binding_context(&non_propagating, &cancellation);
+
+        let surface = published_fact(
+            &non_propagating_binding_context,
+            SymbolFactRequest::<ModuleSurfaceQuery>::new(c),
+        );
 
         assert!(surface.value().re_exports().is_empty());
 
@@ -696,8 +708,12 @@ mod tests {
         let symbols = symbol_graph(&descendant);
         let api = module(symbols, "api");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&descendant, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(api));
+        let descendant_binding_context = binding_context(&descendant, &cancellation);
+
+        let surface = published_fact(
+            &descendant_binding_context,
+            SymbolFactRequest::<ModuleSurfaceQuery>::new(api),
+        );
 
         assert!(surface.diagnostics().is_empty());
 
@@ -829,8 +845,8 @@ mod tests {
         let symbols = symbol_graph(compilation);
         let module = module(symbols, module_path);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(compilation, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(module));
+        let binding_context = binding_context(compilation, &cancellation);
+        let surface = published_fact(&binding_context, SymbolFactRequest::<ModuleSurfaceQuery>::new(module));
 
         assert!(surface.diagnostics().by_kind(expected).next().is_some());
 

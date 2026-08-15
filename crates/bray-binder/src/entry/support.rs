@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    AnySymbolId, CallableExecution, CallableSignatureFact, CallableSignatureTemplate,
+    AnySymbolId, CallableExecution, CallableSignatureQuery, CallableSignatureTemplate,
     CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SelfTypeContext, SymbolFactRequest,
     SymbolName, TypeData,
 };
@@ -64,7 +64,7 @@ pub(crate) fn push_callable_inputs<C>(
 ) -> Result<CallableExecution, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let callable = binder
         .facts()
@@ -83,12 +83,12 @@ pub(crate) fn push_callable_inputs_for<C>(
 ) -> Result<CallableExecution, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let signature = binder
         .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        .symbol_semantics()
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
         .map_err(map_fact_error)?;
 
     insert_callable_inputs(

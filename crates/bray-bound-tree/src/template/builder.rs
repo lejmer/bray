@@ -10,7 +10,7 @@ use super::{
 /// Builder for one portable checked template.
 ///
 /// Construction validates template-local references and type equalities. The checker or interface
-/// decoder remains responsible for facts that require semantic lookup, including canonical
+/// decoder remains responsible for conditions that require semantic lookup, including canonical
 /// boolean identity, callable signatures, member types, and structural result-type expansion.
 #[derive(Debug)]
 pub struct CheckedTemplateBuilder {

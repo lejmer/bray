@@ -1,23 +1,23 @@
 # Binder and bound tree design
 
 This document defines the goal-state architecture for name binding, semantic-analysis cooperation, bound semantic units, and the
-immutable bound representation and side facts.
+immutable bound representation and side query results.
 
 The language documents define Bray semantics.
 
 `docs/design/compiler-architecture.md` defines the compiler-wide phase and query model.
 
-`docs/design/symbols.md` defines semantic identities, symbol facts, completion, and local symbol snapshots.
+`docs/design/symbols.md` defines semantic identities, symbol query results, completion, and local symbol snapshots.
 
 `docs/design/compiler-known-catalog.md` defines compiler-known declaration surfaces and typed compiler-provided behavior roles.
 
 `docs/design/compiled-package-interfaces.md` defines source-independent imported surfaces and checked declaration-owned templates.
 
-`docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable facts.
+`docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable query results.
 
-`docs/design/lowering.md` defines how checked bound units and their required facts become execution-shaped MIR.
+`docs/design/lowering.md` defines how checked bound units and their required query results become execution-shaped MIR.
 
-This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
+This document defines how syntax and symbols become complete source-correlated semantic query results without moving checker policy into the
 binder or making lowering reinterpret source.
 
 ---
@@ -27,7 +27,7 @@ binder or making lowering reinterpret source.
 The binder and bound representation should:
 
 - resolve every semantic reference to a typed identity,
-- publish complete immutable results for clearly defined bound-unit and semantic-fact contracts,
+- publish complete immutable results for clearly defined bound-unit and semantic-query result contracts,
 - preserve enough source correlation for precise diagnostics and tooling,
 - orchestrate checker services without owning their semantic rules,
 - represent erroneous source explicitly and continue without panics,
@@ -46,16 +46,16 @@ The binder does not:
 - discover declarations already owned by `bray-declarations`,
 - construct the compilation-wide symbol identity skeleton,
 - define type, ownership, borrowing, effect, capability, contract, or target policy,
-- lower a source-shaped bound HIR and its consumer-required semantic facts into backend-independent MIR,
+- lower a source-shaped bound HIR and its consumer-required semantic query results into backend-independent MIR,
 - execute constant expressions or runtime defaults except through the owning evaluator service,
 - own compiler command workflows or eagerly bind the whole program,
-- expose mutable bound nodes or facts that claim guarantees beyond their own contracts.
+- expose mutable bound nodes or query results that claim guarantees beyond their own contracts.
 
 The bound tree is not syntax with renamed node kinds. It contains resolved semantic references and binding decisions that syntax
 alone cannot represent.
 
 The bound tree is Bray's source-shaped high-level intermediate representation. A consumer observes it together with the exact
-immutable semantic side facts it requests. It is not the backend-independent `bray-ir` MIR and remains closely correlated with
+immutable semantic side query results it requests. It is not the backend-independent `bray-ir` MIR and remains closely correlated with
 source and diagnostics until lowering makes implicit execution behavior explicit.
 
 ---
@@ -65,7 +65,7 @@ source and diagnostics until lowering makes implicit execution behavior explicit
 ### Binding
 
 Binding resolves syntax names, paths, members, patterns, declarations, and callable references against lexical scopes and symbol
-facts.
+query results.
 
 Binding also constructs the source-shaped bound representation and asks checker services for the semantic decisions required to
 complete that representation.
@@ -82,10 +82,10 @@ This rule applies at every implementation level, not only to top-level binder en
 responsibility. This keeps every operation that performs binding discoverable through one consistent name search.
 
 The prefix is reserved for operations that perform actual syntax binding. Helpers that only resolve lookup candidates, request
-facts, run checker policy, construct already-decided bound values, or publish completed results use names that describe those
+query results, run checker policy, construct already-decided bound values, or publish completed results use names that describe those
 narrower responsibilities instead.
 
-These names describe internal binder implementation operations. Public symbol and compilation APIs remain lazy fact accessors such
+These names describe internal binder implementation operations. Public symbol and compilation APIs remain lazy query result accessors such
 as `checked_body()` and must not expose caller-driven `bind_*` workflow methods.
 
 ### Checking
@@ -100,7 +100,7 @@ The binder orchestrates checking. `bray-checker` owns the rule implementations.
 
 A semantic unit is the smallest independently requested, checked, cached, and published source-shaped bound representation.
 
-Not every binder query produces a semantic unit. A binding-dependent symbol fact can return an exact semantic value such as a
+Not every binder query produces a semantic unit. A binding-dependent symbol query result can return an exact semantic value such as a
 resolved type, trait application, or overload target without publishing a bound tree.
 
 The semantic unit categories are:
@@ -121,13 +121,13 @@ and lowering contracts together. It cannot create an ad hoc independently cached
 
 A bound tree is one immutable source-shaped high-level IR arena for one semantic unit.
 
-It owns typed bound nodes and the semantic facts stored on those nodes. It references symbols, types, local symbols, source anchors,
+It owns typed bound nodes and the semantic query results stored on those nodes. It references symbols, types, local symbols, source anchors,
 storage identities, storage accesses, and other semantic identities through typed IDs.
 
 ### Unit Completion
 
 Completion is a compilation query guarantee, not another semantic-tree representation. A completed-unit query references the
-published `BoundUnit` and requires every typed semantic fact promised by its contract. Each contributing fact retains the diagnostics
+published `BoundUnit` and requires every typed semantic query result promised by its contract. Each contributing query result retains the diagnostics
 produced while computing it.
 
 ---
@@ -162,17 +162,17 @@ The exact Cargo edges can be narrower, but these ownership rules are mandatory:
 - `bray-checker` owns focused semantic rule services and checker-specific analysis state,
 - `bray-binder` owns name resolution, task-local construction state, and bound-unit assembly,
 - `bray-compilation` owns query keys, caches, dependency tracking, cancellation, and publication,
-- `bray-lowering` consumes bound units with their required completed semantic facts and must not call back into binding to make
+- `bray-lowering` consumes bound units with their required completed semantic query results and must not call back into binding to make
   semantic decisions.
 
-`bray-binder` does not depend on `bray-compilation`. It defines or consumes a narrow read-only binder fact context that
-`bray-compilation` implements when invoking a binding query. That context exposes typed fact requests and cancellation observation,
+`bray-binder` does not depend on `bray-compilation`. It defines or consumes a narrow read-only binder query result context that
+`bray-compilation` implements when invoking a binding query. That context exposes typed query result requests and cancellation observation,
 not compilation cache internals or workflow methods.
 
-Durable semantic fact value types required on bound nodes belong in `bray-bound-tree` or another lower owning representation crate.
+Durable semantic query result value types required on bound nodes belong in `bray-bound-tree` or another lower owning representation crate.
 `bray-checker` owns the algorithms that produce those values and must not force `bray-bound-tree` to depend back on checker services.
 
-Binding-dependent symbol facts are exposed through symbol-facing APIs but computed through compilation queries implemented by the
+Binding-dependent symbol query results are exposed through symbol-facing APIs but computed through compilation queries implemented by the
 binder and checker services. This does not create a reverse crate dependency from `bray-symbols`.
 
 ---
@@ -198,7 +198,7 @@ moving all typed symbol IDs into another lower identity crate without currently 
 Other responsibilities remain separate:
 
 - `bray-binder` resolves type syntax, constant references, and generic arguments,
-- `bray-symbols` owns source type-expression templates used by declaration-surface facts,
+- `bray-symbols` owns source type-expression templates used by declaration-surface query results,
 - `bray-bound-tree` owns checked constant-expression templates and source-shaped HIR,
 - `bray-checker` owns inference variables, unification, type relations, constraint proofs, and constant evaluation,
 - `bray-compilation` owns semantic-store instances, query caches, target-specific evaluation, cancellation, and publication,
@@ -282,9 +282,9 @@ Contextual `Self` retains the exact named type, trait, or implementation context
 to an error type or represented as a synthetic generic parameter.
 
 Type-valued member projections remain explicit stable types while their selected type is not globally fixed. A context that
-selects an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.
+selects an implementation can resolve the projection through an ordinary semantic query result without mutating the original `TypeId`.
 
-One shared error type supports recovery. The diagnostic belongs to the fact that produced the error type. Error types do not
+One shared error type supports recovery. The diagnostic belongs to the query result that produced the error type. Error types do not
 embed diagnostic IDs or source text and are forbidden in successfully emitted package interfaces.
 
 ### Inference Types
@@ -297,10 +297,10 @@ pub struct InferenceTypeId(u32);
 
 Inference variables, unification parents, candidate sets, deferred constraints, and solver obligations remain in a checker-owned
 inference context. They must not be interned as `TypeId`, stored on published bound nodes, serialized into package interfaces,
-or exposed by completed symbol facts.
+or exposed by completed symbol query results.
 
 Before publication, every inference variable is resolved to a stable `TypeId` or the shared error type with diagnostics owned
-by the checking fact.
+by the checking query result.
 
 ### Closed Constant Values
 
@@ -335,7 +335,7 @@ Integer evaluation can use exact intermediate arithmetic in checker-owned state.
 declared type after representability has been checked. Real and complex values retain the exact selected runtime-format bits. Strings
 use stable string content. Aggregate identity includes exact type, variant where applicable, and ordered child values.
 
-A shared error constant value supports recovery. Its diagnostics remain on the failed constant-instance fact. Error values are
+A shared error constant value supports recovery. Its diagnostics remain on the failed constant-instance query result. Error values are
 never valid generic arguments for concrete instantiation and are forbidden in emitted interfaces.
 
 Literal adaptation intermediates, unbounded evaluation integers, evaluation stacks, resource counters, and traces are checker-owned
@@ -344,7 +344,7 @@ work values rather than `ConstantValueKind` variants.
 ### Open Constant Terms
 
 A const parameter or an expression such as `N + 1` is not a closed `ConstantValueId`. Open compile-time expressions used in generic
-types, type forms, substitutions, and static facts use `ConstantTermId`.
+types, type forms, substitutions, and static query results use `ConstantTermId`.
 
 Conceptually, durable term variants include:
 
@@ -356,7 +356,7 @@ pub enum ConstantTermData {
         value: IntegerConstant,
     },
     Parameter(GenericConstParameterSymbolId),
-    TargetFact(TargetFactId),
+    TargetProperty(TargetPropertyId),
     Unary {
         operation: ConstantUnaryOperation,
         operand: ConstantTermId,
@@ -396,7 +396,7 @@ Closed subterms are evaluated and interned as `Value`. Open terms preserve evalu
 not perform arbitrary algebraic rewriting. For example, `N + 1` and `1 + N` normally have different open term identities even if a
 particular checking context can prove them equal.
 
-A target-sized integer literal remains an `IntegerLiteral` term until selected-target facts establish representability. The term
+A target-sized integer literal remains an `IntegerLiteral` term until selected-target properties establish representability. The term
 retains whether its established type is `isize` or `usize` and its normalized arbitrary-width value. It must not use the compiler
 host width or become a closed `ConstantValueId` before target validation succeeds.
 
@@ -412,7 +412,7 @@ stable type, trait application, implementation subject, or callable signature. C
 those checked results without rerunning syntax binding.
 
 The occurrence key is source stable and target independent. It must not include a target profile, inferred type, selected candidate,
-or lazily assigned semantic value ID. Those values belong to the later checked fact keyed by the occurrence and its demand context.
+or lazily assigned semantic value ID. Those values belong to the later checked query result keyed by the occurrence and its demand context.
 
 ### Generic Substitutions
 
@@ -456,7 +456,7 @@ for one operation without changing global interning. Consequently:
 - equal `TypeId` values are definitively the same stable type,
 - unequal concrete `TypeId` values are different concrete types,
 - unequal open `TypeId` values can still be proven equivalent in an exact constraint context,
-- such a proof is a checker fact and does not mutate or alias either interned ID.
+- such a proof is a checker query result and does not mutate or alias either interned ID.
 
 This keeps interning deterministic and context-independent while allowing generic proofs to establish the relationships required by
 the language.
@@ -474,10 +474,10 @@ remapping. It does not persist raw `TypeId`, `ConstantValueId`, `ConstantTermId`
 
 ---
 
-## Binding-Dependent Symbol Facts
+## Binding-Dependent Symbol Query Results
 
 Symbol construction creates identities and immediate declaration relationships without binding syntax. Some declaration-surface
-facts later require the binder or checker but remain symbol-facing results.
+query results later require the binder or checker but remain symbol-facing results.
 
 Examples include:
 
@@ -491,7 +491,7 @@ Examples include:
 - checked predicate definitions,
 - checked runtime-default summaries.
 
-Each fact has a typed owner-specific query and returns a `DiagnosticResult<T>` with the exact semantic value or category-specific
+Each query result has a typed owner-specific query and returns a `DiagnosticResult<T>` with the exact semantic value or category-specific
 error value. Callers do not invoke an untyped declaration-binding workflow.
 
 Conceptually:
@@ -522,17 +522,17 @@ type, `None`, or an error-aware semantic value.
 
 Exact category APIs and completion rules remain owned by `docs/design/symbols.md`.
 
-A fact that only resolves a type, target, or relationship need not allocate a `BoundTree`. Its result retains the source anchors and
+A query result that only resolves a type, target, or relationship need not allocate a `BoundTree`. Its result retains the source anchors and
 typed error state required by diagnostics and tooling.
 
-A fact whose meaning includes a bound expression depends on the published `BoundUnit`. The symbol-facing result exposes the stable
+A query result whose meaning includes a bound expression depends on the published `BoundUnit`. The symbol-facing result exposes the stable
 semantic summary required by symbol consumers without storing bound node IDs or copying the source-shaped representation.
 
-An expression-backed symbol fact and its bound unit have separate stable diagnosing queries. Alternate summary, tooling, and
+An expression-backed symbol query result and its bound unit have separate stable diagnosing queries. Alternate summary, tooling, and
 lowering views preserve the original diagnostic identity and ownership rather than copying diagnostic bags.
 
-Binding-dependent symbol facts use the same injected fact context, dependency recording, cycle detection, cancellation, diagnostic
-ownership, and immutable publication rules as bound units. Requesting one fact must not force unrelated symbol facts or executable
+Binding-dependent symbol query results use the same injected query result context, dependency recording, cycle detection, cancellation, diagnostic
+ownership, and immutable publication rules as bound units. Requesting one query result must not force unrelated symbol query results or executable
 bodies.
 
 ---
@@ -566,7 +566,7 @@ selects the answer:
 - selected implementation context where applicable,
 - target profile.
 
-Declaration-surface facts, imported facts, nested units, and checker facts requested while computing the unit are query dependencies.
+Declaration-surface query results, imported query results, nested units, and checker query results requested while computing the unit are query dependencies.
 The query engine records those dependency edges. Their complete values are not copied into the unit key.
 
 Declared bodies, anonymous callables, and declaration-owned expressions use distinct key types or a closed validated family. String
@@ -583,7 +583,7 @@ rejects two different keys that violate the one-unit-per-anchor-and-category inv
 requests therefore cannot influence IDs.
 
 `BoundUnitKey` is the lower domain key owned with the bound-unit contract so bound units can retain nested references without
-depending on `bray-compilation`. The compilation query layer wraps it in the exact semantic fact key for the current compilation
+depending on `bray-compilation`. The compilation query layer wraps it in the exact semantic query result key for the current compilation
 snapshot and owns interning, caching, scheduling, dependency edges, cancellation, and publication.
 
 ---
@@ -591,7 +591,7 @@ snapshot and owns interning, caching, scheduling, dependency edges, cancellation
 ## Bound Unit API
 
 Binding publishes one stable immutable `BoundUnit`. Semantic analysis phases must not copy the bound tree into a new wrapper when
-they establish another fact.
+they establish another query result.
 
 Conceptually:
 
@@ -640,46 +640,46 @@ impl BoundUnit {
 ```
 
 The exact implementation can use `Arc` around the result. Repeated requests return the same immutable semantic value and diagnostics
-for one compilation fact key.
+for one compilation query result key.
 
-### Semantic Analysis Facts
+### Semantic Analysis Query Results
 
-Each semantic analysis publishes only its own typed immutable facts keyed to the published `BoundUnit`. It does not produce another
+Each semantic analysis publishes only its own typed immutable query results keyed to the published `BoundUnit`. It does not produce another
 representation of the unit.
 
-`CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
+`CheckedControlFlow` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
 checker-internal control-flow graph. Type, overload, implementation, ownership, borrow, contract, effect, and capability analyses
-follow the same side-fact model.
+follow the same side-query result model.
 
-The compilation fact graph expresses each typed accessor's guarantees. `control_flow(key)` depends on `bound_unit(key)` and
-guarantees that its returned `CheckedControlFlowFacts` belong to that bound unit. Other semantic accessors declare their own exact
+The compilation query result graph expresses each typed accessor's guarantees. `control_flow(key)` depends on `bound_unit(key)` and
+guarantees that its returned `CheckedControlFlow` belong to that bound unit. Other semantic accessors declare their own exact
 prerequisites. The compiler must not encode evaluation history by introducing `ControlFlowChecked*`, `BorrowChecked*`, or similar
 bound-tree wrapper families.
 
 ### Lazy Entry Points
 
-Callers request bound units and semantic facts through typed symbol views or `Compilation` fact APIs. They do not construct a binder or call a
+Callers request bound units and semantic query results through typed symbol views or `Compilation` query result APIs. They do not construct a binder or call a
 phase-execution method.
 
 The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending units. A pending
 unit exposes its stable direct nested-unit keys, but it cannot be published. Finishing it freezes the one immutable `BoundUnit`.
-One unit's semantic fact does not request the same fact for nested units unless that dependency is part of the fact's semantic
-contract. Broad consumers such as package diagnostics traverse reachable nested-unit keys explicitly through typed fact accessors.
-Binder diagnostics remain owned by the bound-unit fact and checker diagnostics remain owned by the checker fact that produced them.
+One unit's semantic query result does not request the same query result for nested units unless that dependency is part of the query result's semantic
+contract. Broad consumers such as package diagnostics traverse reachable nested-unit keys explicitly through typed query result accessors.
+Binder diagnostics remain owned by the bound-unit query result and checker diagnostics remain owned by the checker query result that produced them.
 
 Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
-declarations, symbol graph, semantic value store, selected target context, symbol-fact provider, cancellation token, and exact cache universe.
-It constructs a private `Binder` with the injected fact context and rejects unit keys whose owners do not belong to that symbol
+declarations, symbol graph, semantic value store, selected target context, symbol-query result provider, cancellation token, and exact cache universe.
+It constructs a private `Binder` with the injected query result context and rejects unit keys whose owners do not belong to that symbol
 graph.
 
-The binder fact context also exposes the stable `bray_target::TargetProfile`. Binding that depends on pointer width, machine
+The binder query result context also exposes the stable `bray_target::TargetProfile`. Binding that depends on pointer width, machine
 properties, or another language-visible target property must request that profile explicitly. It must not inspect the compiler
 host or accept a missing target value as a portable fallback.
 
-The typed bound-unit and semantic-fact accessors are the public demand model. `CheckerUnitView` is validated borrowed input to a
+The typed bound-unit and semantic-query result accessors are the public demand model. `CheckerUnitView` is validated borrowed input to a
 focused checker service, not a query object or evidence that other domains completed. Dependency recording, scheduling, waiting,
-and cache publication remain private to compilation fact evaluation. The binder and checker must not introduce generic fact
-wrappers, dynamic query registries, duplicate query identities, or unit-progress wrappers above the typed facts.
+and cache publication remain private to compilation query result evaluation. The binder and checker must not introduce generic query result
+wrappers, dynamic query registries, duplicate query identities, or unit-progress wrappers above the typed query results.
 
 Body presence is cheap identity-level information and does not force body binding:
 
@@ -704,34 +704,34 @@ impl FunctionSymbolView<'_> {
 ```
 
 `bound_body()` returns `None` exactly when body presence is `Absent`. Present and recovered bodies return an error-aware bound
-fact. Methods, constructors, lifecycle members, defaulted trait callables, and other body-bearing categories expose their exact
+query result. Methods, constructors, lifecycle members, defaulted trait callables, and other body-bearing categories expose their exact
 counterparts rather than requiring callers to erase them to one callable kind.
 
-The conceptual signature omits the fact evaluator's outer cancellation transport. Cancellation must not be represented as `None`
+The conceptual signature omits the query result evaluator's outer cancellation transport. Cancellation must not be represented as `None`
 or as an error-aware bound body.
 
-Anonymous callable views resolve through their owning local snapshot and exact `BoundUnitKey`. Declaration-owned expression facts
+Anonymous callable views resolve through their owning local snapshot and exact `BoundUnitKey`. Declaration-owned expression query results
 remain available through their owner-specific symbol APIs. The shared query implementation can use closed internal unit-key
 adapters, but public APIs must not expose a generic `bind_syntax` workflow.
 
 Package checking follows the same model. `Compilation::check_diagnostics()` requests a compilation-owned package semantic
-diagnostics fact rather than enumerating semantic units or invoking the binder. The package fact derives declared unit keys from the
-immutable declaration table, symbol graph, and syntax snapshot, requests their bound-unit and required checker facts, follows
-published nested-unit keys, and merges each fact-owned diagnostic bag deterministically. A later emitter can request completed
-semantic or lowered facts directly and still obtain all remaining diagnostics through the same package diagnostic query when
+diagnostics query result rather than enumerating semantic units or invoking the binder. The package query result derives declared unit keys from the
+immutable declaration table, symbol graph, and syntax snapshot, requests their bound-unit and required checker query results, follows
+published nested-unit keys, and merges each query result-owned diagnostic bag deterministically. A later emitter can request completed
+semantic or lowered query results directly and still obtain all remaining diagnostics through the same package diagnostic query when
 emission aborts.
 
-### Fact Results And Cancellation
+### Query Results And Cancellation
 
-Every bound-unit or semantic-analysis query returns or exposes an immutable fact result containing the value and diagnostics produced
-while computing that fact.
+Every bound-unit or semantic-analysis query returns or exposes an immutable result containing the value and diagnostics produced
+while computing that query result.
 
 The shared `DiagnosticResult<T>` contract is defined in
 [Compiler diagnostics](compiler-diagnostics.md#diagnostic-results). The binder must not introduce a second incompatible
 value-plus-diagnostics wrapper.
 
 Cancellation is not a source diagnostic and does not produce an error bound tree. A canceled query returns the query layer's typed
-cancellation outcome and publishes no fact value, local snapshot, dependency set, or diagnostics.
+cancellation outcome and publishes no query result value, local snapshot, dependency set, or diagnostics.
 
 Ordinary invalid source publishes an error-aware bound unit and structured diagnostics. It is not returned as an infrastructure
 failure.
@@ -822,12 +822,12 @@ It must not grow into one public bound node structure containing unrelated optio
 Variant-specific records retain their meaningful relationships. For example:
 
 - a bound name expression stores its exact resolved reference,
-- a bound call stores its callee, source-ordered explicit generic inputs, call arguments, and selected callable facts,
+- a bound call stores its callee, source-ordered explicit generic inputs, call arguments, and selected callable query results,
 - a bound async call additionally stores completion type, produced `Future<T>` type, hidden frame identity, invocation contract,
   deferred execution contract, and normal-completion postcondition template,
-- a bound member access stores the selected member and receiver facts,
+- a bound member access stores the selected member and receiver query results,
 - a bound local declaration stores its bound initializer and introduced local symbol IDs,
-- a bound pattern stores exact introduced bindings, projections, and pattern-checking facts,
+- a bound pattern stores exact introduced bindings, projections, and pattern-checking query results,
 - a bound control-flow expression stores its source-shaped branches and checked result merge,
 - a bound error expression stores error type and recovery information without pretending resolution succeeded.
 
@@ -858,11 +858,11 @@ explicit subtree skipping and early termination.
 
 ---
 
-## Semantic Facts On Bound Nodes
+## Semantic Query Results On Bound Nodes
 
-A completed-unit query provides every semantic fact promised by its contract alongside the published bound unit.
+A completed-unit query provides every semantic query result promised by its contract alongside the published bound unit.
 
-Facts stored on or indexed by bound nodes include, where meaningful:
+Query Results stored on or indexed by bound nodes include, where meaningful:
 
 - expression and pattern types,
 - exact resolved symbol or local symbol references,
@@ -874,21 +874,21 @@ Facts stored on or indexed by bound nodes include, where meaningful:
 - effect, capability, trust, and lifecycle outcomes,
 - constant or predicate context validity,
 - control completion such as normal, `never`, return, break, continue, yield, propagation, or cancellation behavior,
-- source-correlated error facts used for recovery.
+- source-correlated error query results used for recovery.
 
-Async facts also include hidden frame identity, suspension sites, invocation and deferred execution contracts,
+Async query results also include hidden frame identity, suspension sites, invocation and deferred execution contracts,
 normal-completion postcondition templates, state-indexed affinity causes, task-boundary operations, phase-separated frame traversal,
-and checked structured cleanup plan references where later lowering or diagnostics require them. These remain typed semantic facts.
+and checked structured cleanup plan references where later lowering or diagnostics require them. These remain typed semantic query results.
 they are not encoded as source generic arguments or runtime symbol strings. The complete contract is defined in
 `docs/design/async-runtime.md`.
 
-Not every fact belongs as a field on every node. Category-specific records and typed side tables should represent only meaningful
+Not every query result belongs as a field on every node. Category-specific records and typed side tables should represent only meaningful
 states.
 
 Checker-internal traces, solver work queues, temporary constraint graphs, and full per-program-point data-flow states are not durable
-bound facts unless a later phase or tooling contract requires them. Publish the semantic facts, not every intermediate step.
+bound query results unless a later phase or tooling contract requires them. Publish the semantic query results, not every intermediate step.
 
-Bound nodes are immutable after publication. Later analysis must publish separate typed facts rather than mutate nodes to add a
+Bound nodes are immutable after publication. Later analysis must publish separate typed query results rather than mutate nodes to add a
 type, selected target, conversion, or ownership state.
 
 ---
@@ -911,7 +911,7 @@ separately makes the relevant distinction without introducing a second term for 
 
 ### Typed Identities And Ownership
 
-`bray-bound-tree` owns unit-scoped typed identities for storage and instantiated dependency facts. Conceptually:
+`bray-bound-tree` owns unit-scoped typed identities for storage and instantiated dependency query results. Conceptually:
 
 ```rust
 pub struct StorageIdentityId {
@@ -943,12 +943,12 @@ parameter-provided storage, receiver storage, source-correlated temporaries, all
 error storage used for recovery. An origin record retains its introducing symbol or bound node where one exists, but that provenance
 does not make the symbol or node itself the storage identity.
 
-A local binding is a symbol, not storage. Its checked binding fact records whether the binding introduces owned storage, names an
+A local binding is a symbol, not storage. Its checked binding query result records whether the binding introduces owned storage, names an
 existing storage access, or binds another non-storage result. Destructuring can therefore introduce new storage for some bindings
 and derived accesses for others without conflating binding identity with storage identity.
 
 A storage identity for an allocation or other storage owned through indirection remains associated with the movable owner value's
-semantic ownership and dependency facts. Moving the owner changes the access through which the owned storage is reached. It does not
+semantic ownership and dependency query results. Moving the owner changes the access through which the owned storage is reached. It does not
 manufacture a second identity for that allocation. The destination storage that contains the moved owner value remains a separate
 storage identity.
 
@@ -981,11 +981,11 @@ storage even when their syntax is identical because `index` can change between e
 reach the same storage. ID equality therefore never substitutes for alias or overlap analysis.
 
 Equal `StorageIdentityId` values name the same modeled origin. Unequal IDs for symbolic or externally supplied origins do not prove
-that the runtime storage is disjoint. Parameter modes, borrow derivation, projection semantics, and current flow facts still
+that the runtime storage is disjoint. Parameter modes, borrow derivation, projection semantics, and current flow query results still
 determine the relationship between accesses.
 
 Checker APIs return a typed storage relationship such as identical, disjoint, potentially overlapping, or error. A stronger result
-requires a proof from projection semantics and the current flow facts. Failure to prove disjointness produces potentially
+requires a proof from projection semantics and the current flow query results. Failure to prove disjointness produces potentially
 overlapping storage rather than an optimistic assumption.
 
 ### Borrow Capabilities
@@ -1004,7 +1004,7 @@ Dependency contracts have two representations with different identity domains.
 
 `bray-symbols` owns `DependencyContractTemplateId`. A template is a normalized, source-independent declaration contract whose formal
 subjects can reference the receiver, parameters by stable ordinal, result, projections from those subjects, scoped declaration
-capabilities, and required implementation witnesses. Templates are suitable for symbol facts, generic substitution, compiled
+capabilities, and required implementation witnesses. Templates are suitable for symbol query results, generic substitution, compiled
 package interfaces, and cross-compilation structural identity. Numeric template IDs remain semantic-store local and are not
 serialized.
 
@@ -1036,12 +1036,12 @@ requirements that must remain valid while the value is used. A storage-access co
 reach and operate on that storage. Moving a value moves its carried contract with the value rather than leaving the contract attached
 to the old access path.
 
-Instantiating a declaration contract maps formal subjects to exact argument, receiver, result, capability, and implementation facts.
+Instantiating a declaration contract maps formal subjects to exact argument, receiver, result, capability, and implementation query results.
 That operation is typed and checked. It does not substitute source strings, syntax nodes, or unvalidated numeric ordinals.
 
-### Durable Facts And Flow State
+### Durable Query Results And Flow State
 
-Typed semantic side facts retain durable analysis results associated with the bound unit:
+Typed semantic side query results retain durable analysis results associated with the bound unit:
 
 - storage origins and provenance,
 - evaluated storage accesses and ordered projections,
@@ -1050,28 +1050,28 @@ Typed semantic side facts retain durable analysis results associated with the bo
 - checked operation categories and final ownership or borrowing outcomes,
 - storage relationship proofs required by lowering or tooling.
 
-Checker-owned task-local state retains facts that change by program point:
+Checker-owned task-local state retains query results that change by program point:
 
 - initialization and partial-initialization state,
 - moved and partially moved state,
 - active variant and nullable-presence refinements,
 - active borrows and capabilities,
 - current mutation authority and exclusivity,
-- temporary alias, overlap, and dependency-propagation facts,
+- temporary alias, overlap, and dependency-propagation query results,
 - analysis work lists, transfer state, and merge state.
 
-The checker returns the immutable facts required by its query contract. Full per-program-point state
+The checker returns the immutable query results required by its query contract. Full per-program-point state
 does not become fields on source-shaped nodes unless a later tooling or lowering contract specifically requires a durable projection.
 
 ### Semantic And Query Dependencies
 
-A Bray dependency contract is a language-semantic fact. A compiler query dependency is an incremental-compilation edge between fact
+A Bray dependency contract is a language-semantic query result. A compiler query dependency is an incremental-compilation edge between query result
 requests. APIs and records always use the complete names `DependencyContract`, `FactDependency`, or `QueryDependency` as
 appropriate. A generic `DependencyId` or `DependencySet` must not make the two concepts ambiguous.
 
-Requesting a symbol contract, storage-related target fact, or implementation witness can record query dependencies while producing a
+Requesting a symbol contract, storage-related target property, or implementation witness can record query dependencies while producing a
 dependency contract. The query edges remain owned by `bray-compilation`. The semantic contract remains owned by `bray-symbols` or
-the bound-unit fact domain according to its identity requirements.
+the bound-unit query result domain according to its identity requirements.
 
 ---
 
@@ -1093,11 +1093,11 @@ pub enum ResolvedValueSymbolId {
 Callable, constant, type, predicate, field, and implementation references use their own exact or narrow family types. The bound tree
 must not reduce every reference to `AnySymbolId`.
 
-Bound nodes store IDs and checked semantic facts. They do not clone symbol records or cache rendered symbol names.
+Bound nodes store IDs and checked semantic query results. They do not clone symbol records or cache rendered symbol names.
 
 ### Name Lookup
 
-Unqualified lookup combines the current immutable or task-local lexical scope with the applicable declaration-surface lookup facts.
+Unqualified lookup combines the current immutable or task-local lexical scope with the applicable declaration-surface lookup query results.
 
 The binder enforces the language's one ordinary namespace and no-shadowing rules. It preserves typed outcomes for:
 
@@ -1116,7 +1116,7 @@ sets by walking declaration syntax.
 
 Module-level path lookup must combine source, compiler-known, and imported identity providers without copying declarations into a
 second graph. An imported identity skeleton is requested only when the path's package prefix names a selected dependency. This
-lookup must not decode declaration-owned semantic facts. Cancellation and unavailable dependency facts propagate through the
+lookup must not decode declaration-owned semantic query results. Cancellation and unavailable dependency query results propagate through the
 binding request instead of being reported as source name-resolution failures.
 
 ### Anonymous Callables
@@ -1124,7 +1124,7 @@ binding request instead of being reported as source name-resolution failures.
 An anonymous callable uses its deterministic lambda region and local snapshot from `docs/design/symbols.md`.
 
 The enclosing bound lambda expression references the exact `AnonymousCallableSymbolId` and nested unit key. Completing the enclosing
-unit requests every nested callable fact needed to satisfy its own type and semantic contract, but nested callable diagnostics remain
+unit requests every nested callable query result needed to satisfy its own type and semantic contract, but nested callable diagnostics remain
 owned by the nested unit.
 
 Sibling anonymous callable units can be checked in parallel once their keys and required enclosing declaration context are known.
@@ -1164,9 +1164,9 @@ Bound scope references use `LocalScopeId`. Scopes are not symbols, storage ident
 
 A `Binder` receives typed immutable inputs, including those applicable to the unit:
 
-- read-only binder fact context supplied by the compilation query layer,
+- read-only binder query result context supplied by the compilation query layer,
 - typed syntax root and source snapshot,
-- owning symbol or declaration-owned fact key,
+- owning symbol or declaration-owned query result key,
 - declaration-surface symbol context,
 - generic parameters, substitutions, and selected implementation context,
 - expected type or expected semantic category,
@@ -1186,7 +1186,7 @@ One binding task can own mutable state such as:
 - dependency recording,
 - expected-context stacks,
 - control-target stacks,
-- fact-context state,
+- query result-context state,
 - speculative checkpoints and rollback trails.
 
 This state is task-local and never exposed through public APIs. It is consumed when the immutable bound unit is finalized.
@@ -1194,7 +1194,7 @@ This state is task-local and never exposed through public APIs. It is consumed w
 The private `Binder` owns this mutable state. `BinderCheckpoint` captures speculative rollback state, while `BinderOutput` is the
 frozen task-local handoff consumed by bound-unit assembly.
 
-The binder must not hold compilation cache locks while requesting another fact. Shared compilation state is accessed through the
+The binder must not hold compilation cache locks while requesting another query result. Shared compilation state is accessed through the
 query API rather than mutable references embedded in binder state.
 
 ### Binding Contexts
@@ -1210,7 +1210,7 @@ Context categories should be explicit types or enums. Examples include:
 - contract clause context,
 - trusted boundary context.
 
-Context types carry only facts relevant to that category. They should prevent invalid requests such as binding an assignment in a
+Context types carry only query results relevant to that category. They should prevent invalid requests such as binding an assignment in a
 predicate context without relying on scattered boolean checks.
 
 ---
@@ -1227,7 +1227,7 @@ One bound-unit computation proceeds conceptually as follows:
 6. Freeze the bound arenas and local snapshot, finalize binder diagnostics, and return recorded dependency edges to the query layer.
 7. Publish the stable immutable `BoundUnit` atomically through the compilation query.
 8. Run each requested checker analysis over that published unit once its typed dependencies are available.
-9. Publish each checker result and its diagnostics as a separate immutable fact.
+9. Publish each checker result and its diagnostics as a separate immutable query result.
 
 Note: This is a dependency order, not a requirement for one monolithic function. Focused binders and checker services should own the
 individual grammar and semantic categories.
@@ -1254,7 +1254,7 @@ Focused checker APIs should accept typed semantic inputs and return typed outcom
 - merging branch types and states,
 - validating effects, capabilities, and trusted obligations,
 - validating constant or predicate context,
-- computing unit-scoped control-flow, initialization, and lifecycle facts.
+- computing unit-scoped control-flow, initialization, and lifecycle query results.
 
 Checker services must not append user diagnostics to a process-global bag, mutate published symbols, or publish bound nodes
 independently of the binder's unit transaction.
@@ -1264,7 +1264,7 @@ shared checker-internal control-flow graph defined below. Neither publishes chec
 data.
 
 When a checker needs unit-scoped structure, it receives a validated read-only view over the committed `BoundUnit`. It must not
-depend on binder-private builders. Each checker operation returns its own typed fact and diagnostics without cloning, enriching, or
+depend on binder-private builders. Each checker operation returns its own typed query result and diagnostics without cloning, enriching, or
 republishing the bound unit.
 
 Binding and checking can be mutually dependent at a fine grain. For example, overload selection can require argument types while
@@ -1286,13 +1286,13 @@ The graph is not:
 - the source-shaped bound HIR,
 - a second published bound tree,
 - backend-independent MIR,
-- a symbol or compiled package-interface fact.
+- a symbol or compiled package-interface query result.
 
 It splits source-shaped control only as far as semantic analysis requires. It does not introduce lowering temporaries, explicit drop
 operations, cleanup blocks, ABI operations, or backend-oriented instructions. Scope-exit and lifecycle checks use typed control
 points and edge metadata without pretending those checks are already lowered execution.
 
-Constructing separate control-flow graphs for reachability, initialization, ownership, borrowing, lifecycle, and fact propagation is
+Constructing separate control-flow graphs for reachability, initialization, ownership, borrowing, lifecycle, and query result propagation is
 not permitted. Those analyses must agree on one evaluation order and one branch structure. Focused analyses share the graph while
 retaining their own state and transfer rules.
 
@@ -1354,7 +1354,7 @@ Edges use a closed typed kind rather than labels or callbacks. Required categori
 - recovery control for malformed but structurally bindable input.
 
 An edge can carry typed refinements established by taking it, including nullable presence, active union variant, pattern success,
-predicate facts, and other checked conditions. Refinements reference semantic IDs and checked facts, not source strings or arbitrary
+predicate query results, and other checked conditions. Refinements reference semantic IDs and checked query results, not source strings or arbitrary
 closures.
 
 Control exits are category-specific. A graph distinguishes normal fallthrough, return, propagation, divergence, cancellation, and
@@ -1372,7 +1372,7 @@ The complete focused-domain set is:
 - ownership, movement, and partial movement,
 - borrowing, aliasing, reborrowing, and mutation authority,
 - lifecycle, destruction, finalization, cancellation, and joining obligations,
-- nullable, active-variant, pattern, predicate, and other fact refinements,
+- nullable, active-variant, pattern, predicate, and other query result refinements,
 - dependency-contract propagation,
 - effect, capability-use, contract, and trust validation,
 - liveness needed for borrow shortening and lifecycle decisions.
@@ -1386,7 +1386,7 @@ storage overlap and active-variant checks. Liveness and other naturally backward
 graph. Dependency-contract propagation consumes the checked storage, capability, witness, and refinement results it requires.
 
 A reusable worklist engine is appropriate for domains that genuinely share fixed-point mechanics. Domain policy remains in concrete
-checker modules and typed state. The engine must not force unrelated facts into one optional-field record or erase outcomes behind
+checker modules and typed state. The engine must not force unrelated query results into one optional-field record or erase outcomes behind
 untyped maps.
 
 A semantic rule that requires durable flow state must be assigned to one listed domain, folded into the composite storage-flow
@@ -1402,14 +1402,14 @@ compiler invariant failure, not a user diagnostic.
 
 ### Construction And Publication
 
-Unit-scoped semantic fact evaluation follows this boundary:
+Unit-scoped semantic query result evaluation follows this boundary:
 
 1. Binding publishes the published `BoundUnit` after committing the decisions needed to establish source evaluation order.
 2. A focused checker domain receives a validated `CheckerUnitView` over that committed unit without cloning its arenas.
-3. A flow domain builds or consumes the shared immutable control-flow graph only when its fact contract requires that graph.
-4. The requested domain evaluates after its exact typed prerequisite facts are available.
+3. A flow domain builds or consumes the shared immutable control-flow graph only when its query result contract requires that graph.
+4. The requested domain evaluates after its exact typed prerequisite query results are available.
 5. The checker returns only that domain's typed result and structured diagnostic bag.
-6. Compilation publishes the durable fact atomically and records its exact dependencies.
+6. Compilation publishes the durable query result atomically and records its exact dependencies.
 
 Abandoned speculative candidates never contribute nodes or edges to the final graph. Candidate-local checks can use focused temporary
 state, but the shared unit-scoped graph is constructed only from committed binding state.
@@ -1418,12 +1418,12 @@ Each nested anonymous callable or independently checked declaration-owned expres
 unit and therefore its own graph when flow analysis is required. A graph never crosses semantic-unit ownership boundaries.
 Relationships to nested units use their typed unit keys rather than embedding the nested graph.
 
-Only durable facts promised by a semantic query are published. Full block-entry and block-exit states, work lists, predecessor
+Only durable query results promised by a semantic query are published. Full block-entry and block-exit states, work lists, predecessor
 counts, temporary alias sets, and intermediate fixed-point iterations are discarded after checking unless a separate tooling query
 explicitly requests a derived control-flow view.
 
 The tooling control-flow query publishes an immutable source-correlated projection keyed by the bound unit. That projection is a
-separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph stable
+separate lazy query result with its own stable contract. It does not expose checker-private IDs or make the control-flow graph stable
 compiler state.
 
 ### Determinism, Parallelism, And Recovery
@@ -1433,17 +1433,17 @@ for efficiency only when the domain's fixed point and diagnostics remain identic
 domain, and merged by the binder through the ordinary deterministic diagnostic ordering.
 
 Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one immutable
-graph can also run in parallel once their declared input facts are available, but the implementation should not add coordination
+graph can also run in parallel once their declared input query results are available, but the implementation should not add coordination
 overhead for small units merely to create parallel work.
 
 Control-flow graph construction and every fixed-point engine observe compilation cancellation. Cancellation returns the ordinary
-cancellation outcome and publishes no graph, analysis state, diagnostics, or partial semantic fact.
+cancellation outcome and publishes no graph, analysis state, diagnostics, or partial semantic query result.
 
-Malformed bound nodes produce conservative recovery operations and edges. Unknown control, storage overlap, or refinement facts
+Malformed bound nodes produce conservative recovery operations and edges. Unknown control, storage overlap, or refinement query results
 degrade to typed unknown or error states. Ordinary malformed source must not cause graph construction, transfer, or merge code to
 panic or loop forever.
 
-Lowering consumes the published bound HIR and its required durable facts. It does not consume checker-private block IDs or treat the
+Lowering consumes the published bound HIR and its required durable query results. It does not consume checker-private block IDs or treat the
 control-flow graph as normalized execution. Any reusable control-structure helper must preserve this ownership boundary and cannot
 make lowering depend on checker algorithms.
 
@@ -1469,11 +1469,11 @@ committed answer.
 Committing a candidate transfers its results through the ordinary builder path. Committed binding never bypasses normal recovery,
 diagnostics, or semantic validation.
 
-Facts requested from compilation while exploring a candidate remain immutable cached facts owned by their own keys. Their
+Query Results requested from compilation while exploring a candidate remain immutable cached query results owned by their own keys. Their
 diagnostics are not merged into the current unit merely because an abandoned candidate inspected them.
 
-Abandoning a candidate does not automatically discard its query dependencies. A fact that influenced candidate rejection, candidate
-ordering, ambiguity, or the final selected result remains a dependency of the enclosing unit because changing that fact can change
+Abandoning a candidate does not automatically discard its query dependencies. A query result that influenced candidate rejection, candidate
+ordering, ambiguity, or the final selected result remains a dependency of the enclosing unit because changing that query result can change
 the answer. Only observations proven irrelevant to the committed semantic result can be omitted from the published dependency set.
 
 Checkpoint implementations should use arena lengths and rollback trails where practical. They should not clone an entire binder,
@@ -1528,10 +1528,10 @@ target availability.
 Diagnostics use `bray-diagnostics` kinds, typed arguments, labels, notes, suggestions, and source spans. Binder and checker logic must
 not construct user-facing English. Rendering goes through `bray-messages`.
 
-Every semantic unit has one stable diagnosing fact. Executable and anonymous callable units own their unit diagnostics directly.
-A declaration-owned expression backed by a symbol fact uses that symbol fact as the stable diagnostic owner. Nested semantic
+Every semantic unit has one stable diagnosing query result. Executable and anonymous callable units own their unit diagnostics directly.
+A declaration-owned expression backed by a symbol query result uses that symbol query result as the stable diagnostic owner. Nested semantic
 units own their own diagnostics even when an enclosing unit depends on them. Compilation diagnostics traverse required stable
-facts and merge their bags deterministically without duplicating dependency diagnostics into each caller or projection.
+query results and merge their bags deterministically without duplicating dependency diagnostics into each caller or projection.
 
 Diagnostic order within one unit follows stable source-semantic traversal and typed diagnostic ordering. Parallel worker completion
 order is never observable.
@@ -1545,10 +1545,10 @@ local symbols, and bodies.
 
 An enclosing bound unit records nested unit keys in deterministic source order. It does not embed or clone nested bound trees.
 
-An analysis query requests the nested facts required to establish its own result. A package-check or emission query follows
+An analysis query requests the nested query results required to establish its own result. A package-check or emission query follows
 the complete reachable nested-unit graph according to its completion contract.
 
-Nested diagnostics are collected once from the nested fact. An outer unit can contain an error-aware lambda reference when the nested
+Nested diagnostics are collected once from the nested query result. An outer unit can contain an error-aware lambda reference when the nested
 unit is invalid without copying every nested diagnostic into the outer bag.
 
 This model allows sibling nested units and unrelated declared bodies to run in parallel while preserving deterministic traversal and
@@ -1558,14 +1558,14 @@ diagnostic ordering.
 
 ## Concurrency, Cycles, And Reentrancy
 
-Published bound units, local snapshots, and semantic fact diagnostics are immutable and safe for concurrent read-only use.
+Published bound units, local snapshots, and semantic query result diagnostics are immutable and safe for concurrent read-only use.
 
 Independent units can bind and check in parallel when their query dependencies are available.
 
 The compilation query engine owns evaluation state, dependency stacks, waiting relationships, and cycle detection. Binder code must
 not implement ad hoc global locks or recursive one-time cells.
 
-Cycle policy is fact-specific:
+Cycle policy is query result-specific:
 
 - ordinary recursive callable references resolve through callable surfaces without recursively requiring bodies,
 - a body that calls itself does not create a body-query cycle,
@@ -1573,7 +1573,7 @@ Cycle policy is fact-specific:
 - nested unit dependencies must not form ownership cycles,
 - an impossible internal query cycle is a compiler invariant failure, not a fabricated user diagnostic.
 
-A worker must not wait for another fact while holding a mutable fact publication lock. Cancellation unwinds task-local state and
+A worker must not wait for another query result while holding a mutable query result publication lock. Cancellation unwinds task-local state and
 publishes nothing.
 
 Observable IDs, node order, lookup results, nested-unit order, and diagnostics must be identical under serial and parallel execution.
@@ -1584,12 +1584,12 @@ Observable IDs, node order, lookup results, nested-unit order, and diagnostics m
 
 Binding follows the compiler-wide snapshot, invalidation, and reuse contract in `compiler-architecture.md`. Each result records the
 syntax, symbols, target properties, compiler-known catalog entries, selected implementations, and semantic results it consumed.
-Published units, trees, and side facts structurally share unchanged syntax, symbols, bound arenas, and semantic results while
+Published units, trees, and side query results structurally share unchanged syntax, symbols, bound arenas, and semantic results while
 preserving ownership and source correlation.
 
 Replacing one body does not rebuild the compilation-wide symbol graph or unrelated local snapshots. Unit and local IDs remain
 snapshot-local and are remapped from stable keys and source anchors. The binder does not clone a complete unchanged tree merely to
-attach one changed side fact.
+attach one changed side query result.
 
 ---
 
@@ -1598,22 +1598,22 @@ attach one changed side fact.
 The complete lowering and MIR representation contract is defined in `docs/design/lowering.md`. This section defines the
 binder-facing input boundary.
 
-Lowering consumes published bound units only through a query that guarantees every semantic fact required by lowering is available.
+Lowering consumes published bound units only through a query that guarantees every semantic query result required by lowering is available.
 `bray-lowering::LoweringInput` must be a borrowing view over that published `BoundUnit` and the exact independently published side
-facts required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
-supplied fact. It must not own, clone, enrich, or progressively wrap the bound tree.
+query results required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
+supplied query result. It must not own, clone, enrich, or progressively wrap the bound tree.
 
 The input must also borrow the compilation-local target-available compiler-known symbol view. Lowering must classify already
 resolved compiler-known call and representation targets through typed symbol identities while rejecting unavailable targets. It
 must not recover implementation hooks or representation roles through names, catalog keys, or source spelling.
 
-Every durable checker fact required by lowering must be represented by an explicit typed `LoweringInput` field and constructor
-argument. A generic fact map, a completion flag, or a claim that an analysis ran previously must not satisfy the contract. A missing
-required fact means the compilation query is incomplete.
+Every durable checker query result required by lowering must be represented by an explicit typed `LoweringInput` field and constructor
+argument. A generic query result map, a completion flag, or a claim that an analysis ran previously must not satisfy the contract. A missing
+required query result means the compilation query is incomplete.
 
 For source-backed units, `LoweringInput` must borrow the exact control-flow, expression-type, pattern, semantic-selection, literal,
-storage-plan, liveness, refinement, storage-flow, dependency-contract, async, and body-behavior facts used to lower the unit. It
-must also borrow the target-available compiler-known symbol view and carry the selected MIR unit and target facts.
+storage-plan, liveness, refinement, storage-flow, dependency-contract, async, and body-behavior query results used to lower the unit. It
+must also borrow the target-available compiler-known symbol view and carry the selected MIR unit and target properties.
 
 The bound representation must provide lowering with:
 
@@ -1622,13 +1622,13 @@ The bound representation must provide lowering with:
 - explicit conversion decisions,
 - checked storage access, ownership, borrow, and movement behavior,
 - control-target and completion behavior,
-- effect, capability, trust, lifecycle, destruction, and finalization facts,
+- effect, capability, trust, lifecycle, destruction, and finalization query results,
 - nested callable unit references,
 - source anchors required for downstream diagnostics.
 
 Lowering must not perform name lookup, overload resolution, implementation selection, type inference, borrow checking, or contract
 proof. If lowering cannot proceed without one of those decisions, the lowering input query is incomplete and must require the missing
-semantic fact.
+semantic query result.
 
 ---
 
@@ -1642,7 +1642,7 @@ Public cross-crate binder and bound-tree APIs should favor:
 - exact root accessors,
 - typed node and relationship accessors,
 - structured error and recovery variants,
-- explicit compilation fact queries,
+- explicit compilation query APIs,
 - deterministic walkers and visitors.
 
 They should avoid:
@@ -1656,7 +1656,7 @@ They should avoid:
 - global local-symbol registries,
 - trait-object inheritance as stable node storage,
 - syntax or symbol cloning for convenience,
-- APIs that imply semantic analyses completed without depending on their typed facts.
+- APIs that imply semantic analyses completed without depending on their typed query results.
 
 Crate-private traits and macros can remove mechanical repetition when they preserve concrete public node and result types. They must
 not hide semantic policy or recreate an inheritance hierarchy.
@@ -1691,7 +1691,7 @@ Required unit coverage includes:
 - composite storage-flow analysis converging across loops without circular checker passes,
 - nested semantic units retaining independent control-flow graphs,
 - abandoned speculation contributing no analysis blocks or edges,
-- checker-private graph IDs remaining absent from published bound facts and package interfaces,
+- checker-private graph IDs remaining absent from published bound query results and package interfaces,
 - malformed source producing conservative analysis states without nontermination or panics,
 - exact typed node and unit ID separation,
 - rejecting cross-unit node and scope IDs through checked accessors,
@@ -1703,8 +1703,8 @@ Required unit coverage includes:
 - pattern binding identity, including coherent alternative patterns,
 - capture-free anonymous callable boundaries,
 - complete bound-unit roots with category validation,
-- category-specific error nodes and recovery facts,
-- checker facts depending on the published bound unit without copying it,
+- category-specific error nodes and recovery query results,
+- checker query results depending on the published bound unit without copying it,
 - speculative checkpoint rollback and commit,
 - abandoned candidates publishing no nodes, locals, or diagnostics,
 - cancellation publishing no partial unit,
@@ -1719,7 +1719,7 @@ source-order traversal.
 
 Checker tests should validate each semantic rule service and its structured outcomes independently where practical.
 
-Integration tests should request bound units and semantic facts through `Compilation` rather than manually executing phase workflows. They should
+Integration tests should request bound units and semantic query results through `Compilation` rather than manually executing phase workflows. They should
 cover valid programs, invalid programs, lazy demand, repeated requests, nested callables, parallel scheduling, and deterministic
 diagnostic collection.
 
@@ -1735,7 +1735,7 @@ above:
 
 1. Define stable type, constant, open-term, source type-expression template, substitution,
    dependency-contract-template, and semantic-store contracts in `bray-symbols`.
-2. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
+2. Define the injected binder query result context and binding-dependent symbol-query result provider contracts.
 3. Define bound unit kinds, typed IDs, stable keys, origins, and checked arena-access behavior.
 4. Define storage identities, storage accesses, borrow capabilities, and portable and bound dependency-contract identities.
 5. Define immutable per-unit bound storage and category-specific error nodes.
@@ -1746,8 +1746,8 @@ above:
 10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
 11. Complete each grammar category against the closed bound-node registry and semantic-unit contract.
 12. Define the shared checker-internal control-flow graph, typed edge refinements, and reusable fixed-point mechanics.
-13. Integrate focused checker domains as typed side facts over published bound units.
+13. Integrate focused checker domains as typed side query results over published bound units.
 14. Add deterministic diagnostic aggregation, cancellation, speculation, recovery, convergence, and parallel-query tests.
 15. Establish the completed-HIR-to-`bray-ir` MIR boundary and its complete lowering input contract.
 
-Each step must publish only complete immutable facts and must not add temporary eager workflow APIs.
+Each step must publish only complete immutable query results and must not add temporary eager workflow APIs.

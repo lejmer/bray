@@ -186,7 +186,7 @@ Conformance covers:
 - stable aliases and unknown names,
 - deterministic behavior under a pinned timezone database,
 - strict RFC 3339 and ISO 8601 round trips and malformed inputs,
-- and equivalent serial and parallel demand of provider facts.
+- and equivalent serial and parallel demand of provider queries.
 
 ## Navigation
 

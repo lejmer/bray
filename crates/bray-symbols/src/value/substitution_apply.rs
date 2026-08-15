@@ -257,7 +257,7 @@ impl SemanticValueStore {
             ConstantTermData::Value(_)
             | ConstantTermData::IntegerLiteral { .. }
             | ConstantTermData::Parameter(_)
-            | ConstantTermData::TargetFact(_) => return Ok(term),
+            | ConstantTermData::TargetProperty(_) => return Ok(term),
             ConstantTermData::Unary { operation, operand } => ConstantTermData::Unary {
                 operation: *operation,
                 operand: self.substitute_constant_term_data(*operand, substitution)?,

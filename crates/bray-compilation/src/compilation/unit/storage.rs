@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundUnitKey, CheckedDependencyContracts, CheckedRefinementFacts, LivenessFacts,
-    StorageFlowFacts, StoragePlan,
+    BoundUnitKey, CheckedDependencyContracts, CheckedRefinements, Liveness,
+    StorageFlow, StoragePlan,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, DefaultDependencyContractChecker,
@@ -14,7 +14,7 @@ use super::support::{
     analyze_liveness, analyze_refinements, plan_storage, semantic_unit_context_for,
 };
 use crate::compilation::checker::checker_result;
-use crate::compilation::facts::Compilation;
+use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {
@@ -35,7 +35,7 @@ impl Compilation {
                     .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
 
                 let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
-                let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
@@ -75,7 +75,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<LivenessFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<Liveness>>, FactQueryError> {
         self.unit_fact(
             &self.state.liveness,
             CompilationFactKey::Liveness(key.clone()),
@@ -103,7 +103,7 @@ impl Compilation {
                     memory.result().value(),
                 )?;
 
-                let (facts, liveness_diagnostics) = result.into_parts();
+                let (liveness, liveness_diagnostics) = result.into_parts();
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -113,24 +113,24 @@ impl Compilation {
                     &liveness_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(liveness, diagnostics), Box::new([])))
             },
         )
     }
 
-    pub(in crate::compilation) fn refinement_facts_with_cancellation(
+    pub(in crate::compilation) fn refinements_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedRefinementFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<CheckedRefinements>>, FactQueryError> {
         self.unit_fact(
-            &self.state.refinement_facts,
-            CompilationFactKey::RefinementFacts(key.clone()),
+            &self.state.refinements,
+            CompilationFactKey::Refinements(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
@@ -150,7 +150,7 @@ impl Compilation {
                     storage.result().value(),
                 )?;
 
-                let (facts, refinement_diagnostics) = result.into_parts();
+                let (refinements, refinement_diagnostics) = result.into_parts();
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -160,19 +160,19 @@ impl Compilation {
                     &refinement_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(refinements, diagnostics), Box::new([])))
             },
         )
     }
 
-    pub(in crate::compilation) fn storage_flow_facts_with_cancellation(
+    pub(in crate::compilation) fn storage_flow_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<StorageFlowFacts>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitFact<StorageFlow>>, FactQueryError> {
         self.unit_fact(
-            &self.state.storage_flow_facts,
-            CompilationFactKey::StorageFlowFacts(key.clone()),
+            &self.state.storage_flow,
+            CompilationFactKey::StorageFlow(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
@@ -185,7 +185,7 @@ impl Compilation {
                 let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
 
                 let refinements =
-                    self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+                    self.refinements_with_cancellation(key.clone(), cancellation)?;
 
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
 
@@ -211,7 +211,7 @@ impl Compilation {
                     memory.result().value(),
                 ))?;
 
-                let (facts, flow_diagnostics) = result.into_parts();
+                let (storage_flow, flow_diagnostics) = result.into_parts();
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
@@ -223,7 +223,7 @@ impl Compilation {
                     &flow_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(facts, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(storage_flow, diagnostics), Box::new([])))
             },
         )
     }
@@ -245,7 +245,7 @@ impl Compilation {
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-                let flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+                let flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =

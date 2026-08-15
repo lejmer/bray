@@ -20,7 +20,7 @@ use super::validation::{
     validate_type_coverage, validate_type_structure,
 };
 
-/// Canonical code generation facts demanded by one concrete code generation unit.
+/// Canonical code generation mappings demanded by one concrete code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenMappings {
     unit: CodegenUnitKey,
@@ -422,7 +422,7 @@ impl CodegenMappings {
             .map(|index| &self.operations[index])
     }
 
-    /// Returns extra realization facts for one block terminator.
+    /// Returns extra realization inputs for one block terminator.
     pub fn terminator(
         &self,
         owner: &CodegenInstanceKey,
@@ -814,7 +814,7 @@ mod tests {
     };
 
     #[test]
-    fn mappings_are_canonical_independently_of_fact_order() {
+    fn mappings_are_canonical_independently_of_input_order() {
         let fixture = codegen_request();
         let request = fixture.request();
         let mappings = request.mappings();

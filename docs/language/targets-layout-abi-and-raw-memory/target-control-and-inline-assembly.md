@@ -4,7 +4,7 @@ This chapter defines Bray operations whose meaning depends on selected-target in
 
 ## Volatile access
 
-`core.target.volatile_load` and `core.target.volatile_store` perform one host-address-space volatile access. Their raw-memory predicates establish validity, alignment, and initialization. A volatile read of a copyable value preserves initialization. A volatile read of a non-copyable value moves the value and consumes the source initialization fact. A volatile store establishes initialization only after the store completes.
+`core.target.volatile_load` and `core.target.volatile_store` perform one host-address-space volatile access. Their raw-memory predicates establish validity, alignment, and initialization. A volatile read of a copyable value preserves initialization. A volatile read of a non-copyable value moves the value and consumes the source initialization state. A volatile store establishes initialization only after the store completes.
 
 `core.target.device_volatile_load` and `core.target.device_volatile_store` use `DevicePointer<T>`, which is not interchangeable with host `RawPointer<T>`. The selected code generation target assigns the device pointer's exact address-space identity. They require both `raw_memory` and `device_memory`. A target without a device address space rejects them before code generation.
 
@@ -24,7 +24,7 @@ Volatile access is not atomic access. It creates no synchronization edge and sup
 
 `core.target.spin_loop_hint` emits the selected architecture's non-synchronizing spin hint. It does not yield a Bray task and does not observe cancellation.
 
-## Target facts and feature gates
+## Target properties and feature gates
 
 The selected target profile determines its instruction set, guaranteed instruction features, register classes, physical registers, supported clobber ABIs, and inline-assembly availability. WebAssembly profiles reject inline assembly. `core.target.feature_enabled` accepts a string literal and returns whether that feature is guaranteed by the selected profile.
 

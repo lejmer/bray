@@ -11,7 +11,7 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "filesystem failures",
     "atomic staging cleanup",
     "digest mismatches",
-    "reused pure facts",
+    "reused pure inputs",
     "planning cancellation",
     "codegen cancellation",
     "staging cancellation",

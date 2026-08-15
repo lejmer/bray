@@ -122,7 +122,7 @@ fn runtime_default_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapsho
     let symbols = local_symbols(
         unit,
         owner,
-        LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableParameterDefault),
+        LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::CallableParameterDefault),
         syntax,
     );
 
@@ -141,7 +141,7 @@ fn constant_template_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnaps
     let symbols = local_symbols(
         unit,
         owner,
-        LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
+        LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::ConstantDefinition),
         syntax,
     );
 

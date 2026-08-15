@@ -728,7 +728,7 @@ impl NativeLaneRequirements {
     }
 }
 
-/// Runtime-visible facts for one generated protected-frame state.
+/// Runtime-visible state for one generated protected frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativeFrameState {
@@ -840,7 +840,7 @@ impl NativeFrameExit {
     pub const RUNTIME_FAILURE: Self = Self(3);
 }
 
-/// Callback returning runtime-visible facts for one frame-state ordinal.
+/// Callback returning runtime-visible state for one frame-state ordinal.
 pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
@@ -887,7 +887,7 @@ impl NativeProtectedFrame {
     /// Creates the complete generated-frame ABI adapter.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the frame ABI keeps independent layout and callback facts explicit"
+        reason = "the frame ABI keeps independent layout and callback state explicit"
     )]
     pub const fn new(
         context: usize,

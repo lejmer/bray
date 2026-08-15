@@ -7,7 +7,7 @@ use bray_compiler_known::{
 };
 
 use super::super::{
-    CompilerKnownDeclarationFact, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
+    CompilerKnownDeclarationSemantics, CompilerKnownSymbolBuildError, CompilerKnownSemanticKey,
     CompilerKnownSymbolRoleRegistry,
 };
 use super::lookup::{add_member_entry, build_member_indexes};
@@ -114,7 +114,7 @@ macro_rules! define_compiler_known_records {
 
 for_each_declaration_symbol!(define_compiler_known_records);
 
-/// Immutable compilation-local provider for generated compiler-known symbols and facts.
+/// Immutable compilation-local provider for generated compiler-known symbols and semantics.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownSymbolProvider {
     catalog: &'static CompilerKnownCatalog,
@@ -124,8 +124,8 @@ pub struct CompilerKnownSymbolProvider {
     declaration_symbols: BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     symbol_keys: BTreeMap<SymbolKey, AnySymbolId>,
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
-    target_facts: BTreeMap<bray_target::TargetFactKind, ConstantSymbolId>,
-    symbol_target_facts: BTreeMap<ConstantSymbolId, bray_target::TargetFactKind>,
+    target_properties: BTreeMap<bray_target::TargetPropertyKind, ConstantSymbolId>,
+    symbol_target_properties: BTreeMap<ConstantSymbolId, bray_target::TargetPropertyKind>,
     role_registry: CompilerKnownSymbolRoleRegistry,
     pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
     completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
@@ -198,10 +198,10 @@ impl CompilerKnownSymbolProvider {
             signature_completion_children,
         } = declarations;
 
-        let super::target::TargetFactSymbols {
-            facts: target_facts,
-            symbols: symbol_target_facts,
-        } = super::target::build_target_facts(&declaration_symbols)?;
+        let super::target::TargetPropertySymbols {
+            properties: target_properties,
+            symbols: symbol_target_properties,
+        } = super::target::build_target_properties(&declaration_symbols)?;
 
         let role_registry = CompilerKnownSymbolRoleRegistry::build(catalog, &descriptor_symbols)?;
 
@@ -274,8 +274,8 @@ impl CompilerKnownSymbolProvider {
                 .iter()
                 .map(|(descriptor, symbol)| (symbol.symbol_id(), *descriptor))
                 .collect(),
-            target_facts,
-            symbol_target_facts,
+            target_properties,
+            symbol_target_properties,
             role_registry,
             member_indexes,
             completion_children,
@@ -322,20 +322,20 @@ impl CompilerKnownSymbolProvider {
         self.declaration_symbol(&key)
     }
 
-    /// Returns the compiler-known constant exposing one language target fact.
-    pub fn target_fact_symbol(
+    /// Returns the compiler-known constant exposing one language target property.
+    pub fn target_property_symbol(
         &self,
-        fact: bray_target::TargetFactKind,
+        property: bray_target::TargetPropertyKind,
     ) -> Option<ConstantSymbolId> {
-        self.target_facts.get(&fact).copied()
+        self.target_properties.get(&property).copied()
     }
 
-    /// Returns the language target fact exposed by a compiler-known constant.
-    pub fn symbol_target_fact(
+    /// Returns the language target property exposed by a compiler-known constant.
+    pub fn symbol_target_property(
         &self,
         symbol: ConstantSymbolId,
-    ) -> Option<bray_target::TargetFactKind> {
-        self.symbol_target_facts.get(&symbol).copied()
+    ) -> Option<bray_target::TargetPropertyKind> {
+        self.symbol_target_properties.get(&symbol).copied()
     }
 
     pub(in crate::compiler_known) fn untyped_declaration_symbol(
@@ -360,22 +360,22 @@ impl CompilerKnownSymbolProvider {
         &self.role_registry
     }
 
-    /// Creates a typed fact key when a declaration has the requested ordinary symbol kind.
-    pub fn fact_key<I: ExactSymbolId>(
+    /// Creates a typed semantic key when a declaration has the requested ordinary symbol kind.
+    pub fn semantic_key<I: ExactSymbolId>(
         &self,
         key: &CompilerKnownDeclarationKey,
-    ) -> Option<CompilerKnownSymbolFactKey<I>> {
+    ) -> Option<CompilerKnownSemanticKey<I>> {
         let symbol = self.declaration_symbol::<I>(key)?;
         let declaration = *self.declaration_descriptors.get(&symbol.symbol_id())?;
 
-        Some(CompilerKnownSymbolFactKey::new(declaration))
+        Some(CompilerKnownSemanticKey::new(declaration))
     }
 
-    /// Resolves immutable descriptor-backed facts for one validated typed request.
-    pub fn declaration_fact<I: ExactSymbolId>(
+    /// Resolves immutable descriptor-backed semantics for one validated typed request.
+    pub fn declaration_semantics<I: ExactSymbolId>(
         &self,
-        key: CompilerKnownSymbolFactKey<I>,
-    ) -> Option<CompilerKnownDeclarationFact<'static>> {
+        key: CompilerKnownSemanticKey<I>,
+    ) -> Option<CompilerKnownDeclarationSemantics<'static>> {
         let descriptor = self.catalog.compiler_known_declaration(key.declaration())?;
         let symbol = self.declaration_symbols.get(descriptor.key())?;
 
@@ -385,19 +385,19 @@ impl CompilerKnownSymbolProvider {
 
         let surface = self.catalog.declaration_surface(descriptor.surface())?;
 
-        Some(CompilerKnownDeclarationFact::new(descriptor, surface))
+        Some(CompilerKnownDeclarationSemantics::new(descriptor, surface))
     }
 
-    /// Resolves descriptor-backed facts for one independently cataloged symbol.
-    pub fn declaration_fact_for_symbol(
+    /// Resolves descriptor-backed semantics for one independently cataloged symbol.
+    pub fn declaration_semantics_for_symbol(
         &self,
         symbol: AnySymbolId,
-    ) -> Option<CompilerKnownDeclarationFact<'static>> {
+    ) -> Option<CompilerKnownDeclarationSemantics<'static>> {
         let declaration = *self.declaration_descriptors.get(&symbol.symbol_id())?;
         let descriptor = self.catalog.compiler_known_declaration(declaration)?;
         let surface = self.catalog.declaration_surface(descriptor.surface())?;
 
-        Some(CompilerKnownDeclarationFact::new(descriptor, surface))
+        Some(CompilerKnownDeclarationSemantics::new(descriptor, surface))
     }
 
     pub(crate) const fn next_symbol_index(&self) -> usize {
@@ -790,7 +790,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::COMPILER_KNOWN_CATALOG;
-    use bray_target::TargetFactKind;
+    use bray_target::TargetPropertyKind;
 
     use crate::compiler_known::test_support::{
         build_provider, declaration_key, scope_key, struct_id,
@@ -838,8 +838,8 @@ mod tests {
 
         let bool_key = declaration_key("Bool");
 
-        assert!(provider.fact_key::<StructSymbolId>(&bool_key).is_some());
-        assert_eq!(provider.fact_key::<FunctionSymbolId>(&bool_key), None);
+        assert!(provider.semantic_key::<StructSymbolId>(&bool_key).is_some());
+        assert_eq!(provider.semantic_key::<FunctionSymbolId>(&bool_key), None);
 
         assert_eq!(
             provider.declaration_symbol::<StructSymbolId>(&declaration_key("Missing")),
@@ -931,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_provider_construction_and_fact_reads_are_deterministic() {
+    fn concurrent_provider_construction_and_semantic_reads_are_deterministic() {
         let expected = Arc::new(build_provider());
 
         let workers = (0..4)
@@ -945,15 +945,15 @@ mod tests {
 
                     let key = declaration_key("Bool");
 
-                    let Some(fact_key) = actual.fact_key::<StructSymbolId>(&key) else {
-                        panic!("Bool fact key must resolve concurrently");
+                    let Some(semantic_key) = actual.semantic_key::<StructSymbolId>(&key) else {
+                        panic!("Bool semantic key must resolve concurrently");
                     };
 
-                    let Some(fact) = actual.declaration_fact(fact_key) else {
-                        panic!("Bool facts must resolve concurrently");
+                    let Some(semantics) = actual.declaration_semantics(semantic_key) else {
+                        panic!("Bool semantics must resolve concurrently");
                     };
 
-                    assert_eq!(fact.descriptor().key(), &key);
+                    assert_eq!(semantics.descriptor().key(), &key);
                 })
             })
             .collect::<Vec<_>>();
@@ -966,19 +966,19 @@ mod tests {
     }
 
     #[test]
-    fn target_facts_round_trip_through_exact_constant_symbols() {
+    fn target_properties_round_trip_through_exact_constant_symbols() {
         let provider = build_provider();
         let mut symbols = std::collections::BTreeSet::new();
 
-        for &fact in TargetFactKind::ALL {
-            let symbol = provider.target_fact_symbol(fact).unwrap_or_else(|| {
-                panic!("target fact must have a compiler-known symbol: {fact:?}")
+        for &property in TargetPropertyKind::ALL {
+            let symbol = provider.target_property_symbol(property).unwrap_or_else(|| {
+                panic!("target property must have a compiler-known symbol: {property:?}")
             });
 
             assert!(symbols.insert(symbol));
-            assert_eq!(provider.symbol_target_fact(symbol), Some(fact));
+            assert_eq!(provider.symbol_target_property(symbol), Some(property));
         }
 
-        assert_eq!(symbols.len(), TargetFactKind::ALL.len());
+        assert_eq!(symbols.len(), TargetPropertyKind::ALL.len());
     }
 }

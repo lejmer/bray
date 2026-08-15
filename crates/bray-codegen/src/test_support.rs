@@ -1,7 +1,7 @@
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::Cancellation;
-use bray_ir::MirTargetFacts;
+use bray_ir::MirTargetContract;
 use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity, RuntimeAbiVersion};
 use bray_symbols::{CallableAbi, PackageIdentity};
 use bray_target::test_support::test_target_profile;
@@ -135,7 +135,7 @@ fn codegen_request_for_seed_target_and_backend(
     codegen_request_for_unit(unit, target, mappings, backend)
 }
 
-/// Creates a complete request fixture from caller-supplied validated generation facts.
+/// Creates a complete request fixture from caller-supplied validated generation inputs.
 pub fn codegen_request_for_unit(
     unit: CodegenUnit,
     target: CodegenTarget,
@@ -360,7 +360,7 @@ pub fn contribution(
 }
 
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
-    let mir_target = MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+    let mir_target = MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
     let Ok(unit) = CodegenUnit::try_new(
         CodegenPartitionPolicy::NATIVE_BALANCED,

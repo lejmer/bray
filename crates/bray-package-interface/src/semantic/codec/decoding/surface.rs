@@ -7,8 +7,8 @@ use crate::semantic::codec::common::{
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceAbiDependency, InterfaceCoherenceRecord, InterfaceConstantValueId,
-    InterfaceImplementationRecord, InterfaceRuntimeRequirement, InterfaceSemanticFacts,
-    InterfaceSourceProvenance, InterfaceTargetFactDependency, InterfaceTraitApplicationId,
+    InterfaceImplementationRecord, InterfaceRuntimeRequirement, InterfaceSemantics,
+    InterfaceSourceProvenance, InterfaceTargetPropertyDependency, InterfaceTraitApplicationId,
     InterfaceTypeId,
 };
 use crate::tag::WireTag;
@@ -54,7 +54,7 @@ pub(super) fn decode_implementations(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_implementation_tables(section, context)?;
 
@@ -81,12 +81,12 @@ pub(super) fn decode_implementations(
         }
     }
 
-    facts.implementations = implementations
+    semantics.implementations = implementations
         .into_iter()
         .map(|implementation| implementation.implementation)
         .collect();
 
-    facts.coherence = coherence.into();
+    semantics.coherence = coherence.into();
 
     Ok(())
 }
@@ -170,7 +170,7 @@ pub(super) fn decode_target_dependencies(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_target_tables(section, context)?;
 
@@ -181,9 +181,9 @@ pub(super) fn decode_target_dependencies(
         decode_runtime_record(reader, limits, context)
     })?;
 
-    facts.target_dependencies = targets.into();
-    facts.abi_dependencies = abis.into();
-    facts.runtime_requirements = runtimes.into();
+    semantics.target_dependencies = targets.into();
+    semantics.abi_dependencies = abis.into();
+    semantics.runtime_requirements = runtimes.into();
 
     Ok(())
 }
@@ -191,8 +191,8 @@ pub(super) fn decode_target_dependencies(
 pub(super) fn decode_target_record(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
-) -> Result<InterfaceTargetFactDependency, InterfaceValidationError> {
-    Ok(InterfaceTargetFactDependency::new(
+) -> Result<InterfaceTargetPropertyDependency, InterfaceValidationError> {
+    Ok(InterfaceTargetPropertyDependency::new(
         read_symbol_reference(reader, context)?,
         read_symbol_reference(reader, context)?,
         InterfaceConstantValueId::new(read_u32(reader)?),
@@ -322,7 +322,7 @@ pub(super) fn decode_provenance(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let count =
         usize::try_from(section.record_count()).map_err(|_| InterfaceValidationError::Malformed)?;
@@ -347,7 +347,7 @@ pub(super) fn decode_provenance(
 
     reader.finish().map_err(map_wire_error)?;
 
-    facts.provenance = values.into();
+    semantics.provenance = values.into();
 
     Ok(())
 }

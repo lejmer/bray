@@ -33,7 +33,7 @@ impl Lowerer<'_> {
 
         let coverage = self
             .input
-            .pattern_facts()
+            .patterns()
             .match_coverage(id)
             .ok_or(LoweringError::UnsupportedExpression(id))?;
 

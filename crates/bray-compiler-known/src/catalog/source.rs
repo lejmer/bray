@@ -176,8 +176,8 @@ const SOURCES: [CatalogSource; 18] = [
     CatalogSource::new(
         CatalogSourceId::new(4),
         CatalogKind::CompilerKnown,
-        "catalog/ambient/target-facts.braydef",
-        include_str!("../../catalog/ambient/target-facts.braydef"),
+        "catalog/ambient/target-properties.braydef",
+        include_str!("../../catalog/ambient/target-properties.braydef"),
     ),
     CatalogSource::new(
         CatalogSourceId::new(5),

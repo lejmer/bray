@@ -8,15 +8,15 @@ use bray_symbols::{
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
     GenericSubstitutionId, ImplementationCoherenceEvidence, ImplementationInstanceId,
     ImplementationSubject, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
-    SymbolKeyData, TargetFactDependency, TraitApplicationId, TypeId,
+    SymbolKeyData, TargetPropertyDependency, TraitApplicationId, TypeId,
 };
 
-use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
+use crate::{InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceSymbolReference};
 
 use super::InternState;
 use super::declaration_model::{
-    ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact,
-    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
+    ImportedCallableParameterDefault, ImportedCallableSignature,
+    ImportedGenericDeclaration, ImportedPredicateDefinition,
 };
 
 /// Resolves artifact-local and dependency symbol references into one compilation snapshot.
@@ -53,8 +53,8 @@ impl From<SemanticValueStoreError> for InterfaceSemanticInternError {
 
 /// Immutable compilation-local IDs produced from one decoded semantic interface graph.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ImportedSemanticFacts {
-    pub(super) interface_facts: Arc<InterfaceSemanticFacts>,
+pub struct ImportedSemantics {
+    pub(super) interface_semantics: Arc<InterfaceSemantics>,
     pub(super) types: Arc<[TypeId]>,
     pub(super) constant_values: Arc<[ConstantValueId]>,
     pub(super) constant_terms: Arc<[ConstantTermId]>,
@@ -63,18 +63,18 @@ pub struct ImportedSemanticFacts {
     pub(super) substitutions: Arc<[GenericSubstitutionId]>,
     pub(super) implementation_instances: Arc<[ImplementationInstanceId]>,
     pub(super) callable_instances: Arc<[CallableInstanceId]>,
-    pub(super) callable_signatures: Arc<[ImportedCallableSignatureFact]>,
-    pub(super) generic_declarations: Arc<[ImportedGenericDeclarationFact]>,
-    pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefaultFact]>,
-    pub(super) predicate_definitions: Arc<[ImportedPredicateDefinitionFact]>,
-    pub(super) declared_types: Arc<[ImportedDeclaredTypeFact]>,
+    pub(super) callable_signatures: Arc<[ImportedCallableSignature]>,
+    pub(super) generic_declarations: Arc<[ImportedGenericDeclaration]>,
+    pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefault]>,
+    pub(super) predicate_definitions: Arc<[ImportedPredicateDefinition]>,
+    pub(super) declared_types: Arc<[ImportedDeclaredType]>,
     pub(super) type_representations: Arc<[bray_symbols::DeclaredTypeRepresentation]>,
-    pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
-    pub(super) constraints: Arc<[ImportedConstraintFact]>,
-    pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
-    pub(super) implementations: Arc<[ImportedImplementationFact]>,
+    pub(super) declaration_templates: Arc<[ImportedDeclarationTemplate]>,
+    pub(super) constraints: Arc<[ImportedConstraint]>,
+    pub(super) callable_contracts: Arc<[ImportedCallableContract]>,
+    pub(super) implementations: Arc<[ImportedImplementation]>,
     pub(super) coherence: Arc<[ImplementationCoherenceEvidence]>,
-    pub(super) target_dependencies: Arc<[ImportedTargetFact]>,
+    pub(super) target_dependencies: Arc<[ImportedTargetProperty]>,
     pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
     pub(super) runtime_requirements: Arc<[ImportedRuntimeRequirement]>,
     pub(super) provenance: Arc<[ImportedSourceProvenance]>,
@@ -82,7 +82,7 @@ pub struct ImportedSemanticFacts {
 
 /// One imported declaration-owned checked template and its exact semantic owner.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ImportedDeclarationTemplateFact {
+pub struct ImportedDeclarationTemplate {
     pub(super) owner: AnySymbolId,
     pub(super) kind: CheckedTemplateKind,
     pub(super) ordinal: bray_symbols::SymbolOrdinal,
@@ -90,31 +90,31 @@ pub struct ImportedDeclarationTemplateFact {
     pub(super) template: Arc<CheckedTemplate>,
 }
 
-/// One exact imported symbol-owned semantic fact.
+/// One exact imported symbol-owned semantic record.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum ImportedSemanticFact {
+pub enum ImportedSemanticRecord {
     /// One callable signature template.
-    CallableSignature(ImportedCallableSignatureFact),
+    CallableSignature(ImportedCallableSignature),
     /// One generic declaration template.
-    GenericDeclaration(ImportedGenericDeclarationFact),
+    GenericDeclaration(ImportedGenericDeclaration),
     /// One callable parameter default template.
-    CallableParameterDefault(ImportedCallableParameterDefaultFact),
+    CallableParameterDefault(ImportedCallableParameterDefault),
     /// One predicate definition state.
-    PredicateDefinition(ImportedPredicateDefinitionFact),
+    PredicateDefinition(ImportedPredicateDefinition),
     /// One declaration-owned checked type.
-    DeclaredType(ImportedDeclaredTypeFact),
+    DeclaredType(ImportedDeclaredType),
     /// One declared type representation contract.
     TypeRepresentation(bray_symbols::DeclaredTypeRepresentation),
     /// One checked generic constraint.
-    GenericConstraint(ImportedConstraintFact),
+    GenericConstraint(ImportedConstraint),
     /// One complete callable contract set.
-    CallableContracts(ImportedCallableContractFact),
+    CallableContracts(ImportedCallableContract),
     /// One source-independent checked declaration-owned template.
-    DeclarationTemplate(ImportedDeclarationTemplateFact),
+    DeclarationTemplate(ImportedDeclarationTemplate),
     /// One public implementation surface.
-    Implementation(ImportedImplementationFact),
-    /// One required target fact value.
-    TargetFact(TargetFactDependency),
+    Implementation(ImportedImplementation),
+    /// One required target property value.
+    TargetProperty(TargetPropertyDependency),
     /// One required callable ABI.
     Abi(ImportedAbiDependency),
     /// One required private runtime ABI surface.
@@ -123,12 +123,12 @@ pub enum ImportedSemanticFact {
 
 /// One imported declaration-owned checked type.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ImportedDeclaredTypeFact {
+pub struct ImportedDeclaredType {
     pub(super) owner: AnySymbolId,
     pub(super) ty: TypeId,
 }
 
-impl ImportedDeclaredTypeFact {
+impl ImportedDeclaredType {
     /// Returns the declaration owning this type.
     pub const fn owner(self) -> AnySymbolId {
         self.owner
@@ -140,7 +140,7 @@ impl ImportedDeclaredTypeFact {
     }
 }
 
-impl ImportedDeclarationTemplateFact {
+impl ImportedDeclarationTemplate {
     /// Returns the declaration that owns this template.
     pub const fn owner(&self) -> AnySymbolId {
         self.owner
@@ -169,12 +169,12 @@ impl ImportedDeclarationTemplateFact {
 
 /// One imported generic constraint and its exact owning declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedConstraintFact {
+pub struct ImportedConstraint {
     pub(super) owner: GenericOwnerId,
     pub(super) constraint: CheckedConstraint,
 }
 
-impl ImportedConstraintFact {
+impl ImportedConstraint {
     /// Returns the declaration that owns this constraint.
     pub const fn owner(self) -> GenericOwnerId {
         self.owner
@@ -188,12 +188,12 @@ impl ImportedConstraintFact {
 
 /// One imported callable contract set and its exact owning declaration.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedCallableContractFact {
+pub struct ImportedCallableContract {
     pub(super) owner: CallableSymbolId,
     pub(super) contract: CallableContractSet,
 }
 
-impl ImportedCallableContractFact {
+impl ImportedCallableContract {
     /// Returns the callable that owns this contract set.
     pub const fn owner(&self) -> CallableSymbolId {
         self.owner
@@ -207,16 +207,16 @@ impl ImportedCallableContractFact {
 
 /// One imported implementation surface.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedImplementationFact {
+pub struct ImportedImplementation {
     pub(super) implementation: ImplementationSymbolId,
     pub(super) subject: ImplementationSubject,
     pub(super) trait_application: Option<TraitApplicationId>,
     pub(super) coherence: Option<ImplementationCoherenceEvidence>,
     pub(super) constraints: Arc<[CheckedConstraint]>,
-    pub(super) target_dependencies: Arc<[TargetFactDependency]>,
+    pub(super) target_dependencies: Arc<[TargetPropertyDependency]>,
 }
 
-impl ImportedImplementationFact {
+impl ImportedImplementation {
     /// Returns the implementation declaration.
     pub const fn implementation(&self) -> ImplementationSymbolId {
         self.implementation
@@ -242,27 +242,27 @@ impl ImportedImplementationFact {
         &self.constraints
     }
 
-    /// Returns the target facts required by this implementation header.
-    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
+    /// Returns the target semantics required by this implementation header.
+    pub fn target_dependencies(&self) -> &[TargetPropertyDependency] {
         &self.target_dependencies
     }
 }
 
-/// One imported target requirement and the semantic fact that consumes it.
+/// One imported target requirement and the semantic record that consumes it.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedTargetFact {
+pub struct ImportedTargetProperty {
     pub(super) owner: AnySymbolId,
-    pub(super) dependency: TargetFactDependency,
+    pub(super) dependency: TargetPropertyDependency,
 }
 
-impl ImportedTargetFact {
-    /// Returns the semantic fact that consumes this requirement.
+impl ImportedTargetProperty {
+    /// Returns the semantic record that consumes this requirement.
     pub const fn owner(&self) -> AnySymbolId {
         self.owner
     }
 
-    /// Returns the required target fact and value.
-    pub const fn dependency(&self) -> &TargetFactDependency {
+    /// Returns the required target property and value.
+    pub const fn dependency(&self) -> &TargetPropertyDependency {
         &self.dependency
     }
 }
@@ -337,114 +337,114 @@ impl ImportedSourceProvenance {
     }
 }
 
-impl ImportedSemanticFacts {
+impl ImportedSemantics {
     /// Resolves one separately stored checked template against this imported semantic graph.
     pub fn intern_checked_template(
         &self,
         template: &crate::InterfaceCheckedTemplate,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<CheckedTemplate, InterfaceSemanticInternError> {
-        InternState::from_imported(self).convert_template(template, &self.interface_facts, symbols)
+        InternState::from_imported(self).convert_template(template, &self.interface_semantics, symbols)
     }
 
-    /// Returns the exact facts selected by symbol owner and category.
-    pub fn symbol_facts(
+    /// Returns the exact semantics selected by symbol owner and category.
+    pub fn symbol_semantics(
         &self,
         owner: AnySymbolId,
-        kind: InterfaceSemanticFactKind,
-    ) -> Vec<ImportedSemanticFact> {
-        // Exact results own shallow Arc-backed fact views independently of the shared graph.
+        kind: InterfaceSemanticRecordKind,
+    ) -> Vec<ImportedSemanticRecord> {
+        // Exact results own shallow Arc-backed record views independently of the shared graph.
         match kind {
-            InterfaceSemanticFactKind::CallableSignature => self
+            InterfaceSemanticRecordKind::CallableSignature => self
                 .callable_signatures
                 .iter()
-                .filter(|fact| fact.owner().into_any() == owner)
+                .filter(|record| record.owner().into_any() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::CallableSignature)
+                .map(ImportedSemanticRecord::CallableSignature)
                 .collect(),
-            InterfaceSemanticFactKind::GenericDeclaration => self
+            InterfaceSemanticRecordKind::GenericDeclaration => self
                 .generic_declarations
                 .iter()
-                .filter(|fact| fact.owner().symbol() == owner)
+                .filter(|record| record.owner().symbol() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::GenericDeclaration)
+                .map(ImportedSemanticRecord::GenericDeclaration)
                 .collect(),
-            InterfaceSemanticFactKind::CallableParameterDefault => self
+            InterfaceSemanticRecordKind::CallableParameterDefault => self
                 .callable_parameter_defaults
                 .iter()
                 .copied()
-                .filter(|fact| AnySymbolId::from(fact.parameter()) == owner)
-                .map(ImportedSemanticFact::CallableParameterDefault)
+                .filter(|record| AnySymbolId::from(record.parameter()) == owner)
+                .map(ImportedSemanticRecord::CallableParameterDefault)
                 .collect(),
-            InterfaceSemanticFactKind::PredicateDefinition => self
+            InterfaceSemanticRecordKind::PredicateDefinition => self
                 .predicate_definitions
                 .iter()
                 .copied()
-                .filter(|fact| fact.owner().into_any() == owner)
-                .map(ImportedSemanticFact::PredicateDefinition)
+                .filter(|record| record.owner().into_any() == owner)
+                .map(ImportedSemanticRecord::PredicateDefinition)
                 .collect(),
-            InterfaceSemanticFactKind::DeclaredType => self
+            InterfaceSemanticRecordKind::DeclaredType => self
                 .declared_types
                 .iter()
                 .copied()
-                .filter(|fact| fact.owner() == owner)
-                .map(ImportedSemanticFact::DeclaredType)
+                .filter(|record| record.owner() == owner)
+                .map(ImportedSemanticRecord::DeclaredType)
                 .collect(),
-            InterfaceSemanticFactKind::TypeRepresentation => self
+            InterfaceSemanticRecordKind::TypeRepresentation => self
                 .type_representations
                 .iter()
-                .filter(|fact| fact.subject().into_any() == owner)
+                .filter(|record| record.subject().into_any() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::TypeRepresentation)
+                .map(ImportedSemanticRecord::TypeRepresentation)
                 .collect(),
-            InterfaceSemanticFactKind::GenericConstraint => self
+            InterfaceSemanticRecordKind::GenericConstraint => self
                 .constraints
                 .iter()
                 .copied()
-                .filter(|fact| fact.owner().symbol() == owner)
-                .map(ImportedSemanticFact::GenericConstraint)
+                .filter(|record| record.owner().symbol() == owner)
+                .map(ImportedSemanticRecord::GenericConstraint)
                 .collect(),
-            InterfaceSemanticFactKind::CallableContracts => self
+            InterfaceSemanticRecordKind::CallableContracts => self
                 .callable_contracts
                 .iter()
-                .filter(|fact| fact.owner().into_any() == owner)
+                .filter(|record| record.owner().into_any() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::CallableContracts)
+                .map(ImportedSemanticRecord::CallableContracts)
                 .collect(),
-            InterfaceSemanticFactKind::DeclarationTemplate => self
+            InterfaceSemanticRecordKind::DeclarationTemplate => self
                 .declaration_templates
                 .iter()
-                .filter(|fact| fact.owner() == owner)
+                .filter(|record| record.owner() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::DeclarationTemplate)
+                .map(ImportedSemanticRecord::DeclarationTemplate)
                 .collect(),
-            InterfaceSemanticFactKind::Implementation => self
+            InterfaceSemanticRecordKind::Implementation => self
                 .implementations
                 .iter()
-                .filter(|fact| fact.implementation().into_any() == owner)
+                .filter(|record| record.implementation().into_any() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::Implementation)
+                .map(ImportedSemanticRecord::Implementation)
                 .collect(),
-            InterfaceSemanticFactKind::TargetFact => self
+            InterfaceSemanticRecordKind::TargetProperty => self
                 .target_dependencies
                 .iter()
-                .filter(|fact| fact.owner() == owner)
-                .map(|fact| fact.dependency().clone())
-                .map(ImportedSemanticFact::TargetFact)
+                .filter(|record| record.owner() == owner)
+                .map(|record| record.dependency().clone())
+                .map(ImportedSemanticRecord::TargetProperty)
                 .collect(),
-            InterfaceSemanticFactKind::Abi => self
+            InterfaceSemanticRecordKind::Abi => self
                 .abi_dependencies
                 .iter()
                 .copied()
-                .filter(|fact| fact.symbol().into_any() == owner)
-                .map(ImportedSemanticFact::Abi)
+                .filter(|record| record.symbol().into_any() == owner)
+                .map(ImportedSemanticRecord::Abi)
                 .collect(),
-            InterfaceSemanticFactKind::Runtime => self
+            InterfaceSemanticRecordKind::Runtime => self
                 .runtime_requirements
                 .iter()
-                .filter(|fact| fact.owner() == owner)
+                .filter(|record| record.owner() == owner)
                 .cloned()
-                .map(ImportedSemanticFact::Runtime)
+                .map(ImportedSemanticRecord::Runtime)
                 .collect(),
         }
     }
@@ -461,7 +461,7 @@ impl ImportedSemanticFacts {
 
     /// Returns the durable constant values corresponding to the imported IDs.
     pub(crate) fn interface_constant_values(&self) -> &[crate::InterfaceConstantValue] {
-        self.interface_facts.constant_values()
+        self.interface_semantics.constant_values()
     }
 
     /// Returns canonical assembly elements for a tuple or the language unit type.
@@ -537,7 +537,7 @@ impl ImportedSemanticFacts {
         }
 
         let substitution = self
-            .interface_facts
+            .interface_semantics
             .substitutions
             .get(substitution.to_index()?)?;
 
@@ -575,7 +575,7 @@ impl ImportedSemanticFacts {
     fn interface_type(&self, ty: TypeId) -> Option<&crate::InterfaceType> {
         let slot = self.types.iter().position(|candidate| *candidate == ty)?;
 
-        self.interface_facts.types().get(slot)
+        self.interface_semantics.types().get(slot)
     }
 
     fn resolve_interface_types(
@@ -619,27 +619,27 @@ impl ImportedSemanticFacts {
     }
 
     /// Returns imported callable signatures in interface order.
-    pub fn callable_signatures(&self) -> &[ImportedCallableSignatureFact] {
+    pub fn callable_signatures(&self) -> &[ImportedCallableSignature] {
         &self.callable_signatures
     }
 
     /// Returns imported generic declaration templates in interface order.
-    pub fn generic_declarations(&self) -> &[ImportedGenericDeclarationFact] {
+    pub fn generic_declarations(&self) -> &[ImportedGenericDeclaration] {
         &self.generic_declarations
     }
 
     /// Returns imported callable parameter defaults in interface order.
-    pub fn callable_parameter_defaults(&self) -> &[ImportedCallableParameterDefaultFact] {
+    pub fn callable_parameter_defaults(&self) -> &[ImportedCallableParameterDefault] {
         &self.callable_parameter_defaults
     }
 
     /// Returns imported predicate definition states in interface order.
-    pub fn predicate_definitions(&self) -> &[ImportedPredicateDefinitionFact] {
+    pub fn predicate_definitions(&self) -> &[ImportedPredicateDefinition] {
         &self.predicate_definitions
     }
 
     /// Returns imported declaration-owned checked types in interface order.
-    pub fn declared_types(&self) -> &[ImportedDeclaredTypeFact] {
+    pub fn declared_types(&self) -> &[ImportedDeclaredType] {
         &self.declared_types
     }
 
@@ -649,32 +649,32 @@ impl ImportedSemanticFacts {
     }
 
     /// Returns imported declaration-owned templates in canonical interface order.
-    pub fn declaration_templates(&self) -> &[ImportedDeclarationTemplateFact] {
+    pub fn declaration_templates(&self) -> &[ImportedDeclarationTemplate] {
         &self.declaration_templates
     }
 
     /// Returns imported constraints in interface order.
-    pub fn constraints(&self) -> &[ImportedConstraintFact] {
+    pub fn constraints(&self) -> &[ImportedConstraint] {
         &self.constraints
     }
 
     /// Returns imported callable contracts in interface order.
-    pub fn callable_contracts(&self) -> &[ImportedCallableContractFact] {
+    pub fn callable_contracts(&self) -> &[ImportedCallableContract] {
         &self.callable_contracts
     }
 
     /// Returns imported implementation surfaces in canonical order.
-    pub fn implementations(&self) -> &[ImportedImplementationFact] {
+    pub fn implementations(&self) -> &[ImportedImplementation] {
         &self.implementations
     }
 
-    /// Returns imported coherence facts in canonical order.
+    /// Returns imported coherence semantics in canonical order.
     pub fn coherence(&self) -> &[ImplementationCoherenceEvidence] {
         &self.coherence
     }
 
-    /// Returns imported target-fact dependencies in canonical order.
-    pub fn target_dependencies(&self) -> &[ImportedTargetFact] {
+    /// Returns imported target-property dependencies in canonical order.
+    pub fn target_dependencies(&self) -> &[ImportedTargetProperty] {
         &self.target_dependencies
     }
 
@@ -694,13 +694,13 @@ impl ImportedSemanticFacts {
     }
 }
 
-impl InterfaceSemanticFacts {
+impl InterfaceSemantics {
     /// Resolves and validates this complete semantic graph into canonical semantic values.
     pub fn intern(
         &self,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<ImportedSemanticFacts, InterfaceSemanticInternError> {
+    ) -> Result<ImportedSemantics, InterfaceSemanticInternError> {
         let mut state = InternState::new(self);
 
         while state.has_pending() {

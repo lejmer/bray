@@ -196,12 +196,12 @@ fn diagnostic_named_application<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(Some(name)) = available_diagnostic_fact(context.member_name(definition.into_any()))?
+    let Some(Some(name)) = available_diagnostic_value(context.member_name(definition.into_any()))?
     else {
         return Ok(DiagnosticType::Unknown);
     };
 
-    let Some(Some(key)) = available_diagnostic_fact(context.symbol_key(definition.into_any()))?
+    let Some(Some(key)) = available_diagnostic_value(context.symbol_key(definition.into_any()))?
     else {
         return Ok(DiagnosticType::Unknown);
     };
@@ -267,7 +267,7 @@ fn external_symbol_module_path(key: &ExternalSymbolKey) -> Option<&bray_symbols:
     }
 }
 
-fn available_diagnostic_fact<T>(
+fn available_diagnostic_value<T>(
     result: crate::CheckerFactResult<T>,
 ) -> Result<Option<T>, CheckerInfrastructureError> {
     match result {

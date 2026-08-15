@@ -13,8 +13,8 @@ use bray_diagnostics::{
 };
 use bray_source::TextRange;
 use bray_symbols::{
-    AnySymbolId, ConstantValueId, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeFact,
-    TypeData, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
+    AnySymbolId, ConstantValueId, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeQuery,
+    TypeData, UnionPayloadFieldTypeQuery, UnionVariantSymbolId,
 };
 
 use super::check::{PatternChecker, available_dependency, effective_pattern_kind};
@@ -27,8 +27,8 @@ use crate::{
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeFact>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn check_matches(&mut self) -> Result<(), CheckerInfrastructureError> {

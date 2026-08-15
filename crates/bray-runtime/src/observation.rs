@@ -57,7 +57,7 @@ impl TaskStartSite {
     }
 }
 
-/// Immutable inspection facts for one task-control block.
+/// Immutable inspection observations for one task-control block.
 #[derive(Clone, Debug)]
 pub struct TaskSnapshot {
     task: TaskId,
@@ -176,7 +176,7 @@ pub enum TaskWakeCause {
     Cancellation,
 }
 
-/// Immutable scheduling facts for one registered task.
+/// Immutable scheduling observations for one registered task.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScheduledTaskSnapshot {
     task: TaskId,

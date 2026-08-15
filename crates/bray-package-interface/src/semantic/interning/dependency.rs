@@ -6,7 +6,7 @@ use bray_symbols::{
 use crate::{
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceSemanticFacts,
+    InterfaceDependencySubjectRoot, InterfaceSemantics,
 };
 
 use super::common::{convert_requirement_kind, resolve_exact};
@@ -15,11 +15,11 @@ use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 impl InternState {
     pub(super) fn intern_dependency_contracts(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.dependency_contracts.iter().enumerate() {
+        for (index, input) in semantics.dependency_contracts.iter().enumerate() {
             if self.dependency_contracts[index].is_some() {
                 continue;
             }

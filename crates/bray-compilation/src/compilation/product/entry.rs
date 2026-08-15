@@ -8,14 +8,14 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, CallableConstness, CallableContractTemplate,
-    CallableContractTemplateFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
+    CallableContractTemplateQuery, CallableContractsQuery, CallableExecution, CallableSignatureQuery,
     CallableSignatureTemplate, DeclarationPredicateClauseKind, FunctionSymbolId, GenericArgument,
     GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
     TestResultShape, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
 use crate::fact::FactQueryError;
 
 fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -79,7 +79,7 @@ impl EntrypointSelection {
 }
 
 pub(super) fn select_executable_entrypoint(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     symbols: &SymbolGraph,
@@ -218,7 +218,7 @@ pub(super) fn select_executable_entrypoint(
 }
 
 fn validated_selection(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     symbols: &SymbolGraph,
@@ -243,7 +243,7 @@ fn validated_selection(
 }
 
 pub(super) fn validate_entry(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     symbols: &SymbolGraph,
@@ -260,7 +260,7 @@ pub(super) fn validate_entry(
     };
 
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
             function.into(),
         ))
         .map_err(binder_fact_error)?;
@@ -317,7 +317,7 @@ pub(super) fn validate_entry(
     }
 
     let contracts = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(
+        .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
             function.into(),
         ))
         .map_err(binder_fact_error)?;
@@ -325,7 +325,7 @@ pub(super) fn validate_entry(
     diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
     let contract_template = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractTemplateFact>::new(
+        .symbol_fact(SymbolFactRequest::<CallableContractTemplateQuery>::new(
             function.into(),
         ))
         .map_err(binder_fact_error)?;
@@ -420,7 +420,7 @@ fn callable_properties(
 
 fn exposes_trusted_caller_obligation(
     template: &CallableContractTemplate,
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
 ) -> bool {
     let Some(template) = template.source_template() else {
         return false;

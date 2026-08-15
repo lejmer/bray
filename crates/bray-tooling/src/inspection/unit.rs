@@ -9,7 +9,7 @@ use crate::InspectionTarget;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UnitInspectionSelectionError {
-    BoundFact,
+    BoundState,
     Source,
 }
 
@@ -60,10 +60,10 @@ pub(crate) fn select_units(
                 QueryPriority::Interactive,
             )
             .map(|unit| unit.into_iter().collect())
-            .map_err(|_| UnitInspectionSelectionError::BoundFact)?,
+            .map_err(|_| UnitInspectionSelectionError::BoundState)?,
         None => compilation
             .bound_units_for_source(source_id, &cancellation, QueryPriority::Interactive)
-            .map_err(|_| UnitInspectionSelectionError::BoundFact)?,
+            .map_err(|_| UnitInspectionSelectionError::BoundState)?,
     };
 
     Ok(UnitInspectionSelection { diagnostics, units })

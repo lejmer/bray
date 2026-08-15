@@ -47,7 +47,7 @@ impl StorageScopeOwners {
 
         if outcome != BoundWalkOutcome::Completed || !scopes.is_empty() {
             return Err(CheckerFactError::Infrastructure(
-                CheckerInfrastructureError::InvalidStorageFlowFacts,
+                CheckerInfrastructureError::InvalidStorageFlow,
             ));
         }
 

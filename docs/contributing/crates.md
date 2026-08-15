@@ -33,7 +33,7 @@ Compiler libraries and installed Bray tools.
     - The checked-in compiler-known catalog format, validation, generation, and immutable descriptors.
 
 - `bray-symbols`
-    - Program-wide semantic identities, symbol relationships, semantic values, and lazy symbol-fact contracts.
+    - Program-wide semantic identities, symbol relationships, semantic values, and generic lazy symbol-query contracts.
 
 - `bray-package-interface`
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
@@ -51,13 +51,13 @@ Compiler libraries and installed Bray tools.
     - Name resolution, semantic reference binding, local symbol construction, and immutable bound-unit construction.
 
 - `bray-bound-tree`
-    - The source-correlated high-level intermediate representation and durable typed semantic side-fact representations.
+    - The source-correlated high-level intermediate representation and durable typed semantic analyses.
 
 - `bray-checker`
     - Focused type, ownership, control-flow, effect, and related semantic checker services.
 
 - `bray-lowering`
-    - Transformation of bound units and their required semantic facts into explicit backend-independent mid-level IR.
+    - Transformation of bound units and their required semantic inputs into explicit backend-independent mid-level IR.
 
 - `bray-ir`
     - Backend-independent mid-level IR, its validation, construction, and traversal APIs.
@@ -125,7 +125,7 @@ Compiler libraries and installed Bray tools.
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 
 - `bray-compilation`
-    - The lazy compilation context, compiler fact coordination, phase orchestration, profile collection, and top-level product
+    - The demand-driven compilation context, query coordination, phase orchestration, profile collection, and top-level product
       emission.
 
 - `bray-tooling`

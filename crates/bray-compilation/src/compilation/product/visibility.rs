@@ -9,23 +9,23 @@ use bray_diagnostics::{
     DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractTypeFact, CallableInstanceData, CallableSignatureFact,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantProjectionKind, ConstantTermData,
+    AnySymbolId, CallableContractTypeQuery, CallableInstanceData, CallableSignatureQuery,
+    CallableSymbolId, ConstantDeclaredTypeQuery, ConstantProjectionKind, ConstantTermData,
     ConstantTermId, GenericArgument, GenericArgumentTemplate,
-    GenericConstParameterDeclaredTypeFact, GenericSubstitutionId, ImplementationInstanceId,
-    InherentTypeMemberValueFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
-    SemanticValueStore, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolGraph,
-    SymbolKey, SymbolOrigin, TraitApplicationId, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
+    GenericConstParameterDeclaredTypeQuery, GenericSubstitutionId, ImplementationInstanceId,
+    InherentTypeMemberValueQuery, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
+    SemanticValueStore, StructFieldTypeQuery, SymbolFactContract, SymbolFactRequest, SymbolGraph,
+    SymbolKey, SymbolOrigin, TraitApplicationId, TraitConstantFulfillmentDeclaredTypeQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitTypeFulfillmentValueQuery, TypeData,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeQuery,
 };
 
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
 use crate::compilation::diagnostics::source_diagnostic;
 use crate::fact::FactQueryError;
 
 pub(super) fn validate_public_surface(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
@@ -36,7 +36,7 @@ pub(super) fn validate_public_surface(
 
     for symbol in public_symbols {
         let exposes_internal = match *symbol {
-            AnySymbolId::Constant(owner) => validate_type_fact::<ConstantDeclaredTypeFact>(
+            AnySymbolId::Constant(owner) => validate_type_template::<ConstantDeclaredTypeQuery>(
                 binder,
                 owner,
                 semantic_values,
@@ -45,7 +45,7 @@ pub(super) fn validate_public_surface(
                 diagnostics,
             )?,
             AnySymbolId::TraitConstantMember(owner) => {
-                validate_type_fact::<TraitConstantMemberDeclaredTypeFact>(
+                validate_type_template::<TraitConstantMemberDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -55,7 +55,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::TraitConstantFulfillment(owner) => {
-                validate_type_fact::<TraitConstantFulfillmentDeclaredTypeFact>(
+                validate_type_template::<TraitConstantFulfillmentDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -65,7 +65,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::GenericConstParameter(owner) => {
-                validate_type_fact::<GenericConstParameterDeclaredTypeFact>(
+                validate_type_template::<GenericConstParameterDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -74,7 +74,7 @@ pub(super) fn validate_public_surface(
                     diagnostics,
                 )?
             }
-            AnySymbolId::StructField(owner) => validate_type_fact::<StructFieldTypeFact>(
+            AnySymbolId::StructField(owner) => validate_type_template::<StructFieldTypeQuery>(
                 binder,
                 owner,
                 semantic_values,
@@ -83,7 +83,7 @@ pub(super) fn validate_public_surface(
                 diagnostics,
             )?,
             AnySymbolId::UnionPayloadField(owner) => {
-                validate_type_fact::<UnionPayloadFieldTypeFact>(
+                validate_type_template::<UnionPayloadFieldTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -93,7 +93,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::InherentTypeMember(owner) => {
-                validate_type_fact::<InherentTypeMemberValueFact>(
+                validate_type_template::<InherentTypeMemberValueQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -103,7 +103,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::TraitTypeFulfillment(owner) => {
-                validate_type_fact::<TraitTypeFulfillmentValueFact>(
+                validate_type_template::<TraitTypeFulfillmentValueQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -112,7 +112,7 @@ pub(super) fn validate_public_surface(
                     diagnostics,
                 )?
             }
-            AnySymbolId::CallableContract(owner) => validate_type_fact::<CallableContractTypeFact>(
+            AnySymbolId::CallableContract(owner) => validate_type_template::<CallableContractTypeQuery>(
                 binder,
                 owner,
                 semantic_values,
@@ -163,7 +163,7 @@ pub(super) fn validate_public_surface(
 }
 
 fn validate_callable_signature(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     callable: CallableSymbolId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -171,7 +171,7 @@ fn validate_callable_signature(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
         .map_err(binder_fact_error)?;
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
@@ -185,7 +185,7 @@ fn validate_callable_signature(
 }
 
 fn validate_predicate_signature(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     predicate: bray_symbols::PredicateDefinitionSymbolId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -193,7 +193,7 @@ fn validate_predicate_signature(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
             predicate,
         ))
         .map_err(binder_fact_error)?;
@@ -205,8 +205,8 @@ fn validate_predicate_signature(
     }))
 }
 
-fn validate_type_fact<C>(
-    binder: &CompilationBinderFacts<'_>,
+fn validate_type_template<C>(
+    binder: &CompilationBindingContext<'_>,
     owner: C::Owner,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -215,16 +215,16 @@ fn validate_type_fact<C>(
 ) -> Result<Option<AnySymbolId>, FactQueryError>
 where
     C: SymbolFactContract<Value = TypeExpressionTemplate>,
-    for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+    for<'facts> CompilationBindingContext<'facts>: SymbolFactProvider<C>,
 {
-    let fact = binder
+    let result = binder
         .symbol_fact(SymbolFactRequest::<C>::new(owner))
         .map_err(binder_fact_error)?;
 
-    diagnostics.add_range(fact.diagnostics().iter().cloned());
+    diagnostics.add_range(result.diagnostics().iter().cloned());
 
     Ok(template_internal_dependency(
-        fact.value(),
+        result.value(),
         semantic_values,
         symbols,
         declarations,
@@ -654,7 +654,7 @@ fn constant_term_exposes_internal(
         }
         ConstantTermData::IntegerLiteral { .. } => {}
         ConstantTermData::Parameter(_) => {}
-        ConstantTermData::TargetFact(constant) => {
+        ConstantTermData::TargetProperty(constant) => {
             return source_symbol_is_not_publicly_reachable(
                 (*constant).into(),
                 declarations,

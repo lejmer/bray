@@ -551,9 +551,9 @@ fn build_target(
         detail: format!("{error:?}"),
     })?;
 
-    let native_facts = crate::progress::run("Evaluating standard library native product facts", || {
+    let native_plan = crate::progress::run("Planning the standard library native product", || {
         compilation
-            .native_product_facts(
+            .native_product_plan(
                 product.identity().clone(),
                 BuildConfiguration::Release,
                 None,
@@ -600,7 +600,7 @@ fn build_target(
     .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?;
 
     let inputs =
-        ProductEmissionInputs::new(&output_description).with_native_product(&native_facts, &linker);
+        ProductEmissionInputs::new(&output_description).with_native_product(&native_plan, &linker);
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {

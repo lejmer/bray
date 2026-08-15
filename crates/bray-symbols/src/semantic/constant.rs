@@ -27,7 +27,7 @@ impl ConstantDefinition {
     }
 }
 
-/// Marks an invalid constant definition whose diagnostics belong to the fact result.
+/// Marks an invalid constant definition whose diagnostics belong to the query result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ErrorConstantDefinition;
 
@@ -38,7 +38,7 @@ pub enum ConstantDefinitionState {
     Defined(ConstantDefinition),
     /// A trait constant member requires a fulfillment value.
     Required,
-    /// Checking failed and diagnostics are retained by the fact result.
+    /// Checking failed and diagnostics are retained by the query result.
     Error(ErrorConstantDefinition),
 }
 

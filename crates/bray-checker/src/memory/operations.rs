@@ -11,8 +11,8 @@ use bray_diagnostics::{
     SeverityKind,
 };
 use bray_symbols::{
-    CallableAbi, CallableInstanceData, CallableSignatureFact, CallableTrust,
-    DeclarationDirectivesFact, DirectiveKind, GenericArgument, SymbolFactRequest, TypeData,
+    CallableAbi, CallableInstanceData, CallableSignatureQuery, CallableTrust,
+    DeclarationDirectivesQuery, DirectiveKind, GenericArgument, SymbolFactRequest, TypeData,
     TypeExpressionTemplate,
 };
 
@@ -30,8 +30,8 @@ pub(crate) fn check_memory_operations<C>(
 ) -> CheckerOutcome<CheckedMemoryOperations>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
     if request.is_cancelled() {
@@ -220,13 +220,13 @@ where
         ));
     }
 
-    let facts = match CheckedMemoryOperations::try_new(
+    let operations = match CheckedMemoryOperations::try_new(
         request.unit().unit(),
         request.unit().key().kind(),
         operations,
         false,
     ) {
-        Ok(facts) => facts,
+        Ok(operations) => operations,
         Err(_) => {
             return CheckerOutcome::InfrastructureFailure(
                 CheckerInfrastructureError::InvalidSemanticSelectionInput,
@@ -234,7 +234,7 @@ where
         }
     };
 
-    CheckerOutcome::Complete(DiagnosticResult::new(facts, diagnostics))
+    CheckerOutcome::Complete(DiagnosticResult::new(operations, diagnostics))
 }
 
 fn callback_state_problem<C>(
@@ -243,8 +243,8 @@ fn callback_state_problem<C>(
 ) -> Result<Option<DiagnosticCallbackStateProblem>, CheckerOutcome<CheckedMemoryOperations>>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
     let [context] = arguments else {
@@ -258,7 +258,7 @@ where
     };
 
     let signature =
-        match request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable)) {
+        match request.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable)) {
             Ok(signature) => signature,
             Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
             Err(crate::CheckerFactError::Infrastructure(error)) => {
@@ -302,7 +302,7 @@ where
         return Ok(Some(DiagnosticCallbackStateProblem::ReceiverPresent));
     }
 
-    let directives = match request.symbol_fact(SymbolFactRequest::<DeclarationDirectivesFact>::new(
+    let directives = match request.symbol_fact(SymbolFactRequest::<DeclarationDirectivesQuery>::new(
         callable.into_any(),
     )) {
         Ok(directives) => directives,
@@ -402,7 +402,7 @@ fn generic_arguments<C>(
     instance: CallableInstanceData,
 ) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let substitution = request
         .semantic_values()

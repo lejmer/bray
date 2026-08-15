@@ -245,7 +245,7 @@ impl OperationCandidate {
         }
     }
 
-    /// Supplies typed implementation-selection facts used by this operation.
+    /// Supplies typed implementation-selection results used by this operation.
     pub fn with_implementation_selections(
         mut self,
         selections: impl IntoIterator<Item = ImplementationSelectionEvidence>,

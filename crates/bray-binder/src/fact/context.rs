@@ -85,7 +85,7 @@ impl<'symbols> ImportedPathRoot<'symbols> {
 /// Injected read-only facts available to one binding computation.
 pub trait BinderFactContext: Send + Sync {
     /// The origin-neutral provider for symbol-facing semantic facts.
-    type SymbolFacts: Send + Sync + ?Sized;
+    type SymbolSemantics: Send + Sync + ?Sized;
     /// The compilation-owned cancellation observer.
     type Cancellation: Cancellation + ?Sized;
 
@@ -171,7 +171,7 @@ pub trait BinderFactContext: Send + Sync {
     fn selected_target(&self) -> &TargetProfile;
 
     /// Returns the origin-neutral symbol-fact provider.
-    fn symbol_facts(&self) -> &Self::SymbolFacts;
+    fn symbol_semantics(&self) -> &Self::SymbolSemantics;
 
     /// Returns the cancellation observer for this binding request.
     fn cancellation(&self) -> &Self::Cancellation;

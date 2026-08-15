@@ -57,14 +57,14 @@ impl Lowerer<'_> {
         pattern: BoundPatternId,
         subject: MirOperand,
     ) -> Result<MirOperand, LoweringError> {
-        let fact = self
+        let check = self
             .input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
         if !matches!(
-            fact.test(),
+            check.test(),
             Some(PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent)
         ) {
             return Ok(subject);
@@ -82,7 +82,7 @@ impl Lowerer<'_> {
         };
 
         if !matches!(projection.kind(), bray_ir::MirProjectionKind::NullableValue)
-            || projection.source_type() != fact.input_type()
+            || projection.source_type() != check.input_type()
         {
             return Ok(subject);
         }
@@ -254,14 +254,14 @@ impl Lowerer<'_> {
             return Ok(());
         }
 
-        let fact = self
+        let check = self
             .input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
         let projects_after_test = matches!(
-            (fact.test(), fact.projection()),
+            (check.test(), check.projection()),
             (
                 Some(PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent),
                 Some(PatternProjection::NullableValue)
@@ -274,7 +274,7 @@ impl Lowerer<'_> {
             self.project_pattern_subject(pattern, subject, current, PatternOperation::Observe)?
         };
 
-        let children_entry = match (fact.test(), pattern_node.children().is_empty()) {
+        let children_entry = match (check.test(), pattern_node.children().is_empty()) {
             (Some(_), true) => matched,
             (Some(_), false) => self
                 .builder
@@ -282,7 +282,7 @@ impl Lowerer<'_> {
             (None, _) => current,
         };
 
-        if let Some(predicate) = fact.test() {
+        if let Some(predicate) = check.test() {
             self.builder.set_terminator(
                 current,
                 Self::retained_source(&source),
@@ -327,7 +327,7 @@ impl Lowerer<'_> {
             candidate = next;
         }
 
-        if fact.test().is_none() && pattern_node.children().is_empty() {
+        if check.test().is_none() && pattern_node.children().is_empty() {
             self.builder.set_terminator(
                 current,
                 source,
@@ -345,13 +345,13 @@ impl Lowerer<'_> {
         current: MirBlockId,
         operation: PatternOperation,
     ) -> Result<MirOperand, LoweringError> {
-        let fact = self
+        let check = self
             .input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        let Some(projection) = fact.projection() else {
+        let Some(projection) = check.projection() else {
             return Ok(subject);
         };
 
@@ -365,7 +365,7 @@ impl Lowerer<'_> {
                 projection,
                 operation,
             },
-            Some(fact.input_type()),
+            Some(check.input_type()),
         )?;
 
         result
@@ -419,13 +419,13 @@ impl Lowerer<'_> {
         current: MirBlockId,
         apply_projection: bool,
     ) -> Result<(), LoweringError> {
-        let fact = self
+        let binding_type = self
             .input
-            .pattern_facts()
+            .patterns()
             .binding_type(binding)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        let value = match fact.projection().filter(|_| apply_projection) {
+        let value = match binding_type.projection().filter(|_| apply_projection) {
             Some(projection) => {
                 let commit = self.builder.push_operation(
                     current,
@@ -433,9 +433,9 @@ impl Lowerer<'_> {
                     MirOperationKind::PatternProjection {
                         subject,
                         projection,
-                        operation: fact.operation(),
+                        operation: binding_type.operation(),
                     },
-                    Some(fact.ty()),
+                    Some(binding_type.ty()),
                 )?;
 
                 commit
@@ -454,7 +454,7 @@ impl Lowerer<'_> {
 
         let destination = match storage {
             StorageBinding::Identity(identity) => {
-                self.place_for_identity(identity, fact.ty(), origin)?
+                self.place_for_identity(identity, binding_type.ty(), origin)?
             }
             StorageBinding::Access(access) => self.place_for_access(access, true)?,
         };
@@ -479,17 +479,17 @@ impl Lowerer<'_> {
         place: MirPlace,
         current: MirBlockId,
     ) -> Result<MirOperand, LoweringError> {
-        let fact = self
+        let check = self
             .input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        match fact.operation() {
+        match check.operation() {
             PatternOperation::Consume => Ok(MirOperand::Move(place)),
             PatternOperation::Observe | PatternOperation::Copy => Ok(MirOperand::Copy(place)),
             PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
-                let kind = match fact.operation() {
+                let kind = match check.operation() {
                     PatternOperation::SharedBorrow => BorrowKind::Shared,
                     PatternOperation::MutableBorrow => BorrowKind::Mutable,
                     PatternOperation::Observe
@@ -506,7 +506,7 @@ impl Lowerer<'_> {
                     current,
                     source,
                     MirOperationKind::Borrow { kind, place },
-                    Some(fact.input_type()),
+                    Some(check.input_type()),
                 )?;
 
                 result
@@ -523,7 +523,7 @@ impl Lowerer<'_> {
         pattern: BoundPatternId,
     ) -> Result<PatternOperation, LoweringError> {
         self.input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
             .map(bray_bound_tree::PatternCheckEntry::operation)
             .filter(|operation| *operation != PatternOperation::Recovered)
@@ -535,9 +535,9 @@ impl Lowerer<'_> {
         pattern: BoundPatternId,
     ) -> Result<bool, LoweringError> {
         self.input
-            .pattern_facts()
+            .patterns()
             .pattern(pattern)
-            .map(|fact| fact.target().is_none())
+            .map(|pattern| pattern.target().is_none())
             .ok_or(LoweringError::UnsupportedPattern(pattern))
     }
 

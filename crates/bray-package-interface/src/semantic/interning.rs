@@ -11,14 +11,14 @@ mod template;
 mod ty;
 
 pub use declaration_model::{
-    ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact,
-    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
+    ImportedCallableParameterDefault, ImportedCallableSignature,
+    ImportedGenericDeclaration, ImportedPredicateDefinition,
 };
 pub use model::{
-    ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
-    ImportedDeclarationTemplateFact, ImportedDeclaredTypeFact, ImportedImplementationFact,
-    ImportedRuntimeRequirement, ImportedSemanticFact, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
+    ImportedAbiDependency, ImportedCallableContract, ImportedConstraint,
+    ImportedDeclarationTemplate, ImportedDeclaredType, ImportedImplementation,
+    ImportedRuntimeRequirement, ImportedSemanticRecord, ImportedSemantics,
+    ImportedSourceProvenance, ImportedTargetProperty, InterfaceSemanticInternError,
     InterfaceSymbolResolver,
 };
 pub(super) use state::InternState;

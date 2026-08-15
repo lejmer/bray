@@ -128,27 +128,27 @@ macro_rules! define_imported_symbol_skeleton {
             }
 
             /// Returns the compiled-interface address backing one imported declaration symbol.
-            pub fn imported_fact_address(
+            pub fn imported_semantic_address(
                 &self,
                 symbol: AnySymbolId,
-            ) -> Option<crate::ImportedSymbolFactAddress> {
+            ) -> Option<crate::ImportedSemanticAddress> {
                 match symbol {
                     $(AnySymbolId::$variant(id) => self
                         .$singular(id)?
-                        .imported_fact_key()
-                        .map(crate::ImportedSymbolFactAddress::from),)+
+                        .imported_semantic_key()
+                        .map(crate::ImportedSemanticAddress::from),)+
                     AnySymbolId::CallableParameterDefaultProvider(id) => self
                         .callable_parameter_default_provider(id)?
-                        .imported_fact_key()
-                        .map(crate::ImportedSymbolFactAddress::from),
+                        .imported_semantic_key()
+                        .map(crate::ImportedSemanticAddress::from),
                     AnySymbolId::StructFieldDefaultProvider(id) => self
                         .struct_field_default_provider(id)?
-                        .imported_fact_key()
-                        .map(crate::ImportedSymbolFactAddress::from),
+                        .imported_semantic_key()
+                        .map(crate::ImportedSemanticAddress::from),
                     AnySymbolId::UnionPayloadDefaultProvider(id) => self
                         .union_payload_default_provider(id)?
-                        .imported_fact_key()
-                        .map(crate::ImportedSymbolFactAddress::from),
+                        .imported_semantic_key()
+                        .map(crate::ImportedSemanticAddress::from),
                     _ => None,
                 }
             }
@@ -370,7 +370,7 @@ mod tests {
         );
 
         assert_eq!(
-            function.imported_fact_key().map(|key| key.interface()),
+            function.imported_semantic_key().map(|key| key.interface()),
             Some(ImportedInterfaceId::new(3))
         );
 

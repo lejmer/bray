@@ -8,8 +8,8 @@ use bray_diagnostics::{
     DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_symbols::{
-    AnySymbolId, ConstantValueData, NamedTypeSymbolId, StructFieldTypeFact, SymbolOrdinal,
-    TypeData, TypeId, UnionPayloadFieldTypeFact,
+    AnySymbolId, ConstantValueData, NamedTypeSymbolId, StructFieldTypeQuery, SymbolOrdinal,
+    TypeData, TypeId, UnionPayloadFieldTypeQuery,
 };
 
 use super::state::{PatternChecker, PatternSubject, available_dependency};
@@ -22,8 +22,8 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFa
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeFact>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn pattern_shape_is_total(

@@ -5,7 +5,7 @@ use bray_symbols::{
     SelfTypeContext, SemanticValueStore, TraitTypeMemberSymbolId, TypeData,
 };
 
-use crate::{InterfaceSemanticFacts, InterfaceType};
+use crate::{InterfaceSemantics, InterfaceType};
 
 use super::common::{collect_ids, invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
@@ -13,11 +13,11 @@ use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 impl InternState {
     pub(super) fn intern_types(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.types.iter().enumerate() {
+        for (index, input) in semantics.types.iter().enumerate() {
             if self.types[index].is_some() {
                 continue;
             }

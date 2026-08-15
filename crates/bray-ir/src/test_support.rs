@@ -2,7 +2,7 @@ use bray_symbols::{
     ConstantValueData, ConstantValueId, ConstantValueKind, SemanticValueStore, TypeData, TypeId,
 };
 
-use crate::MirTargetFacts;
+use crate::MirTargetContract;
 
 pub(crate) fn test_type() -> TypeId {
     let Ok(store) = SemanticValueStore::try_new() else {
@@ -40,8 +40,8 @@ pub(crate) fn test_constant_value() -> ConstantValueId {
         .unwrap_or_else(|error| panic!("test constant must be valid: {error:?}"))
 }
 
-pub(crate) fn test_target() -> MirTargetFacts {
-    MirTargetFacts::new(
+pub(crate) fn test_target() -> MirTargetContract {
+    MirTargetContract::new(
         bray_target::test_support::test_target_profile(),
         bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
     )

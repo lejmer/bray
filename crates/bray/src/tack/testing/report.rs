@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn json_reports_preserve_typed_failure_and_capture_facts() {
+    fn json_reports_preserve_typed_failure_and_capture_details() {
         let product = product();
 
         let outcome = TestOutcome::AssertionFailure(AssertionFailure::with_message(

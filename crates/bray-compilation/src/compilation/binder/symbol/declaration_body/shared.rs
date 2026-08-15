@@ -4,7 +4,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use super::dependency::portable_dependency_contract;
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(super) struct CheckedSourceExpression {
     pub(super) result: TypeId,
@@ -20,7 +20,7 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence
 }
 
 pub(super) fn checked_source_expression(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
 ) -> BinderFactResult<CheckedSourceExpression> {
     let compilation = context.compilation();
@@ -86,7 +86,7 @@ pub(super) fn checked_source_expression(
 }
 
 pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
 ) -> BinderFactResult<CheckedSourcePredicateSequence> {
     let compilation = context.compilation();
@@ -151,7 +151,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 }
 
 pub(super) fn syntax_diagnostics(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     anchor: bray_declarations::SyntaxAnchor,
 ) -> DiagnosticBag {
     let mut diagnostics = DiagnosticBag::new();

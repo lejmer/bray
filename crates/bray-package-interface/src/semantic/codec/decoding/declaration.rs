@@ -6,7 +6,7 @@ use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
     InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
-    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceTypeId,
+    InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape, InterfaceTypeId,
     InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 use crate::wire::WireReader;
@@ -30,7 +30,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
     let mut reader = WireReader::new(section.bytes());
     let format_version = read_u32(&mut reader)?;
 
-    if format_version != super::super::DECLARATION_FACT_FORMAT_VERSION {
+    if format_version != super::super::DECLARATION_SEMANTICS_FORMAT_VERSION {
         return Err(InterfaceValidationError::Malformed);
     }
 
@@ -69,7 +69,7 @@ pub(super) fn decode_declarations(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_declaration_tables(section, context)?;
 
@@ -103,12 +103,12 @@ pub(super) fn decode_declarations(
             decode_type_representation(reader, limits, context)
         })?;
 
-    facts.callable_signatures = callable_signatures.into();
-    facts.generic_declarations = generic_declarations.into();
-    facts.callable_parameter_defaults = callable_parameter_defaults.into();
-    facts.predicate_definitions = predicate_definitions.into();
-    facts.declared_types = declared_types.into();
-    facts.type_representations = type_representations.into();
+    semantics.callable_signatures = callable_signatures.into();
+    semantics.generic_declarations = generic_declarations.into();
+    semantics.callable_parameter_defaults = callable_parameter_defaults.into();
+    semantics.predicate_definitions = predicate_definitions.into();
+    semantics.declared_types = declared_types.into();
+    semantics.type_representations = type_representations.into();
 
     Ok(())
 }

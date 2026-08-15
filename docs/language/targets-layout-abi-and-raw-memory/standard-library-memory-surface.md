@@ -120,7 +120,7 @@ The trusted pointer helpers preserve the same caller obligations as the matching
 `std.memory` also exposes protected uninitialized storage and dependency-anchored borrow helpers.
 `uninit_write` is safe because it consumes an owned value and commits initialization as one checked
 operation. `assume_initialized` and `move_initialized` remain trusted and require the matching
-initialization fact. `borrow_from` and `borrow_mut_from` remain trusted and require explicit owner
+initialization state. `borrow_from` and `borrow_mut_from` remain trusted and require explicit owner
 or scoped-capability authority in addition to the raw memory predicates.
 
 The result of an anchored borrow retains the exact authority argument as a dependency. The compiler

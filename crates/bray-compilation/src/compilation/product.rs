@@ -8,9 +8,9 @@ mod specialization;
 mod specialization_identity;
 mod visibility;
 
-pub(in crate::compilation) use codegen::codegen_fact_failure_kind;
+pub(in crate::compilation) use codegen::codegen_preparation_failure_kind;
 pub(in crate::compilation) use codegen::demanded_runtime_capabilities;
-pub use codegen::{NativeProductFactError, NativeProductFacts};
+pub use codegen::{NativeProductPlanningError, NativeProductPlan};
 pub(in crate::compilation) use lifecycle::CodegenLifecycleNeeds;
 #[cfg(test)]
 pub(in crate::compilation) use realization::{generated_frame_symbol_name, generated_symbol_name};

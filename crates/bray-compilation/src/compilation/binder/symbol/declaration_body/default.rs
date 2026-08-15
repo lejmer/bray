@@ -2,43 +2,43 @@ use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFa
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultFact, CallableParameterDefaultSurface,
-    CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallableParameterSymbolId,
-    CallableSignatureFact, CheckedCallableParameterDefault, CheckedStructFieldDefault,
+    AnySymbolId, CallableParameterDefaultQuery, CallableParameterDefaultSurface,
+    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallableParameterSymbolId,
+    CallableSignatureQuery, CheckedCallableParameterDefault, CheckedStructFieldDefault,
     CheckedUnionPayloadDefault, ErrorCallableParameterDefault, ErrorStructFieldDefault,
     ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, RuntimeDefaultBehavior, RuntimeDefaultGenericContext,
-    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultFact,
-    StructFieldDefaultSurface, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
+    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultQuery,
+    StructFieldDefaultSurface, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
     StructFieldSymbolId, SymbolFactRequest, SymbolFactResult, TrustedCapabilitySymbolId, TypeData,
     TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldSymbolId,
 };
 
 use super::super::binding::CompilationSymbolFactBinding;
-use super::super::cache::CompilationSymbolFacts;
+use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::visible_generic_parameters;
 use super::super::imported::imported_declaration_template;
 use super::lookup::{
     callable_parameter, runtime_default_provider, struct_field, union_payload_field, union_variant,
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::substitution::generic_parameter_argument;
 use crate::fact::SymbolFactCache;
 
-impl_declaration_body_fact!(
-    CallableParameterDefaultFact,
+impl_declaration_body_query!(
+    CallableParameterDefaultQuery,
     callable_parameter_defaults,
     bind_callable_parameter_default
 );
-impl_declaration_body_fact!(
-    StructFieldDefaultFact,
+impl_declaration_body_query!(
+    StructFieldDefaultQuery,
     struct_field_defaults,
     bind_struct_field_default
 );
-impl_declaration_body_fact!(
-    UnionPayloadFieldDefaultFact,
+impl_declaration_body_query!(
+    UnionPayloadFieldDefaultQuery,
     union_payload_field_defaults,
     bind_union_payload_field_default
 );
@@ -53,11 +53,11 @@ struct RuntimeDefaultSummary {
 }
 
 fn bind_callable_parameter_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: CallableParameterSymbolId,
 ) -> BinderFactResult<DiagnosticResult<CheckedCallableParameterDefault>> {
     let template = context
-        .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(owner))?;
+        .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(owner))?;
 
     let (default, diagnostics) = checked_runtime_default(
         context,
@@ -73,7 +73,7 @@ fn bind_callable_parameter_default(
 
     let parameter = callable_parameter(context, owner)?;
 
-    let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+    let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
         parameter.owner(),
     ))?;
 
@@ -109,11 +109,11 @@ fn bind_callable_parameter_default(
 }
 
 fn bind_struct_field_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: StructFieldSymbolId,
 ) -> BinderFactResult<DiagnosticResult<CheckedStructFieldDefault>> {
     let template = context.symbol_fact(
-        SymbolFactRequest::<StructFieldDefaultTemplateFact>::new(owner),
+        SymbolFactRequest::<StructFieldDefaultTemplateQuery>::new(owner),
     )?;
 
     let (default, diagnostics) = checked_runtime_default(
@@ -145,11 +145,11 @@ fn bind_struct_field_default(
 }
 
 fn bind_union_payload_field_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: UnionPayloadFieldSymbolId,
 ) -> BinderFactResult<DiagnosticResult<CheckedUnionPayloadDefault>> {
     let template = context
-        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultTemplateFact>::new(owner))?;
+        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultTemplateQuery>::new(owner))?;
 
     let (default, diagnostics) = checked_runtime_default(
         context,
@@ -181,7 +181,7 @@ fn bind_union_payload_field_default(
 }
 
 fn checked_runtime_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     template: UnevaluatedDefaultTemplate,
     template_diagnostics: &DiagnosticBag,
@@ -238,7 +238,7 @@ fn checked_runtime_default(
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
             let address = context
-                .imported_fact_address(provider)?
+                .imported_semantic_address(provider)?
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
             let imported = imported_declaration_template(
@@ -247,12 +247,12 @@ fn checked_runtime_default(
                 CheckedTemplateKind::RuntimeDefault,
             )?;
 
-            let template_fact = imported
+            let template_record = imported
                 .value()
                 .as_ref()
                 .ok_or(BinderFactError::DependencyUnavailable)?;
 
-            let checked = template_fact.template();
+            let checked = template_record.template();
             let result = checked_template_result(checked)?;
             let generic_context = imported_generic_context(context, owner, checked)?;
             let behavior = imported_runtime_default_behavior(context, checked, result)?;
@@ -266,7 +266,7 @@ fn checked_runtime_default(
                     behavior,
                     template: RuntimeDefaultTemplateReference::Interface {
                         interface: address.interface(),
-                        entity: template_fact.entity(),
+                        entity: template_record.entity(),
                     },
                     is_recovered: diagnostics.has_errors(),
                 },
@@ -299,7 +299,7 @@ impl crate::compilation::Compilation {
 }
 
 fn source_generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<RuntimeDefaultGenericContext> {
     let parameters = visible_generic_parameters(context.symbols(), owner);
@@ -309,7 +309,7 @@ fn source_generic_context(
 }
 
 fn imported_generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     template: &CheckedTemplate,
 ) -> BinderFactResult<RuntimeDefaultGenericContext> {
@@ -341,7 +341,7 @@ fn imported_generic_context(
 }
 
 fn generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     declaration: AnySymbolId,
     parameters: Vec<GenericParameterSymbolId>,
 ) -> BinderFactResult<RuntimeDefaultGenericContext> {
@@ -375,7 +375,7 @@ fn generic_context(
 }
 
 fn runtime_default_declaration(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<AnySymbolId> {
     match owner {
@@ -396,7 +396,7 @@ fn runtime_default_declaration(
 }
 
 fn runtime_default_behavior(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     result: TypeId,
     dependency: bray_symbols::DependencyContractTemplateId,
     body: &bray_bound_tree::CheckedBodyBehavior,
@@ -421,7 +421,7 @@ fn runtime_default_behavior(
 }
 
 fn imported_runtime_default_behavior(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     template: &CheckedTemplate,
     result: TypeId,
 ) -> BinderFactResult<RuntimeDefaultBehavior> {
@@ -478,7 +478,7 @@ fn imported_runtime_default_behavior(
 }
 
 fn imported_template_symbol(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     imported: &bray_symbols::ImportedSymbolSkeleton,
     key: &bray_symbols::SymbolKey,
 ) -> Option<AnySymbolId> {
@@ -489,7 +489,7 @@ fn imported_template_symbol(
 }
 
 fn runtime_default_ownership(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     result: TypeId,
 ) -> BinderFactResult<RuntimeDefaultOwnership> {
     let result = context

@@ -5,7 +5,7 @@ use bray_symbols::{AnySymbolId, CallableDefinitionId, ProductIdentity};
 
 use crate::{
     MirBlock, MirBlockId, MirCleanupPhase, MirFrameDescriptor, MirHelperReference, MirOperation,
-    MirOperationId, MirSourceOrigin, MirStorage, MirStorageId, MirTargetFacts, MirUnitId,
+    MirOperationId, MirSourceOrigin, MirStorage, MirStorageId, MirTargetContract, MirUnitId,
     MirUnitKind, MirValue, MirValueId,
 };
 
@@ -172,7 +172,7 @@ pub struct MirUnit {
     pub(super) key: MirUnitKey,
     pub(super) unit: MirUnitId,
     pub(super) source: MirSourceOrigin,
-    pub(super) target: MirTargetFacts,
+    pub(super) target: MirTargetContract,
     pub(super) kind: MirUnitKind,
     pub(super) frame_descriptor: Option<MirFrameDescriptor>,
     pub(super) entry: MirBlockId,
@@ -198,8 +198,8 @@ impl MirUnit {
         &self.source
     }
 
-    /// Returns target facts used to construct this MIR.
-    pub const fn target(&self) -> &MirTargetFacts {
+    /// Returns target properties used to construct this MIR.
+    pub const fn target(&self) -> &MirTargetContract {
         &self.target
     }
 

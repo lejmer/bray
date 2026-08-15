@@ -450,7 +450,7 @@ where
                     Err(CheckerFactError::Infrastructure(error)) => return Err(error),
                 };
 
-                // Candidate preparation owns dependency diagnostics after the fact result drops.
+                // Candidate preparation owns dependency diagnostics after the query result drops.
                 diagnostics.extend(result.diagnostics().iter().cloned());
                 resolved.push(GenericArgument::Constant(*result.value()));
             }
@@ -480,7 +480,7 @@ where
                 Err(CheckerFactError::Infrastructure(error)) => return Err(error),
             };
 
-            // Template resolution owns dependency diagnostics after the fact result drops.
+            // Template resolution owns dependency diagnostics after the query result drops.
             diagnostics.extend(result.diagnostics().iter().cloned());
             terms.insert(occurrence.key(), *result.value());
         }

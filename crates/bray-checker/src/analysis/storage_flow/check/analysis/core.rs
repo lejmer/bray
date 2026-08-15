@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
-    CheckedMemoryOperations, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
-    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlowFacts,
+    CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
+    MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow,
     StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
     StorageProjection, StorageRelationship, StorageSuspensionState,
 };
@@ -16,7 +16,7 @@ use bray_diagnostics::{
     DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
     DiagnosticStorageRoot, SeverityKind,
 };
-use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureFact};
+use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::storage::StorageScopeOwners;
 use crate::{
@@ -40,12 +40,12 @@ pub(crate) fn check_storage_flow<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
-    liveness: &LivenessFacts,
-    refinements: &CheckedRefinementFacts,
+    liveness: &Liveness,
+    refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<StorageFlowFacts>
+) -> CheckerOutcome<StorageFlow>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     if selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
@@ -59,7 +59,7 @@ where
         || memory.kind() != request.unit().key().kind()
     {
         return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+            CheckerInfrastructureError::InvalidStorageFlow,
         );
     }
 
@@ -172,7 +172,7 @@ where
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
 
-    let facts = match StorageFlowFacts::try_new(
+    let analysis = match StorageFlow::try_new(
         storage.unit(),
         storage.kind(),
         decisions,
@@ -183,17 +183,17 @@ where
             || liveness.is_recovered()
             || refinements.is_recovered(),
     )
-    .and_then(|facts| facts.with_memory_operations(memory, memory_decisions))
+    .and_then(|analysis| analysis.with_memory_operations(memory, memory_decisions))
     {
-        Ok(facts) => facts,
+        Ok(analysis) => analysis,
         Err(_) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlowFacts,
+                CheckerInfrastructureError::InvalidStorageFlow,
             );
         }
     };
 
-    CheckerOutcome::complete(facts, collector.diagnostics)
+    CheckerOutcome::complete(analysis, collector.diagnostics)
 }
 
 struct StorageOperationOutcome {
@@ -240,8 +240,8 @@ where
 {
     pub(super) request: CheckerUnitView<'analysis, C>,
     pub(super) storage: &'analysis StoragePlan,
-    pub(super) liveness: &'analysis LivenessFacts,
-    pub(super) refinements: &'analysis CheckedRefinementFacts,
+    pub(super) liveness: &'analysis Liveness,
+    pub(super) refinements: &'analysis CheckedRefinements,
     pub(super) memory: &'analysis CheckedMemoryOperations,
     pub(super) input: &'analysis StorageFlowInput,
     pub(super) owners: &'analysis StorageScopeOwners,
@@ -264,8 +264,8 @@ where
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
-        liveness: &'analysis LivenessFacts,
-        refinements: &'analysis CheckedRefinementFacts,
+        liveness: &'analysis Liveness,
+        refinements: &'analysis CheckedRefinements,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
         owners: &'analysis StorageScopeOwners,
@@ -294,8 +294,8 @@ where
     pub(in crate::analysis::storage_flow) fn without_publication(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
-        liveness: &'analysis LivenessFacts,
-        refinements: &'analysis CheckedRefinementFacts,
+        liveness: &'analysis Liveness,
+        refinements: &'analysis CheckedRefinements,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
         owners: &'analysis StorageScopeOwners,
@@ -330,7 +330,7 @@ where
 
         self.initialize_operation_storage(state, operation.kind().node());
 
-        let refinements = self.refinements.facts_before(operation.kind().node());
+        let refinements = self.refinements.refinements_before(operation.kind().node());
 
         for plan in self.input.plans(operation.kind().node()) {
             self.apply_plan(state, *plan, refinements);
@@ -357,7 +357,7 @@ where
         &mut self,
         state: &mut StorageFlowState,
         plan: StorageAccessPlan,
-        refinements: &[RefinementFact],
+        refinements: &[Refinement],
     ) {
         let purpose = self.effective_purpose(plan);
         let outcome = self.operation_status(state, plan, purpose, refinements);
@@ -370,7 +370,7 @@ where
                 | StorageOperationStatus::InactiveProjection
                 | StorageOperationStatus::NotCopyable
         ) {
-            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlowFacts);
+            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlow);
 
             return;
         }
@@ -400,7 +400,7 @@ where
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
-        refinements: &[RefinementFact],
+        refinements: &[Refinement],
     ) -> StorageOperationOutcome {
         let Some(access) = self.storage.access(plan.access()) else {
             return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
@@ -763,7 +763,7 @@ where
         let access_id = plan.access();
 
         let Some(access) = self.storage.access(access_id) else {
-            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlowFacts);
+            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlow);
             return;
         };
 
@@ -814,7 +814,7 @@ where
         let access = self
             .storage
             .access(access_id)
-            .ok_or(CheckerInfrastructureError::InvalidStorageFlowFacts)?;
+            .ok_or(CheckerInfrastructureError::InvalidStorageFlow)?;
 
         let root = match access.root() {
             StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage)?,
@@ -867,7 +867,7 @@ where
             Some(StorageIdentity::CompilerCreated(_)) => DiagnosticStorageRoot::CompilerCreated,
             Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,
             Some(StorageIdentity::Error(_)) => DiagnosticStorageRoot::Recovery,
-            None => return Err(CheckerInfrastructureError::InvalidStorageFlowFacts),
+            None => return Err(CheckerInfrastructureError::InvalidStorageFlow),
         };
 
         Ok(root)
@@ -919,7 +919,7 @@ where
             .symbols()
             .member_name(symbol)
             .map(|name| name.as_str().to_owned())
-            .ok_or(CheckerInfrastructureError::InvalidStorageFlowFacts)
+            .ok_or(CheckerInfrastructureError::InvalidStorageFlow)
     }
 
     fn with_operation_origins(

@@ -10,19 +10,19 @@ use bray_symbols::{
 
 use super::common::{invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
 use super::{
-    ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact, ImportedConstraintFact,
-    ImportedDeclaredTypeFact, ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
+    ImportedCallableParameterDefault, ImportedCallableSignature, ImportedConstraint,
+    ImportedDeclaredType, ImportedGenericDeclaration, ImportedPredicateDefinition,
     InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
-use crate::InterfaceSemanticFacts;
+use crate::InterfaceSemantics;
 
 impl InternState {
     pub(super) fn convert_declared_types(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedDeclaredTypeFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedDeclaredType>, InterfaceSemanticInternError> {
+        semantics
             .declared_types
             .iter()
             .map(|input| {
@@ -30,7 +30,7 @@ impl InternState {
                     .type_id(input.ty())
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
-                Ok(ImportedDeclaredTypeFact {
+                Ok(ImportedDeclaredType {
                     owner: resolve_symbol(symbols, input.owner())?,
                     ty,
                 })
@@ -40,10 +40,10 @@ impl InternState {
 
     pub(super) fn convert_callable_signatures(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedCallableSignatureFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedCallableSignature>, InterfaceSemanticInternError> {
+        semantics
             .callable_signatures
             .iter()
             .map(|input| {
@@ -81,7 +81,7 @@ impl InternState {
                     .map(|parameter| resolve_exact::<CallableParameterSymbolId>(symbols, parameter))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(ImportedCallableSignatureFact {
+                Ok(ImportedCallableSignature {
                     owner: resolve_family::<CallableSymbolId>(symbols, input.owner())?,
                     signature: CallableSignatureTemplate::new(
                         TypeExpressionTemplate::Resolved(callable_type),
@@ -97,11 +97,11 @@ impl InternState {
 
     pub(super) fn convert_generic_declarations(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-        constraints: &[ImportedConstraintFact],
-    ) -> Result<Vec<ImportedGenericDeclarationFact>, InterfaceSemanticInternError> {
-        facts
+        constraints: &[ImportedConstraint],
+    ) -> Result<Vec<ImportedGenericDeclaration>, InterfaceSemanticInternError> {
+        semantics
             .generic_declarations
             .iter()
             .map(|input| {
@@ -122,7 +122,7 @@ impl InternState {
                     .filter(|constraint| constraint.owner() == owner)
                     .map(|constraint| GenericConstraintTemplate::Resolved(constraint.constraint()));
 
-                Ok(ImportedGenericDeclarationFact {
+                Ok(ImportedGenericDeclaration {
                     owner,
                     declaration: GenericDeclarationTemplate::new(owner, parameters, constraints),
                 })
@@ -132,10 +132,10 @@ impl InternState {
 
     pub(super) fn convert_callable_parameter_defaults(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedCallableParameterDefaultFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedCallableParameterDefault>, InterfaceSemanticInternError> {
+        semantics
             .callable_parameter_defaults
             .iter()
             .map(|input| {
@@ -145,7 +145,7 @@ impl InternState {
                     UnevaluatedDefaultTemplate::Absent
                 };
 
-                Ok(ImportedCallableParameterDefaultFact {
+                Ok(ImportedCallableParameterDefault {
                     parameter: resolve_exact::<CallableParameterSymbolId>(
                         symbols,
                         input.parameter(),
@@ -158,10 +158,10 @@ impl InternState {
 
     pub(super) fn convert_predicate_definitions(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedPredicateDefinitionFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedPredicateDefinition>, InterfaceSemanticInternError> {
+        semantics
             .predicate_definitions
             .iter()
             .map(|input| {
@@ -171,7 +171,7 @@ impl InternState {
                     return Err(invalid_symbol(input.owner()));
                 };
 
-                Ok(ImportedPredicateDefinitionFact {
+                Ok(ImportedPredicateDefinition {
                     owner,
                     state: input.state(),
                 })
@@ -181,10 +181,10 @@ impl InternState {
 
     pub(super) fn convert_type_representations(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<bray_symbols::DeclaredTypeRepresentation>, InterfaceSemanticInternError> {
-        facts
+        semantics
             .type_representations
             .iter()
             .map(|input| {

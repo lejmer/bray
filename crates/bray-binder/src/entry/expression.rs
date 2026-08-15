@@ -3,8 +3,8 @@ use bray_bound_tree::{
     BoundUnitKey,
 };
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, LocalScopeId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, SymbolFactRequest,
+    AnySymbolId, CallableSignatureQuery, LocalScopeId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateQuery, SymbolFactRequest,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, TypeExpressionSyntax,
@@ -63,7 +63,7 @@ macro_rules! define_pending_expression_unit {
         ) -> Result<$pending, BoundUnitBindingError>
         where
             C: BinderFactContext + ?Sized,
-            $(C::SymbolFacts: SymbolFactProvider<$fact_contract>,)*
+            $(C::SymbolSemantics: SymbolFactProvider<$fact_contract>,)*
         {
             let (output, root) = $bind_helper(facts, unit, key)?;
 
@@ -84,7 +84,7 @@ define_pending_expression_unit!(
     assemble_runtime_default,
     bind_runtime_default_unit,
     BoundExpressionId,
-    [CallableSignatureFact],
+    [CallableSignatureQuery],
     "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
 );
@@ -114,7 +114,7 @@ define_pending_expression_unit!(
     assemble_predicate_definition,
     bind_predicate_definition_unit,
     BoundExpressionId,
-    [PredicateSignatureTemplateFact],
+    [PredicateSignatureTemplateQuery],
     "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
 );
@@ -134,7 +134,7 @@ define_pending_expression_unit!(
     assemble_contract_clause,
     bind_contract_clause_unit,
     BoundBlockId,
-    [CallableSignatureFact],
+    [CallableSignatureQuery],
     "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
 );
@@ -167,7 +167,7 @@ fn bind_contract_clause_unit<C>(
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let has_result = if key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause {
         let owner = facts
@@ -237,7 +237,7 @@ fn bind_runtime_default_unit<C>(
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     bind_expression_unit_with_scope(facts, unit, key, push_runtime_default_inputs)
 }
@@ -249,7 +249,7 @@ fn bind_predicate_definition_unit<C>(
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<PredicateSignatureTemplateQuery>,
 {
     bind_expression_unit_with_scope(facts, unit, key, push_predicate_inputs)
 }
@@ -322,7 +322,7 @@ fn push_runtime_default_inputs<C>(
 ) -> Result<(), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let provider = binder
         .facts()
@@ -348,8 +348,8 @@ where
 
     let signature = binder
         .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        .symbol_semantics()
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
             parameter.owner(),
         ))
         .map_err(map_fact_error)?;
@@ -368,7 +368,7 @@ fn push_predicate_inputs<C>(
 ) -> Result<(), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<PredicateSignatureTemplateQuery>,
 {
     let owner = binder
         .facts()
@@ -379,8 +379,8 @@ where
 
     let signature = binder
         .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+        .symbol_semantics()
+        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
             owner,
         ))
         .map_err(map_fact_error)?;

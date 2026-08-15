@@ -51,13 +51,13 @@ mod tests {
             .decode_identity_surface()
             .unwrap_or_else(|error| panic!("identity surface must decode: {error:?}"));
 
-        let facts = validated
-            .decode_semantic_facts(&surface)
-            .unwrap_or_else(|error| panic!("semantic facts must decode: {error:?}"));
+        let semantics = validated
+            .decode_semantics(&surface)
+            .unwrap_or_else(|error| panic!("semantics must decode: {error:?}"));
 
         let decoded = PackageInterfaceExportBundle::try_new(
             surface,
-            facts,
+            semantics,
             InterfaceLanguageRevision::new(0),
             crate::test_support::implementation_configuration(),
         )

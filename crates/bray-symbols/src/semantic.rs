@@ -29,23 +29,23 @@ pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
 pub use contract::{
-    CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
-    CallableOverloadTemplateFact, CallableParameterDefaultFact,
-    CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, DeclarationDirectivesFact, GenericConstParameterDeclaredTypeFact,
-    GenericConstraintSatisfactionFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    ImplementationCandidateSetFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
-    ImplementationOverloadTemplateFact, ImplementationParticipationFact,
-    ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, ModuleSurfaceFact, PredicateDefinitionFact,
-    PredicateSignatureTemplateFact, SemanticFactContract, SemanticFactResult,
-    StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldTypeFact,
+    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
+    CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
+    CallableParameterDefaultTemplateQuery, CallableSignatureQuery, ConstantDeclaredTypeQuery,
+    ConstantDefinitionQuery, DeclarationDirectivesQuery, GenericConstParameterDeclaredTypeQuery,
+    GenericConstraintSatisfactionQuery, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
+    ImplementationCandidateSetQuery, ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
+    ImplementationOverloadTemplateQuery, ImplementationParticipationQuery,
+    ImplementationSelectionQuery, ImplementationSubjectQuery, ImplementedTraitApplicationQuery,
+    InherentTypeMemberValueQuery, ModuleSurfaceQuery, PredicateDefinitionQuery,
+    PredicateSignatureTemplateQuery, SemanticFactContract, SemanticFactResult,
+    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldTypeQuery,
     SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitImplementationConformanceFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
+    TraitImplementationConformanceQuery, TraitPredicateFulfillmentDefinitionQuery,
+    TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldTypeQuery,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -96,7 +96,7 @@ pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
-pub use target::{ModuleContributionGate, TargetFactDependency};
+pub use target::{ModuleContributionGate, TargetPropertyDependency};
 pub use template::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
     DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,

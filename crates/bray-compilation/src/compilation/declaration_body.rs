@@ -3,12 +3,12 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableParameterDefaultFact, CallableParameterSymbolId, CheckedCallableParameterDefault,
+    CallableParameterDefaultQuery, CallableParameterSymbolId, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, PredicateDefinition,
-    PredicateDefinitionFact, PredicateDefinitionState, PredicateDefinitionSymbolId,
-    StructFieldDefaultFact, StructFieldSymbolId, SymbolFactRequest,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldSymbolId,
+    PredicateDefinitionQuery, PredicateDefinitionState, PredicateDefinitionSymbolId,
+    StructFieldDefaultQuery, StructFieldSymbolId, SymbolFactRequest,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldSymbolId,
 };
 
 use super::Compilation;
@@ -21,10 +21,10 @@ impl Compilation {
         &self,
         owner: CallableParameterSymbolId,
     ) -> Result<Arc<DiagnosticResult<CheckedCallableParameterDefault>>, FactQueryError> {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
-        facts
-            .symbol_fact(SymbolFactRequest::<CallableParameterDefaultFact>::new(
+        binding_context
+            .symbol_fact(SymbolFactRequest::<CallableParameterDefaultQuery>::new(
                 owner,
             ))
             .map_err(binder_fact_error)
@@ -35,10 +35,10 @@ impl Compilation {
         &self,
         owner: StructFieldSymbolId,
     ) -> Result<Arc<DiagnosticResult<CheckedStructFieldDefault>>, FactQueryError> {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
-        facts
-            .symbol_fact(SymbolFactRequest::<StructFieldDefaultFact>::new(owner))
+        binding_context
+            .symbol_fact(SymbolFactRequest::<StructFieldDefaultQuery>::new(owner))
             .map_err(binder_fact_error)
     }
 
@@ -47,10 +47,10 @@ impl Compilation {
         &self,
         owner: UnionPayloadFieldSymbolId,
     ) -> Result<Arc<DiagnosticResult<CheckedUnionPayloadDefault>>, FactQueryError> {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
-        facts
-            .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultFact>::new(
+        binding_context
+            .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultQuery>::new(
                 owner,
             ))
             .map_err(binder_fact_error)
@@ -62,18 +62,18 @@ impl Compilation {
         owner: PredicateDefinitionSymbolId,
     ) -> Result<Arc<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>>, FactQueryError>
     {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
         match owner {
-            PredicateDefinitionSymbolId::Predicate(owner) => facts
-                .symbol_fact(SymbolFactRequest::<PredicateDefinitionFact>::new(owner))
+            PredicateDefinitionSymbolId::Predicate(owner) => binding_context
+                .symbol_fact(SymbolFactRequest::<PredicateDefinitionQuery>::new(owner))
                 .map_err(binder_fact_error),
-            PredicateDefinitionSymbolId::TraitMember(owner) => facts
-                .symbol_fact(SymbolFactRequest::<TraitPredicateMemberDefinitionFact>::new(owner))
+            PredicateDefinitionSymbolId::TraitMember(owner) => binding_context
+                .symbol_fact(SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(owner))
                 .map_err(binder_fact_error),
-            PredicateDefinitionSymbolId::TraitFulfillment(owner) => facts
+            PredicateDefinitionSymbolId::TraitFulfillment(owner) => binding_context
                 .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionFact>::new(owner),
+                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(owner),
                 )
                 .map_err(binder_fact_error),
         }

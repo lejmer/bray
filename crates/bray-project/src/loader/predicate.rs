@@ -2,7 +2,7 @@ use std::path::Path;
 
 use bray_base::sorted_unique_shared_slice;
 use bray_diagnostics::DiagnosticProjectManifestField;
-use bray_target::{TargetFactKind, TargetIdentity};
+use bray_target::{TargetPropertyKind, TargetIdentity};
 
 use crate::manifest::{TargetPredicateManifest, TargetPredicateValueManifest};
 use crate::{
@@ -93,7 +93,7 @@ fn normalize_target_comparison(
     selected_targets: &[TargetIdentity],
     targets: &[ProjectTarget],
     manifest_path: &Path,
-) -> Result<(TargetFactKind, TargetPredicateValue), ProjectLoadError> {
+) -> Result<(TargetPropertyKind, TargetPredicateValue), ProjectLoadError> {
     let property = target_property(&property, manifest_path)?;
     let value = target_predicate_value(value);
 
@@ -111,8 +111,8 @@ fn normalize_target_comparison(
 fn target_property(
     property: &str,
     manifest_path: &Path,
-) -> Result<TargetFactKind, ProjectLoadError> {
-    TargetFactKind::from_path(property).ok_or_else(|| {
+) -> Result<TargetPropertyKind, ProjectLoadError> {
+    TargetPropertyKind::from_path(property).ok_or_else(|| {
         ProjectLoadError::unknown_target_predicate_property(
             manifest_path.to_path_buf(),
             DiagnosticProjectManifestField::TargetPredicate,
@@ -130,7 +130,7 @@ fn target_predicate_value(value: TargetPredicateValueManifest) -> TargetPredicat
 }
 
 fn validate_target_predicate_values(
-    property: TargetFactKind,
+    property: TargetPropertyKind,
     values: &[TargetPredicateValue],
     selected_targets: &[TargetIdentity],
     targets: &[ProjectTarget],
@@ -148,7 +148,7 @@ fn validate_target_predicate_values(
             ));
         };
 
-        let value = target.profile().fact(property);
+        let value = target.profile().property(property);
 
         if let Some(actual) = values
             .iter()

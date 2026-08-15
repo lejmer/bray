@@ -21,7 +21,7 @@ pub use error::{FactCycle, FactQueryError};
 pub(crate) use fingerprint::{
     CompilationInputKey, CompilationInputs, FactDependencyRecord, FactFingerprint, fact_fingerprint,
 };
-pub use key::ImportedSemanticFactKey;
+pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
 
 pub(crate) use cache::FactCell;

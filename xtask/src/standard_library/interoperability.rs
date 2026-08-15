@@ -329,7 +329,7 @@ fn emit_fixture(
     })?;
 
     let product_kind = compilation
-        .product_semantic_facts()
+        .product_semantics()
         .map_err(|error| compilation_error("resolving product semantics", error))?
         .value()
         .kind();

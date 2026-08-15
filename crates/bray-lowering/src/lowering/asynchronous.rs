@@ -5,7 +5,7 @@ use bray_bound_tree::{
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirEdge,
-    MirFrameInitializer, MirFrameReference, MirFrameStateFacts, MirFrameStateId, MirOperand,
+    MirFrameInitializer, MirFrameReference, MirFrameState, MirFrameStateId, MirOperand,
     MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirSuspensionKind, MirTerminatorKind,
 };
 use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiRole};
@@ -27,11 +27,11 @@ impl Lowerer<'_> {
 
         let suspension = self
             .input
-            .async_facts()
+            .async_analysis()
             .suspensions()
             .iter()
             .find(|suspension| suspension.expression() == id)
-            // Lowering mutates its builder while retaining this immutable checked fact.
+            // Lowering mutates its builder while retaining this immutable checked decision.
             .cloned()
             .ok_or(LoweringError::MissingSuspensionPoint(id))?;
 
@@ -89,7 +89,7 @@ impl Lowerer<'_> {
 
         let initialized_storages = self.retained_storages(suspension.retained_subjects())?;
 
-        self.frame_states.push(MirFrameStateFacts::new(
+        self.frame_states.push(MirFrameState::new(
             state,
             resume,
             self.execution_lane_requirements(),
@@ -115,7 +115,7 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let task_operation = self
             .input
-            .async_facts()
+            .async_analysis()
             .task_operations()
             .iter()
             .find(|operation| operation.expression() == expression)

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundPatternId, CheckedPatternFacts,
-    PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId, StorageAccessPurpose,
+    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundPatternId, CheckedPatterns,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageAccessPurpose,
     StoragePlan, StorageRelationship,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
@@ -10,15 +10,15 @@ use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacit
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::model::{AnalysisRefinement, ControlFlowGraph};
-use super::set::FactSet;
+use super::set::RefinementSet;
 
-pub(super) const MAX_REFINEMENT_FACTS: usize = 1 << 20;
+pub(super) const MAX_REFINEMENT_REFINEMENTS: usize = 1 << 20;
 pub(super) const MAX_REFINEMENT_CELLS: usize = 1 << 24;
 
 pub(super) struct RefinementUniverse {
-    facts: Vec<RefinementFact>,
-    indexes: BTreeMap<RefinementFact, usize>,
-    edge_facts: BTreeMap<AnalysisRefinement, Box<[usize]>>,
+    refinements: Vec<Refinement>,
+    indexes: BTreeMap<Refinement, usize>,
+    edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
     invalidating_accesses: BTreeMap<BoundExpressionId, Box<[StorageAccessId]>>,
@@ -28,24 +28,24 @@ impl RefinementUniverse {
     pub(super) fn new<C>(
         graph: &ControlFlowGraph,
         request: CheckerUnitView<'_, C>,
-        patterns: &CheckedPatternFacts,
+        patterns: &CheckedPatterns,
         storage: &StoragePlan,
     ) -> Result<Self, RefinementUniverseError>
     where
         C: CheckerRequestContext + ?Sized,
     {
-        let potential_facts = graph
+        let potential_refinements = graph
             .edges()
             .len()
             .checked_add(graph.operations().len())
             .and_then(|count| count.checked_add(patterns.patterns().len()))
             .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
-        if potential_facts > MAX_REFINEMENT_FACTS {
+        if potential_refinements > MAX_REFINEMENT_REFINEMENTS {
             return Err(capacity_error(
                 DiagnosticRefinementCapacitySurface::RefinementEntries,
-                potential_facts,
-                MAX_REFINEMENT_FACTS,
+                potential_refinements,
+                MAX_REFINEMENT_REFINEMENTS,
             ));
         }
 
@@ -53,17 +53,17 @@ impl RefinementUniverse {
         let invalidating_accesses = invalidating_expression_accesses(storage);
 
         let mut universe = Self {
-            facts: Vec::new(),
+            refinements: Vec::new(),
             indexes: BTreeMap::new(),
-            edge_facts: BTreeMap::new(),
+            edge_refinements: BTreeMap::new(),
             normal_completion: BTreeMap::new(),
             trust_boundaries: BTreeMap::new(),
             invalidating_accesses,
         };
 
         universe
-            .facts
-            .try_reserve_exact(potential_facts)
+            .refinements
+            .try_reserve_exact(potential_refinements)
             .map_err(|_| RefinementUniverseError::AllocationFailed)?;
 
         for edge in graph.edges() {
@@ -75,19 +75,19 @@ impl RefinementUniverse {
                 continue;
             };
 
-            let facts = universe.refinement_facts(
+            let refinements = universe.refinements(
                 refinement,
                 request.view(),
                 patterns,
                 &direct_dependencies,
             );
 
-            let indexes = facts
+            let indexes = refinements
                 .into_iter()
-                .map(|fact| universe.intern(fact))
+                .map(|refinement| universe.intern(refinement))
                 .collect::<Vec<_>>();
 
-            universe.edge_facts.insert(refinement, indexes.into());
+            universe.edge_refinements.insert(refinement, indexes.into());
         }
 
         for operation in graph.operations() {
@@ -100,12 +100,12 @@ impl RefinementUniverse {
             };
 
             if expression_completes_normally(request.view(), expression) {
-                let fact = RefinementFact::new(
-                    RefinementFactKind::NormalCompletion(expression),
+                let refinement = Refinement::new(
+                    RefinementKind::NormalCompletion(expression),
                     expression_dependencies(request.view(), &direct_dependencies, expression),
                 );
 
-                let index = universe.intern(fact);
+                let index = universe.intern(refinement);
 
                 universe.normal_completion.insert(expression, index);
             }
@@ -123,7 +123,7 @@ impl RefinementUniverse {
             .checked_mul(retained_states)
             .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
-        let published_facts = universe
+        let published_refinements = universe
             .len()
             .checked_mul(graph.operations().len())
             .ok_or(RefinementUniverseError::CountUnrepresentable)?;
@@ -136,10 +136,10 @@ impl RefinementUniverse {
             ));
         }
 
-        if published_facts > MAX_REFINEMENT_CELLS {
+        if published_refinements > MAX_REFINEMENT_CELLS {
             return Err(capacity_error(
                 DiagnosticRefinementCapacitySurface::PublishedRefinements,
-                published_facts,
+                published_refinements,
                 MAX_REFINEMENT_CELLS,
             ));
         }
@@ -147,17 +147,17 @@ impl RefinementUniverse {
         Ok(universe)
     }
 
-    fn refinement_facts(
+    fn refinements(
         &mut self,
         refinement: AnalysisRefinement,
         view: bray_bound_tree::BoundUnitView<'_>,
-        patterns: &CheckedPatternFacts,
+        patterns: &CheckedPatterns,
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
-    ) -> Vec<RefinementFact> {
+    ) -> Vec<Refinement> {
         match refinement {
             AnalysisRefinement::Condition { expression, value } => {
-                vec![RefinementFact::new(
-                    RefinementFactKind::Condition { expression, value },
+                vec![Refinement::new(
+                    RefinementKind::Condition { expression, value },
                     expression_dependencies(view, dependencies, expression),
                 )]
             }
@@ -165,8 +165,8 @@ impl RefinementUniverse {
                 expression,
                 is_present,
             } => {
-                vec![RefinementFact::new(
-                    RefinementFactKind::NullablePresence {
+                vec![Refinement::new(
+                    RefinementKind::NullablePresence {
                         expression,
                         is_present,
                     },
@@ -177,44 +177,44 @@ impl RefinementUniverse {
                 pattern_refinements(view, patterns, dependencies, subject, pattern)
             }
             AnalysisRefinement::TrustBoundary(expression) => {
-                let fact = RefinementFact::new(RefinementFactKind::TrustBoundary(expression), []);
+                let refinement = Refinement::new(RefinementKind::TrustBoundary(expression), []);
 
-                let index = self.intern(fact.clone());
+                let index = self.intern(refinement.clone());
 
                 self.trust_boundaries.insert(expression, index);
 
-                vec![fact]
+                vec![refinement]
             }
         }
     }
 
-    fn intern(&mut self, fact: RefinementFact) -> usize {
-        if let Some(index) = self.indexes.get(&fact).copied() {
+    fn intern(&mut self, refinement: Refinement) -> usize {
+        if let Some(index) = self.indexes.get(&refinement).copied() {
             return index;
         }
 
-        let index = self.facts.len();
+        let index = self.refinements.len();
 
-        self.facts.push(fact.clone());
-        self.indexes.insert(fact, index);
+        self.refinements.push(refinement.clone());
+        self.indexes.insert(refinement, index);
 
         index
     }
 
     pub(super) fn len(&self) -> usize {
-        self.facts.len()
+        self.refinements.len()
     }
 
-    pub(super) fn active_facts<'facts>(
-        &'facts self,
-        set: &'facts FactSet,
-    ) -> impl Iterator<Item = RefinementFact> + 'facts {
+    pub(super) fn active_refinements<'refinements>(
+        &'refinements self,
+        set: &'refinements RefinementSet,
+    ) -> impl Iterator<Item = Refinement> + 'refinements {
         set.indexes()
-            .filter_map(|index| self.facts.get(index).cloned())
+            .filter_map(|index| self.refinements.get(index).cloned())
     }
 
-    pub(super) fn insert_refinement(&self, set: &mut FactSet, refinement: AnalysisRefinement) {
-        let Some(indexes) = self.edge_facts.get(&refinement) else {
+    pub(super) fn insert_refinement(&self, set: &mut RefinementSet, refinement: AnalysisRefinement) {
+        let Some(indexes) = self.edge_refinements.get(&refinement) else {
             return;
         };
 
@@ -224,21 +224,21 @@ impl RefinementUniverse {
         }
     }
 
-    fn remove_conflicts(&self, set: &mut FactSet, added: usize) {
-        let Some(added) = self.facts.get(added) else {
+    fn remove_conflicts(&self, set: &mut RefinementSet, added: usize) {
+        let Some(added) = self.refinements.get(added) else {
             return;
         };
 
         set.retain(|index| {
-            self.facts
+            self.refinements
                 .get(index)
-                .is_none_or(|fact| !facts_conflict(fact.kind(), added.kind()))
+                .is_none_or(|refinement| !refinements_conflict(refinement.kind(), added.kind()))
         });
     }
 
     pub(super) fn invalidate_for_operation(
         &self,
-        set: &mut FactSet,
+        set: &mut RefinementSet,
         node: AnyBoundNodeId,
         storage: &StoragePlan,
     ) {
@@ -251,8 +251,8 @@ impl RefinementUniverse {
         };
 
         set.retain(|index| {
-            self.facts.get(index).is_none_or(|fact| {
-                fact.dependencies().iter().all(|dependency| {
+            self.refinements.get(index).is_none_or(|refinement| {
+                refinement.dependencies().iter().all(|dependency| {
                     mutations.iter().all(|mutation| {
                         storage.relationship(*dependency, *mutation)
                             == StorageRelationship::Disjoint
@@ -262,7 +262,7 @@ impl RefinementUniverse {
         });
     }
 
-    pub(super) fn finish_operation(&self, set: &mut FactSet, node: AnyBoundNodeId) {
+    pub(super) fn finish_operation(&self, set: &mut RefinementSet, node: AnyBoundNodeId) {
         let AnyBoundNodeId::Expression(expression) = node else {
             return;
         };
@@ -332,14 +332,14 @@ fn expression_dependencies(
 
 fn pattern_refinements(
     view: bray_bound_tree::BoundUnitView<'_>,
-    patterns: &CheckedPatternFacts,
+    patterns: &CheckedPatterns,
     direct: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     subject: BoundExpressionId,
     root: BoundPatternId,
-) -> Vec<RefinementFact> {
+) -> Vec<Refinement> {
     let dependencies = expression_dependencies(view, direct, subject);
     let mut pending = vec![root];
-    let mut facts = Vec::new();
+    let mut refinements = Vec::new();
 
     while let Some(pattern) = pending.pop() {
         let Some(bound) = view.pattern(pattern) else {
@@ -355,8 +355,8 @@ fn pattern_refinements(
             continue;
         };
 
-        facts.push(RefinementFact::new(
-            RefinementFactKind::Pattern {
+        refinements.push(Refinement::new(
+            RefinementKind::Pattern {
                 subject,
                 pattern,
                 predicate,
@@ -365,7 +365,7 @@ fn pattern_refinements(
         ));
     }
 
-    facts
+    refinements
 }
 
 fn direct_expression_dependencies(
@@ -391,7 +391,7 @@ fn invalidating_expression_accesses(
     for plan in storage
         .access_plans()
         .iter()
-        .filter(|plan| access_invalidates_facts(plan.purpose()))
+        .filter(|plan| access_invalidates_refinements(plan.purpose()))
     {
         accesses
             .entry(plan.expression())
@@ -415,7 +415,7 @@ fn expression_completes_normally(
     )
 }
 
-const fn access_invalidates_facts(purpose: StorageAccessPurpose) -> bool {
+const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
     matches!(
         purpose,
         StorageAccessPurpose::Write
@@ -427,35 +427,35 @@ const fn access_invalidates_facts(purpose: StorageAccessPurpose) -> bool {
     )
 }
 
-fn facts_conflict(left: RefinementFactKind, right: RefinementFactKind) -> bool {
+fn refinements_conflict(left: RefinementKind, right: RefinementKind) -> bool {
     match (left, right) {
         (
-            RefinementFactKind::Condition {
+            RefinementKind::Condition {
                 expression: left,
                 value: left_value,
             },
-            RefinementFactKind::Condition {
+            RefinementKind::Condition {
                 expression: right,
                 value: right_value,
             },
         ) => left == right && left_value != right_value,
         (
-            RefinementFactKind::NullablePresence {
+            RefinementKind::NullablePresence {
                 expression: left,
                 is_present: left_present,
             },
-            RefinementFactKind::NullablePresence {
+            RefinementKind::NullablePresence {
                 expression: right,
                 is_present: right_present,
             },
         ) => left == right && left_present != right_present,
         (
-            RefinementFactKind::Pattern {
+            RefinementKind::Pattern {
                 subject: left,
                 predicate: left_predicate,
                 ..
             },
-            RefinementFactKind::Pattern {
+            RefinementKind::Pattern {
                 subject: right,
                 predicate: right_predicate,
                 ..
@@ -488,14 +488,14 @@ const fn predicates_conflict(left: PatternPredicate, right: PatternPredicate) ->
 mod tests {
     use bray_bound_tree::{
         BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundTreeBuilder, BoundUnitId,
-        RefinementFact, RefinementFactKind,
+        Refinement, RefinementKind,
     };
 
-    use super::facts_conflict;
+    use super::refinements_conflict;
     use crate::test_support::{callable_key, error_type};
 
     #[test]
-    fn opposite_condition_facts_conflict() {
+    fn opposite_condition_refinements_conflict() {
         let unit = BoundUnitId::new(4);
         let mut builder = BoundTreeBuilder::new(unit);
         let origin = BoundNodeOrigin::source(callable_key().source());
@@ -505,23 +505,23 @@ mod tests {
             panic!("one test expression must fit");
         };
 
-        let positive = RefinementFact::new(
-            RefinementFactKind::Condition {
+        let positive = Refinement::new(
+            RefinementKind::Condition {
                 expression,
                 value: true,
             },
             [],
         );
 
-        let negative = RefinementFact::new(
-            RefinementFactKind::Condition {
+        let negative = Refinement::new(
+            RefinementKind::Condition {
                 expression,
                 value: false,
             },
             [],
         );
 
-        assert!(facts_conflict(positive.kind(), negative.kind()));
+        assert!(refinements_conflict(positive.kind(), negative.kind()));
         assert_ne!(positive, negative);
     }
 }

@@ -2,7 +2,7 @@ use bray_symbols::TypeId;
 
 use crate::{BoundExpressionId, BoundNodeOrigin};
 
-/// Checked facts for composing a `Future<T>` directly into the current run.
+/// Checked compositions for composing a `Future<T>` directly into the current run.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoundFutureComposition {
     future_type: TypeId,
@@ -10,7 +10,7 @@ pub struct BoundFutureComposition {
 }
 
 impl BoundFutureComposition {
-    /// Creates checked direct-await composition facts.
+    /// Creates checked direct-await composition compositions.
     pub const fn new(future_type: TypeId, completion_type: TypeId) -> Self {
         Self {
             future_type,
@@ -95,7 +95,7 @@ impl BoundAwaitExpression {
         self.operand
     }
 
-    /// Returns the pending or completed composition facts.
+    /// Returns the pending or completed composition compositions.
     pub const fn resolution(self) -> BoundAwaitResolution {
         self.resolution
     }

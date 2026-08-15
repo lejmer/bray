@@ -2,7 +2,7 @@ use bray_bound_tree::{
     InlineAssemblyConstraint, InlineAssemblyOperand, InlineAssemblyOperandKind,
 };
 use bray_codegen::CodegenFailure;
-use bray_target::TargetControlFacts;
+use bray_target::TargetControlSupport;
 
 pub(super) fn append_clobber(constraints: &mut String, clobber: &str) {
     if !constraints.is_empty() {
@@ -15,7 +15,7 @@ pub(super) fn append_clobber(constraints: &mut String, clobber: &str) {
 }
 
 pub(super) fn assembly_constraints(
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     constraints: &str,
     descriptors: &[InlineAssemblyOperand],
 ) -> Result<String, CodegenFailure> {
@@ -108,7 +108,7 @@ fn append_constraint(constraints: &mut String, constraint: &str) {
 
 fn append_constraint_class(
     constraints: &mut String,
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     constraint: InlineAssemblyConstraint<'_>,
     kind: InlineAssemblyOperandKind,
 ) -> Result<(), CodegenFailure> {

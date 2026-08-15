@@ -30,44 +30,44 @@ use bray_package_interface::{
     InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
     InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfaceNativeBoundary,
     InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
-    InterfaceRuntimeRequirement, InterfaceSemanticFacts, InterfaceStorageMember,
+    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceStorageMember,
     InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
     InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
     InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
     PackageInterfaceSurface,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
-    CallableContractTemplateFact, CallableContractsFact, CallableInstanceId,
-    CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
-    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
+    CallableContractTemplateQuery, CallableContractsQuery, CallableInstanceId,
+    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallablePhaseBehavior,
+    CallableSignatureQuery, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueData,
     ConstantValueId, ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
-    GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
+    GenericArgument, GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
     GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
-    InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionFact,
+    ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationSymbolId,
+    InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionQuery,
     PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
     StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
 
 use super::PackageInterfaceExportError;
 use super::template::{SourceTemplateInput, export_checked_source_template};
 use crate::compilation::Compilation;
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
 use crate::compilation::source_graph::{
     source_declaration_module_parts, source_symbol_contribution_gate,
 };
 use crate::compilation::unit::semantic_unit_context_for;
 
-pub(super) fn build_semantic_facts(
+pub(super) fn build_semantics(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     surface: &PackageInterfaceSurface,
@@ -75,7 +75,7 @@ pub(super) fn build_semantic_facts(
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
 ) -> Result<
     (
-        InterfaceSemanticFacts,
+        InterfaceSemantics,
         Vec<InterfaceExecutableTemplate>,
         Vec<InterfaceNativeBoundary>,
     ),
@@ -86,14 +86,14 @@ pub(super) fn build_semantic_facts(
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     let binder = compilation
-        .binder_facts(&compilation.state.cancellation)
+        .binding_context(&compilation.state.cancellation)
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
-    let mut declarations = ExportedDeclarationFacts::default();
+    let mut declarations = ExportedDeclarations::default();
 
     for symbol in selected.iter().copied() {
-        export_callable_facts(
+        export_callable_semantics(
             compilation,
             graph,
             &binder,
@@ -102,13 +102,13 @@ pub(super) fn build_semantic_facts(
             &mut declarations,
         )?;
 
-        export_generic_facts(compilation, &binder, symbol, &mut export, &mut declarations)?;
+        export_generic_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
 
-        export_constant_fact(compilation, symbol, &mut export, &mut declarations)?;
+        export_constant_semantics(compilation, symbol, &mut export, &mut declarations)?;
 
-        export_predicate_fact(&binder, symbol, &export, &mut declarations)?;
+        export_predicate_semantics(&binder, symbol, &export, &mut declarations)?;
 
-        export_default_facts(
+        export_default_semantics(
             compilation,
             graph,
             &binder,
@@ -117,10 +117,10 @@ pub(super) fn build_semantic_facts(
             &mut declarations,
         )?;
 
-        export_type_facts(compilation, symbol, &mut export, &mut declarations)?;
+        export_type_semantics(compilation, symbol, &mut export, &mut declarations)?;
     }
 
-    let (implementations, coherence) = implementation_facts(&mut export, &binder, selected)?;
+    let (implementations, coherence) = implementation_semantics(&mut export, &binder, selected)?;
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
 
@@ -131,7 +131,7 @@ pub(super) fn build_semantic_facts(
 
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
-    let facts = InterfaceSemanticFacts::new()
+    let semantics = InterfaceSemantics::new()
         .with_applications(
             export.substitutions,
             export.trait_applications,
@@ -162,7 +162,7 @@ pub(super) fn build_semantic_facts(
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements);
 
-    Ok((facts, executable_templates, native_boundaries))
+    Ok((semantics, executable_templates, native_boundaries))
 }
 
 fn native_boundaries(
@@ -373,7 +373,7 @@ fn executable_template_family(
                 return Err(PackageInterfaceExportError::InvalidCompilation);
             }
 
-            // Export traversal retains each stable key beyond the immutable bound-fact borrow.
+            // Export traversal retains each stable key beyond the immutable bound-semantics borrow.
             Ok(bound.value().key().clone())
         })
         .collect()
@@ -410,7 +410,7 @@ fn executable_template_unit(
 }
 
 #[derive(Default)]
-struct ExportedDeclarationFacts {
+struct ExportedDeclarations {
     signatures: Vec<InterfaceCallableSignature>,
     generic_declarations: Vec<InterfaceGenericDeclaration>,
     parameter_defaults: Vec<InterfaceCallableParameterDefault>,
@@ -424,7 +424,7 @@ struct ExportedDeclarationFacts {
     support_entities: Vec<InterfaceSupportEntity>,
 }
 
-impl ExportedDeclarationFacts {
+impl ExportedDeclarations {
     fn sort_canonical(&mut self) {
         self.signatures.sort_unstable();
         self.generic_declarations.sort_unstable();
@@ -438,44 +438,44 @@ impl ExportedDeclarationFacts {
     }
 }
 
-fn export_callable_facts(
+fn export_callable_semantics(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     let Some(callable) = CallableSymbolId::try_from_any(symbol) else {
         return Ok(());
     };
 
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
         .map_err(|_| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
 
-    facts
+    semantics
         .signatures
         .push(export.callable_signature(symbol, signature.value())?);
 
     let contracts = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractsFact>::new(callable))
+        .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(callable))
         .map_err(|_| incomplete(symbol))?;
 
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
 
-    facts
+    semantics
         .callable_contracts
         .push(export.callable_contract(symbol, contracts.value())?);
 
     let template = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractTemplateFact>::new(
+        .symbol_fact(SymbolFactRequest::<CallableContractTemplateQuery>::new(
             callable,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -542,28 +542,28 @@ fn export_callable_facts(
             CheckedTemplateKind::CallableContract,
             expression.ordinal(),
             checked,
-            &mut facts.checked_templates,
-            &mut facts.declaration_templates,
-            &mut facts.support_entities,
+            &mut semantics.checked_templates,
+            &mut semantics.declaration_templates,
+            &mut semantics.support_entities,
         )?;
     }
 
     Ok(())
 }
 
-fn export_generic_facts(
+fn export_generic_semantics(
     compilation: &Compilation,
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     let Some(owner) = GenericOwnerId::try_new(symbol) else {
         return Ok(());
     };
 
     let generic = binder
-        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -572,19 +572,19 @@ fn export_generic_facts(
         return Err(incomplete(symbol));
     }
 
-    facts
+    semantics
         .generic_declarations
         .push(export.generic_declaration(symbol, generic.value())?);
 
     let checked = binder
-        .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(owner))
+        .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(owner))
         .map_err(|_| incomplete(symbol))?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
 
-    facts
+    semantics
         .constraints
         .extend(export.generic_constraints(symbol, checked.value())?);
 
@@ -606,10 +606,10 @@ fn export_generic_facts(
         let checked_expression =
             checked_constraint_expression(compilation, generic.value(), unit, expression)?;
 
-        let checked_id = InterfaceCheckedTemplateId::new(index(facts.checked_templates.len())?);
-        let entity = InterfaceSupportEntityId::new(index(facts.support_entities.len())?);
+        let checked_id = InterfaceCheckedTemplateId::new(index(semantics.checked_templates.len())?);
+        let entity = InterfaceSupportEntityId::new(index(semantics.support_entities.len())?);
 
-        facts
+        semantics
             .checked_templates
             .push(export.checked_constant_template(
                 CheckedTemplateKind::GenericConstraint,
@@ -617,11 +617,11 @@ fn export_generic_facts(
                 predicate.dependency_contract(),
             )?);
 
-        facts
+        semantics
             .support_entities
             .push(InterfaceSupportEntity::CheckedTemplate(checked_id));
 
-        facts
+        semantics
             .declaration_templates
             .push(InterfaceDeclarationTemplate::new(
                 export.symbol_reference(symbol)?,
@@ -634,17 +634,17 @@ fn export_generic_facts(
     Ok(())
 }
 
-fn export_predicate_fact(
-    binder: &CompilationBinderFacts<'_>,
+fn export_predicate_semantics(
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     export: &SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     let Some(state) = predicate_definition(binder, symbol)? else {
         return Ok(());
     };
 
-    facts
+    semantics
         .predicate_definitions
         .push(InterfacePredicateDefinition::new(
             export.symbol_reference(symbol)?,
@@ -654,19 +654,19 @@ fn export_predicate_fact(
     Ok(())
 }
 
-fn export_default_facts(
+fn export_default_semantics(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     match symbol {
         AnySymbolId::CallableParameter(parameter) => {
             let default = binder
                 .symbol_fact(
-                    SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(parameter),
+                    SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
                 )
                 .map_err(|_| incomplete(symbol))?;
 
@@ -674,7 +674,7 @@ fn export_default_facts(
                 return Err(incomplete(symbol));
             }
 
-            facts
+            semantics
                 .parameter_defaults
                 .push(InterfaceCallableParameterDefault::new(
                     export.symbol_reference(symbol)?,
@@ -700,7 +700,7 @@ fn export_default_facts(
                     export,
                     checked.value().provider().into(),
                     surface,
-                    facts,
+                    semantics,
                 )?;
             }
         }
@@ -728,7 +728,7 @@ fn export_default_facts(
                     export,
                     checked.value().provider().into(),
                     surface,
-                    facts,
+                    semantics,
                 )?;
             }
         }
@@ -756,7 +756,7 @@ fn export_default_facts(
                     export,
                     checked.value().provider().into(),
                     surface,
-                    facts,
+                    semantics,
                 )?;
             }
         }
@@ -772,7 +772,7 @@ fn export_runtime_default_surface(
     export: &mut SemanticExporter<'_>,
     provider: AnySymbolId,
     surface: &impl RuntimeDefaultSurface,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     export_runtime_default(
         compilation,
@@ -783,9 +783,9 @@ fn export_runtime_default_surface(
         surface.generic_context(),
         surface.template_reference(),
         surface.dependency_contract(),
-        &mut facts.checked_templates,
-        &mut facts.declaration_templates,
-        &mut facts.support_entities,
+        &mut semantics.checked_templates,
+        &mut semantics.declaration_templates,
+        &mut semantics.support_entities,
     )
 }
 
@@ -826,11 +826,11 @@ impl_runtime_default_surface!(
     bray_symbols::UnionPayloadDefaultSurface,
 );
 
-fn export_type_facts(
+fn export_type_semantics(
     compilation: &Compilation,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     if let Some(template) = compilation
         .symbol_type_template(symbol)
@@ -842,7 +842,7 @@ fn export_type_facts(
 
         let ty = export.resolve_type_template(symbol, template.value())?;
 
-        facts.declared_types.push(InterfaceDeclaredType::new(
+        semantics.declared_types.push(InterfaceDeclaredType::new(
             export.symbol_reference(symbol)?,
             export.type_id(ty)?,
         ));
@@ -860,7 +860,7 @@ fn export_type_facts(
         return Err(incomplete(symbol));
     }
 
-    facts
+    semantics
         .type_representations
         .push(export.type_representation(symbol, representation.value())?);
 
@@ -923,7 +923,7 @@ fn target_dependencies(
     graph: &bray_symbols::SymbolGraph,
     selected: &BTreeSet<AnySymbolId>,
     export: &mut SemanticExporter<'_>,
-) -> Result<Vec<InterfaceTargetFactDependency>, PackageInterfaceExportError> {
+) -> Result<Vec<InterfaceTargetPropertyDependency>, PackageInterfaceExportError> {
     let source_graph = compilation
         .product_source_graph()
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
@@ -938,9 +938,9 @@ fn target_dependencies(
         };
 
         for dependency in gate.dependencies() {
-            dependencies.push(InterfaceTargetFactDependency::new(
+            dependencies.push(InterfaceTargetPropertyDependency::new(
                 export.symbol_reference(owner)?,
-                export.symbol_reference(dependency.fact().into())?,
+                export.symbol_reference(dependency.property().into())?,
                 export.constant_value_id(dependency.value())?,
             ));
         }
@@ -1212,7 +1212,7 @@ fn callable_input_type(
 }
 
 fn generic_parameters(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<Vec<GenericParameterSymbolId>, PackageInterfaceExportError> {
     let Some(owner) = GenericOwnerId::try_new(symbol) else {
@@ -1220,7 +1220,7 @@ fn generic_parameters(
     };
 
     let generic = binder
-        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -1262,9 +1262,9 @@ fn push_declaration_template(
     Ok(())
 }
 
-fn implementation_facts(
+fn implementation_semantics(
     export: &mut SemanticExporter<'_>,
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     selected: &BTreeSet<AnySymbolId>,
 ) -> Result<
     (
@@ -1286,7 +1286,7 @@ fn implementation_facts(
         };
 
         let checked = binder
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
             .map_err(|_| incomplete(symbol))?;
@@ -2008,8 +2008,8 @@ impl<'a> SemanticExporter<'a> {
             ConstantTermData::Parameter(parameter) => {
                 InterfaceConstantTerm::Parameter(self.symbol_reference((*parameter).into())?)
             }
-            ConstantTermData::TargetFact(fact) => {
-                InterfaceConstantTerm::TargetFact(self.symbol_reference((*fact).into())?)
+            ConstantTermData::TargetProperty(semantics) => {
+                InterfaceConstantTerm::TargetProperty(self.symbol_reference((*semantics).into())?)
             }
             ConstantTermData::Unary { operation, operand } => InterfaceConstantTerm::Unary {
                 operation: *operation,
@@ -2606,7 +2606,7 @@ fn checked_constraint_expression(
 
     let context = CompilationCheckerContext::new(
         compilation
-            .binder_facts_for(bound.result().value().key(), cancellation)
+            .binding_context_for(bound.result().value().key(), cancellation)
             .map_err(|_| incomplete(expression.owner()))?,
     );
 
@@ -2649,14 +2649,14 @@ fn checked_constraint_expression(
 }
 
 fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind())
+    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind())
 }
 
-fn export_constant_fact(
+fn export_constant_semantics(
     compilation: &Compilation,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
-    facts: &mut ExportedDeclarationFacts,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     let Some(definition) = crate::compilation::constant::constant_definition_id(symbol) else {
         return Ok(());
@@ -2694,57 +2694,57 @@ fn export_constant_fact(
         CheckedTemplateKind::ConstantDefinition,
         bray_symbols::SymbolOrdinal::new(0),
         checked,
-        &mut facts.checked_templates,
-        &mut facts.declaration_templates,
-        &mut facts.support_entities,
+        &mut semantics.checked_templates,
+        &mut semantics.declaration_templates,
+        &mut semantics.support_entities,
     )
 }
 
 const fn incomplete_type() -> PackageInterfaceExportError {
-    PackageInterfaceExportError::IncompletePublicDeclarationFacts(SymbolKind::TypeCallableMember)
+    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(SymbolKind::TypeCallableMember)
 }
 
 fn predicate_definition(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<Option<InterfacePredicateDefinitionState>, PackageInterfaceExportError> {
     let state = match symbol {
         AnySymbolId::Predicate(predicate) => {
-            let fact = binder
-                .symbol_fact(SymbolFactRequest::<PredicateDefinitionFact>::new(predicate))
+            let semantics = binder
+                .symbol_fact(SymbolFactRequest::<PredicateDefinitionQuery>::new(predicate))
                 .map_err(|_| incomplete(symbol))?;
 
-            if fact.diagnostics().has_errors() {
+            if semantics.diagnostics().has_errors() {
                 return Err(incomplete(symbol));
             }
 
-            predicate_definition_state(fact.value())
+            predicate_definition_state(semantics.value())
         }
         AnySymbolId::TraitPredicateMember(predicate) => {
-            let fact = binder
+            let semantics = binder
                 .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateMemberDefinitionFact>::new(predicate),
+                    SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(predicate),
                 )
                 .map_err(|_| incomplete(symbol))?;
 
-            if fact.diagnostics().has_errors() {
+            if semantics.diagnostics().has_errors() {
                 return Err(incomplete(symbol));
             }
 
-            predicate_definition_state(fact.value())
+            predicate_definition_state(semantics.value())
         }
         AnySymbolId::TraitPredicateFulfillment(predicate) => {
-            let fact = binder
+            let semantics = binder
                 .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionFact>::new(predicate),
+                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(predicate),
                 )
                 .map_err(|_| incomplete(symbol))?;
 
-            if fact.diagnostics().has_errors() {
+            if semantics.diagnostics().has_errors() {
                 return Err(incomplete(symbol));
             }
 
-            predicate_definition_state(fact.value())
+            predicate_definition_state(semantics.value())
         }
         _ => return Ok(None),
     };

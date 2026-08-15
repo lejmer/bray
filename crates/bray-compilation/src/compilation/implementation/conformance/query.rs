@@ -17,12 +17,12 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    CallableSignatureFact, ConstantDefinitionState, ImplementationCoherenceFact,
+    CallableSignatureQuery, ConstantDefinitionState, ImplementationCoherenceQuery,
     ImplementationSymbolId, PredicateDefinitionState, SemanticFactResult, SymbolFactRequest,
-    TraitConstantMemberDefinitionFact, TraitImplementationConformance,
-    TraitImplementationConformanceFact, TraitMemberFulfillmentId, TraitMemberRequirementId,
-    TraitPredicateMemberDefinitionFact, TraitRequirementConformance, TraitRequirementResolution,
-    TraitTypeFulfillmentValueFact, TypeExpressionTemplate, diagnostic_callable_abi,
+    TraitConstantMemberDefinitionQuery, TraitImplementationConformance,
+    TraitImplementationConformanceQuery, TraitMemberFulfillmentId, TraitMemberRequirementId,
+    TraitPredicateMemberDefinitionQuery, TraitRequirementConformance, TraitRequirementResolution,
+    TraitTypeFulfillmentValueQuery, TypeExpressionTemplate, diagnostic_callable_abi,
     diagnostic_callable_execution,
 };
 
@@ -32,7 +32,7 @@ use super::compatibility::{
     GenericConstraintMismatch, GenericParameterCategory, GenericSurfaceMismatch,
     TraitFulfillmentMismatch, fulfillment_is_compatible, subject_lifecycle_is_compatible,
 };
-use crate::compilation::{Compilation, binder::CompilationBinderFacts};
+use crate::compilation::{Compilation, binder::CompilationBindingContext};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -40,7 +40,7 @@ impl Compilation {
     pub fn trait_implementation_conformance(
         &self,
         implementation: ImplementationSymbolId,
-    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceQuery>>, FactQueryError> {
         self.trait_implementation_conformance_with_cancellation(
             implementation,
             &self.state.cancellation,
@@ -51,7 +51,7 @@ impl Compilation {
         &self,
         implementation: ImplementationSymbolId,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceQuery>>, FactQueryError> {
         if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -79,15 +79,15 @@ impl Compilation {
         &self,
         implementation: ImplementationSymbolId,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<TraitImplementationConformanceFact>, FactQueryError> {
+    ) -> Result<SemanticFactResult<TraitImplementationConformanceQuery>, FactQueryError> {
         cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let coherence = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+        let coherence = binding_context
+            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
             .map_err(crate::compilation::binder::binder_fact_error)?;
@@ -143,7 +143,7 @@ impl Compilation {
         let type_bindings = type_fulfillment_bindings(
             symbols,
             imported,
-            &facts,
+            &binding_context,
             &requirements,
             &fulfillments_by_slot,
             &mut diagnostics,
@@ -161,7 +161,7 @@ impl Compilation {
             symbols,
             imported,
             values,
-            &facts,
+            &binding_context,
             coherence.value().subject(),
             trait_application,
             &type_bindings,
@@ -265,7 +265,7 @@ impl Compilation {
                             }
                         }
                     }
-                    None if requirement_has_default(&facts, requirement, &mut diagnostics)? => {
+                    None if requirement_has_default(&binding_context, requirement, &mut diagnostics)? => {
                         TraitRequirementResolution::TraitDefault
                     }
                     None => {
@@ -1035,7 +1035,7 @@ const fn fulfillment_kind(fulfillment: TraitMemberFulfillmentId) -> MemberKind {
 fn type_fulfillment_bindings(
     symbols: &bray_symbols::SymbolGraph,
     imported: Option<&bray_symbols::ImportedSymbolSkeleton>,
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     requirements: &[TraitMemberRequirementId],
     fulfillments: &BTreeMap<MemberSlot, Vec<TraitMemberFulfillmentId>>,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
@@ -1056,8 +1056,8 @@ fn type_fulfillment_bindings(
             continue;
         };
 
-        let value = facts
-            .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueFact>::new(
+        let value = binding_context
+            .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueQuery>::new(
                 *fulfillment,
             ))
             .map_err(crate::compilation::binder::binder_fact_error)?;
@@ -1114,14 +1114,14 @@ fn subject_lifecycle_fulfillments(
 }
 
 fn requirement_has_default(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     requirement: TraitMemberRequirementId,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
     match requirement {
         TraitMemberRequirementId::Callable(requirement) => {
-            let signature = facts
-                .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+            let signature = binding_context
+                .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
                     requirement.into(),
                 ))
                 .map_err(crate::compilation::binder::binder_fact_error)?;
@@ -1131,8 +1131,8 @@ fn requirement_has_default(
             Ok(signature.value().has_body())
         }
         TraitMemberRequirementId::Constant(requirement) => {
-            let definition = facts
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionFact>::new(
+            let definition = binding_context
+                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionQuery>::new(
                     requirement,
                 ))
                 .map_err(crate::compilation::binder::binder_fact_error)?;
@@ -1145,9 +1145,9 @@ fn requirement_has_default(
             ))
         }
         TraitMemberRequirementId::Predicate(requirement) => {
-            let definition = facts
+            let definition = binding_context
                 .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateMemberDefinitionFact>::new(requirement),
+                    SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(requirement),
                 )
                 .map_err(crate::compilation::binder::binder_fact_error)?;
 

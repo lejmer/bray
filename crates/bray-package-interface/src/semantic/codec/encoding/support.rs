@@ -1,15 +1,15 @@
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{write_count, write_external_key, write_optional_u32};
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts, InterfaceSupportEntity};
+use crate::{InterfaceSectionTag, InterfaceSemantics, InterfaceSupportEntity};
 
-pub(super) fn encode_support_graph(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_support_graph(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.support_entities.len());
+    write_count(&mut encoder, semantics.support_entities.len());
 
-    for entity in &*facts.support_entities {
+    for entity in &*semantics.support_entities {
         match entity {
             InterfaceSupportEntity::CheckedTemplate(template) => {
                 encoder.write_u32(1);
@@ -34,7 +34,7 @@ pub(super) fn encode_support_graph(facts: &InterfaceSemanticFacts) -> EncodedSem
 
     section(
         InterfaceSectionTag::SupportGraph,
-        facts.support_entities.len(),
+        semantics.support_entities.len(),
         encoder,
     )
 }

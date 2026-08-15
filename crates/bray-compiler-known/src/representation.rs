@@ -2,7 +2,7 @@ define_catalog_enum! {
     /// Identifies language-defined representation behavior for a catalog entry.
     ///
     /// Roles do not contain target layout values. The selected target profile and
-    /// the owning semantic phase derive layout and operational facts separately.
+    /// the owning semantic phase derive layout and operational contracts separately.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum RepresentationRole {
         /// The Boolean scalar type.

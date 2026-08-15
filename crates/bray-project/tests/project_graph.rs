@@ -12,7 +12,7 @@ use bray_project::{
 };
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
-use bray_target::{TargetFactKind, TargetOutputKind};
+use bray_target::{TargetPropertyKind, TargetOutputKind};
 
 static TEST_DIRECTORY_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 
@@ -671,7 +671,7 @@ fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
 
     assert_eq!(
         dependency.property_dependencies(),
-        [TargetFactKind::IdentitySystem, TargetFactKind::PointerBits]
+        [TargetPropertyKind::IdentitySystem, TargetPropertyKind::PointerBits]
     );
 
     let Some(TargetPredicate::All(children)) = dependency.predicate() else {
@@ -681,7 +681,7 @@ fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
     assert_eq!(children.len(), 2);
 
     let values = children.iter().find_map(|child| match child {
-        TargetPredicate::In(TargetFactKind::PointerBits, values) => Some(values.as_ref()),
+        TargetPredicate::In(TargetPropertyKind::PointerBits, values) => Some(values.as_ref()),
         _ => None,
     });
 

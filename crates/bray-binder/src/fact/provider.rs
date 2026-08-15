@@ -40,7 +40,7 @@ mod tests {
 
     use bray_diagnostics::DiagnosticResult;
     use bray_symbols::{
-        ConstantDeclaredTypeFact, ConstantSymbolId, SymbolFactRequest, SymbolId,
+        ConstantDeclaredTypeQuery, ConstantSymbolId, SymbolFactRequest, SymbolId,
         TypeExpressionTemplate,
     };
 
@@ -50,11 +50,11 @@ mod tests {
 
     struct DeclaredTypeBinder;
 
-    impl BindingSymbolFactProvider<ConstantDeclaredTypeFact, TestContext<'_>> for DeclaredTypeBinder {
+    impl BindingSymbolFactProvider<ConstantDeclaredTypeQuery, TestContext<'_>> for DeclaredTypeBinder {
         fn compute_symbol_fact(
             &self,
             context: &TestContext<'_>,
-            request: SymbolFactRequest<ConstantDeclaredTypeFact>,
+            request: SymbolFactRequest<ConstantDeclaredTypeQuery>,
         ) -> BinderFactResult<DiagnosticResult<TypeExpressionTemplate>> {
             if context.is_cancelled() {
                 return Err(BinderFactError::Cancelled);
@@ -65,7 +65,7 @@ mod tests {
             };
 
             Ok(DiagnosticResult::without_diagnostics(
-                context.symbol_facts().result.value().clone(),
+                context.symbol_semantics().result.value().clone(),
             ))
         }
     }
@@ -74,14 +74,14 @@ mod tests {
     fn origin_neutral_symbol_fact_reads_are_repeatable_and_concurrent() {
         let fixture = TestFixture::new();
         let context = fixture.context();
-        let request = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(fixture.constant);
+        let request = SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(fixture.constant);
 
-        let first = match context.symbol_facts().symbol_fact(request) {
+        let first = match context.symbol_semantics().symbol_fact(request) {
             Ok(result) => result,
             Err(error) => panic!("test symbol fact should exist: {error:?}"),
         };
 
-        let second = match context.symbol_facts().symbol_fact(request) {
+        let second = match context.symbol_semantics().symbol_fact(request) {
             Ok(result) => result,
             Err(error) => panic!("test symbol fact should remain available: {error:?}"),
         };
@@ -91,7 +91,7 @@ mod tests {
         thread::scope(|scope| {
             let handles = (0..4)
                 .map(|_| {
-                    scope.spawn(|| match context.symbol_facts().symbol_fact(request) {
+                    scope.spawn(|| match context.symbol_semantics().symbol_fact(request) {
                         Ok(result) => result,
                         Err(error) => panic!("concurrent fact read should succeed: {error:?}"),
                     })
@@ -114,12 +114,12 @@ mod tests {
         let fixture = TestFixture::new();
         let context = fixture.context();
 
-        let unknown = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(
+        let unknown = SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(
             ConstantSymbolId::from_symbol_id(SymbolId::new(99)),
         );
 
         assert_eq!(
-            context.symbol_facts().symbol_fact(unknown),
+            context.symbol_semantics().symbol_fact(unknown),
             Err(BinderFactError::DependencyUnavailable)
         );
     }
@@ -128,7 +128,7 @@ mod tests {
     fn binding_computation_is_deterministic_and_recovers_from_unknown_owners() {
         let fixture = TestFixture::new();
         let context = fixture.context();
-        let request = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(fixture.constant);
+        let request = SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(fixture.constant);
 
         let first = DeclaredTypeBinder.compute_symbol_fact(&context, request);
         let second = DeclaredTypeBinder.compute_symbol_fact(&context, request);
@@ -142,7 +142,7 @@ mod tests {
             ))
         );
 
-        let unknown = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(
+        let unknown = SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(
             ConstantSymbolId::from_symbol_id(SymbolId::new(99)),
         );
 
@@ -156,7 +156,7 @@ mod tests {
     fn binding_computation_observes_cancellation() {
         let fixture = TestFixture::new();
         let context = fixture.context();
-        let request = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(fixture.constant);
+        let request = SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(fixture.constant);
 
         context.cancellation().cancel();
 

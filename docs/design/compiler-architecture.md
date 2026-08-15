@@ -64,8 +64,8 @@ source text from syntax trees.
 Published compiler representations should be immutable. Mutation is allowed inside local builders while constructing a value, but
 the value becomes immutable before it is shared through the compiler graph.
 
-Compiler facts should be evaluated on demand through explicit queries. Laziness applies to when a compiler fact is requested, not
-to whether a requested fact is allowed to be partially completed.
+Compiler query results should be evaluated on demand through explicit queries. Laziness applies to when a compiler query result is requested, not
+to whether a requested query result is allowed to be partially completed.
 
 Compiler behavior should be deterministic.
 
@@ -116,7 +116,7 @@ source text
 -> linking when required
 ```
 
-The arrows show fact dependencies, not mandatory whole-program scheduling barriers.
+The arrows show query result dependencies, not mandatory whole-program scheduling barriers.
 
 A source unit, module, declaration, function body, type body, predicate body, implementation body, or backend unit can move to the
 next relevant phase when its required inputs are available.
@@ -135,52 +135,52 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- an authoritative source-shaped bound high-level IR with independently published semantic facts,
+- an authoritative source-shaped bound high-level IR with independently published semantic query results,
 - a backend-independent mid-level IR.
 
 No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR through a
-validated view containing only the immutable semantic facts required by that consumer.
+validated view containing only the immutable semantic query results required by that consumer.
 
-Lowering receives one such view over a published bound unit and its required typed side facts.
+Lowering receives one such view over a published bound unit and its required typed side query results.
 It publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
 
 ## Demand-Driven Evaluation
 
-Compiler work should be lazy by default. Code should expose typed APIs for compiler facts and compute those facts when they are
-requested. A caller should ask for the fact it needs, such as a syntax tree, a declaration surface, an expression type, body
-diagnostics, or an emitted artifact. It should not have to request intermediate phase work unless it needs that intermediate fact
+Compiler work should be lazy by default. Code should expose typed APIs for compiler query results and compute those query results when they are
+requested. A caller should ask for the query result it needs, such as a syntax tree, a declaration surface, an expression type, body
+diagnostics, or an emitted artifact. It should not have to request intermediate phase work unless it needs that intermediate query result
 directly.
 
-Demand-driven evaluation must not change which diagnostics or semantic facts a fully checked program produces.
+Demand-driven evaluation must not change which diagnostics or semantic query results a fully checked program produces.
 
 Lazy evaluation should use ordinary compiler APIs. If computing the type of an expression needs parsed syntax, declaration
 surfaces, symbols, binding, and constraint solving, the type API obtains those dependencies internally through the owning phase
 APIs.
 
-`Compilation` exposes declaration chunks and the merged declaration table as cached facts. A source-unit chunk query requests that
+`Compilation` exposes declaration chunks and the merged declaration table as cached query results. A source-unit chunk query requests that
 source unit's syntax. A declaration-table query requests all source-unit chunks and performs one deterministic merge. Declaration
 diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
-fact dependency rather than through a phase-execution command.
+query result dependency rather than through a phase-execution command.
 
-`Compilation` also exposes package semantic diagnostics as a cached fact. That fact discovers the source package's declared
-semantic units, requests their bound-unit and required checker facts, follows published nested-unit keys, and merges the diagnostics
-owned by those facts deterministically. A check-diagnostics query requests this package fact beside source, syntax, and declaration
+`Compilation` also exposes package semantic diagnostics as a cached query result. That query result discovers the source package's declared
+semantic units, requests their bound-unit and required checker query results, follows published nested-unit keys, and merges the diagnostics
+owned by those query results deterministically. A check-diagnostics query requests this package query result beside source, syntax, and declaration
 diagnostics. Neither the command driver nor the check-diagnostics query enumerates semantic units or invokes binder entry points
 directly.
 
 One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
-lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs construct their read-only fact
+lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs construct their read-only query result
 context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from
 another syntax, symbol, target, or semantic-value universe.
 
-Dependency interfaces and the current library product's encoded package interface are also lazy facts. An imported identity-skeleton
-query requests structural interface validation and deterministic external-key mapping. An imported symbol fact requests only its
+Dependency interfaces and the current library product's encoded package interface are also lazy query results. An imported identity-skeleton
+query requests structural interface validation and deterministic external-key mapping. An imported symbol query result requests only its
 length-delimited semantic payload. An interface-artifact query requests the reachable completed public surface and deterministic
 encoding without requiring callers to sequence those phases manually.
 
-Compiler facts should generally be lazy across stable compiler boundaries:
+Compiler query results should generally be lazy across stable compiler boundaries:
 
 - source units,
 - modules,
@@ -192,30 +192,30 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 - overload families,
 - trait applications,
 - generic instantiations,
-- bound units and typed semantic facts,
+- bound units and typed semantic query results,
 - MIR units,
 - backend codegen units.
 
-A lazy fact must be complete within the boundary promised by its API. An expression-type accessor returns the complete immutable
-expression-type fact for its key. A selected-call accessor returns the complete immutable call-selection fact for its key. Neither
-accessor implies that unrelated storage, effect, contract, or lowering facts were evaluated.
+A lazy query result must be complete within the boundary promised by its API. An expression-type accessor returns the complete immutable
+expression-type query result for its key. A selected-call accessor returns the complete immutable call-selection query result for its key. Neither
+accessor implies that unrelated storage, effect, contract, or lowering query results were evaluated.
 
 A declaration-surface type accessor can promise a complete source type-expression template rather than a checked `TypeId`. Such a
 template preserves embedded constant-expression occurrences and their expected-type sources without demanding expression typing,
 selection, target validation, or constant evaluation. A separate checked type or signature accessor resolves only the occurrences
 required by that request through the cooperating semantic fixed point.
 
-Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that
+Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side query results keyed to that
 unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. A consumer that needs a
-set of facts requests that exact set through typed accessors. There is no universal whole-unit completion query.
+set of query results requests that exact set through typed accessors. There is no universal whole-unit completion query.
 
-Typed fact keys and accessors are the public compiler model. The same keys identify cached evaluation internally. Dependency
+Typed query result keys and accessors are the public compiler model. The same keys identify cached evaluation internally. Dependency
 recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are private mechanics behind those
-accessors. The compiler must not mirror facts with public query objects, generic fact wrappers, dynamic registries, duplicate query
+accessors. The compiler must not mirror query results with public query objects, generic query result wrappers, dynamic registries, duplicate query
 identities, or progress-wrapper representation families.
 
 Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
-a declaration surface or a type signature. A completion implementation can ask for the local facts needed at a source position.
+a declaration surface or a type signature. A completion implementation can ask for the local query results needed at a source position.
 These are separate contracts, not partial executions of a broader diagnostic or lowering request.
 
 Compiler commands and language-server entry points request the result they need:
@@ -226,39 +226,39 @@ Compiler commands and language-server entry points request the result they need:
 - a package check asks for package validation,
 - emission asks for product artifacts.
 
-The implementation computes whatever intermediate facts are needed to answer each request. Evaluation order, cache hits, worker
-count, and language-server request order must not affect the semantic facts or diagnostics produced for the same requested result.
-Diagnostics from lazily evaluated facts must be merged and ordered deterministically when a diagnostic result is materialized.
+The implementation computes whatever intermediate query results are needed to answer each request. Evaluation order, cache hits, worker
+count, and language-server request order must not affect the semantic query results or diagnostics produced for the same requested result.
+Diagnostics from lazily evaluated query results must be merged and ordered deterministically when a diagnostic result is materialized.
 
 ---
 
-## Selected Target Facts
+## Selected Target Query Results
 
-One product compilation selects one immutable target context before requesting target-dependent semantic facts. The context owns
-the stable `bray_target::TargetProfile`, the applicable runtime compatibility facts, and the capabilities used to derive the
+One product compilation selects one immutable target context before requesting target-dependent semantic query results. The context owns
+the stable `bray_target::TargetProfile`, the applicable runtime compatibility query results, and the capabilities used to derive the
 target-available compiler-known declaration view. Product formation selects a runtime only after reachable requirements are known.
 None of these values may be inferred from the compiler host.
 
-The target profile contains the complete typed language-defined fact surface. Pointer, endian, architecture, and target-name facts
+The target profile contains the complete typed language-defined query result surface. Pointer, endian, architecture, and target-name query results
 are derived from the profile's identity and machine properties so independently supplied values cannot contradict them. Profile
-construction rejects incomplete fact groups, values outside the target `usize` range, scalar dependencies that contradict each
+construction rejects incomplete query result groups, values outside the target `usize` range, scalar dependencies that contradict each
 other, ABI contracts that accept unavailable representations, and cross-group alignment contradictions before source checking
 begins. Compiler-known declaration availability is derived from this validated profile rather than supplied as a second capability
 model.
 
-The selected target is a typed compilation fact. Binder and checker requests borrow the same target profile instead of copying its
+The selected target is a typed compilation query result. Binder and checker requests borrow the same target profile instead of copying its
 identity, machine properties, or widths into phase-specific models. Target-sized literals and constants always use the profile's
 pointer width. Post-selection layout and ABI checks consume the same context after type and operation selection. Lowering and
-output contracts derive their target-facing inputs from those selected facts rather than rediscovering target properties.
+output contracts derive their target-facing inputs from those selected query results rather than rediscovering target properties.
 
 Post-selection target validity is keyed by the complete source-correlated representation, callable ABI, or layout requirement.
 Foreign ABI requirements include every by-value parameter and result representation plus the selected aggregate layout contract.
-The semantic fact that establishes such a requirement requests its validity and retains its diagnostics, preserving ordinary
+The semantic query result that establishes such a requirement requests its validity and retains its diagnostics, preserving ordinary
 diagnostic projection without introducing a mutable global registry of previously requested checks.
 
-Target-independent facts do not depend on the selected-target fact. A target change invalidates declaration availability and the
-semantic, lowering, and output facts that requested target data while allowing source, syntax, declaration discovery, and other
-target-independent facts to remain reusable.
+Target-independent query results do not depend on the selected-target property. A target change invalidates declaration availability and the
+semantic, lowering, and output query results that requested target data while allowing source, syntax, declaration discovery, and other
+target-independent query results to remain reusable.
 
 ---
 
@@ -274,7 +274,7 @@ Compiler work should be split at stable semantic boundaries:
 - predicate bodies,
 - implementation bodies,
 - generic instantiations,
-- bound units and independently keyed semantic facts,
+- bound units and independently keyed semantic query results,
 - MIR units,
 - backend codegen units.
 
@@ -290,9 +290,9 @@ boundary. Later compiler architecture must not require all source units to be fu
 Declaration discovery can run independently for syntax trees whose module context is known.
 
 Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces, target
-facts, and contract dependencies are available.
+query results, and contract dependencies are available.
 
-MIR construction can run independently for bound units whose exact lowering facts are available. Code generation can run
+MIR construction can run independently for bound units whose exact lowering query results are available. Code generation can run
 independently for validated `bray-ir` units once their immutable emission-plan artifact requests are available.
 
 Parallel execution must be deterministic:
@@ -308,10 +308,10 @@ Hidden mutable global state is not allowed in compiler logic.
 
 Request priority is scheduling policy, not semantic identity. Interactive tooling requests may receive bounded preference over
 ordinary and background work, but ordinary work must continue to make progress under sustained interactive demand. Priority,
-waiter count, worker assignment, and completion order must not enter fact keys or change published results.
+waiter count, worker assignment, and completion order must not enter query result keys or change published results.
 
 Cancellation belongs to an interested request. Cancelling a waiter stops that waiter without cancelling a shared computation still
-needed by another request. Work with no remaining interested request may be abandoned, but abandoned work publishes no partial fact
+needed by another request. Work with no remaining interested request may be abandoned, but abandoned work publishes no partial query result
 or partial diagnostic bag.
 
 ---
@@ -450,8 +450,8 @@ declaration and container IDs, aggregates partial modules, and publishes the fin
 Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which declarations
 create semantic symbols.
 
-Declaration records carry stable syntax anchors and syntax-backed surface facts such as visibility, modifiers, directives,
-constraints, and callable contract clauses. Those facts are still syntax-level data, not bound semantics.
+Declaration records carry stable syntax anchors and syntax-backed surface query results such as visibility, modifiers, directives,
+constraints, and callable contract clauses. Those query results are still syntax-level data, not bound semantics.
 
 Partial modules are represented as logical module containers with one or more source module parts.
 Other declaration spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
@@ -474,7 +474,7 @@ roles, compiler-provided implementation hooks, and target-availability rules. It
 Imported declaration surfaces come from immutable compiled package interfaces defined in
 `docs/design/compiled-package-interfaces.md`. Imported symbols use the same kind-specific symbol records as source symbols. The
 interface codec remains outside `bray-symbols`, and compilation maps stable external keys to deterministic compilation-local symbol
-IDs before lazy imported facts are requested.
+IDs before lazy imported query results are requested.
 
 A symbol answers "which declared thing is this?".
 
@@ -488,11 +488,11 @@ For example, module symbols, type symbols, function symbols, trait symbols, impl
 and overload symbols should not be interchangeable raw integers.
 
 Bray uses kind-specific symbol records and typed relationships rather than an inheritance hierarchy or one generic child-symbol
-list. Modules, types, traits, implementations, callables, variants, overload families, and parameters expose the children and facts
+list. Modules, types, traits, implementations, callables, variants, overload families, and parameters expose the children and query results
 meaningful to their exact semantic category.
 
 A deterministic eager identity skeleton makes symbol IDs independent of lazy request order and worker scheduling. Expensive symbol
-facts are evaluated on demand through compilation-owned queries and publish immutable values with fact-owned diagnostics.
+query results are evaluated on demand through compilation-owned queries and publish immutable values with query result-owned diagnostics.
 
 Source, imported, compiler-known, compiler-provided, synthesized, and body-local symbols follow the same typed identity contracts.
 Constructed types, trait applications, callable instances, and selected implementation witnesses use separate semantic identities
@@ -505,16 +505,16 @@ packages.
 
 Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide declaration
 symbol IDs. A body or declaration-owned expression publishes its bound representation, local snapshot, and binding diagnostics as
-one immutable bound-unit fact. Checker services publish separate immutable typed facts. This keeps lazy and parallel semantic work
+one immutable bound-unit query result. Checker services publish separate immutable typed query results. This keeps lazy and parallel semantic work
 from mutating the global symbol graph.
 
-Force completion requests all declaration-surface facts for a symbol and its semantically contained children in deterministic order.
-It does not bind or check executable bodies, which remain separate lazy bound-body facts.
+Force completion requests all declaration-surface query results for a symbol and its semantically contained children in deterministic order.
+It does not bind or check executable bodies, which remain separate lazy bound-body query results.
 
 Declaration-owned expressions such as runtime defaults, constant definition templates, predicate definitions, generic constraints,
-and contract clauses are declaration-surface facts. Their bound units and semantic side facts are requested independently and
+and contract clauses are declaration-surface query results. Their bound units and semantic side query results are requested independently and
 summarized through typed symbol APIs. Runtime-default providers are synthesized semantic symbols and are lowered only when
-reachable. The exact fact contracts and provider APIs are defined in `docs/design/symbols.md`.
+reachable. The exact query result contracts and provider APIs are defined in `docs/design/symbols.md`.
 
 ### Binding
 
@@ -536,7 +536,7 @@ scope graph and local symbols are immutable, region-owned data attached to that 
 semantic symbol containment does not imply lexical lookup ancestry.
 
 Bound nodes preserve source correlation and carry decisions established during binding. Later semantic analyses publish typed side
-facts keyed to the same bound unit rather than recreating its nodes.
+query results keyed to the same bound unit rather than recreating its nodes.
 
 Binding can report unresolved names, ambiguous names, invalid lexical scopes, invalid shadowing, and reference-form errors.
 
@@ -545,14 +545,14 @@ Compilation owns semantic-analysis orchestration. Binding does not define every 
 Type checking, ownership checking, borrowing, aliasing, effect checking, contract solving, and target-availability checking live
 in focused semantic checker services.
 
-Those services return diagnostics and typed semantic facts for compilation to publish beside the published bound unit.
+Those services return diagnostics and typed semantic query results for compilation to publish beside the published bound unit.
 
-Some semantic facts require data-flow over an already published bound unit. Their queries depend on that unit and publish only their
+Some semantic query results require data-flow over an already published bound unit. Their queries depend on that unit and publish only their
 own durable results.
 
 ### Semantic Checker Services
 
-Semantic checker services determine whether bound declarations, bodies, and semantic facts are valid Bray.
+Semantic checker services determine whether bound declarations, bodies, and semantic query results are valid Bray.
 
 The focused domain taxonomy, dependency graph, convergence contracts, recovery policy, and durable checker outputs are defined in
 `docs/design/checker.md`.
@@ -577,8 +577,8 @@ Checker services own:
 - const-evaluation validity,
 - target-availability checking.
 
-Semantic facts such as expression types, selected overloads, selected trait implementations, move states, borrow states,
-conversion choices, contract facts, and capability facts belong to typed side facts associated with the bound HIR.
+Semantic query results such as expression types, selected overloads, selected trait implementations, move states, borrow states,
+conversion choices, contract query results, and capability query results belong to typed side query results associated with the bound HIR.
 
 The bound HIR uses Bray's storage terminology rather than a separate compiler-theory "place" model. Unit-local storage identities
 represent exact or symbolic storage origins. Storage-access identities represent evaluated access-path occurrences and retain ordered
@@ -588,14 +588,14 @@ Portable dependency-contract templates belong to `bray-symbols` and use formal r
 subjects. The binder instantiates them into unit-local bound contracts that can reference exact storage, access, borrow-capability,
 and obligation identities. Compiled package interfaces encode template structure rather than compilation-local IDs.
 
-Initialization, movement, active borrows, alias relationships, and other facts that vary by program point remain checker-local
-analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation facts promised by
+Initialization, movement, active borrows, alias relationships, and other query results that vary by program point remain checker-local
+analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation query results promised by
 its typed query contract, not its complete transfer state or work lists.
 
 Each semantic unit that requires unit-scoped flow analysis has one immutable checker-internal control-flow graph constructed from
 its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
 dependency-contract propagation share that graph while retaining focused typed analysis states. Mutually dependent storage,
-ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
+ownership, movement, borrowing, mutation-authority, and lifecycle query results use one composite storage-flow domain rather than circular
 independent passes.
 
 The control-flow graph is task-local checker infrastructure. It is neither bound HIR nor published Bray MIR, and
@@ -603,14 +603,14 @@ its block, edge, operation, and program-point IDs do not enter symbols, package 
 requested tooling view can later project source-correlated control flow without exposing checker-private identity.
 
 Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one graph can run
-in parallel when their explicit input facts are available and doing so is profitable. Deterministic fixed points, diagnostics, and
-published facts must not depend on worker scheduling.
+in parallel when their explicit input query results are available and doing so is profitable. Deterministic fixed points, diagnostics, and
+published query results must not depend on worker scheduling.
 
 There is no single checked-program or checked-unit representation. A diagnostic, tooling, lowering, or emission request observes
-the bound HIR together with the exact immutable semantic facts required by that consumer.
+the bound HIR together with the exact immutable semantic query results required by that consumer.
 
-Checker services should publish facts precise enough that lowering can consume its declared inputs without re-checking source
-semantics. Lowering does not use the existence of unrelated cached facts as evidence that its requirements are satisfied.
+Checker services should publish query results precise enough that lowering can consume its declared inputs without re-checking source
+semantics. Lowering does not use the existence of unrelated cached query results as evidence that its requirements are satisfied.
 
 Checker services should not lower control flow merely to make checking convenient unless that lowered form is an explicit
 checker-local representation.
@@ -641,10 +641,10 @@ Lowering makes implicit behavior explicit:
 
 Lowering should not make new semantic decisions.
 
-If lowering discovers that it needs a semantic fact absent from `LoweringInput`, the lowering-input contract is incomplete.
+If lowering discovers that it needs a semantic query result absent from `LoweringInput`, the lowering-input contract is incomplete.
 
 Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts, state-indexed
-affinity facts, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
+affinity query results, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
 operations rather than calls selected by source-level runtime or standard-library names. `docs/design/async-runtime.md` defines the
 phase ownership and runtime boundary.
 
@@ -656,7 +656,7 @@ cached, or exposed as another durable compiler representation.
 `bray-ir` is the compiler's backend-independent mid-level IR, abbreviated MIR.
 
 It represents explicit control flow, storage, operations, calls, cleanup behavior, concrete semantic instances, and the typed target
-facts required by code generation.
+query results required by code generation.
 
 It should not contain parser-only syntax details.
 
@@ -674,14 +674,14 @@ contract.
 
 LLVM is Bray's primary conforming native backend. LLVM bindings, types, modules, target machines, optimization pipelines, and
 diagnostics are isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation
-facts, or emission APIs.
+query results, or emission APIs.
 
 `bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection, backend
-identity, capabilities, requests, and outcomes. It packages defined layout, ABI, symbol, target, runtime, and linkage facts that
+identity, capabilities, requests, and outcomes. It packages defined layout, ABI, symbol, target, runtime, and linkage query results that
 earlier phases already resolved. It does not reinterpret source directives or rediscover language semantics.
 
 The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
-its lazy facts without depending on `bray-codegen-llvm` or inspecting backend-private state.
+its lazy query results without depending on `bray-codegen-llvm` or inspecting backend-private state.
 
 Native ahead-of-time generation is a supported product model. `bray-codegen-llvm` constructs LLVM IR in task-local modules. An
 emitter-owned artifact request determines which supported artifacts the backend must serialize from those modules. Backend
@@ -693,19 +693,19 @@ Code generation does not own language semantics.
 Code generation does not own CLI policy, package policy, source discovery, artifact layout, or linking policy.
 
 Compilation owns typed development and release build configurations. The selected configuration participates in lazy native-product
-fact identity and determines backend-neutral optimization, debug-information, and link-retention policy. Command drivers only select
+query result identity and determines backend-neutral optimization, debug-information, and link-retention policy. Command drivers only select
 and forward that typed policy. Configuration-specific artifact directories prevent development and release products from overwriting
 each other.
 
 Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
 Backend-specific legalization preserves those decisions rather than replacing them.
 
-Stable target identities, machine-model contracts, and target-output naming facts belong to `bray-target`. Code generation,
+Stable target identities, machine-model contracts, and target-output naming query results belong to `bray-target`. Code generation,
 emission, and linking consume that shared lower boundary without depending on one another for target vocabulary.
 
-Codegen units are lazy compilation facts with stable structural keys. Independent units can be generated in parallel, while mutable
+Codegen units are lazy compilation query results with stable structural keys. Independent units can be generated in parallel, while mutable
 backend module construction remains task-local. The immutable emission plan and per-unit artifact request participate in the exact
-fact key beside backend identity, target configuration, options, and backend-library revision.
+query result key beside backend identity, target configuration, options, and backend-library revision.
 
 The complete backend contract is defined in `docs/design/codegen.md`.
 
@@ -752,7 +752,7 @@ Shared data should be shared through typed IDs, typed references, immutable tabl
 Durable compiler representations are immutable after publication.
 
 This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes, checked semantic
-facts, MIR nodes, emission plans, emitted artifact descriptors, link plans, and diagnostic records.
+query results, MIR nodes, emission plans, emitted artifact descriptors, link plans, and diagnostic records.
 
 Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable construction
 state must not be exposed as shared compiler data.
@@ -765,15 +765,15 @@ Syntax nodes belong to syntax and parser layers.
 
 Typed syntax nodes are structured records of named token and child components, not untyped bags of children.
 
-Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic facts
+Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic query results
 should not duplicate trivia.
 
 Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The generated
-catalog is an immutable language-definition input to symbol construction and later semantic facts, not source syntax or a source
+catalog is an immutable language-definition input to symbol construction and later semantic query results, not source syntax or a source
 package. Runtime compiler work does not parse or structurally validate the checked-in catalog definitions.
 
 Compiled package interface bytes, validated section directories, artifact hashes, and lazy wire decoders belong to
-`bray-package-interface`. Imported semantic identities and normalized symbol-facing facts still belong to `bray-symbols`, while
+`bray-package-interface`. Imported semantic identities and normalized symbol-facing query results still belong to `bray-symbols`, while
 serializable checked-template value contracts belong to their bound-representation owner.
 
 Symbols belong to symbol construction and semantic reference layers.
@@ -784,7 +784,7 @@ Source-shaped bound nodes must belong to `bray-bound-tree`.
 
 Resolved references on bound nodes belong to binding.
 
-Semantic facts associated with source-shaped bound nodes belong to semantic checker services.
+Semantic query results associated with source-shaped bound nodes belong to semantic checker services.
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
@@ -793,7 +793,7 @@ semantics belong to `bray-runtime-model`. Compiler-owned role contracts, artifac
 validation belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime. Executable and test
 products select one target-specific runtime before code generation and linking.
 
-Test products additionally publish a native test host and immutable test catalog derived from checked product facts. Bray Tack
+Test products additionally publish a native test host and immutable test catalog derived from checked product query results. Bray Tack
 discovers and filters tests from that catalog without reparsing source, then communicates with the host through the bounded
 [testing protocol](testing.md). The protocol keeps runner control separate from per-test stdout and stderr so sequential and bounded
 parallel execution share one capture, cancellation, timeout, cleanup, and reporting model.
@@ -903,7 +903,7 @@ when they are not broadly reusable.
 
 A builder is local mutable construction state for an immutable compiler representation.
 
-Builders can allocate nodes, collect fields, attach diagnostics, attach facts, and validate construction invariants.
+Builders can allocate nodes, collect fields, attach diagnostics, attach query results, and validate construction invariants.
 
 Builders must publish immutable output.
 
@@ -921,7 +921,7 @@ Parser token cursors and syntax cursors should preserve lossless token and trivi
 
 A sink receives structured output during analysis.
 
-Examples include diagnostic sinks, fact sinks, event sinks, and artifact sinks.
+Examples include diagnostic sinks, query result sinks, event sinks, and artifact sinks.
 
 Sinks should accept typed data, not user-facing English strings.
 
@@ -929,21 +929,21 @@ Sinks used by parallel tasks must preserve deterministic final ordering.
 
 ### Queries And Tasks
 
-A query computes a meaningful compiler fact with explicit inputs and a clear invalidation story.
+A query computes a meaningful compiler query result with explicit inputs and a clear invalidation story.
 
-A query can be evaluated lazily when its fact is requested.
+A query can be evaluated lazily when its query result is requested.
 
-Queries should feel like ordinary typed compiler APIs. A caller asks for the fact it needs and the query implementation obtains its
+Queries should feel like ordinary typed compiler APIs. A caller asks for the query result it needs and the query implementation obtains its
 own dependencies internally.
 
 "Query" names this private evaluation behavior. It does not require a public query object, a `Query<T>` wrapper, a second identity
-beside the fact key, or a dynamic registry. Public APIs expose typed facts directly.
+beside the query result key, or a dynamic registry. Public APIs expose typed query results directly.
 
 A task is schedulable compiler work with explicit dependencies.
 
 Queries and tasks should use immutable inputs and publish immutable outputs.
 
-Fact contracts must be complete within their promised boundary. Do not model one fact as evidence that unrelated semantic facts
+Query contracts must be complete within their promised boundary. Do not model one query result as evidence that unrelated semantic query results
 were evaluated.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
@@ -951,7 +951,7 @@ Do not turn ordinary helper functions into queries merely because they are reusa
 ### Profiling And Measurement
 
 Compiler profiling is an explicit observation mode of one invocation. It is not part of source semantics, compilation identity,
-fact identity, cache validity, scheduling policy, or deterministic output. The same request must produce the same compiler results
+query result identity, cache validity, scheduling policy, or deterministic output. The same request must produce the same compiler results
 with profiling enabled or disabled.
 
 Contributor commands and report interpretation are documented in [Compiler profiling](../contributing/profiling.md).
@@ -1003,11 +1003,11 @@ workloads.
 ### Snapshots, Invalidation, And Reuse
 
 Every compiler request evaluates against an immutable `CompilationSnapshot` identified by the selected project graph, source
-snapshots, product, target profile, compiler semantic revision, and toolchain inputs. Every published fact has a typed key, content
+snapshots, product, target profile, compiler semantic revision, and toolchain inputs. Every published query result has a typed key, content
 fingerprint, and exact typed dependency keys and fingerprints. The query graph retains reverse dependencies so replacing an input
 invalidates exactly its transitive consumers.
 
-Complete immutable facts may be structurally shared between snapshots or loaded from a process-local or persistent
+Complete immutable query results may be structurally shared between snapshots or loaded from a process-local or persistent
 content-addressed store only when their schema, compiler semantic revision, typed key, direct inputs, target dependencies, and
 recorded dependency fingerprints match exactly. Cancellation, invariant failure, and incomplete computation publish no reusable
 entry. Discarding any cache cannot change compilation semantics.
@@ -1087,7 +1087,7 @@ Incremental compilation should be designed around stable identities and explicit
 
 Cache keys should be typed.
 
-Cache entries should record the inputs and target profile facts they depend on.
+Cache entries should record the inputs and target profile query results they depend on.
 
 The compiler should avoid hidden global mutable caches.
 
@@ -1095,10 +1095,10 @@ If a query-style system is used, query boundaries should align with phase owners
 
 Do not make every helper a query.
 
-A query should represent a meaningful compiler fact with a clear invalidation story.
+A query should represent a meaningful compiler query result with a clear invalidation story.
 
-Language-server entry points should request the narrow result they need. Intermediate compiler facts should be computed internally
-by the lazy APIs that own those facts.
+Language-server entry points should request the narrow result they need. Intermediate compiler query results should be computed internally
+by the lazy APIs that own those query results.
 
 Language-tooling accessors should accept a source position or source-versioned syntax identity and return explicit available,
 recovered, or unavailable states. Position-based accessors should resolve a syntax identity and delegate to the same semantic path.
@@ -1109,17 +1109,17 @@ Query inputs and outputs should be suitable for parallel scheduling.
 A query should not rely on worker-local mutable state unless that state is an implementation cache that cannot affect observable
 compiler behavior.
 
-Variable-size fact caches must have an explicit finite retention policy. Retention order and eviction are performance choices, not
-semantic state. Completed immutable facts may be reclaimed and recomputed, while in-flight single-flight entries must remain
+Variable-size query result caches must have an explicit finite retention policy. Retention order and eviction are performance choices, not
+semantic state. Completed immutable query results may be reclaimed and recomputed, while in-flight single-flight entries must remain
 coordinated until they publish or are abandoned. Snapshot invalidation removes obsolete entries through the ordinary dependency
 graph.
 
-Resource limits that can change a semantic answer or diagnostic are part of the corresponding request and fact identity.
+Resource limits that can change a semantic answer or diagnostic are part of the corresponding request and query result identity.
 Cancellation, priority, worker count, and cache retention are not result-affecting resource limits and must not enter that
 identity.
 
-Semantic-analysis requests carry deterministic limits for active recursive analysis and package-level pair comparisons. Facts
-whose answers depend on those limits must be invalidated when a revised snapshot changes them. Unrelated syntax and semantic facts
+Semantic-analysis requests carry deterministic limits for active recursive analysis and package-level pair comparisons. Query Results
+whose answers depend on those limits must be invalidated when a revised snapshot changes them. Unrelated syntax and semantic query results
 remain reusable through their ordinary dependency identities.
 
 ---
@@ -1145,7 +1145,7 @@ If a feature can be added by changing only parser code and codegen, that is a wa
 
 Core language rules belong in the relevant model and checker contracts, not in backend-specific code.
 
-Backend support should be selected after the feature is represented in the bound HIR, its required semantic facts, and the
+Backend support should be selected after the feature is represented in the bound HIR, its required semantic query results, and the
 backend-independent MIR owned by `bray-ir`.
 
 A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates, reinterpret

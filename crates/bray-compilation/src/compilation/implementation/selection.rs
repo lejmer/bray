@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     ImplementationInstanceData, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSelectionCandidate, ImplementationSelectionFact, ProofOutcome,
+    ImplementationSelectionCandidate, ImplementationSelectionQuery, ProofOutcome,
     SemanticFactResult,
 };
 
@@ -15,7 +15,7 @@ impl Compilation {
     pub fn implementation_selection_result(
         &self,
         key: ImplementationRequirementKey,
-    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionQuery>>, FactQueryError> {
         self.implementation_selection_result_with_cancellation(key, &self.state.cancellation)
     }
 
@@ -23,7 +23,7 @@ impl Compilation {
         &self,
         key: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionQuery>>, FactQueryError> {
         let cell = self.state.implementation_selections.cell(key)?;
 
         let result = cell.get_or_compute(
@@ -43,7 +43,7 @@ impl Compilation {
         &self,
         key: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<ImplementationSelectionFact>, FactQueryError> {
+    ) -> Result<SemanticFactResult<ImplementationSelectionQuery>, FactQueryError> {
         let candidates =
             self.implementation_candidate_set_result_with_cancellation(key, cancellation)?;
 

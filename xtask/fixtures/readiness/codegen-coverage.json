@@ -409,6 +409,14 @@
       }
     },
     {
+      "name": "InlineAssembly",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::InlineAssembly"
+      }
+    },
+    {
       "name": "Return",
       "disposition": "translated",
       "production": {

@@ -3,13 +3,13 @@ use bray_checker::resolve_callable_signature_template;
 use bray_compiler_known::{CompilerKnownDeclarationKey, CompilerKnownOperationRole};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, CallableSignatureFact, GenericArgument,
+    CallableInstanceData, CallableSignature, CallableSignatureQuery, GenericArgument,
     GenericParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSelection, SymbolFactRequest, TraitCallableMemberSymbolId, TypeId,
 };
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBinderFacts, binder_fact_error};
+use super::super::binder::{CompilationBindingContext, binder_fact_error};
 use super::super::implementation::{
     callable_instance, implementation_fulfillments, implementation_requirement, selected_callable,
 };
@@ -24,7 +24,7 @@ type SelectedStorageCallable = (
 
 pub(in crate::compilation) fn selected_storage_callable(
     compilation: &Compilation,
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     storage: TypeId,
     target: TypeId,
     member_key: &CompilerKnownDeclarationKey,
@@ -35,7 +35,7 @@ pub(in crate::compilation) fn selected_storage_callable(
         .operation_contract(CompilerKnownOperationRole::BoxConstruction)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let trait_symbol = facts
+    let trait_symbol = binding_context
         .symbols()
         .trait_symbol(contract.trait_definition())
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -47,7 +47,7 @@ pub(in crate::compilation) fn selected_storage_callable(
         .map(GenericParameterSymbolId::Type);
 
     let requirement = implementation_requirement(
-        facts.semantic_values(),
+        binding_context.semantic_values(),
         storage,
         contract.trait_definition(),
         parameters,
@@ -63,24 +63,24 @@ pub(in crate::compilation) fn selected_storage_callable(
         return Ok(DiagnosticResult::new(None, diagnostics));
     };
 
-    let implementation = facts
+    let implementation = binding_context
         .semantic_values()
         .implementation_instance_data(*witness)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let fulfillments = implementation_fulfillments(facts, implementation.definition())?;
+    let fulfillments = implementation_fulfillments(binding_context, implementation.definition())?;
 
     let member = compilation
         .available_compiler_known_symbols()
         .declaration_symbol::<TraitCallableMemberSymbolId>(member_key)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let Some(fulfillment) = selected_callable(facts, fulfillments.callables, member) else {
+    let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, member) else {
         return Ok(DiagnosticResult::new(None, diagnostics));
     };
 
-    let signature = facts
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+    let signature = binding_context
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
             fulfillment.into(),
         ))
         .map_err(binder_fact_error)?;
@@ -97,19 +97,19 @@ pub(in crate::compilation) fn selected_storage_callable(
 
     diagnostics = diagnostics.merged(checked.diagnostics());
 
-    let application = facts
+    let application = binding_context
         .semantic_values()
         .trait_application_data(requirement.trait_application())
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let callable = callable_instance(
-        facts.semantic_values(),
+        binding_context.semantic_values(),
         fulfillment.into(),
         [application.substitution(), implementation.substitution()],
     )?;
 
     let signature = resolve_callable_signature_template(
-        facts.semantic_values(),
+        binding_context.semantic_values(),
         signature.value(),
         callable.substitution(),
         checked.value(),

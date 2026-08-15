@@ -1,83 +1,83 @@
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableContractSymbolId, CallableContractTemplateFact, CallableContractTypeFact,
-    CallableContractsFact, CallableOverloadTemplateFact, CallableParameterDefaultFact,
-    CallableParameterDefaultTemplateFact, CallableParameterSymbolId, CallableSignatureFact,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantDefinitionFact, DeclarationDirectivesFact,
-    ExactSymbolId, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationCoherenceFact,
-    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
-    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    ModuleSurfaceFact, ModuleSymbolId, PredicateDefinitionFact, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, StructFieldDefaultFact, StructFieldDefaultTemplateFact,
-    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
+    AnySymbolId, CallableContractSymbolId, CallableContractTemplateQuery, CallableContractTypeQuery,
+    CallableContractsQuery, CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
+    CallableParameterDefaultTemplateQuery, CallableParameterSymbolId, CallableSignatureQuery,
+    CallableSymbolId, ConstantDeclaredTypeQuery, ConstantDefinitionQuery, DeclarationDirectivesQuery,
+    ExactSymbolId, GenericConstParameterDeclaredTypeQuery, GenericConstraintsQuery,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCoherenceQuery,
+    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery, ImplementationSubjectQuery,
+    ImplementationSymbolId, ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery,
+    ModuleSurfaceQuery, ModuleSymbolId, PredicateDefinitionQuery, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateQuery, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery,
+    StructFieldSymbolId, StructFieldTypeQuery, SymbolCompletionLevel, SymbolFactCompletionRequest,
     SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
+    TraitTypeFulfillmentValueQuery, UnionPayloadFieldDefaultQuery,
+    UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::binder_fact_error;
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, SymbolCompletionError};
 
-impl SymbolFactForcer for CompilationBinderFacts<'_> {
+impl SymbolFactForcer for CompilationBindingContext<'_> {
     type Error = FactQueryError;
 
     fn force(&self, request: SymbolFactCompletionRequest) -> Result<DiagnosticBag, Self::Error> {
         match request.kind() {
-            // These surfaces are frozen into the immutable symbol graph before semantic facts.
+            // These surfaces are frozen into the immutable symbol graph before semantic binding.
             SymbolFactKind::Members
             | SymbolFactKind::GenericParameters
             | SymbolFactKind::UnionVariantPayload => Ok(DiagnosticBag::new()),
             SymbolFactKind::Imports => {
-                force_exact::<ModuleSurfaceFact, ModuleSymbolId>(self, request.symbol())
+                force_exact::<ModuleSurfaceQuery, ModuleSymbolId>(self, request.symbol())
             }
             SymbolFactKind::Directives => {
-                force_typed::<DeclarationDirectivesFact>(self, request.symbol())
+                force_typed::<DeclarationDirectivesQuery>(self, request.symbol())
             }
             SymbolFactKind::GenericConstraints => {
                 let owner = GenericOwnerId::try_new(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<GenericConstraintsFact>(self, owner)
+                force_typed::<GenericConstraintsQuery>(self, owner)
             }
             SymbolFactKind::GenericDeclarationTemplate => {
                 let owner = GenericOwnerId::try_new(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<GenericDeclarationTemplateFact>(self, owner)
+                force_typed::<GenericDeclarationTemplateQuery>(self, owner)
             }
             SymbolFactKind::CallableSignature => {
                 let owner = CallableSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<CallableSignatureFact>(self, owner)
+                force_typed::<CallableSignatureQuery>(self, owner)
             }
             SymbolFactKind::CallableContracts => {
                 let owner = CallableSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<CallableContractsFact>(self, owner)
+                force_typed::<CallableContractsQuery>(self, owner)
             }
             SymbolFactKind::CallableContractTemplate => {
                 let owner = CallableSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<CallableContractTemplateFact>(self, owner)
+                force_typed::<CallableContractTemplateQuery>(self, owner)
             }
             SymbolFactKind::PredicateSignatureTemplate => {
                 let owner = PredicateDefinitionSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<PredicateSignatureTemplateFact>(self, owner)
+                force_typed::<PredicateSignatureTemplateQuery>(self, owner)
             }
             SymbolFactKind::CallableContractType => force_exact::<
-                CallableContractTypeFact,
+                CallableContractTypeQuery,
                 CallableContractSymbolId,
             >(self, request.symbol()),
             SymbolFactKind::ConstantDeclaredType => {
@@ -85,43 +85,43 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
             }
             SymbolFactKind::ConstantDefinition => force_constant_definition(self, request.symbol()),
             SymbolFactKind::StructFieldType => {
-                force_exact::<StructFieldTypeFact, StructFieldSymbolId>(self, request.symbol())
+                force_exact::<StructFieldTypeQuery, StructFieldSymbolId>(self, request.symbol())
             }
             SymbolFactKind::TypeMemberValue => force_type_member_value(self, request.symbol()),
             SymbolFactKind::ImplementationSubject => {
                 let owner = ImplementationSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<ImplementationSubjectFact>(self, owner)
+                force_typed::<ImplementationSubjectQuery>(self, owner)
             }
             SymbolFactKind::ImplementedTraitApplication => {
                 let owner = ImplementationSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<ImplementedTraitApplicationFact>(self, owner)
+                force_typed::<ImplementedTraitApplicationQuery>(self, owner)
             }
             SymbolFactKind::ImplementationCoherence => {
                 let owner = ImplementationSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<ImplementationCoherenceFact>(self, owner)
+                force_typed::<ImplementationCoherenceQuery>(self, owner)
             }
             SymbolFactKind::UnionPayloadFieldType => force_exact::<
-                UnionPayloadFieldTypeFact,
+                UnionPayloadFieldTypeQuery,
                 UnionPayloadFieldSymbolId,
             >(self, request.symbol()),
             SymbolFactKind::UnevaluatedDefaultTemplate => {
                 force_unevaluated_default(self, request.symbol())
             }
             SymbolFactKind::CallableParameterDefault => force_exact::<
-                CallableParameterDefaultFact,
+                CallableParameterDefaultQuery,
                 CallableParameterSymbolId,
             >(self, request.symbol()),
             SymbolFactKind::StructFieldDefault => {
-                force_exact::<StructFieldDefaultFact, StructFieldSymbolId>(self, request.symbol())
+                force_exact::<StructFieldDefaultQuery, StructFieldSymbolId>(self, request.symbol())
             }
             SymbolFactKind::UnionPayloadFieldDefault => force_exact::<
-                UnionPayloadFieldDefaultFact,
+                UnionPayloadFieldDefaultQuery,
                 UnionPayloadFieldSymbolId,
             >(self, request.symbol()),
             SymbolFactKind::PredicateDefinition => {
@@ -131,7 +131,7 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 let owner = ImplementationSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                force_typed::<ImplementationHeadTemplateFact>(self, owner)
+                force_typed::<ImplementationHeadTemplateQuery>(self, owner)
             }
             SymbolFactKind::OverloadSignatureTemplate => {
                 force_overload_template(self, request.symbol())
@@ -142,84 +142,84 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
 }
 
 fn force_predicate_definition(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
-        AnySymbolId::Predicate(owner) => force_typed::<PredicateDefinitionFact>(facts, owner),
+        AnySymbolId::Predicate(owner) => force_typed::<PredicateDefinitionQuery>(binding_context, owner),
         AnySymbolId::TraitPredicateMember(owner) => {
-            force_typed::<TraitPredicateMemberDefinitionFact>(facts, owner)
+            force_typed::<TraitPredicateMemberDefinitionQuery>(binding_context, owner)
         }
         AnySymbolId::TraitPredicateFulfillment(owner) => {
-            force_typed::<TraitPredicateFulfillmentDefinitionFact>(facts, owner)
+            force_typed::<TraitPredicateFulfillmentDefinitionQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
 fn force_unevaluated_default(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
         AnySymbolId::CallableParameter(owner) => {
-            force_typed::<CallableParameterDefaultTemplateFact>(facts, owner)
+            force_typed::<CallableParameterDefaultTemplateQuery>(binding_context, owner)
         }
         AnySymbolId::StructField(owner) => {
-            force_typed::<StructFieldDefaultTemplateFact>(facts, owner)
+            force_typed::<StructFieldDefaultTemplateQuery>(binding_context, owner)
         }
         AnySymbolId::UnionPayloadField(owner) => {
-            force_typed::<UnionPayloadFieldDefaultTemplateFact>(facts, owner)
+            force_typed::<UnionPayloadFieldDefaultTemplateQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
 fn force_overload_template(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
         AnySymbolId::CallableOverload(owner) => {
-            force_typed::<CallableOverloadTemplateFact>(facts, owner)
+            force_typed::<CallableOverloadTemplateQuery>(binding_context, owner)
         }
         AnySymbolId::ImplementationOverload(owner) => {
-            force_typed::<ImplementationOverloadTemplateFact>(facts, owner)
+            force_typed::<ImplementationOverloadTemplateQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
 fn force_constant_declared_type(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
-        AnySymbolId::Constant(owner) => force_typed::<ConstantDeclaredTypeFact>(facts, owner),
+        AnySymbolId::Constant(owner) => force_typed::<ConstantDeclaredTypeQuery>(binding_context, owner),
         AnySymbolId::TraitConstantMember(owner) => {
-            force_typed::<TraitConstantMemberDeclaredTypeFact>(facts, owner)
+            force_typed::<TraitConstantMemberDeclaredTypeQuery>(binding_context, owner)
         }
         AnySymbolId::TraitConstantFulfillment(owner) => {
-            force_typed::<TraitConstantFulfillmentDeclaredTypeFact>(facts, owner)
+            force_typed::<TraitConstantFulfillmentDeclaredTypeQuery>(binding_context, owner)
         }
         AnySymbolId::GenericConstParameter(owner) => {
-            force_typed::<GenericConstParameterDeclaredTypeFact>(facts, owner)
+            force_typed::<GenericConstParameterDeclaredTypeQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
 fn force_constant_definition(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
-        AnySymbolId::Constant(owner) => force_typed::<ConstantDefinitionFact>(facts, owner),
+        AnySymbolId::Constant(owner) => force_typed::<ConstantDefinitionQuery>(binding_context, owner),
         AnySymbolId::TraitConstantMember(owner) => {
-            force_typed::<TraitConstantMemberDefinitionFact>(facts, owner)
+            force_typed::<TraitConstantMemberDefinitionQuery>(binding_context, owner)
         }
         AnySymbolId::TraitConstantFulfillment(owner) => {
-            force_typed::<TraitConstantFulfillmentDefinitionFact>(facts, owner)
+            force_typed::<TraitConstantFulfillmentDefinitionQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
@@ -233,63 +233,63 @@ impl Compilation {
         level: SymbolCompletionLevel,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticBag, SymbolCompletionError<FactQueryError>> {
-        let facts = self
-            .binder_facts(cancellation)
+        let binding_context = self
+            .binding_context(cancellation)
             .map_err(SymbolCompletionError::Provider)?;
 
         crate::fact::force_complete_symbol(
-            facts.symbols,
+            binding_context.symbols,
             root,
             level,
             &self.state.fact_runtime,
             cancellation,
-            &facts,
+            &binding_context,
         )
     }
 }
 
 fn force_type_member_value(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError> {
     match symbol {
         AnySymbolId::InherentTypeMember(owner) => {
-            force_typed::<InherentTypeMemberValueFact>(facts, owner)
+            force_typed::<InherentTypeMemberValueQuery>(binding_context, owner)
         }
         AnySymbolId::TraitTypeFulfillment(owner) => {
-            force_typed::<TraitTypeFulfillmentValueFact>(facts, owner)
+            force_typed::<TraitTypeFulfillmentValueQuery>(binding_context, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
 fn force_exact<C, O>(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<DiagnosticBag, FactQueryError>
 where
     C: SymbolFactContract<Owner = O>,
     O: ExactSymbolId,
-    for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolFactProvider<C>,
 {
     let owner = O::try_from_any(symbol).ok_or(FactQueryError::InfrastructureFailure)?;
 
-    force_typed::<C>(facts, owner)
+    force_typed::<C>(binding_context, owner)
 }
 
 fn force_typed<C>(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     owner: C::Owner,
 ) -> Result<DiagnosticBag, FactQueryError>
 where
     C: SymbolFactContract,
-    for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolFactProvider<C>,
 {
-    let result = facts
+    let result = binding_context
         .symbol_fact(SymbolFactRequest::<C>::new(owner))
         .map_err(binder_fact_error)?;
 
-    // Completion aggregates independently owned fact diagnostics after all work succeeds.
+    // Completion aggregates independently owned query diagnostics after all work succeeds.
     Ok(result.diagnostics().clone())
 }
 
@@ -299,13 +299,13 @@ mod tests {
 
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
-        CallableContractSymbolId, CallableContractTemplate, CallableContractTemplateFact,
-        CallableContractTypeFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
-        ExactSymbolId, FunctionSymbolId, GenericConstraintsFact, GenericDeclarationTemplateFact,
-        GenericOwnerId, ImplementationCoherenceFact, ImplementationSymbolId,
-        NamedTraitImplementationSymbolId, StructFieldSymbolId, StructFieldTypeFact, StructSymbolId,
+        CallableContractSymbolId, CallableContractTemplate, CallableContractTemplateQuery,
+        CallableContractTypeQuery, CallableContractsQuery, CallableExecution, CallableSignatureQuery,
+        ExactSymbolId, FunctionSymbolId, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
+        GenericOwnerId, ImplementationCoherenceQuery, ImplementationSymbolId,
+        NamedTraitImplementationSymbolId, StructFieldSymbolId, StructFieldTypeQuery, StructSymbolId,
         SymbolFactRequest, SymbolOrdinal, TraitCallableMemberSymbolId, TypeCallableMemberSymbolId,
-        TypeData, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+        TypeData, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery,
     };
 
     use super::{CancellationToken, SymbolCompletionLevel};
@@ -332,22 +332,22 @@ mod tests {
 
         assert!(diagnostics.is_empty());
 
-        let facts = match compilation.binder_facts(&cancellation) {
-            Ok(facts) => facts,
-            Err(error) => panic!("compiler-known binder facts must be available: {error:?}"),
+        let binding_context = match compilation.binding_context(&cancellation) {
+            Ok(binding_context) => binding_context,
+            Err(error) => panic!("compiler-known binder context must be available: {error:?}"),
         };
 
         let copy = declaration::<FunctionSymbolId>(symbols, "MemoryCopy");
-        let copy_request = SymbolFactRequest::<CallableSignatureFact>::new(copy.into());
-        let first_copy = published_fact(&facts, copy_request);
-        let second_copy = published_fact(&facts, copy_request);
+        let copy_request = SymbolFactRequest::<CallableSignatureQuery>::new(copy.into());
+        let first_copy = published_fact(&binding_context, copy_request);
+        let second_copy = published_fact(&binding_context, copy_request);
 
         assert!(Arc::ptr_eq(&first_copy, &second_copy));
         assert_eq!(first_copy.value().parameters().len(), 3);
 
         let copy_contract_template = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractTemplateFact>::new(copy.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableContractTemplateQuery>::new(copy.into()),
         );
 
         assert!(matches!(
@@ -359,8 +359,8 @@ mod tests {
         let storage_destroy = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageDestroy");
 
         let storage_destroy_contract = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractsFact>::new(storage_destroy.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableContractsQuery>::new(storage_destroy.into()),
         );
 
         let trusted_capabilities = storage_destroy_contract
@@ -384,15 +384,15 @@ mod tests {
         };
 
         let pointer_constraints = published_fact(
-            &facts,
-            SymbolFactRequest::<GenericConstraintsFact>::new(pointer_owner),
+            &binding_context,
+            SymbolFactRequest::<GenericConstraintsQuery>::new(pointer_owner),
         );
 
         assert_eq!(pointer_constraints.value().constraints().len(), 1);
 
         let pointer_template = published_fact(
-            &facts,
-            SymbolFactRequest::<GenericDeclarationTemplateFact>::new(pointer_owner),
+            &binding_context,
+            SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(pointer_owner),
         );
 
         assert_eq!(pointer_template.value().parameters().len(), 1);
@@ -402,8 +402,8 @@ mod tests {
             declaration::<NamedTraitImplementationSymbolId>(symbols, "HeapStorageImplementation");
 
         let coherence = published_fact(
-            &facts,
-            SymbolFactRequest::<ImplementationCoherenceFact>::new(ImplementationSymbolId::from(
+            &binding_context,
+            SymbolFactRequest::<ImplementationCoherenceQuery>::new(ImplementationSymbolId::from(
                 storage_implementation,
             )),
         );
@@ -413,8 +413,8 @@ mod tests {
         let unary = declaration::<CallableContractSymbolId>(symbols, "UnaryCallable");
 
         let unary_type = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractTypeFact>::new(unary),
+            &binding_context,
+            SymbolFactRequest::<CallableContractTypeQuery>::new(unary),
         );
 
         assert!(matches!(
@@ -425,8 +425,8 @@ mod tests {
         let element = declaration::<StructFieldSymbolId>(symbols, "RawPointerElement");
 
         let element_type = published_fact(
-            &facts,
-            SymbolFactRequest::<StructFieldTypeFact>::new(element),
+            &binding_context,
+            SymbolFactRequest::<StructFieldTypeQuery>::new(element),
         );
 
         assert!(matches!(
@@ -438,8 +438,8 @@ mod tests {
             declaration::<UnionPayloadFieldSymbolId>(symbols, "RunResultVariant0CompletedValue");
 
         let completed_value_type = published_fact(
-            &facts,
-            SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(completed_value),
+            &binding_context,
+            SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(completed_value),
         );
 
         assert!(matches!(
@@ -450,8 +450,8 @@ mod tests {
         let start = declaration::<TypeCallableMemberSymbolId>(symbols, "FutureStart");
 
         let start_signature = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableSignatureFact>::new(start.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableSignatureQuery>::new(start.into()),
         );
 
         assert!(start_signature.value().parameters().is_empty());
@@ -466,8 +466,8 @@ mod tests {
         let join = declaration::<TypeCallableMemberSymbolId>(symbols, "TaskJoin");
 
         let join_signature = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableSignatureFact>::new(join.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableSignatureQuery>::new(join.into()),
         );
 
         assert!(matches!(
@@ -477,8 +477,8 @@ mod tests {
         ));
 
         let join_contracts = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableContractsFact>::new(join.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableContractsQuery>::new(join.into()),
         );
 
         assert!(
@@ -491,8 +491,8 @@ mod tests {
         let borrow = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageBorrow");
 
         let borrow_signature = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableSignatureFact>::new(borrow.into()),
+            &binding_context,
+            SymbolFactRequest::<CallableSignatureQuery>::new(borrow.into()),
         );
 
         assert!(borrow_signature.value().receiver().is_none());

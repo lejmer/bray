@@ -1,7 +1,7 @@
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, CallableSymbolId, LocalScopeBoundary, LocalScopeId,
+    AnySymbolId, CallableSignatureQuery, CallableSymbolId, LocalScopeBoundary, LocalScopeId,
     NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, TypeData,
 };
 
@@ -40,15 +40,15 @@ pub(crate) fn callable_normal_completion_has_value<C>(
 ) -> BinderFactResult<bool>
 where
     C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
 {
     let Some(owner) = CallableSymbolId::try_from_any(owner) else {
         return Err(BinderFactError::DependencyUnavailable);
     };
 
     let signature = facts
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
+        .symbol_semantics()
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(owner))?;
 
     let Some(result_type) = signature.value().result().resolved_type() else {
         return Ok(true);

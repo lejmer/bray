@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 const SCALAR_KIND_COUNT: usize = 22;
 
-/// One built-in scalar representation described by target and ABI facts.
+/// One built-in scalar representation described by target and ABI properties.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetScalarKind {
     /// The Boolean scalar.
@@ -139,7 +139,7 @@ impl TargetScalarKind {
 
 /// Availability and physical alignment of scalar representations.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetScalarFacts {
+pub struct TargetScalarSupport {
     real16: bool,
     real128: bool,
     complex32: bool,
@@ -147,8 +147,8 @@ pub struct TargetScalarFacts {
     alignments: [NonZeroU64; SCALAR_KIND_COUNT],
 }
 
-impl TargetScalarFacts {
-    /// Creates scalar facts with the portable baseline alignments.
+impl TargetScalarSupport {
+    /// Creates scalar properties with the portable baseline alignments.
     pub const fn new(real16: bool, real128: bool, complex32: bool, complex256: bool) -> Self {
         Self {
             real16,
@@ -211,7 +211,7 @@ impl TargetScalarFacts {
     }
 }
 
-impl Default for TargetScalarFacts {
+impl Default for TargetScalarSupport {
     fn default() -> Self {
         Self::new(false, false, false, false)
     }
@@ -255,20 +255,20 @@ const fn nonzero(value: u64) -> NonZeroU64 {
 mod tests {
     use std::num::NonZeroU64;
 
-    use super::{TargetScalarFacts, TargetScalarKind};
+    use super::{TargetScalarSupport, TargetScalarKind};
 
     #[test]
-    fn scalar_alignments_are_selected_target_facts() {
+    fn scalar_alignments_are_selected_target_properties() {
         let alignment = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
 
-        let facts = TargetScalarFacts::default()
+        let properties = TargetScalarSupport::default()
             .try_with_alignment(TargetScalarKind::I64, alignment)
             .unwrap_or_else(|| panic!("test scalar alignment must be valid"));
 
-        assert_eq!(facts.alignment(TargetScalarKind::I64), alignment);
+        assert_eq!(properties.alignment(TargetScalarKind::I64), alignment);
 
         assert_eq!(
-            TargetScalarFacts::default()
+            TargetScalarSupport::default()
                 .alignment(TargetScalarKind::I64)
                 .get(),
             8

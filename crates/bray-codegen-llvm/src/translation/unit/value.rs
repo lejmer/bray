@@ -764,7 +764,7 @@ mod tests {
     };
     use bray_ir::{
         MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-        MirStorageKind, MirStoreKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder,
+        MirStorageKind, MirStoreKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder,
         MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
@@ -967,7 +967,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
         );
 
         let entry = builder
@@ -1058,7 +1058,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
         );
 
         let entry = builder

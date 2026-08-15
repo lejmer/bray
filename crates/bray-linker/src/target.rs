@@ -60,7 +60,7 @@ impl LinkerTargetIdentity {
     }
 }
 
-/// Complete backend-neutral target facts needed by linker drivers.
+/// Complete backend-neutral target properties needed by linker drivers.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LinkTarget {
     identity: TargetIdentity,

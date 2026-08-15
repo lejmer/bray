@@ -93,7 +93,7 @@ The bound async invocation records:
 
 Value preconditions, argument transfers, generic constraints, and frame-construction effects remain ordinary invocation
 requirements. Body effects and capabilities, `blocking_execution()`, `compute_execution()`, and
-`main_thread_execution()`, suspension and cancellation behavior, and `ensures(...)` facts belong to the deferred execution
+`main_thread_execution()`, suspension and cancellation behavior, and `ensures(...)` runtime properties belong to the deferred execution
 contract. The binder identifies the execution predicates by compiler-known declaration identity and preserves all other phase
 classifications from checked callable metadata.
 
@@ -116,7 +116,7 @@ Every concrete async callable instantiation receives a stable hidden frame ident
 - callable semantic identity,
 - concrete type and const arguments,
 - selected implementation witnesses,
-- target and ABI facts that affect representation,
+- target and ABI runtime properties that affect representation,
 - async lowering revision.
 
 Before reachable concrete instances are selected, generic MIR may carry a target-specific frame-template identity. Concrete-instance
@@ -140,7 +140,7 @@ Frame metadata contains:
 - completion-result move operation,
 - infallible destruction operation,
 - source-correlated suspension and retained-value information,
-- execution requirements and affinity facts.
+- execution requirements and affinity runtime properties.
 
 Published metadata is immutable and target-specific where layout requires it.
 
@@ -149,7 +149,7 @@ Published metadata is immutable and target-specific where layout requires it.
 ## Async frame checking
 
 The checker computes suspension liveness over the ordinary control-flow graph. Each suspension point records the exact locals,
-temporaries, borrows, scoped capabilities, task obligations, lifecycle obligations, selected witnesses, and facts required after
+temporaries, borrows, scoped capabilities, task obligations, lifecycle obligations, selected witnesses, and runtime properties required after
 resumption or during cleanup.
 
 The dependency domain derives the contract carried by `Future<T>` from invocation state plus every dependency retained across
@@ -167,8 +167,8 @@ The checker rejects:
 - destruction of storage or capability release before dependent task resolution,
 - task migration when retained state is thread-affine.
 
-Affinity facts identify an exact origin thread or compatible lane class for each live control state. A backend can use
-state-sensitive migration only when its descriptor preserves those state-indexed facts. Otherwise it uses their conservative union
+Affinity runtime properties identify an exact origin thread or compatible lane class for each live control state. A backend can use
+state-sensitive migration only when its descriptor preserves those state-indexed runtime properties. Otherwise it uses their conservative union
 and pins the task for its whole lifetime.
 
 The checker represents affinity as a typed dependency property. It does not insert an implicit clone, shared owner, `'static`
@@ -263,7 +263,7 @@ and wake role. The corresponding frame-state descriptor retains the checked init
 callable set, and execution-lane requirements needed after resumption.
 
 Before the child begins, lowering emits the checked lane-requirement assertion established by semantic analysis. This is a typed MIR
-fact or validation operation, not a call to the source predicate.
+runtime property or validation operation, not a call to the source predicate.
 
 ---
 
@@ -314,7 +314,7 @@ cleanup callback is insufficient.
 
 `Future<T>.start()` lowers to the typed task-start operation. Before first resume it:
 
-1. selects a compatible runtime lane from deferred execution and affinity facts,
+1. selects a compatible runtime lane from deferred execution and affinity runtime properties,
 2. requests task-owned storage sized and aligned for the control block and frame,
 3. moves the inactive frame exactly once,
 4. initializes cancellation, completion, panic, and join state,
@@ -400,7 +400,7 @@ requires:
 
 ABI symbol spellings and calling conventions are selected by the target/runtime contract. They do not become source declarations.
 The ABI artifact also carries immutable compiler-readable semantic-contract records keyed by closed binary ABI roles. Records cover
-ownership transfer, open run-transfer subjects, synchronization and visibility edges, callback-root execution facts, cancellation,
+ownership transfer, open run-transfer subjects, synchronization and visibility edges, callback-root execution runtime properties, cancellation,
 panic behavior, lifecycle ownership, and capabilities. A private standard-library binding is explicitly associated with a
 compatible role during the trusted product-and-standard-library build. The compiler validates the role, signature, ABI version,
 target, and record schema, checks wrappers using the record, and trusts the substrate implementation. It never discovers these
@@ -471,7 +471,7 @@ Public APIs expose `Future<T>` as the invocation type without exposing hidden fr
 compiler validates descriptor version and target compatibility before reuse.
 
 Package interfaces correlate each runtime requirement with its declaration owner and any concrete hidden frame. Library
-requirements contain portable compatibility facts, never a selected runtime identity, private ABI role identity, or binary
+requirements contain portable compatibility runtime properties, never a selected runtime identity, private ABI role identity, or binary
 binding. Executable and test product formation derives private roles from selected lowered operations and selects the runtime before
 code generation and linking.
 
@@ -489,7 +489,7 @@ For an async entrypoint, lowering creates a compiler-owned host stub and root fr
 - distinguished main-thread-lane startup and drive roles,
 - configured task, thread, and process hard limits,
 - reactor or event features required by linked standard-library code,
-- target and panic ABI compatibility facts.
+- target and panic ABI compatibility runtime properties.
 
 The host process and its initial thread are product roots rather than source-owned standard-library child values. A synchronous
 entrypoint executes as the root run and establishes `blocking_execution()`, `compute_execution()`, and
@@ -524,7 +524,7 @@ modules. Their public declarations are encoded in package interfaces exactly lik
 
 Private trusted declarations bind runtime events, current-run cancellation state, checkpoint/yield operations, native-thread
 creation, child-process creation and transport, reactor registration, and other nonportable services. Their associated ABI-role
-contract records must establish every ownership, dependency, visibility, callback-root, cancellation, and lifecycle fact used by
+contract records must establish every ownership, dependency, visibility, callback-root, cancellation, and lifecycle runtime property used by
 safe wrappers. The association is private product metadata. Public wrapper interfaces contain only ordinary inferred contracts.
 
 Generic operations that publish values to synchronized shared storage or an independent run produce open run-transfer terms in the
@@ -542,7 +542,7 @@ selects one terminal result and resolves every loser. `std.concurrent.all` retur
 `std.thread.Thread<T>` and its entry callable are ordinary standard-library types, allowing synchronous-only products to use native
 threads without selecting the async runtime. The standard library's async thread bridge integrates those owners with runtime events
 when used from tasks. Synchronous executable roots establish all three execution predicates. Native-thread roots establish blocking
-and compute execution but not main-thread execution. Ordinary sync calls only inherit existing facts. Blocking `Thread<T>` join,
+and compute execution but not main-thread execution. Ordinary sync calls only inherit existing runtime properties. Blocking `Thread<T>` join,
 cancel, and finalization contracts require `blocking_execution()`. The async bridge turns current-task cancellation into
 request-thread-cancellation, shielded wait, terminal lifecycle resolution, and continuation of the original task cancellation. It
 uses a private async-finalizable standard-library owner rather than the public synchronous thread owner, preserving ordinary Bray
@@ -681,7 +681,7 @@ The implementation requires focused tests for:
 - lane requirement deferral, direct-await rejection, start routing, and product rejection,
 - distinguished main-thread root execution and main-thread requirement checking,
 - thread-affinity preservation,
-- open generic run-transfer template instantiation and synchronous/native execution-root facts,
+- open generic run-transfer template instantiation and synchronous/native execution-root runtime properties,
 - blocking thread-owner contracts and async thread-bridge cancellation,
 - typed process protocol layering, cancellation, reaping, and payload lifecycle,
 - process executable and codec authentication plus decode-after-reap commit ordering,
@@ -694,7 +694,7 @@ The implementation requires focused tests for:
 - runtime ABI version and feature mismatch,
 - sync and async entrypoint root lowering and structured product shutdown,
 - absence of runtime linkage for synchronous-only products,
-- deterministic structured diagnostics and inspection facts.
+- deterministic structured diagnostics and inspection runtime properties.
 
 The runtime conformance suite is expressed against observable runtime outcomes rather than one queue, allocator, or worker
 implementation. Each conforming runtime adapter runs the same direct-await, erased-frame, task-storage, panic, unobserved-result,

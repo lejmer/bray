@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use super::{TargetScalarFacts, TargetScalarKind};
+use super::{TargetScalarSupport, TargetScalarKind};
 
 const ALL_SCALARS: u32 = (1 << 22) - 1;
 const OPTIONAL_SCALARS: u32 = TargetScalarKind::R16.bit()
@@ -11,11 +11,11 @@ const REQUIRED_SCALARS: u32 = ALL_SCALARS & !OPTIONAL_SCALARS;
 
 /// Scalar representations accepted by one foreign callable ABI.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAbiScalarFacts {
+pub struct TargetAbiScalars {
     bits: u32,
 }
 
-impl TargetAbiScalarFacts {
+impl TargetAbiScalars {
     /// Creates the required portable scalar ABI surface.
     pub const fn required() -> Self {
         Self {
@@ -44,7 +44,7 @@ impl TargetAbiScalarFacts {
         self.bits & scalar.bit() != 0
     }
 
-    pub(crate) const fn is_supported_by(self, scalars: TargetScalarFacts) -> bool {
+    pub(crate) const fn is_supported_by(self, scalars: TargetScalarSupport) -> bool {
         (!self.supports(TargetScalarKind::R16) || scalars.real16())
             && (!self.supports(TargetScalarKind::R128) || scalars.real128())
             && (!self.supports(TargetScalarKind::C32) || scalars.complex32())
@@ -54,8 +54,8 @@ impl TargetAbiScalarFacts {
 
 /// By-value representation contract for one available foreign callable ABI.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetForeignAbiFacts {
-    scalars: TargetAbiScalarFacts,
+pub struct TargetForeignAbiContract {
+    scalars: TargetAbiScalars,
     raw_pointers: bool,
     qualified_callables: bool,
     c_layout: bool,
@@ -63,10 +63,10 @@ pub struct TargetForeignAbiFacts {
     max_alignment: NonZeroU64,
 }
 
-impl TargetForeignAbiFacts {
+impl TargetForeignAbiContract {
     /// Creates a complete foreign ABI acceptance contract.
     pub const fn new(
-        scalars: TargetAbiScalarFacts,
+        scalars: TargetAbiScalars,
         raw_pointers: bool,
         qualified_callables: bool,
         c_layout: bool,
@@ -84,7 +84,7 @@ impl TargetForeignAbiFacts {
     }
 
     /// Returns the scalar representations accepted by value.
-    pub const fn scalars(self) -> TargetAbiScalarFacts {
+    pub const fn scalars(self) -> TargetAbiScalars {
         self.scalars
     }
 
@@ -116,16 +116,16 @@ impl TargetForeignAbiFacts {
 
 /// Callable ABI families and their by-value contracts on one target.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAbiFacts {
-    c: Option<TargetForeignAbiFacts>,
-    system: Option<TargetForeignAbiFacts>,
+pub struct TargetAbiSupport {
+    c: Option<TargetForeignAbiContract>,
+    system: Option<TargetForeignAbiContract>,
 }
 
-impl TargetAbiFacts {
+impl TargetAbiSupport {
     /// Creates the available foreign callable ABI contracts.
     pub const fn new(
-        c: Option<TargetForeignAbiFacts>,
-        system: Option<TargetForeignAbiFacts>,
+        c: Option<TargetForeignAbiContract>,
+        system: Option<TargetForeignAbiContract>,
     ) -> Self {
         Self { c, system }
     }
@@ -136,7 +136,7 @@ impl TargetAbiFacts {
     }
 
     /// Returns the selected target's C ABI contract.
-    pub const fn c_contract(self) -> Option<TargetForeignAbiFacts> {
+    pub const fn c_contract(self) -> Option<TargetForeignAbiContract> {
         self.c
     }
 
@@ -146,11 +146,11 @@ impl TargetAbiFacts {
     }
 
     /// Returns the selected target's system ABI contract.
-    pub const fn system_contract(self) -> Option<TargetForeignAbiFacts> {
+    pub const fn system_contract(self) -> Option<TargetForeignAbiContract> {
         self.system
     }
 
-    pub(crate) const fn is_supported_by(self, scalars: TargetScalarFacts) -> bool {
+    pub(crate) const fn is_supported_by(self, scalars: TargetScalarSupport) -> bool {
         let c_valid = match self.c {
             Some(contract) => contract.scalars().is_supported_by(scalars),
             None => true,

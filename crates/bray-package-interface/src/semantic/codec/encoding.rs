@@ -1,14 +1,14 @@
 mod contract;
 mod declaration;
 mod directory;
-mod facts;
+mod bundle;
 mod model;
 mod support;
 mod surface;
 mod template;
 mod value;
 
-pub use facts::encode_semantic_facts;
-pub(crate) use facts::encode_validated_semantic_facts;
+pub use bundle::encode_semantics;
+pub(crate) use bundle::encode_validated_semantics;
 pub use model::EncodedSemanticSection;
 pub(crate) use template::encode_template_payload;

@@ -15,7 +15,7 @@ use super::super::*;
 pub const CATALOG_GRAMMAR_REVISION: CatalogGrammarRevision = CatalogGrammarRevision::new(1);
 
 /// Digest of the revisioned canonical catalog source identity.
-pub const CATALOG_SOURCE_DIGEST: &str = "4c2a9360cbc6a99aedb9f1b95691458fe5fc3f781084f44d001512f0224dff8a";
+pub const CATALOG_SOURCE_DIGEST: &str = "5744a56f9c7e75fc32ae90902d523e852a8c0a1112b7f449ebafb5f6e4bbcccc";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {

@@ -11,7 +11,7 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{PackageIdentity, PackageVersion};
 use bray_target::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetFactKind, TargetIdentity,
+    Endianness, ObjectFormat, TargetArchitecture, TargetPropertyKind, TargetIdentity,
     TargetMachineProperties,
 };
 
@@ -28,8 +28,8 @@ use super::{
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
-    PackageImplementationTargetFact, PackageImplementationTargetFactValue,
-    PackageImplementationTargetFacts,
+    PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
+    PackageImplementationTargetProperties,
 };
 use crate::external_key::{read_external_key, write_external_key};
 
@@ -269,7 +269,7 @@ fn write_configuration(
     encoder: &mut WireEncoder,
     configuration: &PackageImplementationConfiguration,
 ) {
-    write_target_facts(encoder, configuration.target_facts());
+    write_target_properties(encoder, configuration.target_properties());
 
     match configuration.runtime() {
         Some(runtime) => {
@@ -288,7 +288,7 @@ fn read_configuration(
     reader: &mut WireReader<'_>,
     budget: &mut DecodeBudget,
 ) -> Result<PackageImplementationConfiguration, InterfaceValidationError> {
-    let target = read_target_facts(reader, budget)?;
+    let target = read_target_properties(reader, budget)?;
 
     let runtime = match reader.read_u8().map_err(map_wire_error)? {
         0 => None,
@@ -315,30 +315,30 @@ fn read_configuration(
     ))
 }
 
-fn write_target_facts(encoder: &mut WireEncoder, target: &PackageImplementationTargetFacts) {
+fn write_target_properties(encoder: &mut WireEncoder, target: &PackageImplementationTargetProperties) {
     write_string(encoder, target.identity().as_str());
     write_machine(encoder, target.machine());
-    encoder.write_u16(u16::try_from(target.facts().len()).unwrap_or(u16::MAX));
+    encoder.write_u16(u16::try_from(target.properties().len()).unwrap_or(u16::MAX));
 
-    for fact in target.facts() {
-        let ordinal = TargetFactKind::ALL
+    for property in target.properties() {
+        let ordinal = TargetPropertyKind::ALL
             .iter()
-            .position(|kind| *kind == fact.kind())
+            .position(|kind| *kind == property.kind())
             .and_then(|ordinal| u16::try_from(ordinal).ok())
             .unwrap_or(u16::MAX);
 
         encoder.write_u16(ordinal);
 
-        match fact.value() {
-            PackageImplementationTargetFactValue::String(value) => {
+        match property.value() {
+            PackageImplementationTargetPropertyValue::String(value) => {
                 encoder.write_u8(0);
                 write_string(encoder, value.as_str());
             }
-            PackageImplementationTargetFactValue::Usize(value) => {
+            PackageImplementationTargetPropertyValue::Usize(value) => {
                 encoder.write_u8(1);
                 encoder.write_u64(*value);
             }
-            PackageImplementationTargetFactValue::Boolean(value) => {
+            PackageImplementationTargetPropertyValue::Boolean(value) => {
                 encoder.write_u8(2);
                 encoder.write_u8(u8::from(*value));
             }
@@ -346,26 +346,26 @@ fn write_target_facts(encoder: &mut WireEncoder, target: &PackageImplementationT
     }
 }
 
-fn read_target_facts(
+fn read_target_properties(
     reader: &mut WireReader<'_>,
     budget: &mut DecodeBudget,
-) -> Result<PackageImplementationTargetFacts, InterfaceValidationError> {
+) -> Result<PackageImplementationTargetProperties, InterfaceValidationError> {
     let identity = TargetIdentity::try_new(read_string(reader, budget.limits())?)
         .ok_or(InterfaceValidationError::Malformed)?;
 
     let machine = read_machine(reader)?;
     let count = usize::from(reader.read_u16().map_err(map_wire_error)?);
 
-    if count != TargetFactKind::ALL.len() {
+    if count != TargetPropertyKind::ALL.len() {
         return Err(InterfaceValidationError::Malformed);
     }
 
-    let mut facts = budget.allocate_items_with_minimum(reader, count, 3)?;
+    let mut properties = budget.allocate_items_with_minimum(reader, count, 3)?;
 
-    for expected in TargetFactKind::ALL {
+    for expected in TargetPropertyKind::ALL {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
 
-        let kind = TargetFactKind::ALL
+        let kind = TargetPropertyKind::ALL
             .get(ordinal)
             .copied()
             .ok_or(InterfaceValidationError::Malformed)?;
@@ -375,14 +375,14 @@ fn read_target_facts(
         }
 
         let value = match reader.read_u8().map_err(map_wire_error)? {
-            0 => PackageImplementationTargetFactValue::String(
+            0 => PackageImplementationTargetPropertyValue::String(
                 bray_base::NonEmptySharedStr::try_new(read_string(reader, budget.limits())?)
                     .ok_or(InterfaceValidationError::Malformed)?,
             ),
-            1 => PackageImplementationTargetFactValue::Usize(
+            1 => PackageImplementationTargetPropertyValue::Usize(
                 reader.read_u64().map_err(map_wire_error)?,
             ),
-            2 => PackageImplementationTargetFactValue::Boolean(
+            2 => PackageImplementationTargetPropertyValue::Boolean(
                 match reader.read_u8().map_err(map_wire_error)? {
                     0 => false,
                     1 => true,
@@ -392,10 +392,10 @@ fn read_target_facts(
             _ => return Err(InterfaceValidationError::Malformed),
         };
 
-        facts.push(PackageImplementationTargetFact::new(kind, value));
+        properties.push(PackageImplementationTargetProperty::new(kind, value));
     }
 
-    PackageImplementationTargetFacts::try_from_parts(identity, machine, facts)
+    PackageImplementationTargetProperties::try_from_parts(identity, machine, properties)
         .ok_or(InterfaceValidationError::Malformed)
 }
 
@@ -866,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn target_machine_properties_must_match_their_individual_target_facts() {
+    fn target_machine_properties_must_match_their_individual_target_properties() {
         let configuration = crate::test_support::implementation_configuration();
         let mut encoder = WireEncoder::new();
 

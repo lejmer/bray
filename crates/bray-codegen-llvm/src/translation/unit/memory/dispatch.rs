@@ -318,10 +318,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         kind: CheckedMemoryOperationKind,
     ) -> Result<(), CodegenFailure> {
-        let facts = self.request.target().profile().facts();
-        let operations = facts.operations();
+        let properties = self.request.target().profile().properties();
+        let operations = properties.operations();
 
-        let control = bray_target::TargetControlFacts::for_architecture(
+        let control = bray_target::TargetControlSupport::for_architecture(
             self.request.target().profile().machine().architecture(),
         );
 
@@ -372,7 +372,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::VolatileWrite {
                 address_space: VolatileAddressSpace::Device,
                 ..
-            } => operations.raw_memory() && facts.address_spaces().device(),
+            } => operations.raw_memory() && properties.address_spaces().device(),
             CheckedMemoryOperationKind::InlineAssembly { .. } => control.inline_assembly(),
             _ => operations.raw_memory(),
         };
@@ -439,15 +439,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Ok(false),
         };
 
-        let facts = self
+        let support = self
             .request
             .target()
             .profile()
-            .facts()
+            .properties()
             .atomics()
             .representation(representation);
 
-        let operations = facts.operations();
+        let operations = support.operations();
 
         Ok(match kind {
             CheckedMemoryOperationKind::AtomicInitialize { .. }
@@ -464,7 +464,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => operations.fetch_arithmetic(),
             CheckedMemoryOperationKind::AtomicFetch { .. } => operations.fetch_bitwise(),
             CheckedMemoryOperationKind::AtomicWait { .. }
-            | CheckedMemoryOperationKind::AtomicNotify { .. } => facts.wait_notify(),
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => support.wait_notify(),
             _ => false,
         })
     }
@@ -491,7 +491,7 @@ mod tests {
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
         MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts, MirTerminatorKind,
+        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
         MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
@@ -501,8 +501,8 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
-        TargetAtomicFacts, TargetAtomicOperationFacts, TargetAtomicRepresentationFacts,
-        TargetAddressSpaceFacts, TargetFacts, TargetLayoutContract, TargetOperationFacts,
+        TargetAtomicSupport, TargetAtomicOperations, TargetAtomicRepresentationSupport,
+        TargetAddressSpaces, TargetProperties, TargetLayoutContract, TargetOperationSupport,
         TargetProfile, TargetValueLayout,
     };
     use inkwell::context::Context;
@@ -762,7 +762,7 @@ mod tests {
         let types = memory_types();
 
         let mir_target =
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
         let bound = bray_testing::test_bound_unit(171);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -1602,24 +1602,24 @@ mod tests {
     fn memory_target(raw_memory: bool, allocation: bool) -> bray_codegen::CodegenTarget {
         let profile = test_target_profile();
 
-        let baseline = profile.facts();
+        let baseline = profile.properties();
 
-        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+        let address_spaces = TargetAddressSpaces::try_new(true, true)
             .unwrap_or_else(|| panic!("memory test address spaces must be valid"));
 
-        let facts = TargetFacts::new(
+        let properties = TargetProperties::new(
             baseline.identity().clone(),
             baseline.scalars(),
-            test_atomic_facts(),
+            test_atomic_support(),
             baseline.abis(),
             baseline.c_abi(),
             address_spaces,
             baseline.alignments(),
-            TargetOperationFacts::new(raw_memory, allocation),
+            TargetOperationSupport::new(raw_memory, allocation),
         );
 
         let profile =
-            TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
+            TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), properties)
                 .unwrap_or_else(|error| {
                     panic!("memory test target profile must be valid: {error:?}")
                 });
@@ -1836,19 +1836,19 @@ mod tests {
         );
     }
 
-    fn test_atomic_facts() -> TargetAtomicFacts {
-        let unavailable = |alignment| TargetAtomicRepresentationFacts::unavailable(alignment);
+    fn test_atomic_support() -> TargetAtomicSupport {
+        let unavailable = |alignment| TargetAtomicRepresentationSupport::unavailable(alignment);
 
-        let available = TargetAtomicRepresentationFacts::try_new(
-            TargetAtomicOperationFacts::integer(),
+        let available = TargetAtomicRepresentationSupport::try_new(
+            TargetAtomicOperations::integer(),
             NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN),
             true,
             true,
             true,
         )
-        .unwrap_or_else(|| panic!("atomic test facts must be valid"));
+        .unwrap_or_else(|| panic!("atomic test support must be valid"));
 
-        TargetAtomicFacts::new(
+        TargetAtomicSupport::new(
             unavailable(NonZeroU64::MIN),
             unavailable(NonZeroU64::new(2).unwrap_or(NonZeroU64::MIN)),
             available,

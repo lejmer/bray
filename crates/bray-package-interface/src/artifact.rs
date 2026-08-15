@@ -166,7 +166,7 @@ pub(crate) fn encode_interface_artifact(
         .into_iter()
         .map(EncodedArtifactSection::from_surface)
         .chain(
-            crate::semantic::encode_validated_semantic_facts(bundle.semantic_facts())
+            crate::semantic::encode_validated_semantics(bundle.semantics())
                 .into_iter()
                 .map(EncodedArtifactSection::from_semantic),
         )

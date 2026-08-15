@@ -6,7 +6,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     BorrowKind, GenericConstraintTemplate, GenericDeclarationTemplate, GenericParameterSymbolId,
     ImplementationSymbolId, NamedTypeSymbolId, SemanticValueStore, SemanticValueStoreError,
-    SymbolKey, TargetFactDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
+    SymbolKey, TargetPropertyDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -63,7 +63,7 @@ pub(in crate::compilation) struct ImplementationHeader {
     subject: TypeId,
     trait_application: TraitApplicationId,
     generic: GenericDeclarationTemplate,
-    target_dependencies: Arc<[TargetFactDependency]>,
+    target_dependencies: Arc<[TargetPropertyDependency]>,
     diagnostics: DiagnosticBag,
 }
 
@@ -74,7 +74,7 @@ impl ImplementationHeader {
         subject: TypeId,
         trait_application: TraitApplicationId,
         generic: GenericDeclarationTemplate,
-        target_dependencies: impl IntoIterator<Item = TargetFactDependency>,
+        target_dependencies: impl IntoIterator<Item = TargetPropertyDependency>,
         diagnostics: DiagnosticBag,
     ) -> Self {
         Self {
@@ -116,7 +116,7 @@ impl ImplementationHeader {
         self.generic.constraints()
     }
 
-    pub(super) fn target_dependencies(&self) -> &[TargetFactDependency] {
+    pub(super) fn target_dependencies(&self) -> &[TargetPropertyDependency] {
         &self.target_dependencies
     }
 

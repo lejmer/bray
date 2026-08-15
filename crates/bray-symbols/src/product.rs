@@ -73,7 +73,7 @@ pub enum TestResultShape {
     Recoverable,
 }
 
-/// Validated semantic properties of one test product entry.
+/// Validated semantics of one test product entry.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProductTestEntry {
     function: FunctionSymbolId,
@@ -145,7 +145,7 @@ impl ProductTestEntry {
 
 /// Semantic roots and public declarations of one selected product.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ProductSemanticFacts {
+pub struct ProductSemantics {
     kind: ProductKind,
     entrypoint: Option<FunctionSymbolId>,
     test_entries: Arc<[ProductTestEntry]>,
@@ -154,7 +154,7 @@ pub struct ProductSemanticFacts {
     is_recovered: bool,
 }
 
-impl ProductSemanticFacts {
+impl ProductSemantics {
     /// Creates one immutable selected-product semantic surface.
     pub fn new(
         kind: ProductKind,

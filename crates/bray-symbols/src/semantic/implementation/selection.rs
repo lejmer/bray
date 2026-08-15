@@ -9,7 +9,7 @@ use crate::{ImplementationInstanceId, SymbolKey};
 pub enum ImplementationSelection {
     /// One exact implementation witness was selected.
     Selected(ImplementationInstanceId),
-    /// Applicability cannot yet be decided from the available semantic facts.
+    /// Applicability cannot yet be decided from the available semantics.
     Deferred,
     /// No applicable implementation exists.
     Unavailable,

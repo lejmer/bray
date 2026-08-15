@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId, StorageIdentity,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageIdentity,
     StoragePlan, StorageProjection, StorageRelationship,
 };
 
@@ -22,32 +22,32 @@ pub(super) fn projection_is_available(
     storage: &StoragePlan,
     access: StorageAccessId,
     projection: StorageProjection,
-    refinements: &[RefinementFact],
+    refinements: &[Refinement],
 ) -> bool {
-    let related = refinements.iter().filter(|fact| {
-        fact.dependencies().iter().any(|dependency| {
+    let related = refinements.iter().filter(|refinement| {
+        refinement.dependencies().iter().any(|dependency| {
             storage.relationship(*dependency, access) != StorageRelationship::Disjoint
         })
     });
 
     match projection {
-        StorageProjection::NullableValue => related.into_iter().any(|fact| {
+        StorageProjection::NullableValue => related.into_iter().any(|refinement| {
             matches!(
-                fact.kind(),
-                RefinementFactKind::NullablePresence {
+                refinement.kind(),
+                RefinementKind::NullablePresence {
                     is_present: true,
                     ..
-                } | RefinementFactKind::Pattern {
+                } | RefinementKind::Pattern {
                     predicate: PatternPredicate::NullablePresent,
                     ..
                 }
             )
         }),
         StorageProjection::ActiveUnionPayloadField { variant, .. } => {
-            related.into_iter().any(|fact| {
+            related.into_iter().any(|refinement| {
                 matches!(
-                    fact.kind(),
-                    RefinementFactKind::Pattern {
+                    refinement.kind(),
+                    RefinementKind::Pattern {
                         predicate: PatternPredicate::ActiveUnionVariant(active),
                         ..
                     } if active == variant

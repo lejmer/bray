@@ -10,7 +10,7 @@ mod compiler_known;
 mod diagnostic;
 mod error;
 mod external;
-mod fact;
+mod semantic;
 mod graph;
 mod id;
 mod imported;
@@ -40,10 +40,10 @@ pub mod testing;
 
 pub use compiler_known::{
     AvailableCompilerKnownSymbols, CompilerKnownCatalogAudit, CompilerKnownCatalogAuditError,
-    CompilerKnownCatalogAuditReport, CompilerKnownDeclarationFact, CompilerKnownIterationProtocol,
+    CompilerKnownCatalogAuditReport, CompilerKnownDeclarationSemantics, CompilerKnownIterationProtocol,
     CompilerKnownOperationContract, CompilerKnownOrderingRepresentation,
     CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
-    CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
+    CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError, CompilerKnownSemanticKey,
     CompilerKnownSymbolProvider, CompilerKnownSymbolRoleRegistry, CompilerKnownTargetProfile,
 };
 pub use diagnostic::{
@@ -54,22 +54,22 @@ pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
-pub use fact::CallableSignatureTemplateError;
-pub use fact::{
+pub use semantic::CallableSignatureTemplateError;
+pub use semantic::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
     CallableContractClauseValue, CallableContractExpressionTemplate, CallableContractSet,
-    CallableContractTemplate, CallableContractTemplateFact, CallableContractTypeFact,
-    CallableContractsFact, CallableEffectRequirement, CallableExecutionRequirement,
-    CallableOverloadTemplateFact, CallableParameterDefaultFact, CallableParameterDefaultSurface,
-    CallableParameterDefaultTemplateFact, CallableParameterDefaultValue,
+    CallableContractTemplate, CallableContractTemplateQuery, CallableContractTypeQuery,
+    CallableContractsQuery, CallableEffectRequirement, CallableExecutionRequirement,
+    CallableOverloadTemplateQuery, CallableParameterDefaultQuery, CallableParameterDefaultSurface,
+    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
     CallableParameterSignature, CallableParameterTypeTemplate, CallablePhaseBehavior,
-    CallablePhaseBehaviors, CallableSignature, CallableSignatureFact, CallableSignatureTemplate,
+    CallablePhaseBehaviors, CallableSignature, CallableSignatureQuery, CallableSignatureTemplate,
     CallableTypeDirectiveKey, CallableTypeTemplate, CheckedCallableParameterDefault,
     CheckedConstraint, CheckedConstraintKind, CheckedStructFieldDefault,
-    CheckedUnionPayloadDefault, ConstantDeclaredTypeFact, ConstantDefinition,
-    ConstantDefinitionFact, ConstantDefinitionState, ConstantExpressionExpectedType,
+    CheckedUnionPayloadDefault, ConstantDeclaredTypeQuery, ConstantDefinition,
+    ConstantDefinitionQuery, ConstantDefinitionState, ConstantExpressionExpectedType,
     ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey, ConstantInstanceKey,
-    CurrentRunCancellation, DeclarationCapabilityTemplate, DeclarationDirectivesFact,
+    CurrentRunCancellation, DeclarationCapabilityTemplate, DeclarationDirectivesQuery,
     DeclarationExpressionTemplate, DeclarationPredicateClauseKind, DeclaredCopyContract,
     DeclaredLayoutMode, DeclaredStorageShape, DeclaredStructStorageMember,
     DeclaredTypeRepresentation, DeclaredUnionStorageMember, DeclaredUnionStorageVariant,
@@ -77,46 +77,46 @@ pub use fact::{
     DirectiveKind, DirectiveSurface, DirectiveTemplate, ErrorCallableParameterDefault,
     ErrorConstantDefinition, ErrorPredicateDefinition, ErrorStructFieldDefault,
     ErrorUnionPayloadDefault, ForeignCallableContract, ForeignCallableDirection,
-    GenericArgumentTemplate, GenericConstParameterDeclaredTypeFact, GenericConstraintObligationKey,
-    GenericConstraintSatisfactionFact, GenericConstraintSet, GenericConstraintTemplate,
-    GenericConstraintsFact, GenericDeclarationTemplate, GenericDeclarationTemplateFact,
+    GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery, GenericConstraintObligationKey,
+    GenericConstraintSatisfactionQuery, GenericConstraintSet, GenericConstraintTemplate,
+    GenericConstraintsQuery, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
     ImplementationCandidateError, ImplementationCandidateSet, ImplementationCandidateSetError,
-    ImplementationCandidateSetFact, ImplementationCoherenceDomainKey,
+    ImplementationCandidateSetQuery, ImplementationCoherenceDomainKey,
     ImplementationCoherenceEvidence, ImplementationCoherenceEvidenceError,
-    ImplementationCoherenceFact, ImplementationCoherenceKey, ImplementationCoherenceParticipant,
-    ImplementationHeadTemplate, ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact,
-    ImplementationParticipationEvidence, ImplementationParticipationFact,
+    ImplementationCoherenceQuery, ImplementationCoherenceKey, ImplementationCoherenceParticipant,
+    ImplementationHeadTemplate, ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
+    ImplementationParticipationEvidence, ImplementationParticipationQuery,
     ImplementationParticipationKind, ImplementationParticipationSet,
     ImplementationParticipationSetError, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSelectionCandidate, ImplementationSelectionFact, ImplementationSubject,
-    ImplementationSubjectFact, ImplementationSubjectTemplate, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, ModuleContributionGate, ModuleReExport, ModuleSurface,
-    ModuleSurfaceFact, ModuleUsing, NativeLinkKind, NativeLinkRequirement,
+    ImplementationSelectionCandidate, ImplementationSelectionQuery, ImplementationSubject,
+    ImplementationSubjectQuery, ImplementationSubjectTemplate, ImplementedTraitApplicationQuery,
+    InherentTypeMemberValueQuery, ModuleContributionGate, ModuleReExport, ModuleSurface,
+    ModuleSurfaceQuery, ModuleUsing, NativeLinkKind, NativeLinkRequirement,
     NeverCancelSymbolCompletion, OverloadArmTemplate, OverloadSignatureTemplate,
-    ParticipatingImplementation, PredicateDefinition, PredicateDefinitionFact,
+    ParticipatingImplementation, PredicateDefinition, PredicateDefinitionQuery,
     PredicateDefinitionState, PredicateParameterTemplate, PredicateSemanticSummary,
-    PredicateSignatureTemplate, PredicateSignatureTemplateFact, ProofOutcome, ReceiverMode,
+    PredicateSignatureTemplate, PredicateSignatureTemplateQuery, ProofOutcome, ReceiverMode,
     ReceiverParameterSignature, RuntimeDefaultBehavior, RuntimeDefaultCapabilityRequirement,
     RuntimeDefaultEffectRequirement, RuntimeDefaultGenericArguments, RuntimeDefaultGenericContext,
     RuntimeDefaultOwnership, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
     RuntimeDefaultTrustedObligation, SemanticFactContract, SemanticFactResult,
-    SourceCallableContractTemplate, StructFieldDefaultFact, StructFieldDefaultSurface,
-    StructFieldDefaultTemplateFact, StructFieldDefaultValue, StructFieldTypeFact,
+    SourceCallableContractTemplate, StructFieldDefaultQuery, StructFieldDefaultSurface,
+    StructFieldDefaultTemplateQuery, StructFieldDefaultValue, StructFieldTypeQuery,
     SymbolCompletionLevel, SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionUnit,
     SymbolFactCompletionRequest, SymbolFactContract, SymbolFactForcer, SymbolFactKind,
-    SymbolFactRequest, SymbolFactResult, TargetFactDependency, TraitApplicationTemplate,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitConstraintDispatch, TraitImplementationConformance, TraitImplementationConformanceFact,
-    TraitMemberFulfillmentId, TraitMemberRequirementId, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitRequirementConformance, TraitRequirementResolution,
-    TraitTypeFulfillmentValueFact, TrustedCapabilityRequirement, TypeAssociatedImplementation,
+    SymbolFactRequest, SymbolFactResult, TargetPropertyDependency, TraitApplicationTemplate,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
+    TraitConstraintDispatch, TraitImplementationConformance, TraitImplementationConformanceQuery,
+    TraitMemberFulfillmentId, TraitMemberRequirementId, TraitPredicateFulfillmentDefinitionQuery,
+    TraitPredicateMemberDefinitionQuery, TraitRequirementConformance, TraitRequirementResolution,
+    TraitTypeFulfillmentValueQuery, TrustedCapabilityRequirement, TypeAssociatedImplementation,
     TypeAssociatedLifecycleMember, TypeAssociatedLifecycleSlot, TypeAssociatedMember,
     TypeAssociatedMemberOrigin, TypeAssociatedSurface, TypeAssociatedSurfaceBuildError,
     TypeExpressionTemplate, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface,
-    UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact,
-    UnionPayloadFieldTypeFact,
+    UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    UnionPayloadFieldTypeQuery,
 };
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
@@ -141,7 +141,7 @@ pub use id::{
 };
 pub use imported::{
     ImportedIdentitySurfaceError, ImportedLookupEdge, ImportedPackageIdentitySurface,
-    ImportedSymbolFactAddress, ImportedSymbolFactKey, ImportedSymbolIdentity,
+    ImportedSemanticAddress, ImportedSemanticKey, ImportedSymbolIdentity,
     ImportedSymbolIdentityInput, ImportedSymbolRelationship, ImportedSymbolSkeleton,
     ImportedSymbolSkeletonBuildError, ImportedSymbolSkeletonInput,
 };
@@ -166,7 +166,7 @@ pub use member::{
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
 pub use product::{
-    ProductIdentity, ProductKind, ProductSemanticFacts, ProductTestEntry, TestExecutionConstraint,
+    ProductIdentity, ProductKind, ProductSemantics, ProductTestEntry, TestExecutionConstraint,
     TestResultShape,
 };
 pub use provider::{SymbolProvider, SymbolRecordId};

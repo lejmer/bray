@@ -28,9 +28,9 @@ pub enum MemoryOffsetUnit {
 /// Ownership effect of reading a value from raw storage.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MemoryReadKind {
-    /// Copy the value while preserving the source initialization fact.
+    /// Copy the value while preserving the source initialization state.
     Copy,
-    /// Move the value and invalidate the source initialization fact.
+    /// Move the value and invalidate the source initialization state.
     Move,
 }
 
@@ -300,7 +300,7 @@ impl InlineAssemblyOperand {
     /// Creates one descriptor from its checked structural positions and constraint spelling.
     #[expect(
         clippy::too_many_arguments,
-        reason = "an assembly operand retains each checked structural fact explicitly"
+        reason = "an assembly operand retains each checked structural field explicitly"
     )]
     pub const fn new(
         kind: InlineAssemblyOperandKind,
@@ -852,12 +852,12 @@ pub enum CheckedMemoryOperationKind {
         /// Ownership effect selected from the type's copy contract.
         kind: MemoryReadKind,
     },
-    /// Write one value into raw storage and establish its initialization fact.
+    /// Write one value into raw storage and establish its initialization state.
     Write {
         /// Written value type.
         pointee: TypeId,
     },
-    /// Copy a representation-level range and establish destination initialization facts.
+    /// Copy a representation-level range and establish destination initialization state.
     Copy {
         /// Copied element type.
         pointee: TypeId,
@@ -877,7 +877,7 @@ pub enum CheckedMemoryOperationKind {
     RawDeallocate,
     /// Create a distinct owned writable allocation from a layout value.
     Allocate,
-    /// Release an owned allocation and invalidate its dependent facts.
+    /// Release an owned allocation and invalidate its dependent state.
     Deallocate,
     /// Read a raw buffer's capacity.
     RawBufferCapacity,
@@ -1396,8 +1396,8 @@ pub enum MemoryOperationStatus {
     Valid,
     /// Recovery prevents a complete decision.
     Recovered,
-    /// No live trusted fact source acknowledges the operation's caller obligations.
-    MissingTrustedFacts,
+    /// No live trusted evidence source acknowledges the operation's caller obligations.
+    MissingTrustedEvidence,
     /// The operation reaches an allocation invalidated by deallocation.
     InvalidatedAllocation,
     /// The operation reads raw storage without an initialized value of the required type.

@@ -419,32 +419,36 @@ impl InterfaceCoherenceRecord {
     }
 }
 
-/// One target fact and exact value required by an exported semantic fact.
+/// One target property and exact value required by an exported semantic record.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct InterfaceTargetFactDependency {
+pub struct InterfaceTargetPropertyDependency {
     pub(crate) owner: InterfaceSymbolReference,
-    pub(crate) fact: InterfaceSymbolReference,
+    pub(crate) property: InterfaceSymbolReference,
     pub(crate) value: InterfaceConstantValueId,
 }
 
-impl InterfaceTargetFactDependency {
-    /// Creates one exact target-fact requirement.
+impl InterfaceTargetPropertyDependency {
+    /// Creates one exact target-property requirement.
     pub const fn new(
         owner: InterfaceSymbolReference,
-        fact: InterfaceSymbolReference,
+        property: InterfaceSymbolReference,
         value: InterfaceConstantValueId,
     ) -> Self {
-        Self { owner, fact, value }
+        Self {
+            owner,
+            property,
+            value,
+        }
     }
 
-    /// Returns the semantic fact that consumes this requirement.
+    /// Returns the semantic record that consumes this requirement.
     pub const fn owner(&self) -> &InterfaceSymbolReference {
         &self.owner
     }
 
-    /// Returns the required target-fact declaration.
-    pub const fn fact(&self) -> &InterfaceSymbolReference {
-        &self.fact
+    /// Returns the required target-property declaration.
+    pub const fn property(&self) -> &InterfaceSymbolReference {
+        &self.property
     }
 
     /// Returns the required canonical value.
@@ -516,9 +520,9 @@ pub struct InterfaceSourceProvenance {
     pub(crate) end: u32,
 }
 
-/// Symbol-owned semantic fact category addressable through the fact directory.
+/// Symbol-owned semantic record category addressable through the record directory.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum InterfaceSemanticFactKind {
+pub enum InterfaceSemanticRecordKind {
     /// Complete source-independent callable signature template.
     CallableSignature,
     /// Ordered generic declaration template.
@@ -539,35 +543,35 @@ pub enum InterfaceSemanticFactKind {
     DeclarationTemplate,
     /// Public implementation subject and applied trait.
     Implementation,
-    /// Required target fact value.
-    TargetFact,
+    /// Required target property value.
+    TargetProperty,
     /// Required callable ABI.
     Abi,
     /// Required portable runtime ABI and protected-frame compatibility.
     Runtime,
 }
 
-/// One stable fact-directory entry.
+/// One stable record-directory entry.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct InterfaceSemanticFactEntry {
+pub struct InterfaceSemanticRecord {
     pub(crate) owner: InterfaceSymbolReference,
-    pub(crate) kind: InterfaceSemanticFactKind,
+    pub(crate) kind: InterfaceSemanticRecordKind,
     pub(crate) section: crate::InterfaceSectionTag,
     pub(crate) record: u32,
 }
 
-impl InterfaceSemanticFactEntry {
-    /// Returns the exact symbol that owns this fact.
+impl InterfaceSemanticRecord {
+    /// Returns the exact symbol that owns this record.
     pub const fn owner(&self) -> &InterfaceSymbolReference {
         &self.owner
     }
 
-    /// Returns the stable semantic fact category.
-    pub const fn kind(&self) -> InterfaceSemanticFactKind {
+    /// Returns the stable semantic record category.
+    pub const fn kind(&self) -> InterfaceSemanticRecordKind {
         self.kind
     }
 
-    /// Returns the section containing the fact payload.
+    /// Returns the section containing the record payload.
     pub const fn section(&self) -> crate::InterfaceSectionTag {
         self.section
     }

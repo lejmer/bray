@@ -8,29 +8,29 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{ModulePartRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableTypeDirectiveKey, DeclarationDirectivesFact, DirectiveAttachment,
+    AnySymbolId, CallableTypeDirectiveKey, DeclarationDirectivesQuery, DirectiveAttachment,
     DirectiveKind, DirectiveSurface, DirectiveTemplate, ModuleSymbolId, SymbolFactContract,
     SymbolFactRequest, SymbolFactResult, SymbolKeyData,
 };
 use bray_syntax::{SyntaxNodeView, SyntaxWalkControl, walk_direct_child_nodes};
 
 use super::binding::{CompilationSymbolFactBinding, binder_error};
-use super::cache::CompilationSymbolFacts;
+use super::cache::CompilationSymbolSemantics;
 use super::surface::{syntax_node_for_anchor, with_declaration_root};
 use crate::compilation::Compilation;
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
 use crate::fact::{FactQueryError, SymbolFactCache};
 
-impl CompilationSymbolFactBinding<DeclarationDirectivesFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<DeclarationDirectivesFact> {
+impl CompilationSymbolFactBinding<DeclarationDirectivesQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolFactCache<DeclarationDirectivesQuery> {
         &self.declaration_directives
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<DeclarationDirectivesFact>,
-    ) -> BinderFactResult<SymbolFactResult<DeclarationDirectivesFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolFactRequest<DeclarationDirectivesQuery>,
+    ) -> BinderFactResult<SymbolFactResult<DeclarationDirectivesQuery>> {
         bind_declaration_directives(context, request.owner())
     }
 }
@@ -41,14 +41,14 @@ impl Compilation {
         &self,
         symbol: AnySymbolId,
     ) -> Result<Arc<DiagnosticResult<DirectiveSurface>>, FactQueryError> {
-        if !DeclarationDirectivesFact::KIND.is_applicable_to(symbol) {
+        if !DeclarationDirectivesQuery::KIND.is_applicable_to(symbol) {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
-        facts
-            .symbol_fact(SymbolFactRequest::<DeclarationDirectivesFact>::new(symbol))
+        binding_context
+            .symbol_fact(SymbolFactRequest::<DeclarationDirectivesQuery>::new(symbol))
             .map_err(binder_fact_error)
     }
 
@@ -72,7 +72,7 @@ impl Compilation {
             crate::fact::CompilationFactKey::CallableTypeDirectives(key),
             cancellation,
             || {
-                let context = self.binder_facts(cancellation)?;
+                let context = self.binding_context(cancellation)?;
 
                 let syntax =
                     syntax_node_for_anchor(&context, key.syntax()).map_err(binder_fact_error)?;
@@ -99,9 +99,9 @@ impl Compilation {
 }
 
 fn bind_declaration_directives(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<SymbolFactResult<DeclarationDirectivesFact>> {
+) -> BinderFactResult<SymbolFactResult<DeclarationDirectivesQuery>> {
     let mut diagnostics = DiagnosticBag::new();
 
     let directives = match owner {
@@ -116,7 +116,7 @@ fn bind_declaration_directives(
 }
 
 fn bind_module_directives(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: ModuleSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<Vec<DirectiveTemplate>> {
@@ -149,7 +149,7 @@ fn bind_module_directives(
 }
 
 pub(in crate::compilation) fn bind_module_part_directives_for_selection(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: ModuleSymbolId,
     part: &ModulePartRecord,
 ) -> BinderFactResult<DiagnosticResult<DirectiveSurface>> {
@@ -185,7 +185,7 @@ pub(in crate::compilation) fn bind_module_part_directives_for_selection(
 }
 
 fn bind_nonmodule_directives(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<Vec<DirectiveTemplate>> {
@@ -225,7 +225,7 @@ fn bind_nonmodule_directives(
 }
 
 fn bind_anchors(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     attachment: DirectiveAttachment,
     anchors: &[SyntaxAnchor],
@@ -254,7 +254,7 @@ fn bind_anchors(
 }
 
 fn bind_directive_argument_diagnostics(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     directives: &[DirectiveTemplate],
     diagnostics: &mut DiagnosticBag,
@@ -302,7 +302,7 @@ fn bind_directive_argument_diagnostics(
 }
 
 fn directive_argument_is_bare_symbol(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     syntax: SyntaxAnchor,
 ) -> BinderFactResult<bool> {
     let source = context
@@ -319,7 +319,7 @@ fn directive_argument_is_bare_symbol(
 }
 
 fn bind_compiler_known_directives(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<Vec<DirectiveTemplate>> {
@@ -391,7 +391,7 @@ mod tests {
     use bray_declarations::SyntaxAnchor;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        CallableSignatureFact, CallableSymbolId, CallableTypeDirectiveKey, DirectiveArgumentName,
+        CallableSignatureQuery, CallableSymbolId, CallableTypeDirectiveKey, DirectiveArgumentName,
         DirectiveAttachment, DirectiveKind, ProductKind, SymbolFactRequest, SymbolOrigin,
         TypeExpressionTemplate,
     };
@@ -402,7 +402,7 @@ mod tests {
 
     use super::Compilation;
     use crate::WorkerBudget;
-    use crate::compilation::binder::symbol::test_support::{binder_facts, published_fact};
+    use crate::compilation::binder::symbol::test_support::{binding_context, published_fact};
     use crate::fact::CancellationToken;
     use crate::test_support::{
         compilation, compilation_with_product, compilation_with_sources_product_and_worker_budget,
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn type_and_variant_directives_publish_through_the_same_fact() {
+    fn type_and_variant_directives_publish_through_the_same_query() {
         let compilation = compilation(concat!(
             "module app;\n",
             "\n",
@@ -721,11 +721,11 @@ mod tests {
         };
 
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
+        let binding_context = binding_context(&compilation, &cancellation);
 
         let signature = published_fact(
-            &facts,
-            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function.id())),
+            &binding_context,
+            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function.id())),
         );
 
         let values = compilation

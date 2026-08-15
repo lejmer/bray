@@ -1,6 +1,6 @@
-/// One language-defined fact exposed under the compiler-known `target` path.
+/// One language-defined property exposed under the compiler-known `target` path.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum TargetFactKind {
+pub enum TargetPropertyKind {
     /// `target.identity.NAME`.
     IdentityName,
     /// `target.identity.ARCH`.
@@ -177,8 +177,8 @@ pub enum TargetFactKind {
     PlatformDynamicLoading,
 }
 
-impl TargetFactKind {
-    /// Every language-defined target fact in stable path order.
+impl TargetPropertyKind {
+    /// Every language-defined target property in stable path order.
     pub const ALL: &'static [Self] = &[
         Self::IdentityName,
         Self::IdentityArchitecture,
@@ -269,7 +269,7 @@ impl TargetFactKind {
         Self::PlatformDynamicLoading,
     ];
 
-    /// Returns the language-defined target-fact path.
+    /// Returns the language-defined target-property path.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::IdentityName => "target.identity.NAME",
@@ -362,7 +362,7 @@ impl TargetFactKind {
         }
     }
 
-    /// Finds the language-defined target fact with the supplied exact path.
+    /// Finds the language-defined target property with the supplied exact path.
     pub fn from_path(path: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|kind| kind.as_str() == path)
     }

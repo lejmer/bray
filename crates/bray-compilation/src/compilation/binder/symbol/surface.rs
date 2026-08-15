@@ -11,7 +11,7 @@ use bray_syntax::{
     walk_direct_child_nodes,
 };
 
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 
 pub(super) struct CallableSurface {
     pub(super) parameters: ParameterListSyntax,
@@ -21,7 +21,7 @@ pub(super) struct CallableSurface {
 }
 
 pub(super) fn declaration_callable_surface(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<CallableSurface> {
     with_declaration_root(context, symbol, |root| callable_surface(root, symbol))
@@ -185,7 +185,7 @@ pub(super) fn compiler_known_surface(
 ) -> BinderFactResult<&'static bray_compiler_known::CatalogDeclarationSurfaceSyntax> {
     symbols
         .compiler_known_provider()
-        .declaration_fact_for_symbol(symbol)
+        .declaration_semantics_for_symbol(symbol)
         .map(|fact| fact.surface())
         .ok_or(BinderFactError::DependencyUnavailable)
 }
@@ -197,7 +197,7 @@ pub(super) fn symbol_ordinal(index: usize) -> BinderFactResult<bray_symbols::Sym
 }
 
 pub(super) fn declaration_syntax<T>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<T>
 where
@@ -210,7 +210,7 @@ where
 }
 
 pub(super) fn declaration_child<T>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<T>
 where
@@ -234,7 +234,7 @@ where
 }
 
 pub(super) fn with_declaration_root<R>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     consume: impl FnOnce(SyntaxNodeView<'_>) -> BinderFactResult<R>,
 ) -> BinderFactResult<R> {
@@ -254,7 +254,7 @@ pub(super) fn with_declaration_root<R>(
 }
 
 pub(super) fn syntax_node_for_anchor<'syntax>(
-    context: &'syntax CompilationBinderFacts<'_>,
+    context: &'syntax CompilationBindingContext<'_>,
     anchor: SyntaxAnchor,
 ) -> BinderFactResult<SyntaxNodeView<'syntax>> {
     context

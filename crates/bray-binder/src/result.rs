@@ -36,7 +36,7 @@ impl BoundUnitComputation {
         &self.result
     }
 
-    /// Returns every semantic fact observed by the computation in canonical order.
+    /// Returns every semantic dependency observed by the computation in canonical order.
     pub fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn binding_cancellation_exposes_no_partial_fact_payload() {
+    fn binding_cancellation_exposes_no_partial_result() {
         let outcome = BindingOutcome::<u32>::Cancelled;
 
         assert!(outcome.is_cancelled());

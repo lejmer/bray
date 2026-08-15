@@ -33,7 +33,7 @@ impl<'surface> LoadedInterfaceSurface<'surface> {
         }
     }
 
-    /// Returns the loaded-interface handle used by imported fact keys.
+    /// Returns the loaded-interface handle used by imported record keys.
     pub const fn interface(self) -> ImportedInterfaceId {
         self.interface
     }

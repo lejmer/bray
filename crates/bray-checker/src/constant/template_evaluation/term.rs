@@ -218,7 +218,7 @@ where
             evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
         }
         ConstantTermData::Parameter(_)
-        | ConstantTermData::TargetFact(_)
+        | ConstantTermData::TargetProperty(_)
         | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),
     }
 }

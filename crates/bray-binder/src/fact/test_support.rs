@@ -12,8 +12,8 @@ use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
     AnySymbolId, CallableAbi, CallableConstness, CallableDependencyContracts,
-    CallableSignatureFact, CallableSignatureTemplate, CallableTrust, CallableTypeData,
-    ConstantDeclaredTypeFact, ConstantSymbolId, DependencyContractTemplateData,
+    CallableSignatureQuery, CallableSignatureTemplate, CallableTrust, CallableTypeData,
+    ConstantDeclaredTypeQuery, ConstantSymbolId, DependencyContractTemplateData,
     ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
     SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface, TypeData,
     TypeExpressionTemplate, TypeId,
@@ -25,16 +25,16 @@ use super::{
     BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
 };
 
-pub(crate) struct TestSymbolFacts {
+pub(crate) struct TestSymbolSemantics {
     symbol: ConstantSymbolId,
     pub(super) result: Arc<DiagnosticResult<TypeExpressionTemplate>>,
     callable_signature: Arc<DiagnosticResult<CallableSignatureTemplate>>,
 }
 
-impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
+impl SymbolFactProvider<ConstantDeclaredTypeQuery> for TestSymbolSemantics {
     fn symbol_fact(
         &self,
-        request: SymbolFactRequest<ConstantDeclaredTypeFact>,
+        request: SymbolFactRequest<ConstantDeclaredTypeQuery>,
     ) -> BinderFactResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
         if request.owner() != self.symbol {
             return Err(BinderFactError::DependencyUnavailable);
@@ -44,10 +44,10 @@ impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
     }
 }
 
-impl SymbolFactProvider<CallableSignatureFact> for TestSymbolFacts {
+impl SymbolFactProvider<CallableSignatureQuery> for TestSymbolSemantics {
     fn symbol_fact(
         &self,
-        _: SymbolFactRequest<CallableSignatureFact>,
+        _: SymbolFactRequest<CallableSignatureQuery>,
     ) -> BinderFactResult<Arc<DiagnosticResult<CallableSignatureTemplate>>> {
         Ok(Arc::clone(&self.callable_signature))
     }
@@ -76,12 +76,12 @@ pub(crate) struct TestContext<'facts> {
     imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
     semantic_values: &'facts SemanticValueStore,
     target: &'facts TargetProfile,
-    symbol_facts: &'facts TestSymbolFacts,
+    symbol_semantics: &'facts TestSymbolSemantics,
     cancellation: &'facts TestCancellation,
 }
 
 impl BinderFactContext for TestContext<'_> {
-    type SymbolFacts = TestSymbolFacts;
+    type SymbolSemantics = TestSymbolSemantics;
     type Cancellation = TestCancellation;
 
     fn syntax(&self) -> &SyntaxTree {
@@ -152,8 +152,8 @@ impl BinderFactContext for TestContext<'_> {
         self.target
     }
 
-    fn symbol_facts(&self) -> &Self::SymbolFacts {
-        self.symbol_facts
+    fn symbol_semantics(&self) -> &Self::SymbolSemantics {
+        self.symbol_semantics
     }
 
     fn cancellation(&self) -> &Self::Cancellation {
@@ -168,7 +168,7 @@ pub(crate) struct TestFixture {
     pub(crate) semantic_values: SemanticValueStore,
     pub(crate) constant: ConstantSymbolId,
     pub(crate) declared_type: TypeId,
-    symbol_facts: TestSymbolFacts,
+    symbol_semantics: TestSymbolSemantics,
     target: TargetProfile,
     cancellation: TestCancellation,
 }
@@ -276,7 +276,7 @@ impl TestFixture {
             semantic_values,
             constant,
             declared_type,
-            symbol_facts: TestSymbolFacts {
+            symbol_semantics: TestSymbolSemantics {
                 symbol: constant,
                 result: symbol_result,
                 callable_signature,
@@ -296,7 +296,7 @@ impl TestFixture {
             imported_symbols: None,
             semantic_values: &self.semantic_values,
             target: &self.target,
-            symbol_facts: &self.symbol_facts,
+            symbol_semantics: &self.symbol_semantics,
             cancellation: &self.cancellation,
         }
     }

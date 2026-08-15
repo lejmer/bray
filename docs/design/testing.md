@@ -9,7 +9,7 @@ The language rules for test products and test declarations are defined by the
 
 ## Principles
 
-- Test discovery consumes checked compiler facts and never reparses source.
+- Test discovery consumes checked compiler results and never reparses source.
 - A test product is compiled once into a native host and an immutable test catalog.
 - Package integration-test products consume the emitted public contract of their declared sibling library product rather than
   compiling that library's source roots again.
@@ -18,13 +18,13 @@ The language rules for test products and test declarations are defined by the
 - Scheduling can be concurrent while discovery and final report order remain deterministic.
 - Cancellation and timeout outcomes are distinct and both complete ordinary language cleanup before publication.
 - User-facing prose is rendered by `bray-messages`. Catalogs, protocol messages, and reports carry typed data.
-- Durations and live event order are volatile observations, not reproducible compiler facts.
+- Durations and live event order are volatile observations, not reproducible compiler records.
 
 ## Ownership
 
 The testing system crosses compiler and toolchain boundaries without giving any one layer unrelated responsibilities:
 
-- `bray-compilation` derives checked test entries and test catalog facts from the selected test product.
+- `bray-compilation` derives checked test entries and test catalog records from the selected test product.
 - A dedicated test-protocol crate owns catalog, invocation, event, outcome, report, and wire-format types. It does not own process
   launch, scheduling policy, terminal rendering, or compiler test helpers.
 - `bray-lowering`, code generation, and emission produce the native test host and publish its matching catalog.
@@ -121,7 +121,7 @@ work independently. The host emits typed events for invocation start, captured s
 completion, host diagnostics, and host shutdown. Every event carries its test identity and a per-test monotonic sequence number.
 Completion can arrive in any order. The final report is assembled in catalog order.
 
-Live events are observational and can reflect actual completion order. They are not stored as reproducible facts. JSON reports
+Live events are observational and can reflect actual completion order. They are not stored as reproducible records. JSON reports
 separate defined result data from explicitly volatile timing and live-progress fields.
 
 ## Invocation Lifecycle
@@ -289,7 +289,7 @@ VolatileDuration {
 ```
 
 `AssertionFailure`, `CleanupIncident`, `PanicReport`, `CancellationSource`, `TestFilter`, and `TestInfrastructureFailure` are closed
-typed records with their own stable category and payload variants. Optional fields above are absent only when their associated fact
+typed records with their own stable category and payload variants. Optional fields above are absent only when their associated observation
 is unavailable or the selected policy does not produce it. Unknown outcome variants are never treated as passes. The report format
 version governs both the binary protocol record and its JSON field contract.
 
@@ -317,4 +317,4 @@ Conformance coverage must prove:
 - deterministic reports under deliberately varied completion order,
 - capture and protocol resource limits,
 - graceful and forced host shutdown,
-- equivalent human and JSON facts without embedded English in machine data.
+- equivalent human and JSON records without embedded English in machine data.

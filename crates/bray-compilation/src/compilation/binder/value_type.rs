@@ -9,11 +9,11 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{AnyLocalSymbolId, AnySymbolId, TypeData, TypeExpressionTemplate};
 use bray_syntax::TypeExpressionSyntax;
 
-use super::CompilationBinderFacts;
+use super::CompilationBindingContext;
 use super::symbol::type_binder;
 
 pub(in crate::compilation) fn bind_declared_value_type_templates(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     unit: &BoundUnit,
 ) -> BinderFactResult<DiagnosticResult<DeclaredValueTypeTemplates>> {
     let owner = context
@@ -31,7 +31,7 @@ pub(in crate::compilation) fn bind_declared_value_type_templates(
 }
 
 pub(super) struct DeclaredValueTypeBinding<'facts> {
-    pub(super) context: &'facts CompilationBinderFacts<'facts>,
+    pub(super) context: &'facts CompilationBindingContext<'facts>,
     pub(super) unit: &'facts BoundUnit,
     pub(super) owner: AnySymbolId,
     pub(super) evidence: Vec<DeclaredValueTypeEvidence>,
@@ -43,7 +43,7 @@ pub(super) struct DeclaredValueTypeBinding<'facts> {
 
 impl<'facts> DeclaredValueTypeBinding<'facts> {
     fn new(
-        context: &'facts CompilationBinderFacts<'facts>,
+        context: &'facts CompilationBindingContext<'facts>,
         unit: &'facts BoundUnit,
         owner: AnySymbolId,
     ) -> Self {

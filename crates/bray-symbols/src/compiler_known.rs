@@ -1,7 +1,7 @@
 mod audit;
 mod availability;
 mod error;
-mod fact;
+mod semantic;
 mod provider;
 mod role;
 mod validation;
@@ -12,7 +12,7 @@ pub use audit::{
 };
 pub use availability::AvailableCompilerKnownSymbols;
 pub use error::CompilerKnownSymbolBuildError;
-pub use fact::{CompilerKnownDeclarationFact, CompilerKnownSymbolFactKey};
+pub use semantic::{CompilerKnownDeclarationSemantics, CompilerKnownSemanticKey};
 pub use provider::{CompilerKnownScopeSymbolId, CompilerKnownSymbolProvider};
 pub use role::{
     CompilerKnownIterationProtocol, CompilerKnownOperationContract,

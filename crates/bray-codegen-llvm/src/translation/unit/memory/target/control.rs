@@ -2,7 +2,7 @@ use bray_bound_tree::{MemoryOrder, PointerAddressComparison, VolatileAddressSpac
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation};
 use bray_symbols::ConstantValueId;
-use bray_target::{TargetArchitecture, TargetControlFacts};
+use bray_target::{TargetArchitecture, TargetControlSupport};
 use inkwell::values::{BasicValue, BasicValueEnum};
 
 use super::super::super::core::UnitTranslator;
@@ -204,7 +204,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         feature: ConstantValueId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let feature = self.constant_string(feature)?;
-        let control = TargetControlFacts::for_profile(self.request.target().profile());
+        let control = TargetControlSupport::for_profile(self.request.target().profile());
 
         Ok(self
             .types

@@ -60,7 +60,7 @@ phrase.
 
 ## Diagnostic Results
 
-`bray-diagnostics` owns the neutral immutable value-plus-diagnostics wrapper used by lazy semantic facts.
+`bray-diagnostics` owns the neutral immutable value-plus-diagnostics wrapper used by demand-driven semantic queries.
 
 Conceptually:
 
@@ -84,7 +84,7 @@ Invalid user source can produce a valid `DiagnosticResult<T>` containing an erro
 Cancellation and compiler infrastructure failure are outer query outcomes and must not be represented as an absent value or an
 error-aware source result.
 
-Symbol facts, checked semantic units, and other lazy semantic facts use this shared wrapper rather than defining equivalent
+Symbol query results, checked semantic units, and other demand-driven semantic results use this shared wrapper rather than defining equivalent
 phase-named copies. A category-specific result type remains appropriate when it adds a stronger root, identity, or relationship
 contract rather than merely pairing one value with one diagnostic bag.
 
@@ -288,7 +288,7 @@ Recovery exists to improve diagnostic output while preserving compiler invariant
 
 Recovered compiler data must be explicit.
 
-Do not represent recovered or erroneous state as ordinary valid data unless the node, symbol, bound node, or fact carries an
+Do not represent recovered or erroneous state as ordinary valid data unless the node, symbol, bound node, or result carries an
 explicit error marker.
 
 Downstream phases must be able to distinguish:
@@ -333,13 +333,13 @@ order.
 
 ## Deduplication
 
-Diagnostic deduplication uses structured diagnostic facts, not localized rendered text.
+Diagnostic deduplication uses structured diagnostic records, not localized rendered text.
 
 Two diagnostics are duplicates only when their severity, stable kind, primary span, labels, notes, and typed arguments are all
-equal. The diagnostic record ID is not part of the duplicate key because it identifies one emitted record, not the source fact
+equal. The diagnostic record ID is not part of the duplicate key because it identifies one emitted record, not the source condition
 being reported.
 
-Diagnostics that render to similar or identical prose must remain distinct when they refer to different source facts, spans,
+Diagnostics that render to similar or identical prose must remain distinct when they refer to different source conditions, spans,
 labels, notes, related locations, suggestions, or typed arguments.
 
 When related locations, suggestions, or other structured fields are added to diagnostic records, they must become part of the

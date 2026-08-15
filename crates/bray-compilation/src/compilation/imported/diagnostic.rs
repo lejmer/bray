@@ -501,7 +501,7 @@ mod tests {
 
         let checksum = validation_diagnostics(
             InterfaceValidationError::SectionChecksumMismatch {
-                section: InterfaceSectionTag::DeclarationFacts,
+                section: InterfaceSectionTag::DeclarationSemantics,
             },
             &input,
         );

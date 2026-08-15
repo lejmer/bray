@@ -3,21 +3,21 @@ use std::num::NonZeroU64;
 use bray_base::NonEmptySharedStr;
 
 use super::{
-    TargetAbiFacts, TargetAbiScalarFacts, TargetAtomicFacts, TargetCAbiFacts,
-    TargetForeignAbiFacts, TargetScalarFacts,
+    TargetAbiSupport, TargetAbiScalars, TargetAtomicSupport, TargetCDataModel,
+    TargetForeignAbiContract, TargetScalarSupport,
 };
 
 /// Stable identity details of one target profile.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetIdentityFacts {
+pub struct TargetPlatformIdentity {
     vendor: NonEmptySharedStr,
     system: NonEmptySharedStr,
     environment: NonEmptySharedStr,
     abi: NonEmptySharedStr,
 }
 
-impl TargetIdentityFacts {
-    /// Creates complete identity facts when every spelling is nonempty.
+impl TargetPlatformIdentity {
+    /// Creates complete identity properties when every spelling is nonempty.
     pub fn try_new(
         vendor: impl Into<std::sync::Arc<str>>,
         system: impl Into<std::sync::Arc<str>>,
@@ -55,13 +55,13 @@ impl TargetIdentityFacts {
 
 /// Address spaces available on one target.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAddressSpaceFacts {
+pub struct TargetAddressSpaces {
     host: bool,
     device: bool,
 }
 
-impl TargetAddressSpaceFacts {
-    /// Creates address-space facts when at least one address space is available.
+impl TargetAddressSpaces {
+    /// Creates address-space properties when at least one address space is available.
     pub const fn try_new(host: bool, device: bool) -> Option<Self> {
         if !host && !device {
             return None;
@@ -83,13 +83,13 @@ impl TargetAddressSpaceFacts {
 
 /// Maximum supported storage and allocation alignments.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAlignmentFacts {
+pub struct TargetAlignmentLimits {
     max_storage: NonZeroU64,
     max_allocation: NonZeroU64,
 }
 
-impl TargetAlignmentFacts {
-    /// Creates alignment facts when both maxima are powers of two and allocation does not exceed storage.
+impl TargetAlignmentLimits {
+    /// Creates alignment properties when both maxima are powers of two and allocation does not exceed storage.
     pub const fn try_new(max_storage: NonZeroU64, max_allocation: NonZeroU64) -> Option<Self> {
         if !max_storage.get().is_power_of_two()
             || !max_allocation.get().is_power_of_two()
@@ -117,13 +117,13 @@ impl TargetAlignmentFacts {
 
 /// Target support for compiler-known raw-memory and allocation operations.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetOperationFacts {
+pub struct TargetOperationSupport {
     raw_memory: bool,
     allocation: bool,
 }
 
-impl TargetOperationFacts {
-    /// Creates target operation capability facts.
+impl TargetOperationSupport {
+    /// Creates target operation capability properties.
     pub const fn new(raw_memory: bool, allocation: bool) -> Self {
         Self {
             raw_memory,
@@ -142,31 +142,31 @@ impl TargetOperationFacts {
     }
 }
 
-/// Complete language-defined facts not derived from target identity or machine properties.
+/// Complete language-defined properties not derived from target identity or machine properties.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetFacts {
-    identity: TargetIdentityFacts,
-    scalars: TargetScalarFacts,
-    atomics: TargetAtomicFacts,
-    abis: TargetAbiFacts,
-    c_abi: TargetCAbiFacts,
-    address_spaces: TargetAddressSpaceFacts,
-    alignments: TargetAlignmentFacts,
-    operations: TargetOperationFacts,
+pub struct TargetProperties {
+    identity: TargetPlatformIdentity,
+    scalars: TargetScalarSupport,
+    atomics: TargetAtomicSupport,
+    abis: TargetAbiSupport,
+    c_abi: TargetCDataModel,
+    address_spaces: TargetAddressSpaces,
+    alignments: TargetAlignmentLimits,
+    operations: TargetOperationSupport,
     dynamic_loading: bool,
 }
 
-impl TargetFacts {
-    /// Creates a complete set of independently supplied language target facts.
+impl TargetProperties {
+    /// Creates a complete set of independently supplied language target properties.
     pub const fn new(
-        identity: TargetIdentityFacts,
-        scalars: TargetScalarFacts,
-        atomics: TargetAtomicFacts,
-        abis: TargetAbiFacts,
-        c_abi: TargetCAbiFacts,
-        address_spaces: TargetAddressSpaceFacts,
-        alignments: TargetAlignmentFacts,
-        operations: TargetOperationFacts,
+        identity: TargetPlatformIdentity,
+        scalars: TargetScalarSupport,
+        atomics: TargetAtomicSupport,
+        abis: TargetAbiSupport,
+        c_abi: TargetCDataModel,
+        address_spaces: TargetAddressSpaces,
+        alignments: TargetAlignmentLimits,
+        operations: TargetOperationSupport,
     ) -> Self {
         Self {
             identity,
@@ -181,21 +181,21 @@ impl TargetFacts {
         }
     }
 
-    /// Creates the portable baseline fact set with the supplied C data model.
+    /// Creates the portable baseline property set with the supplied C data model.
     pub fn try_portable(
         vendor: &str,
         system: &str,
         environment: &str,
         abi: &str,
-        c_abi: TargetCAbiFacts,
+        c_abi: TargetCDataModel,
     ) -> Option<Self> {
-        let identity = TargetIdentityFacts::try_new(vendor, system, environment, abi)?;
-        let address_spaces = TargetAddressSpaceFacts::try_new(true, false)?;
+        let identity = TargetPlatformIdentity::try_new(vendor, system, environment, abi)?;
+        let address_spaces = TargetAddressSpaces::try_new(true, false)?;
         let maximum_alignment = NonZeroU64::new(1 << 29).unwrap_or(NonZeroU64::MIN);
-        let alignments = TargetAlignmentFacts::try_new(maximum_alignment, maximum_alignment)?;
+        let alignments = TargetAlignmentLimits::try_new(maximum_alignment, maximum_alignment)?;
 
-        let foreign_abi = TargetForeignAbiFacts::new(
-            TargetAbiScalarFacts::required(),
+        let foreign_abi = TargetForeignAbiContract::new(
+            TargetAbiScalars::required(),
             true,
             true,
             true,
@@ -205,74 +205,74 @@ impl TargetFacts {
 
         Some(Self::new(
             identity,
-            TargetScalarFacts::default(),
-            TargetAtomicFacts::default(),
-            TargetAbiFacts::new(Some(foreign_abi), Some(foreign_abi)),
+            TargetScalarSupport::default(),
+            TargetAtomicSupport::default(),
+            TargetAbiSupport::new(Some(foreign_abi), Some(foreign_abi)),
             c_abi,
             address_spaces,
             alignments,
-            TargetOperationFacts::default(),
+            TargetOperationSupport::default(),
         ))
     }
 
-    /// Returns these facts with the supplied compiler-provided operation capabilities.
-    pub const fn with_operations(mut self, operations: TargetOperationFacts) -> Self {
+    /// Returns these properties with the supplied compiler-provided operation capabilities.
+    pub const fn with_operations(mut self, operations: TargetOperationSupport) -> Self {
         self.operations = operations;
 
         self
     }
 
-    /// Returns these facts with the supplied atomic representation contracts.
-    pub const fn with_atomics(mut self, atomics: TargetAtomicFacts) -> Self {
+    /// Returns these properties with the supplied atomic representation contracts.
+    pub const fn with_atomics(mut self, atomics: TargetAtomicSupport) -> Self {
         self.atomics = atomics;
 
         self
     }
 
-    /// Returns these facts with the supplied dynamic-loading capability.
+    /// Returns these properties with the supplied dynamic-loading capability.
     pub const fn with_dynamic_loading(mut self, dynamic_loading: bool) -> Self {
         self.dynamic_loading = dynamic_loading;
 
         self
     }
 
-    /// Returns stable target identity facts.
-    pub const fn identity(&self) -> &TargetIdentityFacts {
+    /// Returns stable target identity properties.
+    pub const fn identity(&self) -> &TargetPlatformIdentity {
         &self.identity
     }
 
-    /// Returns target-conditional scalar availability facts.
-    pub const fn scalars(&self) -> TargetScalarFacts {
+    /// Returns target-conditional scalar availability properties.
+    pub const fn scalars(&self) -> TargetScalarSupport {
         self.scalars
     }
 
-    /// Returns atomic representation availability facts.
-    pub const fn atomics(&self) -> TargetAtomicFacts {
+    /// Returns atomic representation availability properties.
+    pub const fn atomics(&self) -> TargetAtomicSupport {
         self.atomics
     }
 
     /// Returns callable ABI availability and acceptance contracts.
-    pub const fn abis(&self) -> TargetAbiFacts {
+    pub const fn abis(&self) -> TargetAbiSupport {
         self.abis
     }
 
     /// Returns the target's exact C scalar data model.
-    pub const fn c_abi(&self) -> TargetCAbiFacts {
+    pub const fn c_abi(&self) -> TargetCDataModel {
         self.c_abi
     }
 
-    /// Returns address-space availability facts.
-    pub const fn address_spaces(&self) -> TargetAddressSpaceFacts {
+    /// Returns address-space availability properties.
+    pub const fn address_spaces(&self) -> TargetAddressSpaces {
         self.address_spaces
     }
 
-    /// Returns maximum supported alignment facts.
-    pub const fn alignments(&self) -> TargetAlignmentFacts {
+    /// Returns maximum supported alignment properties.
+    pub const fn alignments(&self) -> TargetAlignmentLimits {
         self.alignments
     }
 
-    /// Returns compiler-known operation capability facts.
-    pub const fn operations(&self) -> TargetOperationFacts {
+    /// Returns compiler-known operation capability properties.
+    pub const fn operations(&self) -> TargetOperationSupport {
         self.operations
     }
 
@@ -287,60 +287,60 @@ mod tests {
     use std::num::NonZeroU64;
 
     use crate::test_support::test_target_profile;
-    use crate::{TargetAlignmentFacts, TargetFactKind, TargetFactValue, TargetIdentityFacts};
+    use crate::{TargetAlignmentLimits, TargetPropertyKind, TargetPropertyValue, TargetPlatformIdentity};
 
     #[test]
-    fn derived_facts_cannot_contradict_machine_properties() {
+    fn derived_properties_cannot_contradict_machine_properties() {
         let profile = test_target_profile();
 
         assert_eq!(
-            profile.fact(TargetFactKind::IdentityArchitecture),
-            TargetFactValue::String("x86_64")
+            profile.property(TargetPropertyKind::IdentityArchitecture),
+            TargetPropertyValue::String("x86_64")
         );
 
         assert_eq!(
-            profile.fact(TargetFactKind::PointerBits),
-            TargetFactValue::Usize(64)
+            profile.property(TargetPropertyKind::PointerBits),
+            TargetPropertyValue::Usize(64)
         );
 
         assert_eq!(
-            profile.fact(TargetFactKind::EndianLittle),
-            TargetFactValue::Boolean(true)
+            profile.property(TargetPropertyKind::EndianLittle),
+            TargetPropertyValue::Boolean(true)
         );
 
         assert_eq!(
-            profile.fact(TargetFactKind::EndianBig),
-            TargetFactValue::Boolean(false)
+            profile.property(TargetPropertyKind::EndianBig),
+            TargetPropertyValue::Boolean(false)
         );
 
         assert_eq!(
-            profile.fact(TargetFactKind::PlatformDynamicLoading),
-            TargetFactValue::Boolean(false)
+            profile.property(TargetPropertyKind::PlatformDynamicLoading),
+            TargetPropertyValue::Boolean(false)
         );
     }
 
     #[test]
-    fn required_scalar_facts_are_always_available() {
+    fn required_scalar_properties_are_always_available() {
         let profile = test_target_profile();
 
         assert_eq!(
-            profile.fact(TargetFactKind::ScalarI32),
-            TargetFactValue::Boolean(true)
+            profile.property(TargetPropertyKind::ScalarI32),
+            TargetPropertyValue::Boolean(true)
         );
 
         assert_eq!(
-            profile.fact(TargetFactKind::ScalarR16),
-            TargetFactValue::Boolean(false)
+            profile.property(TargetPropertyKind::ScalarR16),
+            TargetPropertyValue::Boolean(false)
         );
     }
 
     #[test]
-    fn incomplete_or_contradictory_fact_groups_are_rejected() {
-        assert!(TargetIdentityFacts::try_new("", "linux", "gnu", "gnu").is_none());
+    fn incomplete_or_contradictory_property_groups_are_rejected() {
+        assert!(TargetPlatformIdentity::try_new("", "linux", "gnu", "gnu").is_none());
 
         let storage = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
         let allocation = NonZeroU64::new(16).unwrap_or(NonZeroU64::MIN);
 
-        assert_eq!(TargetAlignmentFacts::try_new(storage, allocation), None);
+        assert_eq!(TargetAlignmentLimits::try_new(storage, allocation), None);
     }
 }

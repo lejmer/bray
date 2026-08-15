@@ -6,7 +6,7 @@ use bray_declarations::{DeclarationKind, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, ImplementationCoherenceDomainKey,
-    ImplementationParticipationEvidence, ImplementationParticipationFact,
+    ImplementationParticipationEvidence, ImplementationParticipationQuery,
     ImplementationParticipationSet, ImplementationSymbolId, NamedTraitImplementationSymbolId,
     ParticipatingImplementation, SemanticFactResult, SymbolOrigin,
 };
@@ -20,7 +20,7 @@ impl Compilation {
     pub fn implementation_participation(
         &self,
         domain: ImplementationCoherenceDomainKey,
-    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationQuery>>, FactQueryError> {
         self.implementation_participation_with_cancellation(domain, &self.state.cancellation)
     }
 
@@ -28,7 +28,7 @@ impl Compilation {
         &self,
         domain: ImplementationCoherenceDomainKey,
         cancellation: &crate::fact::CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationFact>>, FactQueryError> {
+    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationQuery>>, FactQueryError> {
         if domain.package() != self.package_identity() {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -39,10 +39,10 @@ impl Compilation {
             .implementation_participation
             .cell(domain.clone())?;
 
-        let fact_key = CompilationFactKey::ImplementationParticipation(domain.clone());
+        let semantic_key = CompilationFactKey::ImplementationParticipation(domain.clone());
 
         let result =
-            cell.get_or_compute(&self.state.fact_runtime, fact_key, cancellation, || {
+            cell.get_or_compute(&self.state.fact_runtime, semantic_key, cancellation, || {
                 self.compute_implementation_participation(domain, cancellation)
                     .map(Arc::new)
             })?;
@@ -55,7 +55,7 @@ impl Compilation {
         &self,
         domain: ImplementationCoherenceDomainKey,
         cancellation: &crate::fact::CancellationToken,
-    ) -> Result<SemanticFactResult<ImplementationParticipationFact>, FactQueryError> {
+    ) -> Result<SemanticFactResult<ImplementationParticipationQuery>, FactQueryError> {
         cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
@@ -94,7 +94,7 @@ impl Compilation {
                 continue;
             };
 
-            // The published fact owns its stable key independently of the symbol graph borrow.
+            // The published result owns its stable key independently of the symbol graph borrow.
             let participant =
                 ParticipatingImplementation::try_new(key.clone(), implementation, evidence)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -119,7 +119,7 @@ impl Compilation {
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<(Vec<ParticipatingImplementation>, DiagnosticBag), FactQueryError> {
         let declarations = self.product_source_graph()?.declarations();
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
         let mut anchors_by_implementation =
             BTreeMap::<NamedTraitImplementationSymbolId, BTreeSet<SyntaxAnchor>>::new();
@@ -140,7 +140,7 @@ impl Compilation {
 
             let module = self.source_module_for_declaration(symbols, declaration)?;
 
-            let bound = bind_implementation_using(&facts, module.id(), &using_declaration)
+            let bound = bind_implementation_using(&binding_context, module.id(), &using_declaration)
                 .map_err(super::super::binder::binder_fact_error)?;
 
             diagnostics.add_range(bound.diagnostics().iter().cloned());
@@ -162,7 +162,7 @@ impl Compilation {
         let mut participating = Vec::with_capacity(anchors_by_implementation.len());
 
         for (implementation, anchors) in anchors_by_implementation {
-            let key = facts
+            let key = binding_context
                 .symbol_key(implementation.into())
                 .map_err(super::super::binder::binder_fact_error)?
                 .cloned()
@@ -252,7 +252,7 @@ impl First
 
         let result = compilation
             .implementation_participation(domain.clone())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
         assert_eq!(result.value().domain(), &domain);
@@ -357,7 +357,7 @@ impl First
 
         let result = compilation
             .implementation_participation(domain.clone())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert!(!result.value().implementations().is_empty());
 
@@ -379,7 +379,7 @@ impl First
             .unwrap_or_else(|error| {
                 panic!("participation dependencies must be readable: {error:?}")
             })
-            .unwrap_or_else(|| panic!("participation fact must be published"));
+            .unwrap_or_else(|| panic!("participation result must be published"));
 
         assert!(dependencies.contains(&CompilationFactKey::SelectedTarget));
     }
@@ -409,7 +409,7 @@ impl First
 
         let result = with_dependency
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert_eq!(result.as_ref(), baseline.as_ref());
 
@@ -431,11 +431,11 @@ impl First
 
         let first = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         let second = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must remain available: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must remain available: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));
         assert!(first.diagnostics().is_empty());
@@ -481,7 +481,7 @@ impl First
 
         let participation = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert!(participation.diagnostics().is_empty());
 
@@ -518,7 +518,7 @@ impl First
 
         let participation = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert_eq!(
             participation
@@ -544,7 +544,7 @@ impl First
 
         let participation = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
+            .unwrap_or_else(|error| panic!("participation result must publish: {error:?}"));
 
         assert!(participation.diagnostics().is_empty());
     }

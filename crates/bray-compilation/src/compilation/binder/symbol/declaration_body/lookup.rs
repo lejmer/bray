@@ -4,10 +4,10 @@ use bray_symbols::{
     UnionVariantSymbolId,
 };
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(in crate::compilation) fn runtime_default_provider(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<Option<AnySymbolId>> {
     if let Some(provider) = context.symbols().runtime_default_provider(owner) {
@@ -36,7 +36,7 @@ pub(in crate::compilation) fn runtime_default_provider(
 }
 
 pub(super) fn callable_parameter<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+    context: &'facts CompilationBindingContext<'_>,
     owner: CallableParameterSymbolId,
 ) -> BinderFactResult<&'facts bray_symbols::CallableParameterSymbol> {
     if let Some(record) = context.symbols().callable_parameter(owner) {
@@ -50,7 +50,7 @@ pub(super) fn callable_parameter<'facts>(
 }
 
 pub(super) fn struct_field<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+    context: &'facts CompilationBindingContext<'_>,
     owner: StructFieldSymbolId,
 ) -> BinderFactResult<&'facts bray_symbols::StructFieldSymbol> {
     if let Some(record) = context.symbols().struct_field(owner) {
@@ -64,7 +64,7 @@ pub(super) fn struct_field<'facts>(
 }
 
 pub(super) fn union_payload_field<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+    context: &'facts CompilationBindingContext<'_>,
     owner: UnionPayloadFieldSymbolId,
 ) -> BinderFactResult<&'facts bray_symbols::UnionPayloadFieldSymbol> {
     if let Some(record) = context.symbols().union_payload_field(owner) {
@@ -78,7 +78,7 @@ pub(super) fn union_payload_field<'facts>(
 }
 
 pub(super) fn union_variant<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+    context: &'facts CompilationBindingContext<'_>,
     owner: UnionVariantSymbolId,
 ) -> BinderFactResult<&'facts bray_symbols::UnionVariantSymbol> {
     if let Some(record) = context.symbols().union_variant(owner) {

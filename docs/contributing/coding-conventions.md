@@ -228,6 +228,9 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Short math-oriented names are acceptable when expressing a mathematical formula directly.
 - Name types after the concept they represent, not after the implementation detail that currently stores them.
 - Name modules for the local concept they contain. Do not repeat the full parent path in the filename.
+- Use `fact` only for generic demand-driven query machinery whose contract is independent of a particular compiler domain.
+- Name domain modules, types, methods, variables, tests, and documentation after their semantic meaning, such as properties, analyses, records, contracts, or plans. Lazy evaluation alone does not make a domain value a fact.
+- Do not replace an imprecise `fact` name with another vague suffix such as `data` or `info`.
 
 ## Comments and structure
 

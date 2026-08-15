@@ -414,7 +414,7 @@ fn stage_generation(
             permissions,
         ));
 
-        // Published records must own immutable plan facts after publication returns.
+        // Published records must own immutable plan records after publication returns.
         emitted.push(EmittedArtifact::new(
             artifact.planned.id().clone(),
             sink.clone(),

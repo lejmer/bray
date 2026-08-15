@@ -107,7 +107,7 @@ impl Compilation {
 
             gate_diagnostics.add_range(gate.diagnostics().iter().cloned());
 
-            // The graph retains each gate after releasing its Arc-backed fact result.
+            // The graph retains each gate after releasing its Arc-backed query result.
             contribution_gates.insert(part.syntax_anchor(), gate.value().clone());
         }
 

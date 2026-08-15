@@ -6,7 +6,7 @@ mod sealed {
 
 /// Identifies one exact compilation-wide symbol category at the type level.
 ///
-/// This trait is sealed so imported fact keys cannot claim a category that does not correspond
+/// This trait is sealed so imported semantic keys cannot claim a category that does not correspond
 /// to one of Bray's exact typed symbol IDs.
 pub trait ExactSymbolId: sealed::Sealed + Copy + Into<AnySymbolId> {
     /// The semantic kind represented by this exact ID type.

@@ -85,8 +85,8 @@ pub enum InterfaceConstantTerm {
     },
     /// A generic constant parameter.
     Parameter(InterfaceSymbolReference),
-    /// A compiler-known target fact.
-    TargetFact(InterfaceSymbolReference),
+    /// A compiler-known target property.
+    TargetProperty(InterfaceSymbolReference),
     /// A selected unary operation.
     Unary {
         /// Operation.

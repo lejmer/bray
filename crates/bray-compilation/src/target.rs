@@ -14,7 +14,7 @@ pub struct SelectedTarget {
 }
 
 impl SelectedTarget {
-    /// Creates a selected target from validated language and runtime facts.
+    /// Creates a selected target from validated language properties and runtime contracts.
     pub const fn new(profile: TargetProfile, runtime_abi: RuntimeAbiVersion) -> Self {
         Self {
             profile,
@@ -54,19 +54,19 @@ impl SelectedTarget {
 
     /// Returns whether the target satisfies one compiler-known availability rule.
     pub const fn supports(&self, rule: AvailabilityRule) -> bool {
-        let facts = self.profile.facts();
+        let properties = self.profile.properties();
 
         match rule {
             AvailabilityRule::Always => true,
-            AvailabilityRule::Real16 => facts.scalars().real16(),
-            AvailabilityRule::Real128 => facts.scalars().real128(),
-            AvailabilityRule::Complex32 => facts.scalars().complex32(),
-            AvailabilityRule::Complex256 => facts.scalars().complex256(),
-            AvailabilityRule::RawMemory => facts.operations().raw_memory(),
-            AvailabilityRule::Atomics => facts.atomics().any(),
-            AvailabilityRule::ForeignAbi => facts.abis().c() || facts.abis().system(),
-            AvailabilityRule::AddressSpaces => facts.address_spaces().device(),
-            AvailabilityRule::Allocation => facts.operations().allocation(),
+            AvailabilityRule::Real16 => properties.scalars().real16(),
+            AvailabilityRule::Real128 => properties.scalars().real128(),
+            AvailabilityRule::Complex32 => properties.scalars().complex32(),
+            AvailabilityRule::Complex256 => properties.scalars().complex256(),
+            AvailabilityRule::RawMemory => properties.operations().raw_memory(),
+            AvailabilityRule::Atomics => properties.atomics().any(),
+            AvailabilityRule::ForeignAbi => properties.abis().c() || properties.abis().system(),
+            AvailabilityRule::AddressSpaces => properties.address_spaces().device(),
+            AvailabilityRule::Allocation => properties.operations().allocation(),
         }
     }
 
@@ -89,7 +89,7 @@ impl Default for SelectedTarget {
     }
 }
 
-/// Target facts and compiler-known declarations available to one compilation.
+/// Target properties and compiler-known declarations available to one compilation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedTargetContext {
     target: SelectedTarget,
@@ -107,7 +107,7 @@ impl SelectedTargetContext {
         }
     }
 
-    /// Returns the selected target and product ABI facts.
+    /// Returns the selected target properties and product ABI contract.
     pub const fn target(&self) -> &SelectedTarget {
         &self.target
     }

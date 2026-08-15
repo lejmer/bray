@@ -18,7 +18,7 @@ pub enum ControlCompletionKind {
     Cancellation,
     /// Generator control yields a value.
     Yield,
-    /// Recovery prevents a stronger completion fact.
+    /// Recovery prevents a stronger completion classification.
     Recovered,
 }
 
@@ -28,16 +28,16 @@ pub struct ControlCompletion {
     kinds: u8,
 }
 
-/// Durable control-flow facts for one exact checked semantic unit.
+/// Durable control-flow result for one exact checked semantic unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct CheckedControlFlowFacts {
+pub struct CheckedControlFlow {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     completion: ControlCompletion,
 }
 
-impl CheckedControlFlowFacts {
-    /// Creates durable control-flow facts for one exact bound unit.
+impl CheckedControlFlow {
+    /// Creates a durable control-flow result for one exact bound unit.
     pub const fn new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -50,7 +50,7 @@ impl CheckedControlFlowFacts {
         }
     }
 
-    /// Returns the exact bound unit these facts describe.
+    /// Returns the exact bound unit this result describes.
     pub const fn unit(self) -> BoundUnitId {
         self.unit
     }
@@ -109,7 +109,7 @@ impl ControlCompletionKind {
 mod tests {
     use crate::{BoundUnitId, BoundUnitKind};
 
-    use super::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
+    use super::{CheckedControlFlow, ControlCompletion, ControlCompletionKind};
 
     #[test]
     fn completion_summaries_deduplicate_typed_categories() {
@@ -130,7 +130,7 @@ mod tests {
         let completion = ControlCompletion::from_kinds([ControlCompletionKind::Recovered]);
 
         let control_flow =
-            CheckedControlFlowFacts::new(unit, BoundUnitKind::CallableBody, completion);
+            CheckedControlFlow::new(unit, BoundUnitKind::CallableBody, completion);
 
         assert_eq!(control_flow.unit(), unit);
         assert_eq!(control_flow.kind(), BoundUnitKind::CallableBody);

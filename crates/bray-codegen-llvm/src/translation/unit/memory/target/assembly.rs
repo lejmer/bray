@@ -7,7 +7,7 @@ use bray_ir::{
     MirOperation, MirOperationId,
 };
 use bray_symbols::{ConstantValueId, ConstantValueKind};
-use bray_target::{InlineAssemblyOptions, TargetControlFacts};
+use bray_target::{InlineAssemblyOptions, TargetControlSupport};
 use inkwell::InlineAsmDialect;
 use inkwell::attributes::AttributeLoc;
 use inkwell::basic_block::BasicBlock;
@@ -133,7 +133,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let template = self.constant_string(contract.template())?.to_owned();
         let constraint_text = self.constant_string(contract.constraints())?.to_owned();
         let clobbers = self.constant_string(contract.clobbers())?.to_owned();
-        let control = TargetControlFacts::for_profile(self.request.target().profile());
+        let control = TargetControlSupport::for_profile(self.request.target().profile());
         let descriptors = contract.operands().collect::<Vec<_>>();
         let mut constraints = assembly_constraints(control, &constraint_text, &descriptors)?;
 
@@ -469,7 +469,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 mod tests {
     use bray_bound_tree::{InlineAssemblyOperand, InlineAssemblyOperandKind};
     use bray_symbols::{ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData};
-    use bray_target::{TargetArchitecture, TargetControlFacts};
+    use bray_target::{TargetArchitecture, TargetControlSupport};
     use inkwell::context::Context;
 
     use crate::callbr::build_callbr;
@@ -594,7 +594,7 @@ mod tests {
             ),
         ];
 
-        let control = TargetControlFacts::for_architecture(TargetArchitecture::X86_64);
+        let control = TargetControlSupport::for_architecture(TargetArchitecture::X86_64);
 
         assert_eq!(
             assembly_constraints(

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
-    BoundCallableTarget, CheckedAsyncFacts, CheckedControlFlowFacts, CheckedSemanticSelections,
+    BoundCallableTarget, CheckedAsync, CheckedControlFlow, CheckedSemanticSelections,
     ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget,
     SelectedArgument, SelectedConstructionInput, SelectedConversion, SelectedOperation,
     SemanticSelection,
@@ -13,9 +13,9 @@ use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, C
 
 pub(crate) fn collect_body_behavior<C>(
     request: CheckerUnitView<'_, C>,
-    control_flow: &CheckedControlFlowFacts,
+    control_flow: &CheckedControlFlow,
     selections: &CheckedSemanticSelections,
-    async_facts: &CheckedAsyncFacts,
+    async_analysis: &CheckedAsync,
 ) -> CheckerOutcome<BodyBehaviorContributions>
 where
     C: CheckerRequestContext + ?Sized,
@@ -28,8 +28,8 @@ where
         || control_flow.kind() != request.unit().key().kind()
         || selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
-        || async_facts.unit() != request.unit().unit()
-        || async_facts.kind() != request.unit().key().kind()
+        || async_analysis.unit() != request.unit().unit()
+        || async_analysis.kind() != request.unit().key().kind()
     {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
@@ -116,7 +116,7 @@ where
         }
     }
 
-    for suspension in async_facts.suspensions() {
+    for suspension in async_analysis.suspensions() {
         calls.extend(suspension.deferred_calls().iter().cloned());
     }
 
@@ -246,7 +246,7 @@ mod tests {
     use bray_bound_tree::{
         AsyncSuspensionPoint, BodyBehaviorCall, BodyBehaviorPhase, BoundAwaitExpression,
         BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
-        BoundResolvedCall, BoundUnitId, CheckedAsyncFacts, CheckedControlFlowFacts,
+        BoundResolvedCall, BoundUnitId, CheckedAsync, CheckedControlFlow,
         CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, SemanticSelection,
         SemanticSelectionEntry,
     };
@@ -321,7 +321,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test selections must validate: {error:?}"));
 
-        let control_flow = CheckedControlFlowFacts::new(
+        let control_flow = CheckedControlFlow::new(
             unit_id,
             unit.key().kind(),
             bray_bound_tree::ControlCompletion::from_kinds([
@@ -329,7 +329,7 @@ mod tests {
             ]),
         );
 
-        let async_facts = CheckedAsyncFacts::try_new(
+        let async_analysis = CheckedAsync::try_new(
             unit_id,
             unit.key().kind(),
             [],
@@ -350,7 +350,7 @@ mod tests {
             [],
             false,
         )
-        .unwrap_or_else(|error| panic!("test async facts must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("test async analysis must validate: {error:?}"));
 
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
@@ -362,7 +362,7 @@ mod tests {
             request,
             &control_flow,
             &selections,
-            &async_facts,
+            &async_analysis,
         );
 
         let crate::CheckerOutcome::Complete(result) = result else {

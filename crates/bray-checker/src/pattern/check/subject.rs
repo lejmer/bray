@@ -5,8 +5,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, CallablePosition, GenericSubstitutionId, MemberLookupResult, NamedTypeSymbolId,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate,
-    TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
+    StructFieldTypeQuery, SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate,
+    TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery, UnionVariantSymbolId,
 };
 
 use super::result::{effective_pattern_kind, symbol_ordinal};
@@ -19,8 +19,8 @@ use crate::{
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeFact>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + CheckerSemanticFactProvider<StructFieldTypeQuery>
+        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn child_subjects(
@@ -148,7 +148,7 @@ where
                     };
 
                     let subject = self.field_subject(
-                        SymbolFactRequest::<StructFieldTypeFact>::new(field),
+                        SymbolFactRequest::<StructFieldTypeQuery>::new(field),
                         *substitution,
                     )?;
 
@@ -193,7 +193,7 @@ where
                     };
 
                     let subject = self.field_subject(
-                        SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field),
+                        SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(field),
                         *substitution,
                     )?;
 

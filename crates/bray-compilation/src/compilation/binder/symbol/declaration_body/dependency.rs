@@ -9,10 +9,10 @@ use bray_symbols::{
     SymbolOrdinal,
 };
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     contract: &BoundDependencyContract,
 ) -> BinderFactResult<DependencyContractTemplateId> {
@@ -31,7 +31,7 @@ pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
 }
 
 fn portable_requirement(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     requirement: &BoundDependencyRequirement,
 ) -> BinderFactResult<Option<DependencyRequirement>> {
@@ -67,7 +67,7 @@ fn portable_requirement(
 }
 
 fn portable_guard(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     guard: BoundDependencyGuard,
 ) -> BinderFactResult<Option<DependencyGuard>> {
@@ -102,7 +102,7 @@ fn portable_guard(
 }
 
 fn portable_bound_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     subject: BoundDependencySubject,
 ) -> BinderFactResult<Option<PortableSubject>> {
@@ -127,7 +127,7 @@ fn portable_bound_subject(
 }
 
 fn portable_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
 ) -> BinderFactResult<Option<PortableSubject>> {
@@ -140,7 +140,7 @@ fn portable_subject(
 }
 
 fn portable_guard_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
     is_guard_projection: impl FnOnce(&StorageProjection) -> bool,
@@ -159,7 +159,7 @@ fn portable_guard_subject(
 }
 
 fn portable_subject_with_projection_count(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
     projection_count: usize,
@@ -205,7 +205,7 @@ fn portable_subject_with_projection_count(
 }
 
 fn portable_storage_identity(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     identity: bray_bound_tree::StorageIdentityId,
 ) -> BinderFactResult<Option<PortableSubject>> {

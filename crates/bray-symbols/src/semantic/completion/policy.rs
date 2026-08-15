@@ -170,7 +170,7 @@ impl SymbolFactKind {
             Self::ImplementationSubject
             | Self::ImplementedTraitApplication
             | Self::ImplementationHeadTemplate
-            | Self::ImplementationCoherence => supports_implementation_facts(kind),
+            | Self::ImplementationCoherence => supports_implementation_semantics(kind),
             Self::OverloadArms | Self::OverloadSignatureTemplate => matches!(
                 kind,
                 SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
@@ -230,7 +230,7 @@ const fn supports_predicate_facts(kind: SymbolKind) -> bool {
     )
 }
 
-const fn supports_implementation_facts(kind: SymbolKind) -> bool {
+const fn supports_implementation_semantics(kind: SymbolKind) -> bool {
     kind.is_implementation()
 }
 

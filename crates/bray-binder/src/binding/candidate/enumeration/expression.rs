@@ -4,9 +4,9 @@ use bray_bound_tree::{
 use bray_checker::{ExpressionCandidateSet, OperationCandidateSource};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplateFact, CallableOverloadTemplateFact,
-    CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
-    MemberLookupResult, PredicateSignatureTemplateFact,
+    AnySymbolId, CallableContractTemplateQuery, CallableOverloadTemplateQuery,
+    CallableParameterDefaultTemplateQuery, CallableSignatureQuery, GenericDeclarationTemplateQuery,
+    MemberLookupResult, PredicateSignatureTemplateQuery,
 };
 use bray_syntax::GenericArgumentSyntax;
 
@@ -27,12 +27,12 @@ pub fn bind_expression_candidates<C>(
 ) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
     C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
+        + SymbolFactProvider<CallableContractTemplateQuery>
+        + SymbolFactProvider<GenericDeclarationTemplateQuery>
+        + SymbolFactProvider<PredicateSignatureTemplateQuery>
+        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolFactProvider<CallableOverloadTemplateQuery>,
 {
     if context.is_cancelled() {
         return Err(BinderFactError::Cancelled);

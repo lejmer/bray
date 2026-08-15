@@ -1337,13 +1337,13 @@ mod tests {
             "const size: bool = true;",
         ));
 
-        let internal_facts = internal_fixture.context();
+        let internal_context = internal_fixture.context();
 
         let internal_unit_fixture = fixture();
         let internal_unit = builder(&internal_unit_fixture, LocalSymbolRegionId::new(37));
         let internal_root = internal_unit.root_scope();
 
-        let (internal_module, internal_owner) = source_module(&internal_facts);
+        let (internal_module, internal_owner) = source_module(&internal_context);
 
         let public = PathBindingContext::new(
             internal_root,
@@ -1352,7 +1352,7 @@ mod tests {
             NameAccess::Public,
         );
 
-        let mut internal_request = Binder::new(&internal_facts, internal_unit);
+        let mut internal_request = Binder::new(&internal_context, internal_unit);
 
         assert!(matches!(
             internal_request.bind_module_path(public, &path("hidden")),
@@ -1362,13 +1362,13 @@ mod tests {
         let recovered_fixture =
             FactFixture::from_source(concat!("module broken\n", "const size: bool = true;",));
 
-        let recovered_facts = recovered_fixture.context();
+        let recovered_context = recovered_fixture.context();
 
         let recovered_unit_fixture = fixture();
         let recovered_unit = builder(&recovered_unit_fixture, LocalSymbolRegionId::new(38));
         let recovered_root = recovered_unit.root_scope();
 
-        let (recovered_module, recovered_owner) = source_module(&recovered_facts);
+        let (recovered_module, recovered_owner) = source_module(&recovered_context);
 
         let internal = PathBindingContext::new(
             recovered_root,
@@ -1377,7 +1377,7 @@ mod tests {
             NameAccess::Internal,
         );
 
-        let mut recovered_request = Binder::new(&recovered_facts, recovered_unit);
+        let mut recovered_request = Binder::new(&recovered_context, recovered_unit);
 
         assert!(matches!(
             recovered_request.bind_module_path(internal, &path("broken")),

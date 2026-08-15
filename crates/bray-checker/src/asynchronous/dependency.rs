@@ -3,14 +3,14 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-    BoundExpressionId, CheckedDependencyContracts, CheckedRefinementFacts, LivenessFacts,
-    PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId, StoragePlan,
+    BoundExpressionId, CheckedDependencyContracts, CheckedRefinements, Liveness,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StoragePlan,
     StorageRelationship, StorageSuspensionState,
 };
 use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
 
 pub(super) fn retained_suspension_subjects(
-    liveness: &LivenessFacts,
+    liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
     await_expression: BoundExpressionId,
     dependency_contract: Option<BoundDependencyContractId>,
@@ -53,7 +53,7 @@ fn collect_requirement_subjects(
 pub(super) fn unsatisfied_dependency_subjects(
     values: &SemanticValueStore,
     storage: &StoragePlan,
-    refinements: &CheckedRefinementFacts,
+    refinements: &CheckedRefinements,
     expression: BoundExpressionId,
     state: &StorageSuspensionState,
     contract: &BoundDependencyContract,
@@ -81,7 +81,7 @@ pub(super) fn unsatisfied_dependency_subjects(
 fn collect_unsatisfied_dependency_subjects(
     values: &SemanticValueStore,
     storage: &StoragePlan,
-    refinements: &CheckedRefinementFacts,
+    refinements: &CheckedRefinements,
     expression: BoundExpressionId,
     state: &StorageSuspensionState,
     requirement: &BoundDependencyRequirement,
@@ -99,7 +99,7 @@ fn collect_unsatisfied_dependency_subjects(
         BoundDependencyRequirement::Guarded(guarded) => {
             if !dependency_guard_may_apply(
                 storage,
-                refinements.facts_before(AnyBoundNodeId::Expression(expression)),
+                refinements.refinements_before(AnyBoundNodeId::Expression(expression)),
                 state,
                 guarded.guard(),
             ) {
@@ -290,15 +290,15 @@ fn access_is_borrow_value(
 
 fn dependency_guard_may_apply(
     storage: &StoragePlan,
-    facts: &[RefinementFact],
+    refinements: &[Refinement],
     state: &StorageSuspensionState,
     guard: BoundDependencyGuard,
 ) -> bool {
     match guard {
         BoundDependencyGuard::NullablePresent(access) => {
-            refinement_guard_value(storage, facts, access, |kind| match kind {
-                RefinementFactKind::NullablePresence { is_present, .. } => Some(is_present),
-                RefinementFactKind::Pattern { predicate, .. } => match predicate {
+            refinement_guard_value(storage, refinements, access, |kind| match kind {
+                RefinementKind::NullablePresence { is_present, .. } => Some(is_present),
+                RefinementKind::Pattern { predicate, .. } => match predicate {
                     PatternPredicate::NullableAbsent => Some(false),
                     PatternPredicate::NullablePresent => Some(true),
                     PatternPredicate::Literal(_)
@@ -309,23 +309,23 @@ fn dependency_guard_may_apply(
                     | PatternPredicate::ArrayShape(_)
                     | PatternPredicate::OwnedTarget => None,
                 },
-                RefinementFactKind::Condition { .. }
-                | RefinementFactKind::TrustBoundary(_)
-                | RefinementFactKind::NormalCompletion(_) => None,
+                RefinementKind::Condition { .. }
+                | RefinementKind::TrustBoundary(_)
+                | RefinementKind::NormalCompletion(_) => None,
             })
             .unwrap_or(true)
         }
         BoundDependencyGuard::ActiveUnionVariant { access, variant } => {
-            refinement_guard_value(storage, facts, access, |kind| match kind {
-                RefinementFactKind::Pattern {
+            refinement_guard_value(storage, refinements, access, |kind| match kind {
+                RefinementKind::Pattern {
                     predicate: PatternPredicate::ActiveUnionVariant(active),
                     ..
                 } => Some(active == variant),
-                RefinementFactKind::Condition { .. }
-                | RefinementFactKind::NullablePresence { .. }
-                | RefinementFactKind::Pattern { .. }
-                | RefinementFactKind::TrustBoundary(_)
-                | RefinementFactKind::NormalCompletion(_) => None,
+                RefinementKind::Condition { .. }
+                | RefinementKind::NullablePresence { .. }
+                | RefinementKind::Pattern { .. }
+                | RefinementKind::TrustBoundary(_)
+                | RefinementKind::NormalCompletion(_) => None,
             })
             .unwrap_or(true)
         }
@@ -338,17 +338,17 @@ fn dependency_guard_may_apply(
 
 fn refinement_guard_value(
     storage: &StoragePlan,
-    facts: &[RefinementFact],
+    refinements: &[Refinement],
     access: StorageAccessId,
-    value: impl Fn(RefinementFactKind) -> Option<bool>,
+    value: impl Fn(RefinementKind) -> Option<bool>,
 ) -> Option<bool> {
-    facts.iter().find_map(|fact| {
-        fact.dependencies()
+    refinements.iter().find_map(|refinement| {
+        refinement.dependencies()
             .iter()
             .any(|dependency| {
                 storage.relationship(*dependency, access) != StorageRelationship::Disjoint
             })
-            .then(|| value(fact.kind()))
+            .then(|| value(refinement.kind()))
             .flatten()
     })
 }

@@ -12,7 +12,7 @@ use crate::semantic::model::{
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
     InterfaceGenericArgument, InterfaceGenericBinding, InterfaceGenericSubstitution,
     InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
-    InterfaceImplementationInstanceId, InterfaceSemanticFacts, InterfaceTraitApplication,
+    InterfaceImplementationInstanceId, InterfaceSemantics, InterfaceTraitApplication,
     InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
 };
 use crate::wire::WireReader;
@@ -67,7 +67,7 @@ pub(super) fn decode_types(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let tables = decode_type_tables(section, context)?;
 
     let substitutions = tables
@@ -92,7 +92,7 @@ pub(super) fn decode_types(
         decode_type(reader, limits, context)
     })?;
 
-    Ok(InterfaceSemanticFacts::new()
+    Ok(InterfaceSemantics::new()
         .with_applications(
             substitutions,
             trait_applications,
@@ -274,7 +274,7 @@ pub(super) fn decode_constants(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_constant_tables(section, context)?;
 
@@ -284,8 +284,8 @@ pub(super) fn decode_constants(
 
     let terms = tables.terms.decode_all(context, decode_constant_term)?;
 
-    facts.constant_values = values.into();
-    facts.constant_terms = terms.into();
+    semantics.constant_values = values.into();
+    semantics.constant_terms = terms.into();
 
     Ok(())
 }
@@ -363,7 +363,7 @@ pub(super) fn decode_constant_term(
         2 => Ok(InterfaceConstantTerm::Parameter(read_symbol_reference(
             reader, context,
         )?)),
-        3 => Ok(InterfaceConstantTerm::TargetFact(read_symbol_reference(
+        3 => Ok(InterfaceConstantTerm::TargetProperty(read_symbol_reference(
             reader, context,
         )?)),
         4 => Ok(InterfaceConstantTerm::Unary {
@@ -504,12 +504,12 @@ mod tests {
         TypeData, UnionPayloadFieldSymbolId, UnionSymbolId, UnionVariantSymbolId,
     };
 
-    use super::super::decode_semantic_facts;
+    use super::super::decode_semantics;
     use super::super::test_support::{
         OwnedSection, encoded_section_views, interface_surface, local_by_kind as symbol_reference,
         owned_section_views, owned_sections, record_range,
     };
-    use crate::semantic::codec::encode_semantic_facts;
+    use crate::semantic::codec::encode_semantics;
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
         DependencyInterfaceId, InterfaceAbiDependency, InterfaceCallableContract,
@@ -517,8 +517,8 @@ mod tests {
         InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
         InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericSubstitution,
         InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
-        InterfaceSemanticFacts, InterfaceSemanticInternError, InterfaceSourceProvenance,
-        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetFactDependency,
+        InterfaceSemantics, InterfaceSemanticInternError, InterfaceSourceProvenance,
+        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetPropertyDependency,
         InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
         InterfaceValidationError, InterfaceValidationLimits,
     };
@@ -554,19 +554,19 @@ mod tests {
 
     #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
-        let (surface, facts) = fixture();
+        let (surface, semantics) = fixture();
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
         let views = encoded_section_views(&sections);
 
-        let decoded = decode_semantic_facts(&views, &surface, limits)
+        let decoded = decode_semantics(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
 
-        assert_eq!(decoded, facts);
+        assert_eq!(decoded, semantics);
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
@@ -669,7 +669,7 @@ mod tests {
     fn target_sized_integer_terms_reject_invalid_types_and_round_trip() {
         let surface = interface_surface(package_identity(), [], []);
 
-        let facts = InterfaceSemanticFacts::new().with_values(
+        let semantics = InterfaceSemantics::new().with_values(
             [],
             [],
             [],
@@ -681,15 +681,15 @@ mod tests {
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
         let views = encoded_section_views(&sections);
 
-        let decoded = decode_semantic_facts(&views, &surface, limits)
+        let decoded = decode_semantics(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
 
-        assert_eq!(decoded, facts);
+        assert_eq!(decoded, semantics);
 
         let mut malformed = owned_sections(&sections);
 
@@ -731,7 +731,7 @@ mod tests {
     fn scalar_conversion_terms_round_trip_and_intern() {
         let surface = interface_surface(package_identity(), [], []);
 
-        let facts = InterfaceSemanticFacts::new().with_values(
+        let semantics = InterfaceSemantics::new().with_values(
             [],
             [InterfaceType::Tuple([].into())],
             [InterfaceConstantValue::new(
@@ -749,15 +749,15 @@ mod tests {
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
         let views = encoded_section_views(&sections);
 
-        let decoded = decode_semantic_facts(&views, &surface, limits)
+        let decoded = decode_semantics(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
 
-        assert_eq!(decoded, facts);
+        assert_eq!(decoded, semantics);
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
@@ -784,7 +784,7 @@ mod tests {
         let variant = symbol_reference(&surface, SymbolKind::UnionVariant);
         let payload_field = symbol_reference(&surface, SymbolKind::UnionPayloadField);
 
-        let facts = InterfaceSemanticFacts::new().with_values(
+        let semantics = InterfaceSemantics::new().with_values(
             [],
             [InterfaceType::Tuple([].into())],
             [
@@ -836,15 +836,15 @@ mod tests {
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("aggregate semantic encoding failed: {error:?}"));
 
         let views = encoded_section_views(&sections);
 
-        let decoded = decode_semantic_facts(&views, &surface, limits)
+        let decoded = decode_semantics(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("aggregate semantic decoding failed: {error:?}"));
 
-        assert_eq!(decoded, facts);
+        assert_eq!(decoded, semantics);
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn semantic_interning_rejects_wrong_symbol_categories() {
-        let (surface, facts) = fixture();
+        let (surface, semantics) = fixture();
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
@@ -904,14 +904,14 @@ mod tests {
             StructSymbolId::from_symbol_id(SymbolId::new(99)).into();
 
         assert_eq!(
-            facts.intern(&store, &resolver),
+            semantics.intern(&store, &resolver),
             Err(InterfaceSemanticInternError::InvalidSymbolKind(function))
         );
     }
 
     #[test]
     fn semantic_interning_rejects_trait_applications_on_inherent_implementations() {
-        let (surface, facts) = fixture();
+        let (surface, semantics) = fixture();
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
@@ -922,7 +922,7 @@ mod tests {
         let implementation = symbol_reference(&surface, SymbolKind::InherentImplementation);
         let trait_definition = symbol_reference(&surface, SymbolKind::Trait);
 
-        let facts = facts
+        let semantics = semantics
             .with_applications(
                 [
                     InterfaceGenericSubstitution::new(structure, []),
@@ -945,7 +945,7 @@ mod tests {
             );
 
         assert_eq!(
-            facts.intern(&store, &resolver),
+            semantics.intern(&store, &resolver),
             Err(InterfaceSemanticInternError::InvalidSymbolKind(
                 implementation
             ))
@@ -954,11 +954,11 @@ mod tests {
 
     #[test]
     fn semantic_decoding_rejects_unknown_tags_and_declared_count_mismatches() {
-        let (surface, facts) = fixture();
+        let (surface, semantics) = fixture();
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
         let mut owned = owned_sections(&sections);
@@ -993,12 +993,12 @@ mod tests {
 
     #[test]
     fn semantic_strings_and_graph_depth_obey_loader_limits() {
-        let (surface, facts) = fixture();
+        let (surface, semantics) = fixture();
 
         let limits = InterfaceValidationLimits::default().with_string_length(3);
 
         assert_eq!(
-            encode_semantic_facts(&facts, &surface, limits),
+            encode_semantics(&semantics, &surface, limits),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: crate::InterfaceLimit::StringLength,
                 actual: 11,
@@ -1011,7 +1011,7 @@ mod tests {
     fn cyclic_structural_type_graphs_are_rejected() {
         let surface = interface_surface(package_identity(), [], []);
 
-        let facts = InterfaceSemanticFacts::new().with_values(
+        let semantics = InterfaceSemantics::new().with_values(
             [],
             [InterfaceType::Nullable(InterfaceTypeId::new(0))],
             [],
@@ -1019,7 +1019,7 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(&facts, &surface, InterfaceValidationLimits::default()),
+            encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
     }
@@ -1032,43 +1032,43 @@ mod tests {
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
         let surface = semantic_surface([package.clone()]);
-        let mut facts = facts(&surface);
+        let mut semantics = semantics(&surface);
 
         let owner = ExternalSymbolKey::package(package);
 
         let name = SymbolName::try_new("pointer_width")
-            .unwrap_or_else(|| panic!("target fact name must be valid"));
+            .unwrap_or_else(|| panic!("target property name must be valid"));
 
         let key = ExternalSymbolKey::named(owner, SymbolKind::Constant, name)
             .unwrap_or_else(|| panic!("constant external key must be valid"));
 
-        let dependency_fact = InterfaceSymbolReference::Dependency {
+        let dependency_record = InterfaceSymbolReference::Dependency {
             dependency: DependencyInterfaceId::new(0),
             key,
         };
 
-        let abi_dependencies = facts.abi_dependencies().to_vec();
+        let abi_dependencies = semantics.abi_dependencies().to_vec();
 
-        facts = facts.with_target_dependencies(
-            [InterfaceTargetFactDependency::new(
+        semantics = semantics.with_target_dependencies(
+            [InterfaceTargetPropertyDependency::new(
                 symbol_reference(&surface, SymbolKind::Function),
-                dependency_fact,
+                dependency_record,
                 InterfaceConstantValueId::new(0),
             )],
             abi_dependencies,
         );
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
         let views = encoded_section_views(&sections);
 
-        assert_eq!(decode_semantic_facts(&views, &surface, limits), Ok(facts));
+        assert_eq!(decode_semantics(&views, &surface, limits), Ok(semantics));
 
         let constrained_limits = limits.with_external_reference_count(1);
 
         assert_eq!(
-            decode_semantic_facts(&views, &surface, constrained_limits),
+            decode_semantics(&views, &surface, constrained_limits),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: crate::InterfaceLimit::ExternalReferenceCount,
                 actual: 2,
@@ -1078,30 +1078,30 @@ mod tests {
     }
 
     #[test]
-    fn noncanonical_surface_fact_order_is_rejected_before_encoding() {
+    fn noncanonical_surface_record_order_is_rejected_before_encoding() {
         let (surface, base) = fixture();
 
         let constraint = base.constraints()[0].clone();
 
-        let facts = base.clone().with_contracts(
+        let semantics = base.clone().with_contracts(
             [constraint.clone(), constraint],
             base.callable_contracts().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&facts, &surface, InterfaceValidationLimits::default()),
+            encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
     }
 
-    fn fixture() -> (crate::PackageInterfaceSurface, InterfaceSemanticFacts) {
+    fn fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = semantic_surface([]);
-        let facts = facts(&surface);
+        let semantics = semantics(&surface);
 
-        (surface, facts)
+        (surface, semantics)
     }
 
-    fn facts(surface: &crate::PackageInterfaceSurface) -> InterfaceSemanticFacts {
+    fn semantics(surface: &crate::PackageInterfaceSurface) -> InterfaceSemantics {
         let struct_reference = symbol_reference(surface, SymbolKind::Struct);
         let trait_reference = symbol_reference(surface, SymbolKind::Trait);
         let constant_reference = symbol_reference(surface, SymbolKind::Constant);
@@ -1111,7 +1111,7 @@ mod tests {
             InterfaceSourceProvenance::try_new(function_reference.clone(), "source.bray", 4, 12)
                 .unwrap_or_else(|| panic!("ordered source provenance must be valid"));
 
-        InterfaceSemanticFacts::new()
+        InterfaceSemantics::new()
             .with_applications(
                 [
                     InterfaceGenericSubstitution::new(struct_reference.clone(), []),
@@ -1205,7 +1205,7 @@ mod tests {
                 )],
             )
             .with_target_dependencies(
-                [InterfaceTargetFactDependency::new(
+                [InterfaceTargetPropertyDependency::new(
                     function_reference.clone(),
                     constant_reference,
                     InterfaceConstantValueId::new(0),
@@ -1302,9 +1302,9 @@ mod tests {
         owned: &[OwnedSection],
         surface: &crate::PackageInterfaceSurface,
         limits: InterfaceValidationLimits,
-    ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+    ) -> Result<InterfaceSemantics, InterfaceValidationError> {
         let views = owned_section_views(owned);
 
-        decode_semantic_facts(&views, surface, limits)
+        decode_semantics(&views, surface, limits)
     }
 }

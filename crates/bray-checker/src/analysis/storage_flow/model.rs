@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, CheckedMemoryOperations,
-    CheckedRefinementFacts, LivenessFacts, StorageAccessId, StorageAccessPlan,
+    CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan,
     StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
@@ -304,8 +304,8 @@ where
     graph: &'analysis ControlFlowGraph,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
-    liveness: &'analysis LivenessFacts,
-    refinements: &'analysis CheckedRefinementFacts,
+    liveness: &'analysis Liveness,
+    refinements: &'analysis CheckedRefinements,
     memory: &'analysis CheckedMemoryOperations,
     input: &'analysis StorageFlowInput,
     owners: &'analysis StorageScopeOwners,
@@ -324,8 +324,8 @@ where
         graph: &'analysis ControlFlowGraph,
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
-        liveness: &'analysis LivenessFacts,
-        refinements: &'analysis CheckedRefinementFacts,
+        liveness: &'analysis Liveness,
+        refinements: &'analysis CheckedRefinements,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
         owners: &'analysis StorageScopeOwners,

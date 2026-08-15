@@ -456,9 +456,9 @@ where
 
     let representation = request
         .declared_type_representation(*definition)
-        .map_err(atomic_fact_outcome)?;
+        .map_err(atomic_query_outcome)?;
 
-    // The fact remains available to other consumers, so retain its diagnostics here.
+    // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(representation.diagnostics().clone());
     let representation = representation.value();
 
@@ -479,7 +479,7 @@ where
     } else if representation.is_plain_storage() {
         request
             .plain_storage_atomic_representation(value)
-            .map_err(atomic_fact_outcome)?
+            .map_err(atomic_query_outcome)?
             .map(|target| {
                 AtomicRepresentationResolution::Known(AtomicValueRepresentation {
                     target,
@@ -515,9 +515,9 @@ where
 
     let constants = request
         .checked_constant_terms(member.ty())
-        .map_err(atomic_fact_outcome)?;
+        .map_err(atomic_query_outcome)?;
 
-    // The fact remains available to other consumers, so retain its diagnostics here.
+    // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(constants.diagnostics().clone());
 
     let Some(member_type) = crate::resolve_type_expression_template(
@@ -542,7 +542,7 @@ where
     atomic_value_representation(request, member_type, diagnostics, pending)
 }
 
-const fn atomic_fact_outcome(
+const fn atomic_query_outcome(
     error: crate::CheckerFactError,
 ) -> CheckerOutcome<CheckedMemoryOperations> {
     match error {
@@ -581,13 +581,13 @@ where
 {
     use ImplementationHook as Hook;
 
-    let facts = request
+    let support = request
         .selected_target()
-        .facts()
+        .properties()
         .atomics()
         .representation(representation);
 
-    let operations = facts.operations();
+    let operations = support.operations();
 
     match hook {
         Hook::AtomicInitialize | Hook::AtomicLoad | Hook::AtomicStore => operations.load_store(),
@@ -599,9 +599,9 @@ where
         Hook::AtomicFetchAnd | Hook::AtomicFetchOr | Hook::AtomicFetchXor => {
             operations.fetch_bitwise()
         }
-        Hook::AtomicWait | Hook::AtomicNotifyOne | Hook::AtomicNotifyAll => facts.wait_notify(),
+        Hook::AtomicWait | Hook::AtomicNotifyOne | Hook::AtomicNotifyAll => support.wait_notify(),
         Hook::AtomicFence | Hook::AtomicCompilerFence => {
-            request.selected_target().facts().atomics().any()
+            request.selected_target().properties().atomics().any()
         }
         _ => false,
     }

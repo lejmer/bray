@@ -1,22 +1,22 @@
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct FactSet {
+pub(super) struct RefinementSet {
     words: Box<[u64]>,
 }
 
-impl FactSet {
-    pub(super) fn empty(facts: usize) -> Self {
+impl RefinementSet {
+    pub(super) fn empty(refinements: usize) -> Self {
         Self {
-            words: vec![0; facts.div_ceil(u64::BITS as usize)].into_boxed_slice(),
+            words: vec![0; refinements.div_ceil(u64::BITS as usize)].into_boxed_slice(),
         }
     }
 
-    pub(super) fn full(facts: usize) -> Self {
+    pub(super) fn full(refinements: usize) -> Self {
         let mut set = Self {
-            words: vec![u64::MAX; facts.div_ceil(u64::BITS as usize)].into_boxed_slice(),
+            words: vec![u64::MAX; refinements.div_ceil(u64::BITS as usize)].into_boxed_slice(),
         };
 
         if let Some(last) = set.words.last_mut() {
-            let trailing = facts % u64::BITS as usize;
+            let trailing = refinements % u64::BITS as usize;
 
             if trailing != 0 {
                 *last = (1_u64 << trailing) - 1;
@@ -107,12 +107,12 @@ impl FactSet {
 
 #[cfg(test)]
 mod tests {
-    use super::FactSet;
+    use super::RefinementSet;
 
     #[test]
-    fn fact_sets_intersect_in_place_and_keep_deterministic_indexes() {
-        let mut target = FactSet::full(70);
-        let mut incoming = FactSet::empty(70);
+    fn refinement_sets_intersect_in_place_and_keep_deterministic_indexes() {
+        let mut target = RefinementSet::full(70);
+        let mut incoming = RefinementSet::empty(70);
 
         incoming.insert(1);
         incoming.insert(65);

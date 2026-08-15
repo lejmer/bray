@@ -157,7 +157,7 @@ mod tests {
     use crate::{
         ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
         ExportedLookupKind, InterfaceContentHash, InterfaceDependency, InterfaceLanguageRevision,
-        InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts,
+        InterfaceProductIdentity, InterfaceProductKind, InterfaceSemantics,
         PackageInterfaceExportBundle, PackageInterfaceIdentity, SymbolRelationshipKind,
         encode_package_interface,
     };
@@ -291,7 +291,7 @@ mod tests {
     fn encode(surface: crate::PackageInterfaceSurface) -> crate::InterfaceArtifact {
         let bundle = PackageInterfaceExportBundle::try_new(
             surface,
-            InterfaceSemanticFacts::new(),
+            InterfaceSemantics::new(),
             InterfaceLanguageRevision::new(0),
             crate::test_support::implementation_configuration(),
         )

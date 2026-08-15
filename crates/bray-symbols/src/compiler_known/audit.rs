@@ -60,7 +60,7 @@ impl CompilerKnownCatalogAuditReport {
         self.completion_units
     }
 
-    /// Returns the number of semantic fact requests forced by completion.
+    /// Returns the number of semantic query requests forced by completion.
     pub const fn completion_facts(self) -> usize {
         self.completion_facts
     }
@@ -71,7 +71,7 @@ impl CompilerKnownCatalogAuditReport {
     }
 }
 
-/// A validated compiler-known catalog audit and semantic-fact forcer.
+/// A validated compiler-known catalog audit and semantic-query forcer.
 pub struct CompilerKnownCatalogAudit<'graph> {
     pub(super) graph: &'graph SymbolGraph,
     pub(super) report: CompilerKnownCatalogAuditReport,

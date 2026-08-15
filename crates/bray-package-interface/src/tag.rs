@@ -9,7 +9,7 @@ use bray_symbols::{
 
 use super::{
     ExportedLookupKind, InterfacePredicateDefinitionState, InterfaceProductKind,
-    InterfaceSemanticFactKind, SymbolRelationshipKind,
+    InterfaceSemanticRecordKind, SymbolRelationshipKind,
 };
 
 pub(crate) trait WireTag: Sized {
@@ -210,20 +210,20 @@ wire_tags!(ConstantBinaryOperation {
     19 => ConstantBinaryOperation::Exponentiate,
 });
 
-wire_tags!(InterfaceSemanticFactKind {
-    1 => InterfaceSemanticFactKind::GenericConstraint,
-    2 => InterfaceSemanticFactKind::CallableContracts,
-    3 => InterfaceSemanticFactKind::Implementation,
-    4 => InterfaceSemanticFactKind::TargetFact,
-    5 => InterfaceSemanticFactKind::Abi,
-    6 => InterfaceSemanticFactKind::DeclarationTemplate,
-    7 => InterfaceSemanticFactKind::CallableSignature,
-    8 => InterfaceSemanticFactKind::GenericDeclaration,
-    9 => InterfaceSemanticFactKind::CallableParameterDefault,
-    10 => InterfaceSemanticFactKind::PredicateDefinition,
-    11 => InterfaceSemanticFactKind::TypeRepresentation,
-    12 => InterfaceSemanticFactKind::Runtime,
-    13 => InterfaceSemanticFactKind::DeclaredType,
+wire_tags!(InterfaceSemanticRecordKind {
+    1 => InterfaceSemanticRecordKind::GenericConstraint,
+    2 => InterfaceSemanticRecordKind::CallableContracts,
+    3 => InterfaceSemanticRecordKind::Implementation,
+    4 => InterfaceSemanticRecordKind::TargetProperty,
+    5 => InterfaceSemanticRecordKind::Abi,
+    6 => InterfaceSemanticRecordKind::DeclarationTemplate,
+    7 => InterfaceSemanticRecordKind::CallableSignature,
+    8 => InterfaceSemanticRecordKind::GenericDeclaration,
+    9 => InterfaceSemanticRecordKind::CallableParameterDefault,
+    10 => InterfaceSemanticRecordKind::PredicateDefinition,
+    11 => InterfaceSemanticRecordKind::TypeRepresentation,
+    12 => InterfaceSemanticRecordKind::Runtime,
+    13 => InterfaceSemanticRecordKind::DeclaredType,
 });
 
 wire_tags!(RuntimeCapability {

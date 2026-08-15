@@ -94,18 +94,18 @@ impl ConstantCallRequest {
 pub enum ConstantCallResolution {
     /// The callable evaluated and owns the accompanying nested diagnostics.
     Evaluated(DiagnosticResult<EvaluatedConstantCall>),
-    /// The compilation fact graph found a recursive constant-call cycle.
+    /// The compilation query graph found a recursive constant-call cycle.
     Cycle,
     /// The selected callable cannot execute in constant context.
     Ineligible(DiagnosticBag),
 }
 
-/// Resolves selected constant calls through the caller's demand-driven fact graph.
+/// Resolves selected constant calls through the caller's demand-driven query graph.
 pub trait ConstantCallResolver: Sync {
     /// Returns whether the selected callable may execute in a constant context.
     fn is_constant_callable(&self, callable: CallableInstanceData) -> CheckerFactResult<bool>;
 
-    /// Evaluates one exact call without forcing unrelated semantic facts.
+    /// Evaluates one exact call without forcing unrelated semantic queries.
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution>;
 }
 

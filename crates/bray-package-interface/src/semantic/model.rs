@@ -3,7 +3,7 @@ mod bundle;
 mod constant;
 mod declaration;
 mod dependency;
-mod fact;
+mod record;
 mod id;
 mod support;
 mod template;
@@ -13,7 +13,7 @@ pub use application::{
     InterfaceCallableInstance, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceTraitApplication,
 };
-pub use bundle::InterfaceSemanticFacts;
+pub use bundle::InterfaceSemantics;
 pub use constant::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValue,
     InterfaceConstantValueKind,
@@ -30,12 +30,12 @@ pub use dependency::{
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot,
 };
-pub use fact::{
+pub use record::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
     InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
-    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceTargetFactDependency,
+    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticRecord,
+    InterfaceSemanticRecordKind, InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
     InterfaceTrustedCapabilityRequirement,
 };
 pub use id::{

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedMemoryOperationKind, MemoryOperationDecision,
-    MemoryOperationStatus, RefinementFact, RefinementFactKind, StorageAccessPurpose, StorageIdentity,
+    MemoryOperationStatus, Refinement, RefinementKind, StorageAccessPurpose, StorageIdentity,
     StorageIdentityId,
 };
 use bray_diagnostics::{
@@ -93,7 +93,7 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
         MemoryOperationStatus::Unreachable => 0,
         MemoryOperationStatus::Valid => 1,
         MemoryOperationStatus::Recovered => 2,
-        MemoryOperationStatus::MissingTrustedFacts => 3,
+        MemoryOperationStatus::MissingTrustedEvidence => 3,
         MemoryOperationStatus::InvalidatedAllocation => 4,
         MemoryOperationStatus::UninitializedRawStorage => 5,
         MemoryOperationStatus::OutstandingObligations => 6,
@@ -102,7 +102,7 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 
 const fn memory_diagnostic_kind(status: MemoryOperationStatus) -> Option<DiagnosticKind> {
     match status {
-        MemoryOperationStatus::MissingTrustedFacts => {
+        MemoryOperationStatus::MissingTrustedEvidence => {
             Some(DiagnosticKind::CheckingMissingTrustedMemoryGuarantees)
         }
         MemoryOperationStatus::InvalidatedAllocation => {
@@ -219,7 +219,7 @@ where
         &mut self,
         state: &mut StorageFlowState,
         node: AnyBoundNodeId,
-        refinements: &[RefinementFact],
+        refinements: &[Refinement],
     ) {
         let AnyBoundNodeId::Expression(expression) = node else {
             return;
@@ -236,9 +236,9 @@ where
         } else if operation_requires_trust(operation.kind())
             && !refinements
                 .iter()
-                .any(|fact| matches!(fact.kind(), RefinementFactKind::TrustBoundary(_)))
+                .any(|refinement| matches!(refinement.kind(), RefinementKind::TrustBoundary(_)))
         {
-            MemoryOperationStatus::MissingTrustedFacts
+            MemoryOperationStatus::MissingTrustedEvidence
         } else {
             self.apply_valid_memory_operation(state, operation)
         };
@@ -576,7 +576,7 @@ where
             MemoryOperationStatus::Unreachable
             | MemoryOperationStatus::Valid
             | MemoryOperationStatus::Recovered
-            | MemoryOperationStatus::MissingTrustedFacts => Vec::new(),
+            | MemoryOperationStatus::MissingTrustedEvidence => Vec::new(),
         }
     }
 

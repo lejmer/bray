@@ -1,4 +1,4 @@
-// rust-style: allow(module-too-large, reason = "constant fact queries share one recursive evaluation and dependency context")
+// rust-style: allow(module-too-large, reason = "constant queries share one recursive evaluation and dependency context")
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,9 +17,9 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
-    ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
+    ConstantDefinitionQuery, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolFactRequest, TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDefinitionFact,
+    SymbolFactRequest, TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,
 };
 
 use super::support::{
@@ -122,20 +122,20 @@ impl Compilation {
         definition: AnyConstantDefinitionId,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<ConstantDefinitionState>>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
         match definition {
-            AnyConstantDefinitionId::Constant(owner) => facts
-                .symbol_fact(SymbolFactRequest::<ConstantDefinitionFact>::new(owner))
+            AnyConstantDefinitionId::Constant(owner) => binding_context
+                .symbol_fact(SymbolFactRequest::<ConstantDefinitionQuery>::new(owner))
                 .map_err(binder_fact_error),
-            AnyConstantDefinitionId::TraitMember(owner) => facts
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionFact>::new(
+            AnyConstantDefinitionId::TraitMember(owner) => binding_context
+                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionQuery>::new(
                     owner,
                 ))
                 .map_err(binder_fact_error),
-            AnyConstantDefinitionId::TraitFulfillment(owner) => facts
+            AnyConstantDefinitionId::TraitFulfillment(owner) => binding_context
                 .symbol_fact(
-                    SymbolFactRequest::<TraitConstantFulfillmentDefinitionFact>::new(owner),
+                    SymbolFactRequest::<TraitConstantFulfillmentDefinitionQuery>::new(owner),
                 )
                 .map_err(binder_fact_error),
         }
@@ -187,15 +187,15 @@ impl Compilation {
         }
 
         let Some(key) = self.constant_template_key(definition)? else {
-            let facts = self.binder_facts(cancellation)?;
+            let binding_context = self.binding_context(cancellation)?;
 
-            let imported = facts
-                .imported_fact_address(definition.into_any())
+            let imported = binding_context
+                .imported_semantic_address(definition.into_any())
                 .map_err(binder_fact_error)?;
 
             if let Some(address) = imported {
                 let result = imported_declaration_template(
-                    &facts,
+                    &binding_context,
                     address,
                     CheckedTemplateKind::ConstantDefinition,
                 )
@@ -428,15 +428,15 @@ impl Compilation {
         limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let address = facts
-            .imported_fact_address(instance.definition().into_any())
+        let address = binding_context
+            .imported_semantic_address(instance.definition().into_any())
             .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let template =
-            imported_declaration_template(&facts, address, CheckedTemplateKind::ConstantDefinition)
+            imported_declaration_template(&binding_context, address, CheckedTemplateKind::ConstantDefinition)
                 .map_err(binder_fact_error)?;
 
         let definition_result =
@@ -889,7 +889,7 @@ mod tests {
         assert!(!instance_is_published(&compilation, unrelated));
 
         let gate = FactTestGate::holding(FactCellTestEvent::Computing);
-        let cache_key = instance_fact_key(&compilation, second);
+        let cache_key = instance_semantic_key(&compilation, second);
 
         compilation
             .state
@@ -1354,7 +1354,7 @@ mod tests {
             compilation
                 .state
                 .constant_instances
-                .cell(instance_fact_key(&compilation, instance))
+                .cell(instance_semantic_key(&compilation, instance))
                 .unwrap_or_else(|error| panic!("constant instance cell must exist: {error:?}"))
                 .set_test_observer(gate.observer())
                 .unwrap_or_else(|error| {
@@ -1406,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn constant_instance_fact_keys_include_the_complete_target_profile() {
+    fn constant_instance_semantic_keys_include_the_complete_target_profile() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
         let definitions = source_constant_definitions(&compilation);
 
@@ -1423,7 +1423,7 @@ mod tests {
         let alternate = TargetProfile::try_new(
             alternate_identity,
             baseline.profile().machine().clone(),
-            baseline.profile().facts().clone(),
+            baseline.profile().properties().clone(),
         )
         .unwrap_or_else(|error| panic!("alternate target profile must be valid: {error:?}"));
 
@@ -1464,7 +1464,7 @@ mod tests {
         ConstantInstanceKey::new(definition, substitution, None)
     }
 
-    fn instance_fact_key(
+    fn instance_semantic_key(
         compilation: &crate::Compilation,
         instance: ConstantInstanceKey,
     ) -> ConstantInstanceFactKey {
@@ -1482,7 +1482,7 @@ mod tests {
         compilation
             .state
             .constant_instances
-            .is_published(&instance_fact_key(compilation, instance))
+            .is_published(&instance_semantic_key(compilation, instance))
             .unwrap_or_else(|error| panic!("constant cache must be readable: {error:?}"))
     }
 

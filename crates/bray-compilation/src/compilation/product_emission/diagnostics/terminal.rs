@@ -17,9 +17,9 @@ use super::common::{
     diagnostic_backend_artifact, emission_failure_diagnostic, emission_failure_diagnostics,
 };
 use super::model::ProductEmissionErrorKind;
-use crate::compilation::product::codegen_fact_failure_kind;
+use crate::compilation::product::codegen_preparation_failure_kind;
 use crate::compilation::{
-    CodegenFactError, EmissionCodegenError, EmissionCodegenErrorKind, PackageInterfaceExportError,
+    CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind, PackageInterfaceExportError,
 };
 use crate::fact::FactQueryError;
 
@@ -43,14 +43,14 @@ pub(super) fn codegen_failure_diagnostics(
         }
         EmissionCodegenErrorKind::Request { unit: _, error } => {
             match error.as_ref() {
-                CodegenFactError::Diagnostics(diagnostics) => return diagnostics.clone(),
-                CodegenFactError::Query(error) => {
+                CodegenPreparationError::Diagnostics(diagnostics) => return diagnostics.clone(),
+                CodegenPreparationError::Query(error) => {
                     return query_failure_diagnostics(error, product, target);
                 }
                 _ => {}
             }
 
-            let failure = codegen_fact_failure_kind(error)
+            let failure = codegen_preparation_failure_kind(error)
                 .unwrap_or_else(|| unreachable!("query and diagnostic failures return above"));
 
             return DiagnosticBag::single(
@@ -233,7 +233,7 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
-        PackageInterfaceExportError::IncompletePublicDeclarationFacts(kind) => {
+        PackageInterfaceExportError::IncompletePublicDeclarationSemantics(kind) => {
             package_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::IncompletePublicDeclaration(
                     kind.as_str().to_owned(),
@@ -286,7 +286,7 @@ fn package_interface_bundle_failure_diagnostic(
     target: &TargetIdentity,
 ) -> Option<Diagnostic> {
     let failure = match error {
-        PackageInterfaceExportBuildError::MissingSemanticFacts(key) => {
+        PackageInterfaceExportBuildError::MissingSemantics(key) => {
             return Some(package_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::MissingSemanticContent(
                     key.kind().as_str().to_owned(),

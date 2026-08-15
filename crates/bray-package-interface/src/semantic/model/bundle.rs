@@ -7,14 +7,14 @@ use super::{
     InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceImplementationInstance,
     InterfaceImplementationRecord, InterfacePredicateDefinition, InterfaceRuntimeRequirement,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSourceProvenance,
-    InterfaceSupportEntity, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSourceProvenance,
+    InterfaceSupportEntity, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
     InterfaceType, InterfaceTypeRepresentation,
 };
 
-/// Complete immutable semantic fact tables ready for package-interface encoding.
+/// Complete immutable semantic record tables ready for package-interface encoding.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct InterfaceSemanticFacts {
+pub struct InterfaceSemantics {
     pub(crate) substitutions: Arc<[InterfaceGenericSubstitution]>,
     pub(crate) trait_applications: Arc<[InterfaceTraitApplication]>,
     pub(crate) callable_instances: Arc<[InterfaceCallableInstance]>,
@@ -36,14 +36,14 @@ pub struct InterfaceSemanticFacts {
     pub(crate) support_entities: Arc<[InterfaceSupportEntity]>,
     pub(crate) implementations: Arc<[InterfaceImplementationRecord]>,
     pub(crate) coherence: Arc<[InterfaceCoherenceRecord]>,
-    pub(crate) target_dependencies: Arc<[InterfaceTargetFactDependency]>,
+    pub(crate) target_dependencies: Arc<[InterfaceTargetPropertyDependency]>,
     pub(crate) abi_dependencies: Arc<[InterfaceAbiDependency]>,
     pub(crate) runtime_requirements: Arc<[InterfaceRuntimeRequirement]>,
     pub(crate) provenance: Arc<[InterfaceSourceProvenance]>,
 }
 
-impl InterfaceSemanticFacts {
-    /// Creates an empty semantic fact bundle.
+impl InterfaceSemantics {
+    /// Creates an empty semantic record bundle.
     pub fn new() -> Self {
         Self::default()
     }
@@ -80,7 +80,7 @@ impl InterfaceSemanticFacts {
         self
     }
 
-    /// Replaces declaration-owned constraint and callable-contract facts.
+    /// Replaces declaration-owned constraint and callable-contract semantics.
     pub fn with_contracts(
         mut self,
         constraints: impl IntoIterator<Item = InterfaceConstraint>,
@@ -92,7 +92,7 @@ impl InterfaceSemanticFacts {
         self
     }
 
-    /// Replaces source-independent declaration signature, default, and predicate facts.
+    /// Replaces source-independent declaration signature, default, and predicate semantics.
     pub fn with_declarations(
         mut self,
         callable_signatures: impl IntoIterator<Item = InterfaceCallableSignature>,
@@ -142,7 +142,7 @@ impl InterfaceSemanticFacts {
         self
     }
 
-    /// Replaces implementation and coherence facts.
+    /// Replaces implementation and coherence semantics.
     pub fn with_implementations(
         mut self,
         implementations: impl IntoIterator<Item = InterfaceImplementationRecord>,
@@ -154,10 +154,10 @@ impl InterfaceSemanticFacts {
         self
     }
 
-    /// Replaces target and ABI compatibility facts.
+    /// Replaces target and ABI compatibility semantics.
     pub fn with_target_dependencies(
         mut self,
-        target_dependencies: impl IntoIterator<Item = InterfaceTargetFactDependency>,
+        target_dependencies: impl IntoIterator<Item = InterfaceTargetPropertyDependency>,
         abi_dependencies: impl IntoIterator<Item = InterfaceAbiDependency>,
     ) -> Self {
         self.target_dependencies = target_dependencies.into_iter().collect();
@@ -246,7 +246,7 @@ impl InterfaceSemanticFacts {
         &self.checked_templates
     }
 
-    /// Returns declaration-owned template facts in canonical owner order.
+    /// Returns declaration-owned template semantics in canonical owner order.
     pub fn declaration_templates(&self) -> &[InterfaceDeclarationTemplate] {
         &self.declaration_templates
     }
@@ -266,8 +266,8 @@ impl InterfaceSemanticFacts {
         &self.coherence
     }
 
-    /// Returns target-fact dependencies in canonical fact order.
-    pub fn target_dependencies(&self) -> &[InterfaceTargetFactDependency] {
+    /// Returns target-property dependencies in canonical record order.
+    pub fn target_dependencies(&self) -> &[InterfaceTargetPropertyDependency] {
         &self.target_dependencies
     }
 
@@ -286,16 +286,16 @@ impl InterfaceSemanticFacts {
         &self.provenance
     }
 
-    /// Returns the canonical symbol-fact directory.
-    pub fn fact_directory(&self) -> Arc<[InterfaceSemanticFactEntry]> {
+    /// Returns the canonical symbol-record directory.
+    pub fn semantic_directory(&self) -> Arc<[InterfaceSemanticRecord]> {
         // References retain Arc-backed external keys so directory ownership stays shallow.
         let constraints =
             self.constraints
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::GenericConstraint,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::GenericConstraint,
                     section: crate::InterfaceSectionTag::Contracts,
                     record: checked_record(index),
                 });
@@ -304,9 +304,9 @@ impl InterfaceSemanticFacts {
             .callable_contracts
             .iter()
             .enumerate()
-            .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.owner.clone(),
-                kind: InterfaceSemanticFactKind::CallableContracts,
+            .map(|(index, record)| InterfaceSemanticRecord {
+                owner: record.owner.clone(),
+                kind: InterfaceSemanticRecordKind::CallableContracts,
                 section: crate::InterfaceSectionTag::Contracts,
                 record: checked_record(index),
             });
@@ -315,10 +315,10 @@ impl InterfaceSemanticFacts {
             self.callable_signatures
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::CallableSignature,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::CallableSignature,
+                    section: crate::InterfaceSectionTag::DeclarationSemantics,
                     record: checked_record(index),
                 });
 
@@ -326,10 +326,10 @@ impl InterfaceSemanticFacts {
             self.generic_declarations
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::GenericDeclaration,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::GenericDeclaration,
+                    section: crate::InterfaceSectionTag::DeclarationSemantics,
                     record: checked_record(index),
                 });
 
@@ -337,10 +337,10 @@ impl InterfaceSemanticFacts {
             self.callable_parameter_defaults
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.parameter.clone(),
-                    kind: InterfaceSemanticFactKind::CallableParameterDefault,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.parameter.clone(),
+                    kind: InterfaceSemanticRecordKind::CallableParameterDefault,
+                    section: crate::InterfaceSectionTag::DeclarationSemantics,
                     record: checked_record(index),
                 });
 
@@ -348,10 +348,10 @@ impl InterfaceSemanticFacts {
             self.predicate_definitions
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::PredicateDefinition,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::PredicateDefinition,
+                    section: crate::InterfaceSectionTag::DeclarationSemantics,
                     record: checked_record(index),
                 });
 
@@ -359,18 +359,18 @@ impl InterfaceSemanticFacts {
             self.type_representations
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner.clone(),
-                    kind: InterfaceSemanticFactKind::TypeRepresentation,
-                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::TypeRepresentation,
+                    section: crate::InterfaceSectionTag::DeclarationSemantics,
                     record: checked_record(index),
                 });
 
-        let declared_types = self.declared_types.iter().enumerate().map(|(index, fact)| {
-            InterfaceSemanticFactEntry {
-                owner: fact.owner.clone(),
-                kind: InterfaceSemanticFactKind::DeclaredType,
-                section: crate::InterfaceSectionTag::DeclarationFacts,
+        let declared_types = self.declared_types.iter().enumerate().map(|(index, record)| {
+            InterfaceSemanticRecord {
+                owner: record.owner.clone(),
+                kind: InterfaceSemanticRecordKind::DeclaredType,
+                section: crate::InterfaceSectionTag::DeclarationSemantics,
                 record: checked_record(index),
             }
         });
@@ -379,9 +379,9 @@ impl InterfaceSemanticFacts {
             self.declaration_templates
                 .iter()
                 .enumerate()
-                .map(|(index, fact)| InterfaceSemanticFactEntry {
-                    owner: fact.owner().clone(),
-                    kind: InterfaceSemanticFactKind::DeclarationTemplate,
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner().clone(),
+                    kind: InterfaceSemanticRecordKind::DeclarationTemplate,
                     section: crate::InterfaceSectionTag::DeclarationTemplates,
                     record: checked_record(index),
                 });
@@ -390,9 +390,9 @@ impl InterfaceSemanticFacts {
             .implementations
             .iter()
             .enumerate()
-            .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.implementation.clone(),
-                kind: InterfaceSemanticFactKind::Implementation,
+            .map(|(index, record)| InterfaceSemanticRecord {
+                owner: record.implementation.clone(),
+                kind: InterfaceSemanticRecordKind::Implementation,
                 section: crate::InterfaceSectionTag::Implementations,
                 record: checked_record(index),
             });
@@ -401,9 +401,9 @@ impl InterfaceSemanticFacts {
             .target_dependencies
             .iter()
             .enumerate()
-            .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.owner.clone(),
-                kind: InterfaceSemanticFactKind::TargetFact,
+            .map(|(index, record)| InterfaceSemanticRecord {
+                owner: record.owner.clone(),
+                kind: InterfaceSemanticRecordKind::TargetProperty,
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),
             });
@@ -412,9 +412,9 @@ impl InterfaceSemanticFacts {
             .abi_dependencies
             .iter()
             .enumerate()
-            .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.symbol.clone(),
-                kind: InterfaceSemanticFactKind::Abi,
+            .map(|(index, record)| InterfaceSemanticRecord {
+                owner: record.symbol.clone(),
+                kind: InterfaceSemanticRecordKind::Abi,
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),
             });
@@ -423,9 +423,9 @@ impl InterfaceSemanticFacts {
             .runtime_requirements
             .iter()
             .enumerate()
-            .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.owner.clone(),
-                kind: InterfaceSemanticFactKind::Runtime,
+            .map(|(index, record)| InterfaceSemanticRecord {
+                owner: record.owner.clone(),
+                kind: InterfaceSemanticRecordKind::Runtime,
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),
             });

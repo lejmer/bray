@@ -317,9 +317,9 @@ impl MatchCoverageEntry {
     }
 }
 
-/// Immutable checked pattern and match-coverage facts for one bound unit.
+/// Immutable checked pattern and match-coverage patterns for one bound unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CheckedPatternFacts {
+pub struct CheckedPatterns {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     patterns: Arc<[PatternCheckEntry]>,
@@ -327,8 +327,8 @@ pub struct CheckedPatternFacts {
     matches: Arc<[MatchCoverageEntry]>,
 }
 
-impl CheckedPatternFacts {
-    /// Creates one complete pattern fact table.
+impl CheckedPatterns {
+    /// Creates one complete pattern analysis table.
     pub fn new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -353,7 +353,7 @@ impl CheckedPatternFacts {
         }
     }
 
-    /// Returns the exact bound unit described by these facts.
+    /// Returns the exact bound unit described by these patterns.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }

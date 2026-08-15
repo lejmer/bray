@@ -4,18 +4,18 @@ use bray_bound_tree::{
     DeclaredValueTypeTerm,
 };
 use bray_symbols::{
-    AnySymbolId, CallableParameterSymbolId, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantExpressionExpectedType,
-    ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeFact,
-    ImplementationSubjectFact, NamedTypeSymbolId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, StructFieldTypeFact, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TypeExpressionTemplate, UnionPayloadFieldTypeFact,
+    AnySymbolId, CallableParameterSymbolId, CallableSignatureQuery, CallableSignatureTemplate,
+    CallableSymbolId, ConstantDeclaredTypeQuery, ConstantExpressionExpectedType,
+    ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
+    ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolFactRequest,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
+    TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
 use bray_syntax::LambdaExpressionSyntax;
-use bray_target::TargetFactKind;
+use bray_target::TargetPropertyKind;
 
-use super::CompilationBinderFacts;
+use super::CompilationBindingContext;
 use super::symbol::{type_binder, visible_generic_const_parameters};
 use super::value_type::{DeclaredValueTypeBinding, local_value};
 use crate::compilation::substitution::contextual_self_type;
@@ -26,7 +26,7 @@ impl DeclaredValueTypeBinding<'_> {
             self.check_cancellation()?;
 
             let result = self.context.symbol_fact(SymbolFactRequest::<
-                GenericConstParameterDeclaredTypeFact,
+                GenericConstParameterDeclaredTypeQuery,
             >::new(parameter))?;
 
             self.add_evidence(
@@ -62,7 +62,7 @@ impl DeclaredValueTypeBinding<'_> {
 
         let result = self
             .context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))?;
 
         let signature = result.value();
 
@@ -231,7 +231,7 @@ impl DeclaredValueTypeBinding<'_> {
     ) -> BinderFactResult<TypeExpressionTemplate> {
         let subject =
             self.context
-                .symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(
+                .symbol_fact(SymbolFactRequest::<ImplementationSubjectQuery>::new(
                     implementation,
                 ))?;
 
@@ -305,7 +305,7 @@ impl DeclaredValueTypeBinding<'_> {
             ConstantExpressionExpectedType::GenericParameter(parameter) => self
                 .context
                 .symbol_fact(
-                    SymbolFactRequest::<GenericConstParameterDeclaredTypeFact>::new(parameter),
+                    SymbolFactRequest::<GenericConstParameterDeclaredTypeQuery>::new(parameter),
                 )
                 .map(|result| owned_template(result.value()))?,
         };
@@ -321,7 +321,7 @@ impl DeclaredValueTypeBinding<'_> {
 
         let result =
             self.context
-                .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+                .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
                     predicate,
                 ))?;
 
@@ -363,7 +363,7 @@ impl DeclaredValueTypeBinding<'_> {
         let boolean = self
             .context
             .compilation()
-            .target_fact_type(TargetFactKind::ScalarBool)
+            .target_property_type(TargetPropertyKind::ScalarBool)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
         self.add_evidence(
@@ -384,7 +384,7 @@ impl DeclaredValueTypeBinding<'_> {
             CallableSymbolId::try_from_any(owner).ok_or(BinderFactError::DependencyUnavailable)?;
 
         self.context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
+            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
     }
 
     fn declared_surface_value_type(
@@ -412,11 +412,11 @@ impl DeclaredValueTypeBinding<'_> {
             }
             AnySymbolId::StructField(field) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(field))
+                .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(field))
                 .map(|result| owned_template(result.value())),
             AnySymbolId::UnionPayloadField(field) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field))
+                .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(field))
                 .map(|result| owned_template(result.value())),
             _ => Err(BinderFactError::DependencyUnavailable),
         }
@@ -430,12 +430,12 @@ impl DeclaredValueTypeBinding<'_> {
             AnySymbolId::Constant(constant) => self.constant_type(constant),
             AnySymbolId::TraitConstantMember(member) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDeclaredTypeFact>::new(member))
+                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDeclaredTypeQuery>::new(member))
                 .map(|result| owned_template(result.value())),
             AnySymbolId::TraitConstantFulfillment(fulfillment) => self
                 .context
                 .symbol_fact(
-                    SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeFact>::new(fulfillment),
+                    SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeQuery>::new(fulfillment),
                 )
                 .map(|result| owned_template(result.value())),
             _ => Err(BinderFactError::DependencyUnavailable),
@@ -471,13 +471,13 @@ impl DeclaredValueTypeBinding<'_> {
         constant: ConstantSymbolId,
     ) -> BinderFactResult<TypeExpressionTemplate> {
         self.context
-            .symbol_fact(SymbolFactRequest::<ConstantDeclaredTypeFact>::new(constant))
+            .symbol_fact(SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(constant))
             .map(|result| owned_template(result.value()))
     }
 }
 
 fn callable_parameter_templates(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     signature: &CallableSignatureTemplate,
 ) -> BinderFactResult<Vec<(CallableParameterSymbolId, TypeExpressionTemplate)>> {
     let types = signature
@@ -488,7 +488,7 @@ fn callable_parameter_templates(
 }
 
 fn owned_template(template: &TypeExpressionTemplate) -> TypeExpressionTemplate {
-    // Published facts own their templates independently. Recursive storage remains Arc-shared.
+    // Published query results own their templates independently. Recursive storage remains Arc-shared.
     template.clone()
 }
 

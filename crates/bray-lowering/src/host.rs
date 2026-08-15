@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundUnitKey;
 use bray_ir::{
     MirBlockKind, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
-    MirTargetFacts, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
 };
 use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 
@@ -14,7 +14,7 @@ pub struct ExecutableHostLoweringInput {
     unit: MirUnitId,
     roots: Vec<BoundUnitKey>,
     contract: ExecutableHostContract,
-    target: MirTargetFacts,
+    target: MirTargetContract,
 }
 
 impl ExecutableHostLoweringInput {
@@ -23,7 +23,7 @@ impl ExecutableHostLoweringInput {
         unit: MirUnitId,
         roots: impl IntoIterator<Item = BoundUnitKey>,
         contract: ExecutableHostContract,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         Self {
             unit,

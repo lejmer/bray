@@ -16,8 +16,8 @@ pub enum LocalSymbolRegionRole {
     EmbeddedConstant,
     /// A module contribution target-selection expression.
     TargetGate,
-    /// A declaration-owned checked expression fact.
-    DeclarationFact(SymbolFactKind),
+    /// A declaration-owned checked expression query.
+    DeclarationQuery(SymbolFactKind),
 }
 
 /// A deterministic key for one local semantic region.

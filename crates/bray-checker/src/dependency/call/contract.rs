@@ -4,7 +4,7 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_symbols::{
-    BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureFact,
+    BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureQuery,
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
     DependencySubject, DependencySubjectRoot, SymbolFactRequest, SymbolOrdinal, TypeData,
     TypeExpressionTemplate,
@@ -40,7 +40,7 @@ pub(crate) fn selected_call_contracts<C>(
     DependencyContractInstantiationError<CheckerInfrastructureError>,
 >
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let contracts = callable_dependency_contracts(request, call.target())
         .map_err(DependencyContractInstantiationError::Resolution)?;
@@ -125,7 +125,7 @@ pub(in crate::dependency) fn selected_iteration_contract<C>(
     selection: &SelectedIterationSource,
 ) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let source = expression_access(storage, selection.source()).ok_or(
         DependencyContractInstantiationError::Resolution(
@@ -172,7 +172,7 @@ fn instantiate_hidden_iteration_call<C>(
     result: bray_bound_tree::StorageAccessId,
 ) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let contracts =
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
@@ -235,12 +235,12 @@ fn callable_dependency_contracts<C>(
     target: BoundCallableTarget,
 ) -> Result<CallableDependencyContracts, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     match target {
         BoundCallableTarget::Declaration(instance) => {
             let signature = request
-                .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
                     instance.definition().callable_symbol(),
                 ))
                 .map_err(|error| match error {

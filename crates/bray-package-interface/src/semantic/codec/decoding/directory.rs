@@ -5,16 +5,16 @@ use crate::tag::WireTag;
 use crate::validation::is_strictly_sorted;
 use crate::wire::WireReader;
 use crate::{
-    InterfaceLimit, InterfaceSectionTag, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
+    InterfaceLimit, InterfaceSectionTag, InterfaceSemanticRecord, InterfaceSemanticRecordKind,
     InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
 use std::sync::Arc;
 
-pub(crate) fn decode_fact_directory(
+pub(crate) fn decode_semantic_directory(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-) -> Result<Arc<[InterfaceSemanticFactEntry]>, InterfaceValidationError> {
+) -> Result<Arc<[InterfaceSemanticRecord]>, InterfaceValidationError> {
     let count =
         usize::try_from(section.record_count()).map_err(|_| InterfaceValidationError::Malformed)?;
 
@@ -26,7 +26,7 @@ pub(crate) fn decode_fact_directory(
     for _ in 0..count {
         let owner = read_symbol_reference(&mut reader, context)?;
 
-        let kind = InterfaceSemanticFactKind::from_wire(read_u32(&mut reader)?)
+        let kind = InterfaceSemanticRecordKind::from_wire(read_u32(&mut reader)?)
             .ok_or(InterfaceValidationError::Malformed)?;
 
         let section = InterfaceSectionTag::from_wire_value(read_u32(&mut reader)?)
@@ -34,7 +34,7 @@ pub(crate) fn decode_fact_directory(
 
         let record = read_u32(&mut reader)?;
 
-        entries.push(InterfaceSemanticFactEntry {
+        entries.push(InterfaceSemanticRecord {
             owner,
             kind,
             section,

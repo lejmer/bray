@@ -2,7 +2,7 @@ use std::num::NonZeroU16;
 
 use bray_runtime_interface::PanicAbiIdentity;
 use bray_symbols::CallableAbi;
-use bray_target::{CodeModel, NativeTarget, RelocationModel, TargetScalarKind as FactScalarKind};
+use bray_target::{CodeModel, NativeTarget, RelocationModel, TargetScalarKind as ProfileScalarKind};
 
 use super::{
     CallableAbiMapping, CodegenLinkage, CodegenTarget, TargetAbi, TargetAddressSpace,
@@ -38,27 +38,27 @@ impl CodegenTarget {
 }
 
 fn data_layout(profile: &bray_target::TargetProfile) -> TargetDataLayout {
-    let facts = profile.facts().scalars();
+    let scalar_support = profile.properties().scalars();
     let integer_widths = [8_u16, 16, 32, 64, 128];
     let float_widths = [16_u16, 32, 64, 128];
 
     let scalars = std::iter::once(scalar_layout(
         TargetScalarKind::Boolean,
         1,
-        facts.alignment(FactScalarKind::Bool).get(),
+        scalar_support.alignment(ProfileScalarKind::Bool).get(),
     ))
     .chain(integer_widths.into_iter().map(|width| {
         scalar_layout(
             TargetScalarKind::Integer(nonzero(width)),
             width.div_ceil(8),
-            facts.alignment(integer_fact_kind(width)).get(),
+            scalar_support.alignment(integer_profile_kind(width)).get(),
         )
     }))
     .chain(float_widths.into_iter().map(|width| {
         scalar_layout(
             TargetScalarKind::Float(nonzero(width)),
             width.div_ceil(8),
-            facts.alignment(float_fact_kind(width)).get(),
+            scalar_support.alignment(float_profile_kind(width)).get(),
         )
     }));
 
@@ -147,23 +147,23 @@ fn scalar_layout(
         .unwrap_or_else(|error| panic!("native scalar layout must be valid: {error:?}"))
 }
 
-const fn integer_fact_kind(width: u16) -> FactScalarKind {
+const fn integer_profile_kind(width: u16) -> ProfileScalarKind {
     match width {
-        8 => FactScalarKind::I8,
-        16 => FactScalarKind::I16,
-        32 => FactScalarKind::I32,
-        64 => FactScalarKind::I64,
-        128 => FactScalarKind::I128,
+        8 => ProfileScalarKind::I8,
+        16 => ProfileScalarKind::I16,
+        32 => ProfileScalarKind::I32,
+        64 => ProfileScalarKind::I64,
+        128 => ProfileScalarKind::I128,
         _ => panic!("native integer width must be supported"),
     }
 }
 
-const fn float_fact_kind(width: u16) -> FactScalarKind {
+const fn float_profile_kind(width: u16) -> ProfileScalarKind {
     match width {
-        16 => FactScalarKind::R16,
-        32 => FactScalarKind::R32,
-        64 => FactScalarKind::R64,
-        128 => FactScalarKind::R128,
+        16 => ProfileScalarKind::R16,
+        32 => ProfileScalarKind::R32,
+        64 => ProfileScalarKind::R64,
+        128 => ProfileScalarKind::R128,
         _ => panic!("native float width must be supported"),
     }
 }

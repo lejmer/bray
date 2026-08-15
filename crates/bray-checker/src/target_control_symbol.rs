@@ -3,7 +3,7 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableDefinitionId, CallableInstanceData, CallableSignatureFact, GenericOwnerId,
+    CallableDefinitionId, CallableInstanceData, CallableSignatureQuery, GenericOwnerId,
     GenericSubstitutionData, SymbolFactRequest, TypeData, TypeId,
 };
 
@@ -18,7 +18,7 @@ pub(super) fn callable_symbol<C>(
     expected: TypeId,
 ) -> Result<Option<InlineAssemblySymbol>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(BoundExpression::Name(name)) = request.view().expression(expression) else {
         return Ok(None);
@@ -57,7 +57,7 @@ where
     let open = intern_substitution(request, owner, &parameters, open_arguments)?;
 
     let template = request
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
             definition.callable_symbol(),
         ))
         .map_err(fact_error)?;

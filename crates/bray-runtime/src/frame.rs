@@ -6,7 +6,7 @@ use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
-/// Runtime facts supplied to one protected-frame resume operation.
+/// Runtime state supplied to one protected-frame resume operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameContext {
     cancellation_requested: bool,

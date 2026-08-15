@@ -152,7 +152,7 @@ impl SelectedIterationSource {
         self.types.element()
     }
 
-    /// Returns the exact iteration count when selected contracts and source facts prove it.
+    /// Returns the exact iteration count when selected contracts and source evidence prove it.
     pub const fn exact_count(&self) -> Option<ConstantTermId> {
         self.exact_count
     }

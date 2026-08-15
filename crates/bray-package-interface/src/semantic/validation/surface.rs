@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
+    InterfaceLimit, InterfaceSemantics, InterfaceSymbolReference, InterfaceValidationError,
     InterfaceValidationLimits, PackageInterfaceSurface,
 };
 use bray_symbols::SymbolKind;
@@ -14,8 +14,8 @@ use crate::semantic::model::{
     InterfaceConstraintKind,
 };
 
-impl InterfaceSemanticFacts {
-    pub(super) fn validate_surface_facts(
+impl InterfaceSemantics {
+    pub(super) fn validate_surface_semantics(
         &self,
         surface: &PackageInterfaceSurface,
         symbol_count: usize,
@@ -62,7 +62,10 @@ impl InterfaceSemanticFacts {
             || !self
                 .target_dependencies
                 .windows(2)
-                .all(|pair| (&pair[0].owner, &pair[0].fact) < (&pair[1].owner, &pair[1].fact))
+                .all(|pair| {
+                    (&pair[0].owner, &pair[0].property)
+                        < (&pair[1].owner, &pair[1].property)
+                })
             || !self
                 .abi_dependencies
                 .windows(2)
@@ -231,7 +234,7 @@ impl InterfaceSemanticFacts {
 
         for target in &*self.target_dependencies {
             validate_symbol(&target.owner, symbol_count, dependency_count)?;
-            validate_symbol(&target.fact, symbol_count, dependency_count)?;
+            validate_symbol(&target.property, symbol_count, dependency_count)?;
             validate_index(target.value.to_index(), self.constant_values.len())?;
         }
 

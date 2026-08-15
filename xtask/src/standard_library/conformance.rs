@@ -145,7 +145,7 @@ fn verify_package_interface(
         .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
 
     validated
-        .decode_semantic_facts(&surface)
+        .decode_semantics(&surface)
         .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
 
     let identity = surface.identity();

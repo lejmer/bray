@@ -11,8 +11,8 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableParameterMode, CallableSignatureFact, CallableSymbolId,
-    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsFact, GenericOwnerId,
+    AnySymbolId, CallableParameterMode, CallableSignatureQuery, CallableSymbolId,
+    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, ReceiverMode,
     SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
@@ -34,7 +34,7 @@ use crate::{
     NestedCallableEvidence,
 };
 
-const INVALID_SELECTION_FACT_ERROR: CheckerFactError =
+const INVALID_SELECTION_INPUT_ERROR: CheckerFactError =
     CheckerFactError::Infrastructure(CheckerInfrastructureError::InvalidSemanticSelectionInput);
 
 struct PreparedCall {
@@ -100,7 +100,7 @@ pub(super) fn prepare_calls<C>(
     candidate_sets: &[ExpressionCandidateSet],
 ) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
     let mut calls = Vec::new();
     let mut built_in_operators = Vec::new();
@@ -222,7 +222,7 @@ where
             }),
             ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
                 expression,
-                reason: CandidateAbsence::UnavailableDeclarationFacts,
+                reason: CandidateAbsence::UnavailableDeclarationSemantics,
             }) if member_callee(request, *expression).is_some() => {
                 let callee = member_callee(request, *expression)
                     .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
@@ -279,7 +279,7 @@ fn prepare_resolved_candidate<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
     let TemplateResolution::Resolved(candidate) = materialized else {
         return Ok(true);
@@ -323,7 +323,7 @@ fn generic_constraint_outcome<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<ProofOutcome, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
     if candidate.generic_constraints().is_empty() {
         return Ok(ProofOutcome::Proven);
@@ -364,9 +364,9 @@ fn active_constraints_prove<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> CheckerFactResult<bool>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
-    let required = request.symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+    let required = request.symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(
         obligation.owner(),
     ))?;
 
@@ -388,7 +388,7 @@ where
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
             let constraints = request.symbol_fact(
-                SymbolFactRequest::<GenericConstraintsFact>::new(generic_owner),
+                SymbolFactRequest::<GenericConstraintsQuery>::new(generic_owner),
             )?;
 
             if constraints.diagnostics().has_errors() {
@@ -551,8 +551,8 @@ fn add_candidate_expectations<C>(
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     for prepared_call in &prepared.calls {
@@ -634,7 +634,7 @@ fn viable_candidates<'candidate, C>(
     candidates: &'candidate [CallableCandidate],
 ) -> Result<Option<Vec<&'candidate CallableCandidate>>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     // The probe borrows the prepared candidates while owning only the source call surface.
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
@@ -764,7 +764,7 @@ fn materialize_call_candidates<'prepared, C>(
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
 ) -> CheckerFactResult<Option<MaterializedCallCandidates<'prepared>>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
     if prepared.generic_candidates.is_empty() && prepared.values.is_empty() {
         return Ok(Some(MaterializedCallCandidates {
@@ -966,8 +966,8 @@ pub(super) fn converge<C>(
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     loop {
@@ -1014,8 +1014,8 @@ fn apply_selected_call_evidence<C>(
 ) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     for prepared_call in &prepared.calls {
@@ -1143,8 +1143,8 @@ pub(super) fn final_selections<C>(
 ) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureFact>
-        + CheckerSemanticFactProvider<GenericConstraintsFact>
+        + CheckerSemanticFactProvider<CallableSignatureQuery>
+        + CheckerSemanticFactProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     let mut entries = Vec::new();
@@ -1209,7 +1209,7 @@ fn select_prepared_call<C>(
     candidates: &[CallableCandidate],
 ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
         Ok(input) => input,
@@ -1230,7 +1230,7 @@ fn call_selection_request<C>(
     candidates: impl IntoIterator<Item = CallableCandidate>,
 ) -> CheckerFactResult<CallableSelectionRequest>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
         return Err(CheckerFactError::Infrastructure(
@@ -1272,7 +1272,7 @@ fn receiver_capability<C>(
     receiver: BoundExpressionId,
 ) -> CheckerFactResult<crate::ReceiverCapability>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     let mut expression = receiver;
     let mut mutable_projection = true;
@@ -1280,7 +1280,7 @@ where
     loop {
         let ty = types
             .expression(expression)
-            .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+            .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
         let data = request.semantic_values().type_data(ty.ty()).map_err(|_| {
             CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
@@ -1294,7 +1294,7 @@ where
             Some(BoundExpression::MemberAccess(member)) => {
                 let target = member_targets
                     .get(&expression)
-                    .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+                    .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
                 mutable_projection &= member_allows_mutation(request, target.member());
                 expression = member.receiver();
@@ -1323,7 +1323,7 @@ fn generic_constraint_implementation_selections<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Vec<crate::ImplementationSelectionEvidence>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsQuery> + ?Sized,
 {
     if candidate.generic_constraints().is_empty() {
         return Ok(Vec::new());
@@ -1339,7 +1339,7 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let constraints = request
-        .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+        .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(
             substitution_data.owner(),
         ))
         .map_err(|error| match error {
@@ -1425,7 +1425,7 @@ fn name_receiver_capability<C>(
     target: BoundReferenceTarget,
 ) -> CheckerFactResult<crate::ReceiverCapability>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     match target {
         BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) => {
@@ -1444,10 +1444,10 @@ where
             let receiver = request
                 .symbols()
                 .receiver_parameter(parameter)
-                .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
             let signature = request.symbol_fact(
-                SymbolFactRequest::<CallableSignatureFact>::new(receiver.owner()),
+                SymbolFactRequest::<CallableSignatureQuery>::new(receiver.owner()),
             )?;
 
             let mode = signature
@@ -1455,7 +1455,7 @@ where
                 .receiver()
                 .filter(|signature| signature.parameter() == parameter)
                 .map(bray_symbols::ReceiverParameterSignature::mode)
-                .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
             Ok(receiver_mode_capability(mode))
         }
@@ -1463,10 +1463,10 @@ where
             let parameter = request
                 .symbols()
                 .callable_parameter(parameter)
-                .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
             let signature = request.symbol_fact(
-                SymbolFactRequest::<CallableSignatureFact>::new(parameter.owner()),
+                SymbolFactRequest::<CallableSignatureQuery>::new(parameter.owner()),
             )?;
 
             let index = usize::try_from(parameter.ordinal()).map_err(|_| {
@@ -1497,7 +1497,7 @@ where
                 }
                 _ => None,
             }
-            .ok_or(INVALID_SELECTION_FACT_ERROR)?;
+            .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
 
             Ok(match mode {
                 CallableParameterMode::Immutable => crate::ReceiverCapability::Owned,
@@ -1512,7 +1512,7 @@ where
 
 fn member_allows_mutation<C>(request: CheckerUnitView<'_, C>, member: AnySymbolId) -> bool
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
 {
     match member {
         AnySymbolId::StructField(field) => request

@@ -216,27 +216,27 @@ impl ImportedPackageIdentitySurface {
         id.to_index().and_then(|index| self.symbols.get(index))
     }
 
-    /// Creates a category-typed imported fact key when the symbol has the requested exact kind.
-    pub fn symbol_fact_key<I: ExactSymbolId>(
+    /// Creates a category-typed imported semantic key when the symbol has the requested exact kind.
+    pub fn symbol_semantic_key<I: ExactSymbolId>(
         &self,
         interface: ImportedInterfaceId,
         symbol: InterfaceSymbolId,
-    ) -> Option<ImportedSymbolFactKey<I>> {
+    ) -> Option<ImportedSemanticKey<I>> {
         let identity = self.symbol(symbol)?;
 
         if identity.kind() != I::KIND {
             return None;
         }
 
-        Some(ImportedSymbolFactKey::from_validated(interface, symbol))
+        Some(ImportedSemanticKey::from_validated(interface, symbol))
     }
 }
 
-/// A category-typed route to one imported symbol's semantic facts.
+/// A category-typed route to one imported symbol's semantic records.
 ///
 /// `I` is the exact ordinary symbol ID type used in the consuming compilation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedSymbolFactKey<I: ExactSymbolId> {
+pub struct ImportedSemanticKey<I: ExactSymbolId> {
     interface: ImportedInterfaceId,
     symbol: InterfaceSymbolId,
     marker: PhantomData<fn() -> I>,
@@ -244,12 +244,12 @@ pub struct ImportedSymbolFactKey<I: ExactSymbolId> {
 
 /// The compiled-interface address backing one imported symbol.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedSymbolFactAddress {
+pub struct ImportedSemanticAddress {
     interface: ImportedInterfaceId,
     symbol: InterfaceSymbolId,
 }
 
-impl ImportedSymbolFactAddress {
+impl ImportedSemanticAddress {
     /// Returns the loaded interface containing the symbol.
     pub const fn interface(self) -> ImportedInterfaceId {
         self.interface
@@ -268,7 +268,7 @@ impl ImportedSymbolFactAddress {
     }
 }
 
-impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
+impl<I: ExactSymbolId> ImportedSemanticKey<I> {
     /// Returns the loaded interface containing the symbol.
     pub const fn interface(self) -> ImportedInterfaceId {
         self.interface
@@ -279,7 +279,7 @@ impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
         self.symbol
     }
 
-    /// Returns the exact ordinary symbol kind expected from the decoded fact.
+    /// Returns the exact ordinary symbol kind expected from the decoded semantic record.
     pub const fn kind(self) -> SymbolKind {
         I::KIND
     }
@@ -296,8 +296,8 @@ impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
     }
 }
 
-impl<I: ExactSymbolId> From<ImportedSymbolFactKey<I>> for ImportedSymbolFactAddress {
-    fn from(key: ImportedSymbolFactKey<I>) -> Self {
+impl<I: ExactSymbolId> From<ImportedSemanticKey<I>> for ImportedSemanticAddress {
+    fn from(key: ImportedSemanticKey<I>) -> Self {
         Self::from_validated(key.interface(), key.symbol())
     }
 }
@@ -559,15 +559,15 @@ mod tests {
     }
 
     #[test]
-    fn fact_keys_are_validated_and_category_typed() {
+    fn semantic_keys_are_validated_and_category_typed() {
         let surface = valid_surface();
         let interface = ImportedInterfaceId::new(4);
 
         let function =
-            surface.symbol_fact_key::<FunctionSymbolId>(interface, InterfaceSymbolId::new(2));
+            surface.symbol_semantic_key::<FunctionSymbolId>(interface, InterfaceSymbolId::new(2));
 
         let Some(function) = function else {
-            panic!("function identity must produce a function fact key");
+            panic!("function identity must produce a function semantic key");
         };
 
         assert_eq!(function.interface(), interface);
@@ -575,7 +575,7 @@ mod tests {
         assert_eq!(function.kind(), SymbolKind::Function);
 
         assert_eq!(
-            surface.symbol_fact_key::<PredicateSymbolId>(interface, InterfaceSymbolId::new(2)),
+            surface.symbol_semantic_key::<PredicateSymbolId>(interface, InterfaceSymbolId::new(2)),
             None
         );
     }
@@ -692,11 +692,11 @@ mod tests {
     }
 
     #[test]
-    fn imported_surfaces_and_fact_keys_are_send_and_sync() {
+    fn imported_surfaces_and_semantic_keys_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ImportedPackageIdentitySurface>();
-        assert_send_sync::<super::ImportedSymbolFactAddress>();
-        assert_send_sync::<super::ImportedSymbolFactKey<FunctionSymbolId>>();
+        assert_send_sync::<super::ImportedSemanticAddress>();
+        assert_send_sync::<super::ImportedSemanticKey<FunctionSymbolId>>();
     }
 }

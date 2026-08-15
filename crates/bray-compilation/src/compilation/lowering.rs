@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_bound_tree::{BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey};
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_ir::MirTargetFacts;
+use bray_ir::MirTargetContract;
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringInput, executable_unit_kind, lower_unit,
 };
@@ -96,7 +96,7 @@ impl Compilation {
         let expression_types =
             self.expression_types_with_cancellation(key.clone(), cancellation)?;
 
-        let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
         let selections = self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
@@ -106,14 +106,14 @@ impl Compilation {
 
         let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
 
-        let refinements = self.refinement_facts_with_cancellation(key.clone(), cancellation)?;
+        let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
 
-        let storage_flow = self.storage_flow_facts_with_cancellation(key.clone(), cancellation)?;
+        let storage_flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
 
         let dependencies =
             self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
 
-        let async_facts = self.async_facts_with_cancellation(key.clone(), cancellation)?;
+        let async_analysis = self.async_analysis_with_cancellation(key.clone(), cancellation)?;
 
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
@@ -132,7 +132,7 @@ impl Compilation {
             refinements.result().diagnostics(),
             storage_flow.result().diagnostics(),
             dependencies.result().diagnostics(),
-            async_facts.result().diagnostics(),
+            async_analysis.result().diagnostics(),
             behavior.result().diagnostics(),
             &constant_reference_diagnostics,
         ]);
@@ -145,7 +145,7 @@ impl Compilation {
 
         let selected_target = self.selected_target().target();
 
-        let target = MirTargetFacts::new(
+        let target = MirTargetContract::new(
             // MIR owns the immutable target profile independently of compilation state.
             selected_target.profile().clone(),
             selected_target.runtime_abi(),
@@ -165,7 +165,7 @@ impl Compilation {
             refinements.result().value(),
             storage_flow.result().value(),
             dependencies.result().value(),
-            async_facts.result().value(),
+            async_analysis.result().value(),
             behavior.result().value(),
             self.semantic_value_store()?,
             self.available_compiler_known_symbols(),
@@ -920,7 +920,7 @@ mod tests {
     }
 
     #[test]
-    fn compile_time_units_are_classified_without_demanding_runtime_facts() {
+    fn compile_time_units_are_classified_without_demanding_runtime_queries() {
         let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
         let key = declared_unit_key(&compilation, BoundUnitKind::ConstantTemplate);
 

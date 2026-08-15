@@ -4,7 +4,7 @@ use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
     BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
     EmissionRequest, EmissionStatus, LinkStaging, LinkStagingError, OutputSinkResolver,
-    ProductLinkFacts, construct_link_plan,
+    ProductLinkInputs, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
@@ -13,7 +13,7 @@ use bray_target::TargetOutputDescription;
 
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
-    Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductFacts,
+    Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductPlan,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -61,25 +61,25 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self
     }
 
-    /// Supplies compilation-owned native product facts and the linker invocation boundary.
+    /// Supplies compilation-owned native product inputs and the linker invocation boundary.
     pub const fn with_native_product(
         mut self,
-        facts: &'operation NativeProductFacts,
+        inputs: &'operation NativeProductPlan,
         linker: &'operation Linker,
     ) -> Self {
-        self.generation = ProductGenerationInputs::Native { facts, linker };
+        self.generation = ProductGenerationInputs::Native { inputs, linker };
 
         self
     }
 
     /// Supplies compilation-owned native code generation without final linking.
-    pub fn with_native_codegen(mut self, facts: &'operation NativeProductFacts) -> Self {
+    pub fn with_native_codegen(mut self, inputs: &'operation NativeProductPlan) -> Self {
         self.generation = ProductGenerationInputs::Custom {
             codegen: Some(ProductCodegenInputs {
-                backend: facts.backend(),
-                mappings: facts.mappings(),
-                target: facts.target(),
-                options: facts.options(),
+                backend: inputs.backend(),
+                mappings: inputs.mappings(),
+                target: inputs.target(),
+                options: inputs.options(),
             }),
             linking: None,
         };
@@ -87,11 +87,11 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self
     }
 
-    /// Supplies selected native link facts and the linker invocation boundary.
+    /// Supplies selected native link inputs and the linker invocation boundary.
     pub const fn with_linking(
         mut self,
         linker: &'operation Linker,
-        facts: &'operation ProductLinkFacts,
+        inputs: &'operation ProductLinkInputs,
     ) -> Self {
         let codegen = match self.generation {
             ProductGenerationInputs::Custom { codegen, .. } => codegen,
@@ -100,7 +100,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
 
         self.generation = ProductGenerationInputs::Custom {
             codegen,
-            linking: Some(ProductLinkingInputs { linker, facts }),
+            linking: Some(ProductLinkingInputs { linker, inputs }),
         };
 
         self
@@ -125,7 +125,7 @@ enum ProductGenerationInputs<'operation> {
         linking: Option<ProductLinkingInputs<'operation>>,
     },
     Native {
-        facts: &'operation NativeProductFacts,
+        inputs: &'operation NativeProductPlan,
         linker: &'operation Linker,
     },
 }
@@ -135,11 +135,11 @@ impl<'operation> ProductGenerationInputs<'operation> {
         match self {
             Self::None => None,
             Self::Custom { codegen, .. } => codegen,
-            Self::Native { facts, .. } => Some(ProductCodegenInputs {
-                backend: facts.backend(),
-                mappings: facts.mappings(),
-                target: facts.target(),
-                options: facts.options(),
+            Self::Native { inputs, .. } => Some(ProductCodegenInputs {
+                backend: inputs.backend(),
+                mappings: inputs.mappings(),
+                target: inputs.target(),
+                options: inputs.options(),
             }),
         }
     }
@@ -148,16 +148,16 @@ impl<'operation> ProductGenerationInputs<'operation> {
         match self {
             Self::None => None,
             Self::Custom { linking, .. } => linking,
-            Self::Native { facts, linker } => match facts.link() {
-                Some(facts) => Some(ProductLinkingInputs { linker, facts }),
+            Self::Native { inputs, linker } => match inputs.link() {
+                Some(inputs) => Some(ProductLinkingInputs { linker, inputs }),
                 None => None,
             },
         }
     }
 
-    const fn native(self) -> Option<&'operation NativeProductFacts> {
+    const fn native(self) -> Option<&'operation NativeProductPlan> {
         match self {
-            Self::Native { facts, .. } => Some(facts),
+            Self::Native { inputs, .. } => Some(inputs),
             Self::None | Self::Custom { .. } => None,
         }
     }
@@ -174,7 +174,7 @@ struct ProductCodegenInputs<'operation> {
 #[derive(Clone, Copy)]
 struct ProductLinkingInputs<'operation> {
     linker: &'operation Linker,
-    facts: &'operation ProductLinkFacts,
+    inputs: &'operation ProductLinkInputs,
 }
 
 impl Compilation {
@@ -251,13 +251,13 @@ impl Compilation {
             .check()
             .map_err(|_| ProductEmissionError::cancelled())?;
 
-        let ProductEmissionPlanningFacts {
+        let ProductEmissionPreparation {
             package_interface,
             package_implementation,
             diagnostics: planning_diagnostics,
-        } = self.product_emission_planning_facts(&request, cancellation)?;
+        } = self.prepare_product_emission(&request, cancellation)?;
 
-        // The immutable plan owns the selected target and backend facts past this operation input.
+        // The immutable plan owns the selected target and backend inputs past this operation input.
         let planner = EmissionPlanner::new(
             inputs.target_outputs.clone(),
             inputs
@@ -399,36 +399,36 @@ impl Compilation {
         Ok(())
     }
 
-    fn product_emission_planning_facts(
+    fn prepare_product_emission(
         &self,
         request: &EmissionRequest,
         cancellation: &CancellationToken,
-    ) -> Result<ProductEmissionPlanningFacts, ProductEmissionError> {
+    ) -> Result<ProductEmissionPreparation, ProductEmissionError> {
         let requires_interface = request.artifact(ArtifactKind::PackageInterface).is_some();
 
         let requires_implementation = request
             .artifact(ArtifactKind::PackageImplementation)
             .is_some();
 
-        let facts = self
+        let inputs = self
             .state
             .fact_runtime
             .map_indexed(2, |index| match index {
                 0 => {
-                    ProductEmissionPlanningFact::PackageInterface(self.product_interface_artifacts(
+                    ProductEmissionInput::PackageInterface(self.product_interface_artifacts(
                         requires_interface,
                         requires_implementation,
                         cancellation,
                     ))
                 }
-                1 => ProductEmissionPlanningFact::Diagnostics(
+                1 => ProductEmissionInput::Diagnostics(
                     cancellation
                         .check()
                         .and_then(|()| self.check_diagnostics_with_cancellation(cancellation))
                         .cloned()
                         .map_err(product_query_error),
                 ),
-                _ => unreachable!("product planning fact index must be in range"),
+                _ => unreachable!("product planning input index must be in range"),
             })
             .map_err(product_query_error)
             .map_err(|kind| {
@@ -443,12 +443,12 @@ impl Compilation {
         let mut package_interface = None;
         let mut diagnostics = None;
 
-        for fact in facts {
-            match fact {
-                ProductEmissionPlanningFact::PackageInterface(artifact) => {
+        for input in inputs {
+            match input {
+                ProductEmissionInput::PackageInterface(artifact) => {
                     package_interface = Some(artifact);
                 }
-                ProductEmissionPlanningFact::Diagnostics(fact_diagnostics) => {
+                ProductEmissionInput::Diagnostics(fact_diagnostics) => {
                     diagnostics = Some(fact_diagnostics);
                 }
             }
@@ -480,7 +480,7 @@ impl Compilation {
                 )
             })?;
 
-        Ok(ProductEmissionPlanningFacts {
+        Ok(ProductEmissionPreparation {
             package_interface: package_interface.interface,
             package_implementation: package_interface.implementation,
             diagnostics,
@@ -508,7 +508,7 @@ impl Compilation {
             return Err(ProductEmissionErrorKind::PackageInterfaceUnavailable);
         };
 
-        // The error crosses the cached fact borrow and therefore retains its Arc-backed identity.
+        // The error crosses the cached input borrow and therefore retains its Arc-backed identity.
         let bundle = bundle
             .as_ref()
             .map_err(|error| ProductEmissionErrorKind::PackageInterface(error.clone()))?;
@@ -638,7 +638,7 @@ impl Compilation {
                     plan,
                     staging.inputs().iter().cloned(),
                     staging.outputs().iter().cloned(),
-                    linking.facts,
+                    linking.inputs,
                     linking.linker,
                 )
                 .map_err(ProductEmissionErrorKind::LinkPlan)?;
@@ -664,7 +664,7 @@ impl Compilation {
     }
 }
 
-struct ProductEmissionPlanningFacts {
+struct ProductEmissionPreparation {
     package_interface: Option<bray_package_interface::InterfaceArtifact>,
     package_implementation: Option<bray_package_interface::PackageImplementationArtifact>,
     diagnostics: DiagnosticBag,
@@ -675,7 +675,7 @@ struct ProductInterfaceArtifacts {
     implementation: Option<bray_package_interface::PackageImplementationArtifact>,
 }
 
-enum ProductEmissionPlanningFact {
+enum ProductEmissionInput {
     PackageInterface(Result<ProductInterfaceArtifacts, ProductEmissionErrorKind>),
     Diagnostics(Result<DiagnosticBag, ProductEmissionErrorKind>),
 }
@@ -804,7 +804,7 @@ mod tests {
         RequestedArtifactDestination,
     };
     use bray_ir::{
-        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirBlockKind, MirFrameDescriptor, MirFrameState, MirFrameStateId, MirSourceAnchor,
         MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
     };
     use bray_lowering::{ExecutableHostLoweringInput, lower_executable_host};
@@ -837,7 +837,7 @@ mod tests {
     };
 
     #[test]
-    fn package_interface_emission_reuses_pure_facts_across_publications() {
+    fn package_interface_emission_reuses_pure_inputs_across_publications() {
         let compilation = compilation();
         let target_outputs = target_outputs();
 
@@ -882,12 +882,12 @@ mod tests {
         let first_bundle = compilation
             .package_interface_export_bundle()
             .and_then(|result| result.as_ref().ok())
-            .unwrap_or_else(|| panic!("interface bundle fact must remain published"));
+            .unwrap_or_else(|| panic!("interface bundle input must remain published"));
 
         let second_bundle = compilation
             .package_interface_export_bundle()
             .and_then(|result| result.as_ref().ok())
-            .unwrap_or_else(|| panic!("interface bundle fact must remain reusable"));
+            .unwrap_or_else(|| panic!("interface bundle input must remain reusable"));
 
         assert!(std::sync::Arc::ptr_eq(first_bundle, second_bundle));
     }
@@ -1251,7 +1251,7 @@ mod tests {
             .set_terminator(entry, source, MirTerminatorKind::Return(None))
             .unwrap_or_else(|error| panic!("test frame terminator must be valid: {error:?}"));
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
         let descriptor = MirFrameDescriptor::try_new(
             frame,

@@ -40,11 +40,11 @@ pub enum CheckerInfrastructureError {
         /// The invalid source span.
         span: SourceSpan,
     },
-    /// A required semantic fact could not be supplied.
+    /// A required semantic query could not be supplied.
     SemanticFactUnavailable {
-        /// The exact symbol that owns the fact.
+        /// The exact symbol that owns the query.
         symbol: AnySymbolId,
-        /// The unavailable fact category.
+        /// The unavailable query category.
         kind: SymbolFactKind,
     },
     /// Canonical semantic value construction or lookup failed.
@@ -70,7 +70,7 @@ pub enum CheckerInfrastructureError {
     /// Storage-planning inputs or constructed records violate the requested unit contract.
     InvalidStoragePlan,
     /// Liveness inputs or durable decisions violate the requested unit contract.
-    InvalidLivenessFacts,
+    InvalidLiveness,
     /// Refinement inputs do not describe the requested bound unit.
     InvalidRefinementInput,
     /// Refinement resource counts cannot be represented by the diagnostic protocol.
@@ -78,7 +78,7 @@ pub enum CheckerInfrastructureError {
     /// Host allocation failed while constructing refinement analysis storage.
     RefinementStorageUnavailable,
     /// Storage-flow inputs or durable decisions violate the requested unit contract.
-    InvalidStorageFlowFacts,
+    InvalidStorageFlow,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
@@ -177,7 +177,7 @@ pub trait CheckerRequestContext: Sync {
     /// Returns whether semantic context exactly describes the supplied bound unit.
     fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool;
 
-    /// Returns the canonical semantic values used by bound structure and facts.
+    /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 
     /// Returns the compilation-wide symbol graph.
@@ -338,12 +338,12 @@ pub trait CheckerRequestContext: Sync {
     fn cancellation(&self) -> &dyn Cancellation;
 }
 
-/// Origin-neutral typed access to one family of symbol-owned semantic facts.
+/// Origin-neutral typed access to one family of symbol-owned semantic queries.
 pub trait CheckerSemanticFactProvider<C>: CheckerRequestContext
 where
     C: SymbolFactContract,
 {
-    /// Returns the requested immutable semantic fact and its owned diagnostics.
+    /// Returns the requested immutable semantic query result and its owned diagnostics.
     fn symbol_fact(
         &self,
         request: SymbolFactRequest<C>,
@@ -353,7 +353,7 @@ where
 #[cfg(test)]
 mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
-    use bray_symbols::CallableSignatureFact;
+    use bray_symbols::CallableSignatureQuery;
 
     use super::{CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource};
 
@@ -362,7 +362,7 @@ mod tests {
         fn assert_sync<T: Sync + ?Sized>() {}
 
         assert_sync::<dyn CheckerRequestContext>();
-        assert_sync::<dyn CheckerSemanticFactProvider<CallableSignatureFact>>();
+        assert_sync::<dyn CheckerSemanticFactProvider<CallableSignatureQuery>>();
     }
 
     #[test]

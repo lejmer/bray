@@ -1,4 +1,4 @@
-//! Compiler entry points, requests, and lazy compiler facts.
+//! Compiler entry points, requests, and demand-driven compiler queries.
 
 #![forbid(unsafe_code)]
 
@@ -14,9 +14,9 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    BuildConfiguration, CodegenFactError, Compilation, CompilationLoadError, CompletionCandidate,
+    BuildConfiguration, CodegenPreparationError, Compilation, CompilationLoadError, CompletionCandidate,
     EmissionCodegenError, EmissionCodegenErrorKind, LinkedProductEmissionError,
-    NativeProductFactError, NativeProductFacts, PackageInterfaceExportError, ProductEmissionError,
+    NativeProductPlanningError, NativeProductPlan, PackageInterfaceExportError, ProductEmissionError,
     ProductEmissionErrorKind, ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
     TestDiscovery,
 };
@@ -24,7 +24,7 @@ pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };
 pub use fact::{
-    CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, QueryPriority,
+    CancellationToken, FactCycle, FactQueryError, ImportedSemanticRecordKey, QueryPriority,
     SymbolCompletionError,
 };
 pub use profile::{

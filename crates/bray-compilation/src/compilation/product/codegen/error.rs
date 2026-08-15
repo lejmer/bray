@@ -13,9 +13,9 @@ use bray_symbols::ProductIdentity;
 
 use crate::fact::FactQueryError;
 
-/// A failure to derive complete native product facts.
+/// A failure to derive complete native product plans.
 #[derive(Debug, Hash)]
-pub enum NativeProductFactError {
+pub enum NativeProductPlanningError {
     /// The compilation has no selected code generation backend.
     CodegenUnavailable,
     /// The selected product has no executable code root.
@@ -28,7 +28,7 @@ pub enum NativeProductFactError {
     InvalidSymbolName,
     /// A configured native link input is invalid.
     InvalidNativeLinkInput,
-    /// A lazy compilation fact could not be evaluated.
+    /// A lazy compilation plan could not be evaluated.
     Query(FactQueryError),
     /// The selected code generation target is invalid.
     InvalidCodegenTarget(CodegenTargetBuildError),
@@ -52,37 +52,37 @@ pub enum NativeProductFactError {
     InvalidLinkTarget(LinkTargetBuildError),
     /// The configured standard library cannot supply a required native artifact.
     StandardLibrary(bray_standard_library::StandardLibraryLoadError),
-    /// One code generation fact is unavailable.
-    Codegen(super::super::super::CodegenFactError),
+    /// One code generation plan is unavailable.
+    Codegen(super::super::super::CodegenPreparationError),
 }
 
-impl NativeProductFactError {
+impl NativeProductPlanningError {
     /// Returns whether the selected target cannot realize a demanded native representation.
     pub const fn is_unsupported(&self) -> bool {
         matches!(
             self,
             Self::CodegenUnavailable
                 | Self::MissingRuntime
-                | Self::Codegen(super::super::super::CodegenFactError::UnsupportedType(_))
+                | Self::Codegen(super::super::super::CodegenPreparationError::UnsupportedType(_))
         )
     }
 
-    /// Returns structured diagnostics produced while deriving native product facts.
+    /// Returns structured diagnostics produced while deriving native product plans.
     pub const fn diagnostics(&self) -> Option<&bray_diagnostics::DiagnosticBag> {
         match self {
-            Self::Codegen(super::super::super::CodegenFactError::Diagnostics(diagnostics)) => {
+            Self::Codegen(super::super::super::CodegenPreparationError::Diagnostics(diagnostics)) => {
                 Some(diagnostics)
             }
             _ => None,
         }
     }
 
-    /// Returns whether fact evaluation observed cancellation rather than a terminal failure.
+    /// Returns whether plan evaluation observed cancellation rather than a terminal failure.
     pub const fn is_cancelled(&self) -> bool {
         matches!(
             self,
             Self::Query(FactQueryError::Cancelled)
-                | Self::Codegen(super::super::super::CodegenFactError::Query(
+                | Self::Codegen(super::super::super::CodegenPreparationError::Query(
                     FactQueryError::Cancelled
                 ))
         )
@@ -106,25 +106,25 @@ impl NativeProductFactError {
 }
 
 fn native_product_failure_kind(
-    error: &NativeProductFactError,
+    error: &NativeProductPlanningError,
 ) -> Option<DiagnosticNativeProductFailureKind> {
     use DiagnosticNativeProductFailureKind as Kind;
 
     Some(match error {
-        NativeProductFactError::CodegenUnavailable => Kind::CodegenBackendNotSelected,
-        NativeProductFactError::MissingProductRoot => Kind::MissingProductRoot,
-        NativeProductFactError::InvalidEntryResult => Kind::InvalidEntryResult,
-        NativeProductFactError::MissingRuntime => Kind::MissingRuntime,
-        NativeProductFactError::InvalidSymbolName => Kind::InvalidSymbolName,
-        NativeProductFactError::InvalidNativeLinkInput => Kind::InvalidNativeLinkInput,
-        NativeProductFactError::Query(error) => fact_query_failure_kind(error)?,
-        NativeProductFactError::InvalidCodegenTarget(error) => match error {
+        NativeProductPlanningError::CodegenUnavailable => Kind::CodegenBackendNotSelected,
+        NativeProductPlanningError::MissingProductRoot => Kind::MissingProductRoot,
+        NativeProductPlanningError::InvalidEntryResult => Kind::InvalidEntryResult,
+        NativeProductPlanningError::MissingRuntime => Kind::MissingRuntime,
+        NativeProductPlanningError::InvalidSymbolName => Kind::InvalidSymbolName,
+        NativeProductPlanningError::InvalidNativeLinkInput => Kind::InvalidNativeLinkInput,
+        NativeProductPlanningError::Query(error) => fact_query_failure_kind(error)?,
+        NativeProductPlanningError::InvalidCodegenTarget(error) => match error {
             CodegenTargetBuildError::UnsupportedProfile => Kind::CodegenTargetUnsupportedProfile,
             CodegenTargetBuildError::EmptyTriple => Kind::CodegenTargetEmptyTriple,
             CodegenTargetBuildError::EmptyCpu => Kind::CodegenTargetEmptyCpu,
             CodegenTargetBuildError::EmptyFeature => Kind::CodegenTargetEmptyFeature,
         },
-        NativeProductFactError::InvalidReachability(error) => match error {
+        NativeProductPlanningError::InvalidReachability(error) => match error {
             CodegenReachabilityBuildError::EmptyRoots => Kind::ReachabilityEmptyRoots,
             CodegenReachabilityBuildError::DuplicateInstance => Kind::ReachabilityDuplicateInstance,
             CodegenReachabilityBuildError::InstanceWasNotDemanded => {
@@ -132,20 +132,20 @@ fn native_product_failure_kind(
             }
             CodegenReachabilityBuildError::Incomplete => Kind::ReachabilityIncomplete,
         },
-        NativeProductFactError::InvalidCodegenInstance(error) => match error {
+        NativeProductPlanningError::InvalidCodegenInstance(error) => match error {
             CodegenInstanceBuildError::TemplateMismatch => Kind::InstanceTemplateMismatch,
             CodegenInstanceBuildError::TargetMismatch => Kind::InstanceTargetMismatch,
             CodegenInstanceBuildError::DependencyTargetMismatch => {
                 Kind::InstanceDependencyTargetMismatch
             }
         },
-        NativeProductFactError::InvalidCodegenUnit(error) => codegen_unit_failure_kind(*error),
-        NativeProductFactError::InvalidCodegenPartition(error) => match error {
+        NativeProductPlanningError::InvalidCodegenUnit(error) => codegen_unit_failure_kind(*error),
+        NativeProductPlanningError::InvalidCodegenPartition(error) => match error {
             CodegenPartitionError::MissingCompatibility(_) => Kind::PartitionMissingCompatibility,
             CodegenPartitionError::InvalidUnit(_) => Kind::PartitionInvalidUnit,
         },
-        NativeProductFactError::InvalidHostMir(_) => Kind::GeneratedHostMirInvalid,
-        NativeProductFactError::InvalidExecutableHost(error) => match error {
+        NativeProductPlanningError::InvalidHostMir(_) => Kind::GeneratedHostMirInvalid,
+        NativeProductPlanningError::InvalidExecutableHost(error) => match error {
             ExecutableHostContractBuildError::DuplicateRole(_) => Kind::ExecutableHostDuplicateRole,
             ExecutableHostContractBuildError::MissingRuntime => Kind::ExecutableHostMissingRuntime,
             ExecutableHostContractBuildError::RuntimeOwnedHostBinding(_) => {
@@ -162,7 +162,7 @@ fn native_product_failure_kind(
             }
             ExecutableHostContractBuildError::MissingRole(_) => Kind::ExecutableHostMissingRole,
         },
-        NativeProductFactError::InvalidRuntimeSelection(error) => match error {
+        NativeProductPlanningError::InvalidRuntimeSelection(error) => match error {
             RuntimeArtifactSelectionError::IncompatibleRuntime(_) => {
                 Kind::RuntimeSelectionIncompatible
             }
@@ -182,14 +182,14 @@ fn native_product_failure_kind(
                 Kind::RuntimeSelectionArchiveDigestMismatch
             }
         },
-        NativeProductFactError::InvalidEmissionBackend(
+        NativeProductPlanningError::InvalidEmissionBackend(
             EmissionBackendBuildError::DuplicateCodegenUnit,
         ) => Kind::EmissionBackendDuplicateUnit,
-        NativeProductFactError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
+        NativeProductPlanningError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
             Kind::LinkTargetEmptyTriple
         }
-        NativeProductFactError::StandardLibrary(_) => return None,
-        NativeProductFactError::Codegen(error) => codegen_fact_failure_kind(error)?,
+        NativeProductPlanningError::StandardLibrary(_) => return None,
+        NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
 }
 
@@ -208,36 +208,36 @@ const fn codegen_unit_failure_kind(
     }
 }
 
-pub(in crate::compilation) fn codegen_fact_failure_kind(
-    error: &super::super::super::CodegenFactError,
+pub(in crate::compilation) fn codegen_preparation_failure_kind(
+    error: &super::super::super::CodegenPreparationError,
 ) -> Option<DiagnosticNativeProductFailureKind> {
-    use super::super::super::CodegenFactError;
+    use super::super::super::CodegenPreparationError;
     use DiagnosticNativeProductFailureKind as Kind;
 
     Some(match error {
-        CodegenFactError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
-        CodegenFactError::InvalidRequest(_) => Kind::CodegenInvalidRequest,
-        CodegenFactError::MirUnavailable(_) => Kind::CodegenMirUnavailable,
-        CodegenFactError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
-        CodegenFactError::InvalidInstance(_) => Kind::CodegenInvalidInstance,
-        CodegenFactError::InvalidUnit(_) => Kind::CodegenInvalidUnit,
-        CodegenFactError::UnitMismatch(_) => Kind::CodegenUnitMismatch,
-        CodegenFactError::InvalidHostMir(_) => Kind::CodegenInvalidHostMir,
-        CodegenFactError::InvalidGeneratedLifecycleMir(_) => Kind::CodegenInvalidLifecycleMir,
-        CodegenFactError::InvalidMappings(_) => Kind::CodegenInvalidMappings,
-        CodegenFactError::MissingRuntimeRole(_) => Kind::CodegenMissingRuntimeRole,
-        CodegenFactError::OpenConstantTerm(_) => Kind::CodegenOpenConstantTerm,
-        CodegenFactError::InvalidArrayLength(_) => Kind::CodegenInvalidArrayLength,
-        CodegenFactError::RecursiveValueType(_) => Kind::CodegenRecursiveValueType,
-        CodegenFactError::UnresolvedType(_) => Kind::CodegenUnresolvedType,
-        CodegenFactError::UnsizedTypeByValue(_) => Kind::CodegenUnsizedTypeByValue,
-        CodegenFactError::InvalidAbiMapping => Kind::CodegenInvalidAbiMapping,
-        CodegenFactError::UnsupportedType(_) => Kind::CodegenUnsupportedType,
-        CodegenFactError::MissingHelperInstance(_) => Kind::CodegenMissingHelperInstance,
-        CodegenFactError::Diagnostics(_) => return None,
-        CodegenFactError::LayoutOverflow(_) => Kind::CodegenLayoutOverflow,
-        CodegenFactError::InvalidSymbolName => Kind::CodegenInvalidSymbolName,
-        CodegenFactError::Query(error) => fact_query_failure_kind(error)?,
+        CodegenPreparationError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
+        CodegenPreparationError::InvalidRequest(_) => Kind::CodegenInvalidRequest,
+        CodegenPreparationError::MirUnavailable(_) => Kind::CodegenMirUnavailable,
+        CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
+        CodegenPreparationError::InvalidInstance(_) => Kind::CodegenInvalidInstance,
+        CodegenPreparationError::InvalidUnit(_) => Kind::CodegenInvalidUnit,
+        CodegenPreparationError::UnitMismatch(_) => Kind::CodegenUnitMismatch,
+        CodegenPreparationError::InvalidHostMir(_) => Kind::CodegenInvalidHostMir,
+        CodegenPreparationError::InvalidGeneratedLifecycleMir(_) => Kind::CodegenInvalidLifecycleMir,
+        CodegenPreparationError::InvalidMappings(_) => Kind::CodegenInvalidMappings,
+        CodegenPreparationError::MissingRuntimeRole(_) => Kind::CodegenMissingRuntimeRole,
+        CodegenPreparationError::OpenConstantTerm(_) => Kind::CodegenOpenConstantTerm,
+        CodegenPreparationError::InvalidArrayLength(_) => Kind::CodegenInvalidArrayLength,
+        CodegenPreparationError::RecursiveValueType(_) => Kind::CodegenRecursiveValueType,
+        CodegenPreparationError::UnresolvedType(_) => Kind::CodegenUnresolvedType,
+        CodegenPreparationError::UnsizedTypeByValue(_) => Kind::CodegenUnsizedTypeByValue,
+        CodegenPreparationError::InvalidAbiMapping => Kind::CodegenInvalidAbiMapping,
+        CodegenPreparationError::UnsupportedType(_) => Kind::CodegenUnsupportedType,
+        CodegenPreparationError::MissingHelperInstance(_) => Kind::CodegenMissingHelperInstance,
+        CodegenPreparationError::Diagnostics(_) => return None,
+        CodegenPreparationError::LayoutOverflow(_) => Kind::CodegenLayoutOverflow,
+        CodegenPreparationError::InvalidSymbolName => Kind::CodegenInvalidSymbolName,
+        CodegenPreparationError::Query(error) => fact_query_failure_kind(error)?,
     })
 }
 
@@ -255,14 +255,14 @@ const fn fact_query_failure_kind(
     }
 }
 
-impl From<FactQueryError> for NativeProductFactError {
+impl From<FactQueryError> for NativeProductPlanningError {
     fn from(error: FactQueryError) -> Self {
         Self::Query(error)
     }
 }
 
-impl From<super::super::super::CodegenFactError> for NativeProductFactError {
-    fn from(error: super::super::super::CodegenFactError) -> Self {
+impl From<super::super::super::CodegenPreparationError> for NativeProductPlanningError {
+    fn from(error: super::super::super::CodegenPreparationError) -> Self {
         Self::Codegen(error)
     }
 }
@@ -275,7 +275,7 @@ mod tests {
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::NativeProductFactError;
+    use super::NativeProductPlanningError;
 
     #[test]
     fn native_product_failures_preserve_exact_product_target_and_reason() {
@@ -285,7 +285,7 @@ mod tests {
         let product = ProductIdentity::try_new(package, "application")
             .unwrap_or_else(|| panic!("test product identity must be valid"));
 
-        let diagnostics = NativeProductFactError::MissingRuntime
+        let diagnostics = NativeProductPlanningError::MissingRuntime
             .diagnostic(&product, "x86_64-pc-windows-msvc")
             .unwrap_or_else(|| panic!("terminal native product failure must diagnose"));
 

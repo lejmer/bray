@@ -175,14 +175,14 @@ There is no current-directory search, parent-directory search, environment fallb
 installation scan inside compilation. User-facing tooling may derive a root from its explicit toolchain configuration, but it must
 pass the resulting selection into the compiler as typed data.
 
-Discovery proceeds as demand-driven facts:
+Discovery proceeds through demand-driven queries:
 
 1. A request for a `std` declaration demands the configured bundle manifest.
 2. Interface use demands and validates the `std.brayi` selected for the compilation target and runtime ABI.
 3. Lowering, code generation, or linking demands the exact target artifact set when the selected declaration needs it.
 4. Each demanded artifact is read and digest-validated once per immutable compilation state.
 
-Diagnostics collection may demand these facts when a missing or incompatible standard library affects source checking. Merely
+Diagnostics collection may demand these results when a missing or incompatible standard library affects source checking. Merely
 creating a compilation does not eagerly read every target artifact.
 
 Selecting a configured root inserts one synthetic package dependency edge from each selected user product to the stable
@@ -207,7 +207,7 @@ One deterministic build request fixes:
 - enabled features,
 - target profiles,
 - runtime ABI contracts,
-- platform-service ABI contracts and target service facts,
+- platform-service ABI contracts and target service properties,
 - compiler-known catalog input,
 - and requested artifact kinds.
 
@@ -224,7 +224,7 @@ stable `std:library` dependency edge.
 
 `bray-package-interface` owns `.brayi` encoding, validation, compatibility, and imported semantic access.
 
-`bray-target` owns target identities and target compatibility facts. `bray-runtime-abi` owns stable native symbols and call layouts.
+`bray-target` owns target identities and target compatibility properties. `bray-runtime-abi` owns stable native symbols and call layouts.
 `bray-runtime-model` owns dependency-light runtime identities, versions, protected-frame semantics, capabilities, and execution-lane
 requirements. `bray-runtime-interface` owns compiler-facing runtime artifact metadata and compatibility validation.
 

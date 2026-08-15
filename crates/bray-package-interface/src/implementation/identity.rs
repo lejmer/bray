@@ -4,7 +4,7 @@ use bray_base::{NonEmptySharedStr, shared_slice};
 use bray_runtime_interface::{
     PanicAbiIdentity, RuntimeAbiVersion, RuntimeIdentity, RuntimeRequirements,
 };
-use bray_target::{TargetFactKind, TargetFactValue, TargetIdentity, TargetMachineProperties};
+use bray_target::{TargetPropertyKind, TargetPropertyValue, TargetIdentity, TargetMachineProperties};
 
 use crate::{
     InterfaceContentHash, InterfaceDependency, InterfaceLanguageRevision, PackageInterfaceIdentity,
@@ -35,7 +35,7 @@ impl ImplementationTemplateSchemaRevision {
 /// Exact target, panic, and runtime configuration used by implementation templates.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackageImplementationConfiguration {
-    target: PackageImplementationTargetFacts,
+    target: PackageImplementationTargetProperties,
     runtime: Option<RuntimeIdentity>,
     runtime_abi: RuntimeAbiVersion,
     panic_abi: PanicAbiIdentity,
@@ -44,7 +44,7 @@ pub struct PackageImplementationConfiguration {
 impl PackageImplementationConfiguration {
     /// Creates one complete implementation configuration.
     pub const fn new(
-        target: PackageImplementationTargetFacts,
+        target: PackageImplementationTargetProperties,
         runtime: Option<RuntimeIdentity>,
         runtime_abi: RuntimeAbiVersion,
         panic_abi: PanicAbiIdentity,
@@ -57,14 +57,14 @@ impl PackageImplementationConfiguration {
         }
     }
 
-    /// Creates configuration identity from the target facts embedded in executable MIR.
+    /// Creates configuration identity from the target properties embedded in executable MIR.
     pub fn for_mir_target(
-        target: &bray_ir::MirTargetFacts,
+        target: &bray_ir::MirTargetContract,
         runtime: Option<RuntimeIdentity>,
         panic_abi: PanicAbiIdentity,
     ) -> Self {
         Self::new(
-            PackageImplementationTargetFacts::new(target.profile()),
+            PackageImplementationTargetProperties::new(target.profile()),
             runtime,
             target.runtime_abi(),
             panic_abi,
@@ -77,7 +77,7 @@ impl PackageImplementationConfiguration {
     }
 
     /// Returns every exact target property used by MIR and semantic selection.
-    pub const fn target_facts(&self) -> &PackageImplementationTargetFacts {
+    pub const fn target_properties(&self) -> &PackageImplementationTargetProperties {
         &self.target
     }
 
@@ -97,10 +97,10 @@ impl PackageImplementationConfiguration {
     }
 }
 
-/// One exact language-defined target fact value in a package implementation identity.
+/// One exact language-defined target property value in a package implementation identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum PackageImplementationTargetFactValue {
-    /// A compiler-known string fact.
+pub enum PackageImplementationTargetPropertyValue {
+    /// A compiler-known string property.
     String(NonEmptySharedStr),
     /// A target-sized unsigned integer represented independently of the compiler host.
     Usize(u64),
@@ -108,78 +108,79 @@ pub enum PackageImplementationTargetFactValue {
     Boolean(bool),
 }
 
-/// One language-defined target fact and its exact selected value.
+/// One language-defined target property and its exact selected value.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PackageImplementationTargetFact {
-    kind: TargetFactKind,
-    value: PackageImplementationTargetFactValue,
+pub struct PackageImplementationTargetProperty {
+    kind: TargetPropertyKind,
+    value: PackageImplementationTargetPropertyValue,
 }
 
-impl PackageImplementationTargetFact {
+impl PackageImplementationTargetProperty {
     pub(crate) const fn new(
-        kind: TargetFactKind,
-        value: PackageImplementationTargetFactValue,
+        kind: TargetPropertyKind,
+        value: PackageImplementationTargetPropertyValue,
     ) -> Self {
         Self { kind, value }
     }
 
-    /// Returns the language-defined target fact.
-    pub const fn kind(&self) -> TargetFactKind {
+    /// Returns the language-defined target property.
+    pub const fn kind(&self) -> TargetPropertyKind {
         self.kind
     }
 
-    /// Returns the exact selected fact value.
-    pub const fn value(&self) -> &PackageImplementationTargetFactValue {
+    /// Returns the exact selected property value.
+    pub const fn value(&self) -> &PackageImplementationTargetPropertyValue {
         &self.value
     }
 }
 
-/// Complete inspectable target identity, machine properties, and language-defined fact values.
+/// Complete inspectable target identity, machine properties, and language-defined properties.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PackageImplementationTargetFacts {
+pub struct PackageImplementationTargetProperties {
     identity: TargetIdentity,
     machine: TargetMachineProperties,
-    facts: Arc<[PackageImplementationTargetFact]>,
+    properties: Arc<[PackageImplementationTargetProperty]>,
 }
 
-impl PackageImplementationTargetFacts {
-    /// Captures every target fact from one validated target profile.
+impl PackageImplementationTargetProperties {
+    /// Captures every target property from one validated target profile.
     pub fn new(profile: &bray_target::TargetProfile) -> Self {
-        let facts = TargetFactKind::ALL.iter().copied().map(|kind| {
-            let value = match profile.fact(kind) {
-                TargetFactValue::String(value) => PackageImplementationTargetFactValue::String(
+        let properties = TargetPropertyKind::ALL.iter().copied().map(|kind| {
+            let value = match profile.property(kind) {
+                TargetPropertyValue::String(value) => PackageImplementationTargetPropertyValue::String(
                     NonEmptySharedStr::try_new(value)
-                        .unwrap_or_else(|| unreachable!("validated target facts are nonempty")),
+                        .unwrap_or_else(|| unreachable!("validated target properties are nonempty")),
                 ),
-                TargetFactValue::Usize(value) => PackageImplementationTargetFactValue::Usize(value),
-                TargetFactValue::Boolean(value) => {
-                    PackageImplementationTargetFactValue::Boolean(value)
+                TargetPropertyValue::Usize(value) => PackageImplementationTargetPropertyValue::Usize(value),
+                TargetPropertyValue::Boolean(value) => {
+                    PackageImplementationTargetPropertyValue::Boolean(value)
                 }
             };
 
-            PackageImplementationTargetFact::new(kind, value)
+            PackageImplementationTargetProperty::new(kind, value)
         });
 
         // Target identities and machine properties are immutable values retained by the bundle.
         Self {
             identity: profile.identity().clone(),
             machine: profile.machine().clone(),
-            facts: shared_slice(facts),
+            properties: shared_slice(properties),
         }
     }
 
     pub(crate) fn try_from_parts(
         identity: TargetIdentity,
         machine: TargetMachineProperties,
-        facts: impl IntoIterator<Item = PackageImplementationTargetFact>,
+        properties: impl IntoIterator<Item = PackageImplementationTargetProperty>,
     ) -> Option<Self> {
-        let facts = shared_slice(facts);
+        let properties = shared_slice(properties);
 
-        if facts.len() != TargetFactKind::ALL.len()
-            || facts.iter().zip(TargetFactKind::ALL).any(|(fact, kind)| {
-                fact.kind() != *kind || !target_fact_value_matches_kind(*kind, fact.value())
+        if properties.len() != TargetPropertyKind::ALL.len()
+            || properties.iter().zip(TargetPropertyKind::ALL).any(|(property, kind)| {
+                property.kind() != *kind
+                    || !target_property_value_matches_kind(*kind, property.value())
             })
-            || !machine_facts_match(&identity, &machine, &facts)
+            || !machine_properties_match(&identity, &machine, &properties)
         {
             return None;
         }
@@ -187,7 +188,7 @@ impl PackageImplementationTargetFacts {
         Some(Self {
             identity,
             machine,
-            facts,
+            properties,
         })
     }
 
@@ -201,149 +202,149 @@ impl PackageImplementationTargetFacts {
         &self.machine
     }
 
-    /// Returns every language-defined target fact in stable path order.
-    pub fn facts(&self) -> &[PackageImplementationTargetFact] {
-        &self.facts
+    /// Returns every language-defined target property in stable path order.
+    pub fn properties(&self) -> &[PackageImplementationTargetProperty] {
+        &self.properties
     }
 }
 
-fn target_fact_value_matches_kind(
-    kind: TargetFactKind,
-    value: &PackageImplementationTargetFactValue,
+fn target_property_value_matches_kind(
+    kind: TargetPropertyKind,
+    value: &PackageImplementationTargetPropertyValue,
 ) -> bool {
     match kind {
-        TargetFactKind::IdentityName
-        | TargetFactKind::IdentityArchitecture
-        | TargetFactKind::IdentityVendor
-        | TargetFactKind::IdentitySystem
-        | TargetFactKind::IdentityEnvironment
-        | TargetFactKind::IdentityAbi
-        | TargetFactKind::CChar
-        | TargetFactKind::CSignedChar
-        | TargetFactKind::CUnsignedChar
-        | TargetFactKind::CShort
-        | TargetFactKind::CUnsignedShort
-        | TargetFactKind::CInt
-        | TargetFactKind::CUnsignedInt
-        | TargetFactKind::CLong
-        | TargetFactKind::CUnsignedLong
-        | TargetFactKind::CLongLong
-        | TargetFactKind::CUnsignedLongLong
-        | TargetFactKind::CSize
-        | TargetFactKind::CPointerDifference
-        | TargetFactKind::CWideChar
-        | TargetFactKind::CBool
-        | TargetFactKind::CFloat
-        | TargetFactKind::CDouble
-        | TargetFactKind::CLongDouble => {
-            matches!(value, PackageImplementationTargetFactValue::String(_))
+        TargetPropertyKind::IdentityName
+        | TargetPropertyKind::IdentityArchitecture
+        | TargetPropertyKind::IdentityVendor
+        | TargetPropertyKind::IdentitySystem
+        | TargetPropertyKind::IdentityEnvironment
+        | TargetPropertyKind::IdentityAbi
+        | TargetPropertyKind::CChar
+        | TargetPropertyKind::CSignedChar
+        | TargetPropertyKind::CUnsignedChar
+        | TargetPropertyKind::CShort
+        | TargetPropertyKind::CUnsignedShort
+        | TargetPropertyKind::CInt
+        | TargetPropertyKind::CUnsignedInt
+        | TargetPropertyKind::CLong
+        | TargetPropertyKind::CUnsignedLong
+        | TargetPropertyKind::CLongLong
+        | TargetPropertyKind::CUnsignedLongLong
+        | TargetPropertyKind::CSize
+        | TargetPropertyKind::CPointerDifference
+        | TargetPropertyKind::CWideChar
+        | TargetPropertyKind::CBool
+        | TargetPropertyKind::CFloat
+        | TargetPropertyKind::CDouble
+        | TargetPropertyKind::CLongDouble => {
+            matches!(value, PackageImplementationTargetPropertyValue::String(_))
         }
-        TargetFactKind::PointerBits
-        | TargetFactKind::PointerBytes
-        | TargetFactKind::AtomicU8Alignment
-        | TargetFactKind::AtomicU16Alignment
-        | TargetFactKind::AtomicU32Alignment
-        | TargetFactKind::AtomicU64Alignment
-        | TargetFactKind::AtomicU128Alignment
-        | TargetFactKind::AtomicPointerAlignment
-        | TargetFactKind::AlignmentMaxStorage
-        | TargetFactKind::AlignmentMaxAllocation => {
-            matches!(value, PackageImplementationTargetFactValue::Usize(_))
+        TargetPropertyKind::PointerBits
+        | TargetPropertyKind::PointerBytes
+        | TargetPropertyKind::AtomicU8Alignment
+        | TargetPropertyKind::AtomicU16Alignment
+        | TargetPropertyKind::AtomicU32Alignment
+        | TargetPropertyKind::AtomicU64Alignment
+        | TargetPropertyKind::AtomicU128Alignment
+        | TargetPropertyKind::AtomicPointerAlignment
+        | TargetPropertyKind::AlignmentMaxStorage
+        | TargetPropertyKind::AlignmentMaxAllocation => {
+            matches!(value, PackageImplementationTargetPropertyValue::Usize(_))
         }
-        TargetFactKind::EndianLittle
-        | TargetFactKind::EndianBig
-        | TargetFactKind::ScalarBool
-        | TargetFactKind::ScalarChar
-        | TargetFactKind::ScalarI8
-        | TargetFactKind::ScalarI16
-        | TargetFactKind::ScalarI32
-        | TargetFactKind::ScalarI64
-        | TargetFactKind::ScalarI128
-        | TargetFactKind::ScalarU8
-        | TargetFactKind::ScalarU16
-        | TargetFactKind::ScalarU32
-        | TargetFactKind::ScalarU64
-        | TargetFactKind::ScalarU128
-        | TargetFactKind::ScalarUsize
-        | TargetFactKind::ScalarIsize
-        | TargetFactKind::ScalarR16
-        | TargetFactKind::ScalarR32
-        | TargetFactKind::ScalarR64
-        | TargetFactKind::ScalarR128
-        | TargetFactKind::ScalarC32
-        | TargetFactKind::ScalarC64
-        | TargetFactKind::ScalarC128
-        | TargetFactKind::ScalarC256
-        | TargetFactKind::AtomicU8
-        | TargetFactKind::AtomicU16
-        | TargetFactKind::AtomicU32
-        | TargetFactKind::AtomicU64
-        | TargetFactKind::AtomicU128
-        | TargetFactKind::AtomicPointer
-        | TargetFactKind::AtomicU8AlwaysLockFree
-        | TargetFactKind::AtomicU8WaitNotify
-        | TargetFactKind::AtomicU8CrossProcess
-        | TargetFactKind::AtomicU16AlwaysLockFree
-        | TargetFactKind::AtomicU16WaitNotify
-        | TargetFactKind::AtomicU16CrossProcess
-        | TargetFactKind::AtomicU32AlwaysLockFree
-        | TargetFactKind::AtomicU32WaitNotify
-        | TargetFactKind::AtomicU32CrossProcess
-        | TargetFactKind::AtomicU64AlwaysLockFree
-        | TargetFactKind::AtomicU64WaitNotify
-        | TargetFactKind::AtomicU64CrossProcess
-        | TargetFactKind::AtomicU128AlwaysLockFree
-        | TargetFactKind::AtomicU128WaitNotify
-        | TargetFactKind::AtomicU128CrossProcess
-        | TargetFactKind::AtomicPointerAlwaysLockFree
-        | TargetFactKind::AtomicPointerWaitNotify
-        | TargetFactKind::AtomicPointerCrossProcess
-        | TargetFactKind::AbiC
-        | TargetFactKind::AbiSystem
-        | TargetFactKind::AddressSpaceHost
-        | TargetFactKind::AddressSpaceDevice
-        | TargetFactKind::PlatformDynamicLoading => {
-            matches!(value, PackageImplementationTargetFactValue::Boolean(_))
+        TargetPropertyKind::EndianLittle
+        | TargetPropertyKind::EndianBig
+        | TargetPropertyKind::ScalarBool
+        | TargetPropertyKind::ScalarChar
+        | TargetPropertyKind::ScalarI8
+        | TargetPropertyKind::ScalarI16
+        | TargetPropertyKind::ScalarI32
+        | TargetPropertyKind::ScalarI64
+        | TargetPropertyKind::ScalarI128
+        | TargetPropertyKind::ScalarU8
+        | TargetPropertyKind::ScalarU16
+        | TargetPropertyKind::ScalarU32
+        | TargetPropertyKind::ScalarU64
+        | TargetPropertyKind::ScalarU128
+        | TargetPropertyKind::ScalarUsize
+        | TargetPropertyKind::ScalarIsize
+        | TargetPropertyKind::ScalarR16
+        | TargetPropertyKind::ScalarR32
+        | TargetPropertyKind::ScalarR64
+        | TargetPropertyKind::ScalarR128
+        | TargetPropertyKind::ScalarC32
+        | TargetPropertyKind::ScalarC64
+        | TargetPropertyKind::ScalarC128
+        | TargetPropertyKind::ScalarC256
+        | TargetPropertyKind::AtomicU8
+        | TargetPropertyKind::AtomicU16
+        | TargetPropertyKind::AtomicU32
+        | TargetPropertyKind::AtomicU64
+        | TargetPropertyKind::AtomicU128
+        | TargetPropertyKind::AtomicPointer
+        | TargetPropertyKind::AtomicU8AlwaysLockFree
+        | TargetPropertyKind::AtomicU8WaitNotify
+        | TargetPropertyKind::AtomicU8CrossProcess
+        | TargetPropertyKind::AtomicU16AlwaysLockFree
+        | TargetPropertyKind::AtomicU16WaitNotify
+        | TargetPropertyKind::AtomicU16CrossProcess
+        | TargetPropertyKind::AtomicU32AlwaysLockFree
+        | TargetPropertyKind::AtomicU32WaitNotify
+        | TargetPropertyKind::AtomicU32CrossProcess
+        | TargetPropertyKind::AtomicU64AlwaysLockFree
+        | TargetPropertyKind::AtomicU64WaitNotify
+        | TargetPropertyKind::AtomicU64CrossProcess
+        | TargetPropertyKind::AtomicU128AlwaysLockFree
+        | TargetPropertyKind::AtomicU128WaitNotify
+        | TargetPropertyKind::AtomicU128CrossProcess
+        | TargetPropertyKind::AtomicPointerAlwaysLockFree
+        | TargetPropertyKind::AtomicPointerWaitNotify
+        | TargetPropertyKind::AtomicPointerCrossProcess
+        | TargetPropertyKind::AbiC
+        | TargetPropertyKind::AbiSystem
+        | TargetPropertyKind::AddressSpaceHost
+        | TargetPropertyKind::AddressSpaceDevice
+        | TargetPropertyKind::PlatformDynamicLoading => {
+            matches!(value, PackageImplementationTargetPropertyValue::Boolean(_))
         }
     }
 }
 
-fn machine_facts_match(
+fn machine_properties_match(
     identity: &TargetIdentity,
     machine: &TargetMachineProperties,
-    facts: &[PackageImplementationTargetFact],
+    properties: &[PackageImplementationTargetProperty],
 ) -> bool {
     let value = |kind| {
-        TargetFactKind::ALL
+        TargetPropertyKind::ALL
             .iter()
             .position(|candidate| *candidate == kind)
-            .and_then(|index| facts.get(index))
-            .map(PackageImplementationTargetFact::value)
+            .and_then(|index| properties.get(index))
+            .map(PackageImplementationTargetProperty::value)
     };
 
     matches!(
-        value(TargetFactKind::IdentityName),
-        Some(PackageImplementationTargetFactValue::String(actual))
+        value(TargetPropertyKind::IdentityName),
+        Some(PackageImplementationTargetPropertyValue::String(actual))
             if actual.as_str() == identity.as_str()
     ) && matches!(
-        value(TargetFactKind::IdentityArchitecture),
-        Some(PackageImplementationTargetFactValue::String(actual))
+        value(TargetPropertyKind::IdentityArchitecture),
+        Some(PackageImplementationTargetPropertyValue::String(actual))
             if actual.as_str() == machine.architecture().as_str()
     ) && matches!(
-        value(TargetFactKind::PointerBits),
-        Some(PackageImplementationTargetFactValue::Usize(actual))
+        value(TargetPropertyKind::PointerBits),
+        Some(PackageImplementationTargetPropertyValue::Usize(actual))
             if *actual == u64::from(machine.pointer_width_bits().get())
     ) && matches!(
-        value(TargetFactKind::PointerBytes),
-        Some(PackageImplementationTargetFactValue::Usize(actual))
+        value(TargetPropertyKind::PointerBytes),
+        Some(PackageImplementationTargetPropertyValue::Usize(actual))
             if *actual == u64::from(machine.pointer_width_bits().get() / 8)
     ) && matches!(
-        value(TargetFactKind::EndianLittle),
-        Some(PackageImplementationTargetFactValue::Boolean(actual))
+        value(TargetPropertyKind::EndianLittle),
+        Some(PackageImplementationTargetPropertyValue::Boolean(actual))
             if *actual == (machine.endianness() == bray_target::Endianness::Little)
     ) && matches!(
-        value(TargetFactKind::EndianBig),
-        Some(PackageImplementationTargetFactValue::Boolean(actual))
+        value(TargetPropertyKind::EndianBig),
+        Some(PackageImplementationTargetPropertyValue::Boolean(actual))
             if *actual == (machine.endianness() == bray_target::Endianness::Big)
     )
 }

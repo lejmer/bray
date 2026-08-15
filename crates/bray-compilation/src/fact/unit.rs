@@ -61,10 +61,10 @@ where
     pub(crate) fn updated(
         &self,
         reusable: &BTreeSet<CompilationFactKey>,
-        fact_key: impl Fn(&BoundUnitKey) -> CompilationFactKey,
+        semantic_key: impl Fn(&BoundUnitKey) -> CompilationFactKey,
     ) -> Self {
         Self {
-            cells: self.cells.updated(reusable, fact_key),
+            cells: self.cells.updated(reusable, semantic_key),
         }
     }
 
@@ -73,7 +73,7 @@ where
         &self,
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
-        fact_key: CompilationFactKey,
+        semantic_key: CompilationFactKey,
         unit_key: BoundUnitKey,
         compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
@@ -84,7 +84,7 @@ where
             runtime,
             cancellation,
             priority,
-            fact_key,
+            semantic_key,
             unit_key,
             |_| compute(),
         )
@@ -95,7 +95,7 @@ where
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-        fact_key: CompilationFactKey,
+        semantic_key: CompilationFactKey,
         unit_key: BoundUnitKey,
         compute: impl FnOnce(
             &CancellationToken,
@@ -103,7 +103,7 @@ where
             -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
-        if fact_key.bound_unit_key() != Some(&unit_key) {
+        if semantic_key.bound_unit_key() != Some(&unit_key) {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -112,7 +112,7 @@ where
 
         let published = cell.get_or_compute_requested(
             runtime,
-            fact_key,
+            semantic_key,
             cancellation,
             priority,
             |shared_cancellation| {

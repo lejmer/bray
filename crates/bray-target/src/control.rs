@@ -44,15 +44,15 @@ impl InlineAssemblyOptions {
     }
 }
 
-/// Target instruction, register, feature, and inline-assembly facts.
+/// Target instruction, register, feature, and inline-assembly properties.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetControlFacts {
+pub struct TargetControlSupport {
     architecture: TargetArchitecture,
     native_target: Option<NativeTarget>,
 }
 
-impl TargetControlFacts {
-    /// Returns the complete target-control facts for one machine architecture.
+impl TargetControlSupport {
+    /// Returns the complete target-control properties for one machine architecture.
     pub const fn for_architecture(architecture: TargetArchitecture) -> Self {
         Self {
             architecture,
@@ -60,7 +60,7 @@ impl TargetControlFacts {
         }
     }
 
-    /// Returns the complete target-control facts for one exact target profile.
+    /// Returns the complete target-control properties for one exact target profile.
     pub fn for_profile(profile: &TargetProfile) -> Self {
         Self {
             architecture: profile.machine().architecture(),
@@ -249,14 +249,14 @@ const fn clobber_registers(architecture: TargetArchitecture) -> &'static [&'stat
 
 #[cfg(test)]
 mod tests {
-    use super::{InlineAssemblyOptions, TargetControlFacts};
+    use super::{InlineAssemblyOptions, TargetControlSupport};
     use crate::{NativeTarget, TargetArchitecture};
 
     #[test]
-    fn profiles_publish_exact_architecture_control_facts() {
+    fn profiles_publish_exact_architecture_control_properties() {
         let x86_profile = NativeTarget::X86_64WindowsMsvc.profile();
-        let x86 = TargetControlFacts::for_profile(&x86_profile);
-        let wasm = TargetControlFacts::for_architecture(TargetArchitecture::Wasm32);
+        let x86 = TargetControlSupport::for_profile(&x86_profile);
+        let wasm = TargetControlSupport::for_architecture(TargetArchitecture::Wasm32);
 
         assert!(x86.inline_assembly());
         assert!(x86.intel_assembly_dialect());
@@ -281,13 +281,13 @@ mod tests {
         );
 
         let system_v_profile = NativeTarget::X86_64LinuxGnu.profile();
-        let system_v = TargetControlFacts::for_profile(&system_v_profile);
+        let system_v = TargetControlSupport::for_profile(&system_v_profile);
 
         assert!(system_v
             .abi_clobbers("C")
             .is_some_and(|registers| registers.contains(&"rsi") && registers.contains(&"xmm15")));
 
-        assert!(!TargetControlFacts::for_architecture(TargetArchitecture::X86_64)
+        assert!(!TargetControlSupport::for_architecture(TargetArchitecture::X86_64)
             .supports_clobber_abi("C"));
 
         assert!(!wasm.inline_assembly());
