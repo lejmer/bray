@@ -11,6 +11,7 @@ pub(super) fn compilation_inputs(
     package_identity: &PackageIdentity,
     package_source_authority: crate::PackageSourceAuthority,
     standard_library: Option<&bray_standard_library::StandardLibraryResolver>,
+    standard_library_providers: Option<&bray_standard_library::StandardLibraryResolver>,
     options: &CompilationOptions,
     sources: &SourceStore,
     source_diagnostics: &DiagnosticBag,
@@ -26,6 +27,7 @@ pub(super) fn compilation_inputs(
         package_identity,
         package_source_authority,
         standard_library,
+        standard_library_providers,
     );
 
     insert_source_inputs(&mut inputs, sources, source_diagnostics);
@@ -47,6 +49,7 @@ fn insert_package_inputs(
     package_identity: &PackageIdentity,
     package_source_authority: crate::PackageSourceAuthority,
     standard_library: Option<&bray_standard_library::StandardLibraryResolver>,
+    standard_library_providers: Option<&bray_standard_library::StandardLibraryResolver>,
 ) {
     inputs.insert(CompilationInputKey::PackageIdentity, package_identity);
 
@@ -58,6 +61,11 @@ fn insert_package_inputs(
     inputs.insert(
         CompilationInputKey::StandardLibrary,
         &standard_library.map(|resolver| resolver.root().path()),
+    );
+
+    inputs.insert(
+        CompilationInputKey::StandardLibraryProviders,
+        &standard_library_providers.map(|resolver| resolver.root().path()),
     );
 }
 
@@ -253,12 +261,16 @@ impl Compilation {
         self.state.package_interface_export.as_ref()
     }
 
-    pub(super) fn standard_library(
+    pub(super) fn standard_library_provider_resolver(
         &self,
     ) -> Option<&bray_standard_library::StandardLibraryResolver> {
         self.record_input(CompilationInputKey::StandardLibrary);
+        self.record_input(CompilationInputKey::StandardLibraryProviders);
 
-        self.state.standard_library.as_ref()
+        self.state
+            .standard_library
+            .as_ref()
+            .or(self.state.standard_library_providers.as_ref())
     }
 
     pub(super) fn record_codegen_configuration(&self) {

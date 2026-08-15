@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation, CurrentRunCancellation,
+    BorrowKind, ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation,
+    CurrentRunCancellation,
     DependencyContractTemplateId, GenericSubstitutionId, LifecycleObligationKind, SymbolKey,
     SymbolKind, SymbolOrdinal, TypeId,
 };
@@ -322,6 +323,13 @@ pub enum CheckedTemplateOperation {
         /// Right operand evaluated second unless the operation short-circuits.
         right: CheckedTemplateNodeId,
     },
+    /// Borrows one evaluated place with its checked capability.
+    Borrow {
+        /// Exact borrow capability.
+        kind: BorrowKind,
+        /// Place evaluated before creating the borrow.
+        operand: CheckedTemplateNodeId,
+    },
     /// Reads a declaration-owned value through stable semantic identity.
     Declaration(SymbolKey),
     /// Applies one selected callable or predicate with deterministic argument order.
@@ -412,7 +420,7 @@ impl CheckedTemplateOperation {
                 }
             }
             Self::Convert { value, .. } => visit(*value)?,
-            Self::Unary { operand, .. } => visit(*operand)?,
+            Self::Unary { operand, .. } | Self::Borrow { operand, .. } => visit(*operand)?,
             Self::Binary { left, right, .. } => {
                 visit(*left)?;
                 visit(*right)?;

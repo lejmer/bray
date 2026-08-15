@@ -44,6 +44,14 @@ pub(crate) const fn diagnostic_memory_operation(
     use ImplementationHook as Hook;
 
     Some(match hook {
+        Hook::UninitNew => Operation::UninitializedStorage,
+        Hook::UninitPointer => Operation::UninitializedStoragePointer,
+        Hook::UninitPointerMut => Operation::MutableUninitializedStoragePointer,
+        Hook::UninitWrite => Operation::ProtectedStorageWrite,
+        Hook::UninitAssumeInitialized => Operation::AssumeInitialized,
+        Hook::UninitMove => Operation::MoveInitialized,
+        Hook::BorrowFrom => Operation::AnchoredSharedBorrow,
+        Hook::BorrowMutFrom => Operation::AnchoredMutableBorrow,
         Hook::AddressOf => Operation::AddressOf,
         Hook::AddressOfMut => Operation::MutableAddressOf,
         Hook::RawPointerNull => Operation::NullPointer,
@@ -107,6 +115,26 @@ pub(crate) const fn diagnostic_checked_memory_operation(
     use DiagnosticMemoryOperation as Operation;
 
     match kind {
+        CheckedMemoryOperationKind::UninitNew { .. } => Operation::UninitializedStorage,
+        CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Shared,
+            ..
+        } => Operation::UninitializedStoragePointer,
+        CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Mutable,
+            ..
+        } => Operation::MutableUninitializedStoragePointer,
+        CheckedMemoryOperationKind::UninitWrite { .. } => Operation::ProtectedStorageWrite,
+        CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => Operation::AssumeInitialized,
+        CheckedMemoryOperationKind::UninitMove { .. } => Operation::MoveInitialized,
+        CheckedMemoryOperationKind::BorrowFrom {
+            kind: MemoryAddressKind::Shared,
+            ..
+        } => Operation::AnchoredSharedBorrow,
+        CheckedMemoryOperationKind::BorrowFrom {
+            kind: MemoryAddressKind::Mutable,
+            ..
+        } => Operation::AnchoredMutableBorrow,
         CheckedMemoryOperationKind::Address {
             kind: MemoryAddressKind::Shared,
             ..

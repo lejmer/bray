@@ -690,6 +690,7 @@ mod tests {
         encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
@@ -1000,6 +1001,172 @@ mod tests {
             default.template_reference(),
             RuntimeDefaultTemplateReference::Interface { .. }
         ));
+    }
+
+    #[test]
+    fn standard_memory_surface_exports_uninitialized_storage() {
+        let compilation = standard_library_compilation([
+            include_str!("../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../standard-library/std/src/memory.bray"),
+        ]);
+
+        let source_graph = compilation
+            .product_source_graph()
+            .unwrap_or_else(|error| panic!("standard memory source graph must build: {error:?}"));
+
+        assert!(
+            source_graph.diagnostics().is_empty(),
+            "standard memory source graph diagnostics: {:?}",
+            source_graph.diagnostics()
+        );
+
+        let product = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("standard memory product facts must build: {error:?}"));
+
+        assert!(
+            product.diagnostics().is_empty(),
+            "standard memory product diagnostics: {:?}",
+            product.diagnostics()
+        );
+
+        assert!(
+            !product.value().is_recovered(),
+            "standard memory product facts must not recover"
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("standard memory symbol graph must build: {error:?}"));
+
+        let identity = super::build_identity_surface(
+            &compilation,
+            symbols,
+            product.value().public_symbols(),
+        )
+        .unwrap_or_else(|error| panic!("standard memory identity surface must build: {error:?}"));
+
+        let request = compilation
+            .package_interface_export_request()
+            .unwrap_or_else(|| panic!("standard memory export request must exist"));
+
+        let surface = super::build_package_interface_surface(
+            request.identity().clone(),
+            [],
+            identity.symbols,
+            identity.relationships,
+            identity.exports,
+        )
+        .unwrap_or_else(|error| panic!("standard memory interface surface must build: {error:?}"));
+
+        let (facts, _, _) = super::super::semantic::build_semantic_facts(
+            &compilation,
+            symbols,
+            &surface,
+            &identity.selected,
+            &identity.keys,
+        )
+        .unwrap_or_else(|error| panic!("standard memory semantic export must build: {error:?}"));
+
+        for (template_index, template) in facts.checked_templates().iter().enumerate() {
+            for (node_index, node) in template.nodes().iter().enumerate() {
+                let bray_package_interface::InterfaceCheckedTemplateOperation::Borrow {
+                    kind,
+                    operand,
+                } = node.operation()
+                else {
+                    continue;
+                };
+
+                let operand_index = usize::try_from(operand.raw()).unwrap_or_else(|error| {
+                    panic!(
+                        "standard memory borrow operand for template {template_index} node {node_index} must fit: {error:?}"
+                    )
+                });
+
+                let operand_ty = template.nodes()[operand_index].ty();
+
+                let node_ty = facts.types().iter().enumerate().find_map(|(index, ty)| {
+                    u32::try_from(index)
+                        .ok()
+                        .filter(|index| {
+                            bray_package_interface::InterfaceTypeId::new(*index) == node.ty()
+                        })
+                        .map(|_| ty)
+                });
+
+                assert!(
+                    matches!(
+                        node_ty,
+                        Some(bray_package_interface::InterfaceType::Borrow {
+                            kind: type_kind,
+                            target,
+                        }) if *type_kind == *kind && *target == operand_ty
+                    ),
+                    "standard memory borrow template {template_index} node {node_index} kind {kind:?} operand type {operand_ty:?} must match node type {node_ty:?}"
+                );
+            }
+        }
+
+        assert_strictly_canonical("constraints", facts.constraints());
+        assert_strictly_canonical("callable contracts", facts.callable_contracts());
+        assert_strictly_canonical("callable signatures", facts.callable_signatures());
+        assert_strictly_canonical("generic declarations", facts.generic_declarations());
+
+        assert_strictly_canonical(
+            "callable parameter defaults",
+            facts.callable_parameter_defaults(),
+        );
+
+        assert_strictly_canonical("predicate definitions", facts.predicate_definitions());
+        assert_strictly_canonical("declared types", facts.declared_types());
+        assert_strictly_canonical("type representations", facts.type_representations());
+        assert_strictly_canonical("implementations", facts.implementations());
+        assert_strictly_canonical("coherence", facts.coherence());
+        assert_strictly_canonical("target dependencies", facts.target_dependencies());
+        assert_strictly_canonical("ABI dependencies", facts.abi_dependencies());
+        assert_strictly_canonical("runtime requirements", facts.runtime_requirements());
+        assert_strictly_canonical("provenance", facts.provenance());
+
+        compilation
+            .package_implementation_configuration(None)
+            .unwrap_or_else(|error| {
+                panic!("standard memory implementation configuration must build: {error:?}")
+            });
+
+        let _ = export(&compilation);
+    }
+
+    #[test]
+    fn standard_memory_api_fixture_checks() {
+        let compilation = standard_library_compilation([
+            include_str!("../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../standard-library/std/tests/api/memory.bray"),
+        ]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "standard memory API diagnostics: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let mut recovered = Vec::new();
+
+        walk_syntax_tree(compilation.syntax_tree(), |event| {
+            if let SyntaxWalkEvent::EnterNode(node) = event
+                && node.is_recovered()
+            {
+                recovered.push((node.kind(), node.full_range()));
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        assert!(
+            recovered.is_empty(),
+            "standard memory API syntax must not recover: {recovered:?}"
+        );
     }
 
     #[test]
@@ -1565,6 +1732,18 @@ mod tests {
             Some(Ok(bundle)) => bundle,
             Some(Err(error)) => panic!("test library interface must build: {error:?}"),
             None => panic!("test compilation must configure a library interface"),
+        }
+    }
+
+    fn assert_strictly_canonical<T>(table: &str, values: &[T])
+    where
+        T: std::fmt::Debug + Ord,
+    {
+        if let Some(pair) = values.windows(2).find(|pair| pair[0] >= pair[1]) {
+            panic!(
+                "standard memory {table} are not canonical: {:?} then {:?}",
+                pair[0], pair[1]
+            );
         }
     }
 

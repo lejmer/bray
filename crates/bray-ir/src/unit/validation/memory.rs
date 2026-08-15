@@ -41,10 +41,18 @@ pub(super) fn validate_memory_operation(
     let types = memory.operand_types();
 
     let valid = match memory.kind() {
-        CheckedMemoryOperationKind::Address { .. }
+        CheckedMemoryOperationKind::UninitNew { .. }
+        | CheckedMemoryOperationKind::UninitPointer { .. }
+        | CheckedMemoryOperationKind::BorrowFrom { .. }
+        | CheckedMemoryOperationKind::Address { .. }
         | CheckedMemoryOperationKind::Null { .. }
         | CheckedMemoryOperationKind::IsNull { .. }
         | CheckedMemoryOperationKind::Reinterpret { .. } => true,
+        CheckedMemoryOperationKind::UninitWrite { element } => types[1] == element,
+        CheckedMemoryOperationKind::UninitAssumeInitialized { element }
+        | CheckedMemoryOperationKind::UninitMove { element } => {
+            memory.result_type() == Some(element)
+        }
         CheckedMemoryOperationKind::Offset { .. } => memory.result_type() == Some(types[0]),
         CheckedMemoryOperationKind::Read { pointee, .. } => memory.result_type() == Some(pointee),
         CheckedMemoryOperationKind::Write { pointee } => types[1] == pointee,

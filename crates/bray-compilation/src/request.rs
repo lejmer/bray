@@ -136,6 +136,7 @@ pub struct CompilationRequest {
     package_identity: PackageIdentity,
     package_source_authority: PackageSourceAuthority,
     standard_library_root: Option<bray_standard_library::StandardLibraryRoot>,
+    standard_library_provider_root: Option<bray_standard_library::StandardLibraryRoot>,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
@@ -378,6 +379,7 @@ impl CompilationRequest {
             package_identity,
             package_source_authority: PackageSourceAuthority::Ordinary,
             standard_library_root: None,
+            standard_library_provider_root: None,
             options,
             sources,
             dependency_interfaces: Vec::new(),
@@ -404,6 +406,18 @@ impl CompilationRequest {
         root: bray_standard_library::StandardLibraryRoot,
     ) -> Self {
         self.standard_library_root = Some(root);
+        self.standard_library_provider_root = None;
+
+        self
+    }
+
+    /// Returns a copy with a bundle root used only for native provider artifacts.
+    pub fn with_standard_library_provider_root(
+        mut self,
+        root: bray_standard_library::StandardLibraryRoot,
+    ) -> Self {
+        self.standard_library_root = None;
+        self.standard_library_provider_root = Some(root);
 
         self
     }
@@ -469,6 +483,13 @@ impl CompilationRequest {
         self.standard_library_root.as_ref()
     }
 
+    /// Returns the provider-only standard library bundle root, when selected.
+    pub const fn standard_library_provider_root(
+        &self,
+    ) -> Option<&bray_standard_library::StandardLibraryRoot> {
+        self.standard_library_provider_root.as_ref()
+    }
+
     /// Returns the compilation options.
     pub const fn options(&self) -> &CompilationOptions {
         &self.options
@@ -511,6 +532,7 @@ impl CompilationRequest {
         PackageIdentity,
         PackageSourceAuthority,
         Option<bray_standard_library::StandardLibraryRoot>,
+        Option<bray_standard_library::StandardLibraryRoot>,
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
@@ -523,6 +545,7 @@ impl CompilationRequest {
             self.package_identity,
             self.package_source_authority,
             self.standard_library_root,
+            self.standard_library_provider_root,
             self.options,
             self.sources,
             self.dependency_interfaces,
@@ -629,6 +652,32 @@ mod tests {
             request.package_source_authority(),
             PackageSourceAuthority::StandardLibrary
         );
+    }
+
+    #[test]
+    fn standard_library_semantics_and_provider_selection_are_exclusive() {
+        let directory = std::path::absolute("standard-library")
+            .unwrap_or_else(|error| panic!("test root must resolve: {error:?}"));
+
+        let root = bray_standard_library::StandardLibraryRoot::try_new(directory)
+            .unwrap_or_else(|| panic!("absolute test root must be valid"));
+
+        let package_identity = PackageIdentity::try_new("test.package")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let semantic = CompilationRequest::new(package_identity.clone(), Vec::new())
+            .with_standard_library_provider_root(root.clone())
+            .with_standard_library_root(root.clone());
+
+        assert_eq!(semantic.standard_library_root(), Some(&root));
+        assert!(semantic.standard_library_provider_root().is_none());
+
+        let providers = CompilationRequest::new(package_identity, Vec::new())
+            .with_standard_library_root(root.clone())
+            .with_standard_library_provider_root(root.clone());
+
+        assert!(providers.standard_library_root().is_none());
+        assert_eq!(providers.standard_library_provider_root(), Some(&root));
     }
 
     #[test]

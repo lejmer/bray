@@ -18,6 +18,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.ensure_memory_available(memory.kind())?;
 
         match memory.kind() {
+            CheckedMemoryOperationKind::UninitNew { .. } => self
+                .translate_uninit_new(operation)
+                .map(Some),
+            CheckedMemoryOperationKind::UninitPointer { .. } => self
+                .translate_uninit_pointer(memory)
+                .map(|pointer| Some(pointer.into())),
+            CheckedMemoryOperationKind::UninitWrite { .. } => self
+                .translate_uninit_write(memory)
+                .map(|pointer| Some(pointer.into())),
+            CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => {
+                self.translate_assume_initialized(memory).map(Some)
+            }
+            CheckedMemoryOperationKind::UninitMove { element } => self
+                .translate_uninit_move(memory, element)
+                .map(Some),
+            CheckedMemoryOperationKind::BorrowFrom { .. } => self
+                .translate_anchored_borrow(memory)
+                .map(|pointer| Some(pointer.into())),
+            _ => self.translate_non_uninit_memory(id, operation, memory),
+        }
+    }
+
+    fn translate_non_uninit_memory(
+        &mut self,
+        id: MirOperationId,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        match memory.kind() {
             CheckedMemoryOperationKind::Address { .. } => {
                 let [value] = memory.operands() else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -215,6 +244,45 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::CompareAddress { comparison, .. } => {
                 self.translate_address_comparison(memory, comparison).map(Some)
             }
+            kind @ (CheckedMemoryOperationKind::Fence { .. }
+            | CheckedMemoryOperationKind::CatastrophicAbort
+            | CheckedMemoryOperationKind::DebuggerTrap
+            | CheckedMemoryOperationKind::UnreachableTermination
+            | CheckedMemoryOperationKind::SpinLoopHint
+            | CheckedMemoryOperationKind::TargetFeatureEnabled { .. }) => {
+                self.translate_control_memory(kind)
+            }
+            CheckedMemoryOperationKind::InlineAssembly {
+                output, contract, ..
+            } => {
+                self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
+            }
+            CheckedMemoryOperationKind::AtomicInitialize { .. }
+            | CheckedMemoryOperationKind::AtomicLoad { .. }
+            | CheckedMemoryOperationKind::AtomicStore { .. }
+            | CheckedMemoryOperationKind::AtomicExchange { .. }
+            | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+            | CheckedMemoryOperationKind::AtomicFetch { .. }
+            | CheckedMemoryOperationKind::AtomicWait { .. }
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => {
+                self.translate_atomic_memory(memory)
+            }
+            CheckedMemoryOperationKind::UninitNew { .. }
+            | CheckedMemoryOperationKind::UninitPointer { .. }
+            | CheckedMemoryOperationKind::UninitWrite { .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+            | CheckedMemoryOperationKind::UninitMove { .. }
+            | CheckedMemoryOperationKind::BorrowFrom { .. } => {
+                Err(CodegenFailure::GeneratedModuleInvariant)
+            }
+        }
+    }
+
+    fn translate_control_memory(
+        &mut self,
+        kind: CheckedMemoryOperationKind,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        match kind {
             CheckedMemoryOperationKind::Fence {
                 compiler_only,
                 order,
@@ -242,21 +310,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::TargetFeatureEnabled { feature } => {
                 self.translate_target_feature(feature).map(Some)
             }
-            CheckedMemoryOperationKind::InlineAssembly {
-                output, contract, ..
-            } => {
-                self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
-            }
-            CheckedMemoryOperationKind::AtomicInitialize { .. }
-            | CheckedMemoryOperationKind::AtomicLoad { .. }
-            | CheckedMemoryOperationKind::AtomicStore { .. }
-            | CheckedMemoryOperationKind::AtomicExchange { .. }
-            | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
-            | CheckedMemoryOperationKind::AtomicFetch { .. }
-            | CheckedMemoryOperationKind::AtomicWait { .. }
-            | CheckedMemoryOperationKind::AtomicNotify { .. } => {
-                self.translate_atomic_memory(memory)
-            }
+            _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
     }
 
@@ -272,7 +326,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         let available = match kind {
-            CheckedMemoryOperationKind::LayoutQuery { .. }
+            CheckedMemoryOperationKind::UninitNew { .. }
+            | CheckedMemoryOperationKind::UninitPointer { .. }
+            | CheckedMemoryOperationKind::UninitWrite { .. }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+            | CheckedMemoryOperationKind::UninitMove { .. }
+            | CheckedMemoryOperationKind::BorrowFrom { .. }
+            | CheckedMemoryOperationKind::LayoutQuery { .. }
             | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::CallbackState { .. }
             | CheckedMemoryOperationKind::Fence { .. }
@@ -452,6 +512,8 @@ mod tests {
     #[derive(Clone, Copy)]
     struct MemoryTypes {
         value: TypeId,
+        uninit: TypeId,
+        uninit_borrow: TypeId,
         aligned_value: TypeId,
         borrow: TypeId,
         pointer: TypeId,
@@ -491,6 +553,11 @@ mod tests {
         let ir = module.print_to_string().to_string();
 
         assert!(module.verify().is_ok(), "{ir}");
+
+        assert!(
+            ir.contains("memory.uninit.move"),
+            "protected uninitialized storage did not lower to a typed load"
+        );
 
         for spelling in [
             "llvm.memcpy",
@@ -850,6 +917,15 @@ mod tests {
         push_atomic_operations(&mut builder, entry, &source, types, address, read);
         push_aggregate_atomic_operations(&mut builder, entry, &source, types, read);
 
+        push_uninitialized_operations(
+            &mut builder,
+            entry,
+            &source,
+            types,
+            read,
+            address,
+        );
+
         push_memory(
             &mut builder,
             entry,
@@ -1151,6 +1227,104 @@ mod tests {
             .unwrap_or_else(|| panic!("memory test borrow must produce a value"))
     }
 
+    fn push_uninitialized_operations(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+        value: MirValueId,
+        pointer: MirValueId,
+    ) {
+        let uninit = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::UninitNew {
+                element: types.value,
+            },
+            [],
+            [],
+            Some(types.uninit),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("uninitialized storage creation must produce a value"));
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::UninitAssumeInitialized {
+                element: types.value,
+            },
+            [MirOperand::Value(uninit)],
+            [types.uninit],
+            Some(types.value),
+        );
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, types.uninit)
+            .unwrap_or_else(|error| panic!("uninitialized storage must be valid: {error:?}"));
+
+        let storage = push_borrow(
+            builder,
+            block,
+            source,
+            BorrowKind::Mutable,
+            MirPlace::new(storage, [], types.uninit),
+            types.uninit_borrow,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::UninitPointer {
+                kind: MemoryAddressKind::Mutable,
+                element: types.value,
+            },
+            [MirOperand::Value(storage)],
+            [types.uninit_borrow],
+            Some(types.pointer),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::UninitWrite {
+                element: types.value,
+            },
+            [MirOperand::Value(storage), MirOperand::Value(value)],
+            [types.uninit_borrow, types.value],
+            Some(types.borrow),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::UninitMove {
+                element: types.value,
+            },
+            [MirOperand::Value(storage)],
+            [types.uninit_borrow],
+            Some(types.value),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::BorrowFrom {
+                kind: MemoryAddressKind::Mutable,
+                pointee: types.value,
+            },
+            [MirOperand::Value(storage), MirOperand::Value(pointer)],
+            [types.uninit_borrow, types.pointer],
+            Some(types.borrow),
+        );
+    }
+
     fn push_buffer_and_byte_operations(
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -1368,7 +1542,9 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic value store must be valid: {error:?}"));
 
         let value = intern_type(&store, TypeData::Error);
-        let aligned_value = intern_type(&store, TypeData::tuple([value, value]));
+        let uninit = intern_type(&store, TypeData::tuple([value, value]));
+        let uninit_borrow = intern_type(&store, TypeData::tuple([uninit]));
+        let aligned_value = intern_type(&store, TypeData::tuple([uninit_borrow]));
         let borrow = intern_type(&store, TypeData::tuple([value]));
         let pointer = intern_type(&store, TypeData::tuple([borrow]));
         let device_pointer = intern_type(&store, TypeData::tuple([pointer]));
@@ -1398,6 +1574,8 @@ mod tests {
 
         MemoryTypes {
             value,
+            uninit,
+            uninit_borrow,
             aligned_value,
             borrow,
             pointer,
@@ -1715,6 +1893,19 @@ mod tests {
                 types.value,
                 layout(4, align4),
                 CodegenTypeKind::SignedInteger(width32),
+            ),
+            CodegenTypeMapping::new(
+                types.uninit,
+                layout(4, align4),
+                CodegenTypeKind::SignedInteger(width32),
+            ),
+            CodegenTypeMapping::new(
+                types.uninit_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.uninit,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
             ),
             CodegenTypeMapping::new(
                 types.aligned_value,

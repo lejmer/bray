@@ -54,6 +54,7 @@ const fn format_english_project_operation(
         Operation::ProfileReportDecode => "decode a compiler profile report",
         Operation::ProfileReportValidation => "validate a compiler profile report",
         Operation::TestReportJson => "encode the test report",
+        Operation::TestBatchRequest => "read the test batch request",
         Operation::TestConcurrency => "compute test concurrency",
         Operation::TestExecutionPlan => "construct the test execution plan",
         Operation::TestHostPublication => "publish the test host",

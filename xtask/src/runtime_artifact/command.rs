@@ -109,7 +109,9 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
         MemoryObservation::Disabled,
     )?;
 
-    smoke_test(&package, target, directory.path())?;
+    crate::progress::run("Running runtime artifact smoke tests", || {
+        smoke_test(&package, target, directory.path())
+    })?;
 
     Ok(())
 }
@@ -171,13 +173,23 @@ fn build_contents(
 ) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
-    audit_dependency_boundaries(&root)?;
+    crate::progress::run("Auditing runtime dependency boundaries", || {
+        audit_dependency_boundaries(&root)
+    })?;
 
     let mut partitioner = super::partition::RuntimeArchivePartitioner::new(&root)?;
     let mut native_links = Vec::new();
     let metadata_path = output.join(METADATA_FILE_NAME);
 
-    for kind in RuntimeArchiveKind::OWNING {
+    let archive_count = RuntimeArchiveKind::OWNING.len();
+
+    for (index, kind) in RuntimeArchiveKind::OWNING.into_iter().enumerate() {
+        crate::progress::item(
+            index.saturating_add(1),
+            archive_count,
+            &format!("Building the {kind:?} runtime archive"),
+        );
+
         let (crate_name, features, member_prefix) = match kind {
             RuntimeArchiveKind::Memory => match memory_observation {
                 MemoryObservation::Disabled => (
@@ -246,7 +258,9 @@ fn build_contents(
         native_links.extend(built.native_links().iter().cloned());
     }
 
-    partitioner.write(target, output)?;
+    crate::progress::run("Partitioning runtime archives", || {
+        partitioner.write(target, output)
+    })?;
 
     native_links
         .sort_by(|left, right| (left.kind(), left.name()).cmp(&(right.kind(), right.name())));

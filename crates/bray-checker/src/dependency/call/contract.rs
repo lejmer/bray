@@ -4,7 +4,7 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_symbols::{
-    CallableDependencyContracts, CallableInstanceData, CallableSignatureFact,
+    BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureFact,
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
     DependencySubject, DependencySubjectRoot, SymbolFactRequest, SymbolOrdinal, TypeData,
     TypeExpressionTemplate,
@@ -62,23 +62,54 @@ fn callable_dependencies_for_implementation<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if implementation != Some(bray_compiler_known::ImplementationHook::StringUtf8) {
+    let Some(implementation) = implementation else {
         return Ok(contracts);
-    }
+    };
+
+    let authority = match implementation {
+        bray_compiler_known::ImplementationHook::StringUtf8 => None,
+        bray_compiler_known::ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
+        bray_compiler_known::ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
+        _ => return Ok(contracts),
+    };
 
     let existing = request
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation())
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let source = DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+    let source = || {
+        DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)))
+    };
 
-    let dependency = DependencyRequirement::direct(source, DependencyRequirementKind::StorageAlive);
+    let mut dependencies = vec![DependencyRequirement::direct(
+        source(),
+        DependencyRequirementKind::StorageAlive,
+    )];
+
+    if let Some(kind) = authority {
+        dependencies.push(DependencyRequirement::direct(
+            source(),
+            DependencyRequirementKind::StorageInitialized,
+        ));
+
+        dependencies.push(DependencyRequirement::direct(
+            source(),
+            DependencyRequirementKind::BorrowCapabilityActive(kind),
+        ));
+
+        if kind == BorrowKind::Mutable {
+            dependencies.push(DependencyRequirement::direct(
+                source(),
+                DependencyRequirementKind::ExclusiveMutationAuthority,
+            ));
+        }
+    }
 
     let invocation = request
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(
-            existing.requirements().iter().cloned().chain([dependency]),
+            existing.requirements().iter().cloned().chain(dependencies),
         ))
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
@@ -302,9 +333,10 @@ mod tests {
     use bray_bound_tree::{
         BoundCallResult, BoundCallableTarget, BoundDependencyGuard, BoundDependencyRequirement,
         BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
-        BoundExpression, BoundFutureConstruction, BoundResolvedCall, BoundUnitId, SelectedArgument,
-        SelectedCall, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
-        StorageIdentityId, StoragePlanBuilder, StorageProjection,
+        BoundExpression, BoundFutureConstruction, BoundResolvedCall, BoundUnitId,
+        BorrowCapabilityOrigin, PlannedBorrowCapability, SelectedArgument, SelectedCall,
+        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+        StoragePlanBuilder, StorageProjection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
@@ -415,11 +447,18 @@ mod tests {
                         })
             )
         }));
+
     }
 
     #[test]
     fn borrowed_text_results_retain_their_source_dependency() {
-        assert_borrowed_text_result_dependency(ImplementationHook::StringUtf8);
+        assert_borrowed_result_dependency(ImplementationHook::StringUtf8);
+    }
+
+    #[test]
+    fn trusted_raw_borrows_retain_owner_and_capability_dependencies() {
+        assert_borrowed_result_dependency(ImplementationHook::BorrowFrom);
+        assert_borrowed_result_dependency(ImplementationHook::BorrowMutFrom);
     }
 
     #[test]
@@ -500,7 +539,7 @@ mod tests {
         }
     }
 
-    fn assert_borrowed_text_result_dependency(implementation: ImplementationHook) {
+    fn assert_borrowed_result_dependency(implementation: ImplementationHook) {
         let unit_id = BoundUnitId::new(31);
 
         let (unit, argument, call_expression) = expression_pair(unit_id);
@@ -512,6 +551,27 @@ mod tests {
             StorageIdentity::Temporary(argument),
             unit.key().source(),
         );
+
+        let capability_kind = match implementation {
+            ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
+            ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
+            _ => None,
+        };
+
+        let capability = capability_kind.map(|kind| {
+            let id = storage
+                .push_borrow_capability(PlannedBorrowCapability::new(
+                    BorrowCapabilityOrigin::Expression(argument),
+                    kind,
+                    argument_access,
+                    None,
+                    unit.key().source(),
+                    false,
+                ))
+                .unwrap_or_else(|error| panic!("owner borrow capability must build: {error:?}"));
+
+            (id, kind)
+        });
 
         let storage = storage.finish();
 
@@ -542,6 +602,40 @@ mod tests {
                 } if *access == argument_access
             )
         }));
+
+        if let Some((capability, expected)) = capability {
+            assert!(contract.requirements().iter().any(|requirement| {
+                matches!(
+                    requirement,
+                    BoundDependencyRequirement::Direct {
+                        subject: BoundDependencySubject::StorageAccess(access),
+                        kind: BoundDependencyRequirementKind::StorageInitialized,
+                    } if *access == argument_access
+                )
+            }));
+
+            assert!(contract.requirements().iter().any(|requirement| {
+                matches!(
+                    requirement,
+                    BoundDependencyRequirement::Direct {
+                        subject: BoundDependencySubject::BorrowCapability(actual),
+                        kind: BoundDependencyRequirementKind::BorrowCapabilityActive(kind),
+                    } if *actual == capability && *kind == expected
+                )
+            }));
+        }
+
+        if implementation == ImplementationHook::BorrowMutFrom {
+            assert!(contract.requirements().iter().any(|requirement| {
+                matches!(
+                    requirement,
+                    BoundDependencyRequirement::Direct {
+                        subject: BoundDependencySubject::StorageAccess(access),
+                        kind: BoundDependencyRequirementKind::ExclusiveMutationAuthority,
+                    } if *access == argument_access
+                )
+            }));
+        }
     }
 
     #[test]

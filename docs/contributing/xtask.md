@@ -4,6 +4,9 @@ Bray keeps repository-specific development automation in the `xtask` crate. Run 
 `cargo xtask`. LLVM provisioning uses the dependency-light `cargo llvm` command because it must work before compiler crates can be
 built. These commands are contributor and release-engineering tools rather than user-facing Bray Tack commands.
 
+Materially long workflows print bounded phase starts and completions to standard error. Repeated work reports a stable item count,
+and child compiler progress remains visible while machine-readable command output stays on standard output.
+
 ## Style
 
 Apply deterministic formatting fixes and run the repository's structural style checks:
@@ -177,6 +180,16 @@ Run native standard-library integration tests with:
 ```text
 cargo xtask standard-library test
 ```
+
+Native compiler workflows build and use optimized `bray` and `brayc` tools. To retain one bounded compiler trace for every build
+invocation under a distinct phase directory, run:
+
+```text
+cargo xtask standard-library test --profile-output profiles/standard-library-native
+```
+
+The profiling form preserves the same test contract and streams Bray build progress while it runs. Inspect the resulting reports
+with the profile commands described in [Compiler profiling](profiling.md).
 
 The target bundle publishes separate core, standard-stream, filesystem, and process platform archives. Each archive records its
 exact native platform capabilities and direct native dependencies in the manifest. The build fails if that inventory is incomplete

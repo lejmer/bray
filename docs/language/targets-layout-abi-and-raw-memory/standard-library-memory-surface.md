@@ -117,6 +117,24 @@ The non-trusted pointer helpers preserve the same semantics as the matching `cor
 
 The trusted pointer helpers preserve the same caller obligations as the matching `core.memory` declarations.
 
+`std.memory` also exposes protected uninitialized storage and dependency-anchored borrow helpers.
+`uninit_write` is safe because it consumes an owned value and commits initialization as one checked
+operation. `assume_initialized` and `move_initialized` remain trusted and require the matching
+initialization fact. `borrow_from` and `borrow_mut_from` remain trusted and require explicit owner
+or scoped-capability authority in addition to the raw memory predicates.
+
+The result of an anchored borrow retains the exact authority argument as a dependency. The compiler
+does not recognize synchronization guard, mapped region, output wrapper, or foreign owner names.
+Ordinary library products build safe accessors by storing authority and using these operations.
+
+`Output<T>` owns one protected output slot. `InPlace<T>` borrows an existing protected slot for
+scoped construction. Their safe `write` operations commit Bray values. Native boundaries use the
+trusted pointer and value-extraction methods after establishing the initialization predicate.
+`destroy_initialized` consumes the tracked value through ordinary lifecycle cleanup.
+`AnchoredView<T, Owner>` and
+`AnchoredViewMut<T, Capability>` store the checked borrow with its exact authority. Their safe
+accessors use ordinary reborrowing and never perform another raw-to-borrow conversion.
+
 The helper declarations can add ordinary checked convenience around argument validation, but they cannot weaken the trusted guarantees required by the raw operation they perform.
 
 Examples of recognized helper calls:
@@ -148,5 +166,5 @@ They do not make raw pointers behave like references.
 
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
-- Previous: [Raw memory predicates and capabilities](raw-memory-predicates-and-capabilities.md)
+- Previous: [Uninitialized storage and anchored borrows](uninitialized-storage-and-anchored-borrows.md)
 - Next: [Raw allocation and buffers](raw-allocation-and-buffers.md)

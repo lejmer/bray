@@ -6,11 +6,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bray_diagnostics::{
-    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
+    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
+    DiagnosticProjectCommandFailure,
     DiagnosticProjectOperation, DiagnosticProjectSelectionProblem, DiagnosticToolProtocolFailure,
     DiagnosticToolStream,
 };
 use bray_project::ProjectGraph;
+use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
 use bray_tooling::{OutputFormat, write_diagnostic_groups, write_diagnostics};
 
 use crate::tack::compiler::ProjectCompiler;
@@ -390,6 +392,7 @@ fn execute_invocation_with_progress(
         TackCommand::Test {
             selection,
             configuration,
+            batch_request,
             options,
         } => run_tests(
             &workspace_root,
@@ -398,6 +401,7 @@ fn execute_invocation_with_progress(
             worker_count,
             &selection,
             configuration,
+            batch_request.as_deref(),
             options,
             profile.as_ref(),
             output_format,
@@ -640,12 +644,18 @@ fn run_tests(
     worker_count: usize,
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
+    batch_request: Option<&Path>,
     options: crate::tack::model::TackTestOptions,
     profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
     progress: &WorkflowProgress,
 ) -> TackRunResult {
+    let batch_request = match batch_request.map(load_test_batch_request).transpose() {
+        Ok(request) => request,
+        Err(diagnostics) => return failure(diagnostics, output_format),
+    };
+
     let products = match select_products(graph, selection, ProductSelectionKind::Test, false) {
         Ok(products) => products,
         Err(diagnostics) => return failure(diagnostics, output_format),
@@ -731,25 +741,109 @@ fn run_tests(
         return result;
     }
 
-    let (report, rendered) = match crate::tack::testing::execute(
-        workspace_root,
-        hosts,
-        &options,
-        worker_count,
-        output_format,
-        progress.interactive(),
-    ) {
-        Ok(report) => report,
-        Err(diagnostics) => return failure(diagnostics, output_format),
-    };
+    if let Some(batch_request) = batch_request {
+        let (reports, rendered) = match crate::tack::testing::execute_batch(
+            workspace_root,
+            hosts,
+            &batch_request,
+            worker_count,
+            progress.interactive(),
+        ) {
+            Ok(report) => report,
+            Err(diagnostics) => return failure(diagnostics, output_format),
+        };
 
-    result.replace_stdout(rendered);
+        result.replace_stdout(rendered);
 
-    if !report.succeeded() {
-        result.set_exit_code(ExitCode::FAILURE);
+        if reports.iter().any(|(_, report)| !report.succeeded()) {
+            result.set_exit_code(ExitCode::FAILURE);
+        }
+    } else {
+        let (report, rendered) = match crate::tack::testing::execute(
+            workspace_root,
+            hosts,
+            &options,
+            worker_count,
+            output_format,
+            progress.interactive(),
+        ) {
+            Ok(report) => report,
+            Err(diagnostics) => return failure(diagnostics, output_format),
+        };
+
+        result.replace_stdout(rendered);
+
+        if !report.succeeded() {
+            result.set_exit_code(ExitCode::FAILURE);
+        }
     }
 
     result
+}
+
+fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {
+    let bytes = read_test_batch_request(path)?;
+
+    let request = serde_json::from_slice::<TestBatchRequest>(&bytes).map_err(|error| {
+        let problem = match error.classify() {
+            serde_json::error::Category::Io => DiagnosticDocumentParseKind::Input,
+            serde_json::error::Category::Syntax => DiagnosticDocumentParseKind::Syntax,
+            serde_json::error::Category::Data => DiagnosticDocumentParseKind::Schema,
+            serde_json::error::Category::Eof => DiagnosticDocumentParseKind::UnexpectedEnd,
+        };
+
+        test_batch_document_diagnostics(path, problem)
+    })?;
+
+    request
+        .validate()
+        .map_err(|_| test_batch_document_diagnostics(path, DiagnosticDocumentParseKind::Schema))?;
+
+    Ok(request)
+}
+
+fn read_test_batch_request(path: &Path) -> Result<Vec<u8>, DiagnosticBag> {
+    let file = std::fs::File::open(path).map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::TestBatchRequest,
+            path: path.to_path_buf(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })
+    })?;
+
+    let limit = u64::try_from(MAXIMUM_TEST_BATCH_REQUEST_BYTES)
+        .map_err(|_| test_batch_document_diagnostics(path, DiagnosticDocumentParseKind::Schema))?
+        .saturating_add(1);
+
+    let mut bytes = Vec::with_capacity(MAXIMUM_TEST_BATCH_REQUEST_BYTES.saturating_add(1));
+
+    file.take(limit).read_to_end(&mut bytes).map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::TestBatchRequest,
+            path: path.to_path_buf(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })
+    })?;
+
+    if bytes.len() > MAXIMUM_TEST_BATCH_REQUEST_BYTES {
+        return Err(test_batch_document_diagnostics(
+            path,
+            DiagnosticDocumentParseKind::Schema,
+        ));
+    }
+
+    Ok(bytes)
+}
+
+fn test_batch_document_diagnostics(
+    path: &Path,
+    problem: DiagnosticDocumentParseKind,
+) -> DiagnosticBag {
+    operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+        operation: DiagnosticProjectOperation::TestBatchRequest,
+        path: Some(path.to_path_buf()),
+        problem,
+    })
 }
 
 #[expect(
@@ -1069,7 +1163,7 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::run_tack_result_with_input;
+    use super::{load_test_batch_request, run_tack_result_with_input};
     use crate::tack::tool::{
         Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
     };
@@ -1452,6 +1546,126 @@ mod tests {
                 .iter()
                 .any(|argument| argument == "--dependency-interface")
         );
+    }
+
+    #[test]
+    fn standard_library_source_check_materializes_its_tested_library() {
+        let workspace = ProjectWorkspace::standard_library();
+        let executor = RecordingExecutor::default();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "--standard-library-source".into(),
+                "check".into(),
+                "--package".into(),
+                "std".into(),
+                "--product".into(),
+                "api".into(),
+                "--target".into(),
+                "native".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+        let requests = executor.requests();
+
+        let [library, api] = requests.as_slice() else {
+            panic!("standard library source check must compile its library before API: {requests:#?}");
+        };
+
+        assert!(has_argument_pair(&library.arguments, "--product", "library"));
+        assert!(library.arguments.iter().any(|argument| argument == "--emit-interface"));
+        assert!(library.arguments.iter().any(|argument| argument == "--standard-library-source"));
+
+        assert!(has_argument_pair(
+            &library.arguments,
+            "--platform-service",
+            "platform.context.identity=std.platform.context_identity"
+        ));
+
+        assert!(has_argument_pair(&api.arguments, "--product", "api"));
+
+        assert!(has_argument_pair(
+            &api.arguments,
+            "--dependency-product",
+            "std/library"
+        ));
+
+        assert!(api.arguments.iter().any(|argument| argument == "--dependency-interface"));
+        assert!(api.arguments.iter().any(|argument| argument == "--standard-library-source"));
+        assert!(!api.arguments.iter().any(|argument| argument == "--standard-library-root"));
+    }
+
+    #[test]
+    fn standard_library_source_build_retains_native_provider_root() {
+        let workspace = ProjectWorkspace::standard_library();
+        let toolchain = unique_temporary_directory();
+        let executor = RecordingExecutor::default();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "--toolchain-root".into(),
+                toolchain.as_os_str().to_os_string(),
+                "--standard-library-source".into(),
+                "build".into(),
+                "--package".into(),
+                "std".into(),
+                "--product".into(),
+                "api".into(),
+                "--target".into(),
+                "native".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+        let requests = executor.requests();
+
+        let [library, api] = requests.as_slice() else {
+            panic!("standard library source build must compile its library before API: {requests:#?}");
+        };
+
+        assert!(!library.arguments.iter().any(|argument| argument == "--standard-library-root"));
+
+        let standard_library = std::path::absolute(&toolchain)
+            .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
+            .join("lib")
+            .join("bray")
+            .join("standard-library");
+
+        assert!(
+            api.arguments.windows(2).any(|pair| {
+                pair[0] == "--standard-library-provider-root"
+                    && pair[1] == standard_library.as_os_str()
+            }),
+            "native API request must retain provider root {standard_library:?}: {:#?}",
+            api.arguments
+        );
+
+        assert!(
+            !api.arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-root")
+        );
+
+        assert!(has_argument_pair(
+            &api.arguments,
+            "--dependency-product",
+            "std/library"
+        ));
+
+        assert!(api.arguments.iter().any(|argument| argument == "--standard-library-source"));
     }
 
     #[test]
@@ -1976,6 +2190,60 @@ mod tests {
             result.diagnostics(),
             DiagnosticKind::ProjectCommandFailed,
         );
+    }
+
+    #[test]
+    fn test_batch_request_files_are_bounded_before_deserialization() {
+        let directory = unique_temporary_directory();
+        let path = directory.join("batch.json");
+
+        std::fs::create_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("test batch directory must be created: {error:?}"));
+
+        let file = std::fs::File::create(&path)
+            .unwrap_or_else(|error| panic!("test batch request must be created: {error:?}"));
+
+        file.set_len(
+            u64::try_from(bray_test_protocol::MAXIMUM_TEST_BATCH_REQUEST_BYTES + 1)
+                .unwrap_or_else(|error| panic!("test request size must fit u64: {error:?}")),
+        )
+        .unwrap_or_else(|error| panic!("test batch request size must be set: {error:?}"));
+
+        let diagnostics = load_test_batch_request(&path)
+            .expect_err("oversized test batch request must be rejected");
+
+        std::fs::remove_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("test batch directory must be removed: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::ProjectCommandFailed);
+    }
+
+    #[test]
+    fn decoded_test_batch_requests_retain_protocol_limits() {
+        let directory = unique_temporary_directory();
+        let path = directory.join("batch.json");
+
+        std::fs::create_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("test batch directory must be created: {error:?}"));
+
+        let identity = "a".repeat(
+            bray_test_protocol::MAXIMUM_TEST_BATCH_PLAN_IDENTITY_BYTES + 1,
+        );
+
+        let document = format!(
+            "{{\"plans\":[{{\"identity\":\"{identity}\",\"filters\":[],\"maximum_concurrency\":1,\"timeout_milliseconds\":null}}]}}"
+        );
+
+        std::fs::write(&path, document)
+            .unwrap_or_else(|error| panic!("test batch request must be written: {error:?}"));
+
+        let diagnostics = load_test_batch_request(&path)
+            .expect_err("decoded oversized plan identity must be rejected");
+
+        std::fs::remove_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("test batch directory must be removed: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::ProjectCommandFailed);
     }
 
     fn has_argument_pair(arguments: &[OsString], name: &str, value: impl AsRef<OsStr>) -> bool {

@@ -853,6 +853,24 @@ fn memory_operation_parts(
     }
 
     let (name, types) = match memory.kind() {
+        CheckedMemoryOperationKind::UninitNew { element } => {
+            ("uninit_new", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::UninitPointer { element, .. } => {
+            ("uninit_pointer", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::UninitWrite { element } => {
+            ("uninit_write", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::UninitAssumeInitialized { element } => {
+            ("uninit_assume_initialized", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::UninitMove { element } => {
+            ("uninit_move", vec![("element", element)])
+        }
+        CheckedMemoryOperationKind::BorrowFrom { pointee, .. } => {
+            ("borrow_from", vec![("pointee", pointee)])
+        }
         CheckedMemoryOperationKind::Address { pointee, .. } => {
             ("address", vec![("pointee", pointee)])
         }

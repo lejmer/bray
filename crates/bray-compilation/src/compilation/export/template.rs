@@ -258,9 +258,18 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         let operation = self.operation(expression_id, expression, ty)?;
         let node = CheckedTemplateNodeId::new(index(self.nodes.len())?);
 
+        let interface_ty = match &operation {
+            InterfaceCheckedTemplateOperation::Input(input) => self
+                .inputs
+                .get(usize::try_from(input.raw()).map_err(|_| incomplete())?)
+                .map(InterfaceCheckedTemplateInput::ty)
+                .ok_or_else(incomplete)?,
+            _ => self.export.type_id(ty)?,
+        };
+
         self.nodes.push(InterfaceCheckedTemplateNode::new(
             operation,
-            self.export.type_id(ty)?,
+            interface_ty,
         ));
 
         self.expression_nodes.insert(expression_id, node);
@@ -318,6 +327,16 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                     Ok(InterfaceCheckedTemplateOperation::array(
                         self.expressions(expression.operands())?,
                     ))
+                }
+                BoundStructuredExpressionKind::Borrow => {
+                    let [operand] = expression.operands() else {
+                        return Err(incomplete());
+                    };
+
+                    Ok(InterfaceCheckedTemplateOperation::Borrow {
+                        kind: expression.borrow_kind().ok_or_else(incomplete)?,
+                        operand: self.expression(*operand)?,
+                    })
                 }
                 BoundStructuredExpressionKind::TrustBoundary => {
                     let [operand] = expression.operands() else {

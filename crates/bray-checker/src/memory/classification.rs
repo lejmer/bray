@@ -80,6 +80,42 @@ where
     };
 
     let kind = match hook {
+        ImplementationHook::UninitNew => {
+            CheckedMemoryOperationKind::UninitNew { element: one()? }
+        }
+        ImplementationHook::UninitPointer => CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Shared,
+            element: one()?,
+        },
+        ImplementationHook::UninitPointerMut => CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Mutable,
+            element: one()?,
+        },
+        ImplementationHook::UninitWrite => {
+            CheckedMemoryOperationKind::UninitWrite { element: one()? }
+        }
+        ImplementationHook::UninitAssumeInitialized => {
+            CheckedMemoryOperationKind::UninitAssumeInitialized { element: one()? }
+        }
+        ImplementationHook::UninitMove => {
+            CheckedMemoryOperationKind::UninitMove { element: one()? }
+        }
+        ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
+            let [pointee, _authority] = types else {
+                return Err(CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ));
+            };
+
+            CheckedMemoryOperationKind::BorrowFrom {
+                kind: if hook == ImplementationHook::BorrowFrom {
+                    MemoryAddressKind::Shared
+                } else {
+                    MemoryAddressKind::Mutable
+                },
+                pointee: *pointee,
+            }
+        }
         ImplementationHook::AddressOf => CheckedMemoryOperationKind::Address {
             kind: MemoryAddressKind::Shared,
             pointee: one()?,
@@ -425,6 +461,58 @@ mod tests {
             let mut diagnostics = DiagnosticBag::new();
 
             let cases = [
+                (
+                    ImplementationHook::UninitNew,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitNew { element: ty },
+                ),
+                (
+                    ImplementationHook::UninitPointer,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitPointer {
+                        kind: MemoryAddressKind::Shared,
+                        element: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::UninitPointerMut,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitPointer {
+                        kind: MemoryAddressKind::Mutable,
+                        element: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::UninitWrite,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitWrite { element: ty },
+                ),
+                (
+                    ImplementationHook::UninitAssumeInitialized,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitAssumeInitialized { element: ty },
+                ),
+                (
+                    ImplementationHook::UninitMove,
+                    vec![ty],
+                    CheckedMemoryOperationKind::UninitMove { element: ty },
+                ),
+                (
+                    ImplementationHook::BorrowFrom,
+                    vec![ty, ty],
+                    CheckedMemoryOperationKind::BorrowFrom {
+                        kind: MemoryAddressKind::Shared,
+                        pointee: ty,
+                    },
+                ),
+                (
+                    ImplementationHook::BorrowMutFrom,
+                    vec![ty, ty],
+                    CheckedMemoryOperationKind::BorrowFrom {
+                        kind: MemoryAddressKind::Mutable,
+                        pointee: ty,
+                    },
+                ),
                 (
                     ImplementationHook::AddressOf,
                     vec![ty],

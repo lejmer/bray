@@ -320,6 +320,7 @@ const fn diagnostic_representation(role: RepresentationRole) -> Option<Diagnosti
         RepresentationRole::RawPointer
         | RepresentationRole::DevicePointer
         | RepresentationRole::Atomic
+        | RepresentationRole::Uninit
         | RepresentationRole::Result
         | RepresentationRole::RunResult
         | RepresentationRole::PanicReport

@@ -638,7 +638,10 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [DiagnosticKind::LexicalInvalidCharacter]
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxExpectedExpression,
+            ]
         );
     }
 

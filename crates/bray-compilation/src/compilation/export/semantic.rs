@@ -124,8 +124,7 @@ pub(super) fn build_semantic_facts(
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
 
-    declarations.generic_declarations.sort_unstable();
-    declarations.declaration_templates.sort_unstable();
+    declarations.sort_canonical();
 
     let (executable_templates, runtime_requirements) =
         executable_templates(compilation, graph, selected, &mut export)?;
@@ -423,6 +422,20 @@ struct ExportedDeclarationFacts {
     checked_templates: Vec<InterfaceCheckedTemplate>,
     declaration_templates: Vec<InterfaceDeclarationTemplate>,
     support_entities: Vec<InterfaceSupportEntity>,
+}
+
+impl ExportedDeclarationFacts {
+    fn sort_canonical(&mut self) {
+        self.signatures.sort_unstable();
+        self.generic_declarations.sort_unstable();
+        self.parameter_defaults.sort_unstable();
+        self.constraints.sort_unstable();
+        self.callable_contracts.sort_unstable();
+        self.predicate_definitions.sort_unstable();
+        self.declared_types.sort_unstable();
+        self.type_representations.sort_unstable();
+        self.declaration_templates.sort_unstable();
+    }
 }
 
 fn export_callable_facts(

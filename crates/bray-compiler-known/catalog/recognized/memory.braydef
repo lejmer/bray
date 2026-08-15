@@ -173,6 +173,116 @@ scope StandardMemory at std.memory {
         }
     }
 
+    declaration StandardMemoryUninitNew {
+        identity name uninit;
+        availability RawMemory;
+        implementation UninitNew;
+
+        surface { func uninit<T>() -> Uninit<T>; }
+    }
+
+    declaration StandardMemoryUninitPointer {
+        identity name uninit_pointer;
+        availability RawMemory;
+        implementation UninitPointer;
+
+        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>; }
+    }
+
+    declaration StandardMemoryUninitPointerMut {
+        identity name uninit_pointer_mut;
+        availability RawMemory;
+        implementation UninitPointerMut;
+
+        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>; }
+    }
+
+    declaration StandardMemoryUninitWrite {
+        identity name uninit_write;
+        availability RawMemory;
+        implementation UninitWrite;
+
+        surface {
+            func uninit_write<T>(
+                pos storage: &mut Uninit<T>,
+                pos value: T,
+            ) -> &mut T
+                ensures(trusted core.memory.uninit_initialized<T>(storage = storage));
+        }
+    }
+
+    declaration StandardMemoryAssumeInitialized {
+        identity name assume_initialized;
+        availability RawMemory;
+        implementation UninitAssumeInitialized;
+
+        surface {
+            trusted func assume_initialized<T>(pos mut storage: Uninit<T>) -> T
+                requires(trusted core.memory.uninit_initialized<T>(storage = &mut storage))
+                uses(unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryMoveInitialized {
+        identity name move_initialized;
+        availability RawMemory;
+        implementation UninitMove;
+
+        surface {
+            trusted func move_initialized<T>(pos storage: &mut Uninit<T>) -> T
+                requires(trusted core.memory.uninit_initialized<T>(storage = storage))
+                uses(unchecked_init);
+        }
+    }
+
+    declaration StandardMemoryBorrowFrom {
+        identity name borrow_from;
+        availability RawMemory;
+        implementation BorrowFrom;
+
+        surface {
+            trusted func borrow_from<T, Owner>(
+                pos owner: &Owner,
+                pos pointer: RawPointer<T>,
+            ) -> &T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid(pointer = pointer),
+                    trusted core.memory.epoch_current(pointer = pointer),
+                    trusted core.memory.synchronized_access(pointer = pointer),
+                    trusted core.memory.movement_stable(pointer = pointer),
+                    trusted core.memory.finalization_pending(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_alias);
+        }
+    }
+
+    declaration StandardMemoryBorrowMutFrom {
+        identity name borrow_mut_from;
+        availability RawMemory;
+        implementation BorrowMutFrom;
+
+        surface {
+            trusted func borrow_mut_from<T, Capability>(
+                pos capability: &mut Capability,
+                pos pointer: RawPointer<T>,
+            ) -> &mut T
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.memory.exclusive_alias_valid(pointer = pointer),
+                    trusted core.memory.epoch_current(pointer = pointer),
+                    trusted core.memory.synchronized_access(pointer = pointer),
+                    trusted core.memory.movement_stable(pointer = pointer),
+                    trusted core.memory.finalization_pending(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_alias);
+        }
+    }
+
     declaration StandardMemoryLayout {
         identity name MemoryLayout;
 

@@ -411,7 +411,10 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::LexicalInvalidCharacter]
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxExpectedExpression,
+            ]
         );
     }
 }

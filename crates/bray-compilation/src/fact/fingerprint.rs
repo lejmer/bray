@@ -28,6 +28,7 @@ pub(crate) enum CompilationInputKey {
     PackageInterfaceExport,
     CodegenConfiguration,
     StandardLibrary,
+    StandardLibraryProviders,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -135,7 +136,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::fact_fingerprint;
+    use super::{CompilationInputKey, CompilationInputs, fact_fingerprint};
     use crate::fact::CompilationFactKey;
 
     #[test]
@@ -151,5 +152,21 @@ mod tests {
             fact_fingerprint(&key, &11_u8),
             fact_fingerprint(&key, &11_u8)
         );
+    }
+
+    #[test]
+    fn provider_artifacts_do_not_change_the_semantic_identity_namespace() {
+        let mut first = CompilationInputs::default();
+        first.insert(CompilationInputKey::StandardLibraryProviders, &"providers-a");
+
+        let mut second = CompilationInputs::default();
+        second.insert(CompilationInputKey::StandardLibraryProviders, &"providers-b");
+
+        assert!(first.has_same_identity_namespace(&second));
+
+        first.insert(CompilationInputKey::StandardLibrary, &"semantics-a");
+        second.insert(CompilationInputKey::StandardLibrary, &"semantics-b");
+
+        assert!(!first.has_same_identity_namespace(&second));
     }
 }

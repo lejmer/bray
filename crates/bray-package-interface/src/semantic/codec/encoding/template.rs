@@ -151,6 +151,11 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(left.raw());
             encoder.write_u32(right.raw());
         }
+        InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
+            encoder.write_u32(14);
+            encoder.write_u32(kind.to_wire());
+            encoder.write_u32(operand.raw());
+        }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
             encoder.write_u32(3);
             encode_template_reference(encoder, declaration);

@@ -328,6 +328,18 @@ pub(super) const fn format_english_memory_operation(
     operation: DiagnosticMemoryOperation,
 ) -> &'static str {
     match operation {
+        DiagnosticMemoryOperation::UninitializedStorage => "uninitialized storage creation",
+        DiagnosticMemoryOperation::UninitializedStoragePointer => {
+            "uninitialized storage pointer access"
+        }
+        DiagnosticMemoryOperation::MutableUninitializedStoragePointer => {
+            "mutable uninitialized storage pointer access"
+        }
+        DiagnosticMemoryOperation::ProtectedStorageWrite => "protected storage initialization",
+        DiagnosticMemoryOperation::AssumeInitialized => "assume initialized operation",
+        DiagnosticMemoryOperation::MoveInitialized => "move initialized operation",
+        DiagnosticMemoryOperation::AnchoredSharedBorrow => "anchored shared borrow creation",
+        DiagnosticMemoryOperation::AnchoredMutableBorrow => "anchored mutable borrow creation",
         DiagnosticMemoryOperation::AddressOf => "shared address operation",
         DiagnosticMemoryOperation::MutableAddressOf => "mutable address operation",
         DiagnosticMemoryOperation::NullPointer => "null pointer construction",

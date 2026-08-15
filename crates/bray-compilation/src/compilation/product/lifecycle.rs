@@ -345,6 +345,7 @@ impl Compilation {
                     | RepresentationRole::Never
                     | RepresentationRole::RawPointer
                     | RepresentationRole::DevicePointer
+                    | RepresentationRole::Uninit
                     | RepresentationRole::Future
             )
         {

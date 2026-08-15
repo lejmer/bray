@@ -61,6 +61,8 @@ define_catalog_enum! {
         DevicePointer => "DevicePointer",
         /// Protected compiler-controlled atomic storage.
         Atomic => "Atomic",
+        /// Protected storage with the size and alignment of its represented value.
+        Uninit => "Uninit",
         /// A compiler-known result value.
         Result => "Result",
         /// A compiler-known run-boundary result value.

@@ -25,6 +25,9 @@ Raw memory operations require trusted guarantees, trusted capabilities, or both.
 
 `std.memory` provides ordinary standard-library wrappers over the raw memory substrate without making raw memory ambient.
 
+`Uninit<T>` provides protected storage without creating a `T`. Trusted raw-to-borrow operations
+retain an explicit owner or scoped capability as the borrow dependency root.
+
 Device memory and ABI-oriented helper declarations are ordinary declarations whose contracts preserve target, layout, ABI, synchronization, and trusted raw-memory obligations.
 
 ## Navigation

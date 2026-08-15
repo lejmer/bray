@@ -2,27 +2,27 @@ use std::path::Path;
 use std::time::Duration;
 
 pub(super) fn phase(message: &str) {
-    eprintln!("{message}");
+    crate::progress::message(message);
 }
 
 pub(super) fn plan(workloads: usize, warmups: u32, samples: u32) {
-    eprintln!("{}", plan_message(workloads, warmups, samples));
+    crate::progress::message(&plan_message(workloads, warmups, samples));
 }
 
 pub(super) fn workload(index: usize, total: usize, identity: &str) {
-    eprintln!("[{index}/{total}] {identity}");
+    crate::progress::item(index, total, identity);
 }
 
 pub(super) fn workload_phase(message: &str) {
-    eprintln!("  {message}");
+    crate::progress::message(&format!("  {message}"));
 }
 
 pub(super) fn report(kind: &str, path: &Path) {
-    eprintln!("{kind}: {}", path.display());
+    crate::progress::message(&format!("{kind}: {}", path.display()));
 }
 
 pub(super) fn finished(elapsed: Duration) {
-    eprintln!("{}", completion_message(elapsed));
+    crate::progress::message(&completion_message(elapsed));
 }
 
 fn plan_message(workloads: usize, warmups: u32, samples: u32) -> String {

@@ -22,6 +22,7 @@ Targets, layout, ABI, and raw memory rules define target profiles, target proper
 - [Raw memory access and copying](targets-layout-abi-and-raw-memory/raw-memory-access-and-copying.md)
 - [Manual allocation](targets-layout-abi-and-raw-memory/manual-allocation.md)
 - [Raw memory predicates and capabilities](targets-layout-abi-and-raw-memory/raw-memory-predicates-and-capabilities.md)
+- [Uninitialized storage and anchored borrows](targets-layout-abi-and-raw-memory/uninitialized-storage-and-anchored-borrows.md)
 - [Standard-library memory surface](targets-layout-abi-and-raw-memory/standard-library-memory-surface.md)
 - [Raw allocation and buffers](targets-layout-abi-and-raw-memory/raw-allocation-and-buffers.md)
 - [Device memory](targets-layout-abi-and-raw-memory/device-memory.md)

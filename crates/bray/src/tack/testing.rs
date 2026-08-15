@@ -6,5 +6,5 @@ mod report;
 #[cfg(test)]
 mod test_support;
 
-pub(super) use execution::execute;
+pub(super) use execution::{execute, execute_batch};
 pub(super) use model::BuiltTestHost;

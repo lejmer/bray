@@ -172,6 +172,7 @@ pub(crate) enum TackCommand {
     Test {
         selection: TackSelection,
         configuration: TackBuildConfiguration,
+        batch_request: Option<PathBuf>,
         options: TackTestOptions,
     },
     Format {

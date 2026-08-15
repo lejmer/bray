@@ -41,6 +41,10 @@ pub(crate) fn format_english_project_selection_problem(
             "{} is not a valid dependency product identity",
             format_english_quoted_text(value)
         ),
+        Problem::InvalidPlatformServiceBinding(value) => format!(
+            "{} is not a valid platform-service binding",
+            format_english_quoted_text(value)
+        ),
         Problem::NoMatchingProduct(selection) => format!(
             "no product and target match selection {}",
             format_english_quoted_text(selection)

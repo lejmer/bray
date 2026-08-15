@@ -1,6 +1,14 @@
 /// Compiler-provided memory operation named by a structured diagnostic.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticMemoryOperation {
+    UninitializedStorage,
+    UninitializedStoragePointer,
+    MutableUninitializedStoragePointer,
+    ProtectedStorageWrite,
+    AssumeInitialized,
+    MoveInitialized,
+    AnchoredSharedBorrow,
+    AnchoredMutableBorrow,
     AddressOf,
     MutableAddressOf,
     NullPointer,
@@ -70,6 +78,14 @@ impl DiagnosticMemoryOperation {
     /// Returns the stable machine key for this memory operation.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::UninitializedStorage => "uninitialized_storage",
+            Self::UninitializedStoragePointer => "uninitialized_storage_pointer",
+            Self::MutableUninitializedStoragePointer => "mutable_uninitialized_storage_pointer",
+            Self::ProtectedStorageWrite => "protected_storage_write",
+            Self::AssumeInitialized => "assume_initialized",
+            Self::MoveInitialized => "move_initialized",
+            Self::AnchoredSharedBorrow => "anchored_shared_borrow",
+            Self::AnchoredMutableBorrow => "anchored_mutable_borrow",
             Self::AddressOf => "address_of",
             Self::MutableAddressOf => "mutable_address_of",
             Self::NullPointer => "null_pointer",

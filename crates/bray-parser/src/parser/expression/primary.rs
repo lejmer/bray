@@ -504,6 +504,10 @@ impl Parser {
     ) -> PrimaryExpressionSyntax {
         let start = self.peek().full_range().start();
         let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+        let actual = self.peek();
+        let source = self.syntax_source();
+
+        self.record_syntax_diagnostic(diagnostic::expected_expression(&source, &actual));
 
         self.recover_current_and_until_predicate(&mut builder, |parser| {
             parser.at_primary_tail_boundary(at_boundary)
@@ -741,6 +745,29 @@ mod tests {
             &diagnostics,
             DiagnosticKind::SyntaxExpectedExpression,
         );
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxExpectedExpression]
+        );
+    }
+
+    #[test]
+    fn parser_reports_expected_expression_for_unknown_primary_expression_start() {
+        let (expression, diagnostics) =
+            parse_expression_until_semicolon_for_test("consume output.write(borrowed);");
+
+        let primary = expression
+            .primary_expression()
+            .unwrap_or_else(|| panic!("expected primary expression"));
+
+        let skipped_syntax = primary.skipped_syntax().collect::<Vec<_>>();
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected skipped unknown primary syntax: {skipped_syntax:?}");
+        };
+
+        assert_eq!(skipped.full_text(), "consume output.write(borrowed");
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),

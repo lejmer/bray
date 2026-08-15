@@ -35,11 +35,15 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
 }
 
 pub(crate) fn write_workspace(root: &Path) -> Result<(), String> {
-    format_workspace(root, FormatMode::Write)
+    crate::progress::run("Formatting maintained Bray sources", || {
+        format_workspace(root, FormatMode::Write)
+    })
 }
 
 pub(crate) fn check_workspace(root: &Path) -> Result<(), String> {
-    format_workspace(root, FormatMode::Check)
+    crate::progress::run("Checking maintained Bray source formatting", || {
+        format_workspace(root, FormatMode::Check)
+    })
 }
 
 fn format_workspace(root: &Path, mode: FormatMode) -> Result<(), String> {

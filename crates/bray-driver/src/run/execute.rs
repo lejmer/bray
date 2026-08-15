@@ -508,6 +508,7 @@ pub(super) fn compilation_request(
         .collect::<Result<Vec<_>, _>>()?;
 
     request = request.with_dependency_interfaces(dependencies);
+    request = request.with_platform_services(configuration.platform_services().iter().cloned());
 
     if let Some(profile) = options.profile() {
         // The request retains immutable package-product identity beyond driver configuration.
@@ -519,6 +520,10 @@ pub(super) fn compilation_request(
     if let Some(root) = options.standard_library_root() {
         // Compilation requests retain the selected immutable bundle-root identity.
         request = request.with_standard_library_root(root.clone());
+    }
+
+    if let Some(root) = options.standard_library_provider_root() {
+        request = request.with_standard_library_provider_root(root.clone());
     }
 
     if export_interface {

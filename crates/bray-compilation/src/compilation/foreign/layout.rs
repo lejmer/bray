@@ -93,6 +93,24 @@ fn named_alignment(
             return atomic_alignment(compilation, substitution, cancellation);
         }
 
+        if role == bray_compiler_known::RepresentationRole::Uninit {
+            let values = compilation.semantic_value_store()?;
+
+            let wrapper = values
+                .intern_type(TypeData::Named {
+                    definition,
+                    substitution,
+                })
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let element = compilation
+                .available_compiler_known_symbols()
+                .unary_representation_argument(values, role, wrapper)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            return alignment_of_type(compilation, element, cancellation, pending);
+        }
+
         return Ok(Some(representation_alignment(compilation, role)));
     }
 
@@ -307,6 +325,9 @@ fn representation_alignment(
         | RepresentationRole::BooleanFalse
         | RepresentationRole::UnitValue
         | RepresentationRole::NoneValue => NonZeroU64::MIN,
+        RepresentationRole::Uninit => {
+            unreachable!("uninitialized storage alignment resolves from its element type")
+        }
         RepresentationRole::ScalarBool
         | RepresentationRole::ScalarChar
         | RepresentationRole::ScalarI8

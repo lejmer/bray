@@ -13,7 +13,11 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         return finish(
             command::reject_trailing_argument(arguments)
                 .and_then(|()| workspace::root())
-                .and_then(|root| native_execution::audit(&root)),
+                .and_then(|root| {
+                    crate::progress::run("Auditing native execution readiness", || {
+                        native_execution::audit(&root)
+                    })
+                }),
         );
     }
 
@@ -39,23 +43,41 @@ fn finish(result: Result<(), String>) -> ExitCode {
 fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), String> {
     match audit {
         None => {
-            semantic::audit_coverage(workspace)?;
-            semantic::audit_diagnostics(workspace)?;
-            lowering::audit(workspace)?;
-            memory::audit(workspace)?;
-            codegen::audit(workspace)?;
-            emission::audit(workspace)?;
+            audit_phase("Auditing semantic readiness", || semantic::audit_coverage(workspace))?;
 
-            linker::audit(workspace)
+            audit_phase("Auditing diagnostic readiness", || {
+                semantic::audit_diagnostics(workspace)
+            })?;
+
+            audit_phase("Auditing lowering readiness", || lowering::audit(workspace))?;
+            audit_phase("Auditing memory readiness", || memory::audit(workspace))?;
+            audit_phase("Auditing code generation readiness", || codegen::audit(workspace))?;
+            audit_phase("Auditing emission readiness", || emission::audit(workspace))?;
+
+            audit_phase("Auditing linker readiness", || linker::audit(workspace))
         }
-        Some("semantic") => semantic::audit_coverage(workspace),
-        Some("diagnostics") => semantic::audit_diagnostics(workspace),
-        Some("lowering") => lowering::audit(workspace),
-        Some("memory") => memory::audit(workspace),
-        Some("codegen") => codegen::audit(workspace),
-        Some("emission") => emission::audit(workspace),
-        Some("linker") => linker::audit(workspace),
+        Some("semantic") => audit_phase("Auditing semantic readiness", || {
+            semantic::audit_coverage(workspace)
+        }),
+        Some("diagnostics") => audit_phase("Auditing diagnostic readiness", || {
+            semantic::audit_diagnostics(workspace)
+        }),
+        Some("lowering") => {
+            audit_phase("Auditing lowering readiness", || lowering::audit(workspace))
+        }
+        Some("memory") => audit_phase("Auditing memory readiness", || memory::audit(workspace)),
+        Some("codegen") => audit_phase("Auditing code generation readiness", || {
+            codegen::audit(workspace)
+        }),
+        Some("emission") => {
+            audit_phase("Auditing emission readiness", || emission::audit(workspace))
+        }
+        Some("linker") => audit_phase("Auditing linker readiness", || linker::audit(workspace)),
         Some("native-execution") => unreachable!("native execution does not load the Rust corpus"),
         Some(_) => Err(USAGE.to_owned()),
     }
+}
+
+fn audit_phase(label: &str, audit: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    crate::progress::run(label, audit)
 }

@@ -2,6 +2,11 @@ module bray.standard_library_tests.memory;
 
 using std.memory;
 
+struct BorrowOutput
+{
+    value: &u32;
+}
+
 @test
 trusted func layouts_and_raw_buffers() -> Result<unit, std.memory.MemoryLayoutError>
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
@@ -41,4 +46,38 @@ trusted func layouts_and_raw_buffers() -> Result<unit, std.memory.MemoryLayoutEr
     assert(trusted std.memory.read<u32>(second) == 30);
 
     return Ok(unit);
+}
+
+@test
+trusted func protected_output_and_in_place_construction()
+    uses(unchecked_init)
+{
+    assert(std.memory.size_of<Uninit<BorrowOutput>>() == std.memory.size_of<BorrowOutput>());
+    assert(std.memory.align_of<Uninit<BorrowOutput>>() == std.memory.align_of<BorrowOutput>());
+
+    let source: u32 = 41;
+    let mut output: std.memory.Output<BorrowOutput> = std.memory.Output<BorrowOutput>();
+
+    let borrowed: BorrowOutput =
+    {
+        value = &source,
+    };
+
+    let output_value: BorrowOutput = match consume output.write(borrowed)
+    {
+        case value { yield value; }
+    };
+
+    assert(output_value.value == 41);
+
+    let mut storage: Uninit<u32> = std.memory.uninit<u32>();
+
+    {
+        let mut placement: std.memory.InPlace<u32> = std.memory.in_place<u32>(&mut storage);
+        let _: &mut u32 = placement.write(42);
+    };
+
+    let placed_value: u32 = trusted std.memory.assume_initialized<u32>(storage);
+
+    assert(placed_value == 42);
 }

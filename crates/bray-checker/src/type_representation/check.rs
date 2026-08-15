@@ -457,6 +457,33 @@ where
         arguments: &[GenericArgumentTemplate],
         origin: Option<SourceSpan>,
     ) -> CheckerFactResult<MemberRepresentation> {
+        if named_representation_role(
+            self.context.available_compiler_known_symbols(),
+            subject,
+        ) == Some(RepresentationRole::Uninit)
+        {
+            let [GenericParameterSymbolId::Type(_)] = parameters else {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            };
+
+            let [argument] = arguments else {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+            };
+
+            let element = match argument {
+                GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) => {
+                    self.check_type(*ty, origin)?
+                }
+                GenericArgumentTemplate::Type(ty) => self.check_template(ty, origin)?,
+                GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
+                | GenericArgumentTemplate::Constant(_) => {
+                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                }
+            };
+
+            return Ok(uninit_representation(element));
+        }
+
         let checked = self.check(subject, origin)?;
 
         if parameters.is_empty()
@@ -511,6 +538,24 @@ where
                     self.context.available_compiler_known_symbols(),
                     *definition,
                 ) {
+                    if role == RepresentationRole::Uninit {
+                        let element = self
+                            .context
+                            .available_compiler_known_symbols()
+                            .unary_representation_argument(
+                                self.context.semantic_values(),
+                                RepresentationRole::Uninit,
+                                ty,
+                            )
+                            .ok_or(
+                                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                            )?;
+
+                        return self
+                            .check_type(element, origin)
+                            .map(uninit_representation);
+                    }
+
                     return Ok(compiler_known_representation(role));
                 }
 
@@ -840,6 +885,15 @@ fn apply_copy_dependencies(
     }
 }
 
+fn uninit_representation(mut element: MemberRepresentation) -> MemberRepresentation {
+    element.plain = false;
+    element.copyable = Copyability::Never;
+    element.copy_dependencies.clear();
+    element.non_copyable_members.clear();
+
+    element
+}
+
 fn named_representation_role(
     symbols: &AvailableCompilerKnownSymbols,
     definition: NamedTypeSymbolId,
@@ -878,6 +932,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         },
         RepresentationRole::Atomic
         | RepresentationRole::Future
+        | RepresentationRole::Uninit
         | RepresentationRole::Task
         | RepresentationRole::PanicReport => {
             MemberRepresentation {
@@ -908,5 +963,39 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         | RepresentationRole::UnitValue
         | RepresentationRole::NoneValue => MemberRepresentation::recovered_invalid(),
         _ => MemberRepresentation::recovered_invalid(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use bray_diagnostics::DiagnosticStoredTypeProblem;
+
+    use super::{Copyability, MemberRepresentation, uninit_representation};
+
+    #[test]
+    fn uninit_preserves_element_storage_constraints() {
+        let result = uninit_representation(MemberRepresentation::invalid(
+            DiagnosticStoredTypeProblem::Slice,
+        ));
+
+        assert!(!result.finite);
+        assert!(!result.plain);
+        assert_eq!(result.copyable, Copyability::Never);
+
+        assert_eq!(
+            result.stored_type_problems,
+            BTreeSet::from([DiagnosticStoredTypeProblem::Slice])
+        );
+    }
+
+    #[test]
+    fn uninit_is_not_plain_or_copyable() {
+        let result = uninit_representation(MemberRepresentation::SCALAR);
+
+        assert!(result.finite);
+        assert!(!result.plain);
+        assert_eq!(result.copyable, Copyability::Never);
     }
 }
