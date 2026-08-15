@@ -184,6 +184,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
 using std.bytes;
 using std.format;
+using std.format.ByteSinkFormatting;
 using std.format.StringFormat;
 using std.hash;
 using std.hash.StableHasherSink;
@@ -205,16 +206,24 @@ func main()
 {
     let literal: string = "borrowed text";
     let duplicate: string = "borrowed text";
-    let long: string = "Bray immutable text pipeline repeated across a deliberately long UTF-8 literal for stable throughput coverage.";
+
+    let long: string =
+        "Bray immutable text pipeline repeated across a deliberately long UTF-8 literal for stable throughput coverage.";
+
     let long_bytes: &[u8] = std.string.utf8(&long);
     let byte_count: usize = std.bytes.slice_length(long_bytes);
     let middle: &[u8] = &long_bytes[1.. byte_count - 1];
 
     let decoded: Result<string, std.string.Utf8Error> = std.string.from_utf8(std.string.utf8(&"owned text"));
+
     let owned: string = match consume decoded
     {
         case Ok(value) { yield value; }
-        case Error(_) { assert(false); yield ""; }
+        case Error(_)
+        {
+            assert(false);
+            yield "";
+        }
     };
 
     let quoted: std.format.Options = std.format.Options(
@@ -231,6 +240,7 @@ func main()
         case Ok(value) { yield value; }
         case Error(_) { panic("text sink allocation failed"); }
     };
+
     let mut index: usize = 0;
 
     assert(std.bytes.slice_length(middle) == byte_count - 2);
@@ -251,10 +261,7 @@ func main()
         index = index + 1;
     }
 
-    match consume std.format.write<string>(
-        &mut sink,
-        std.format.Argument.with_options<string>(&long, options = quoted),
-    )
+    match consume std.format.write<string>(&mut sink, std.format.Argument.with_options<string>(&long, options = quoted))
     {
         case Ok(_) {}
         case Error(_) { panic("escaped text formatting failed"); }
@@ -298,6 +305,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     assert(std.bytes.slice_length(bytes(&sink)) == 2986);
+
     return Ok(unit);
 }
 "#,
@@ -441,6 +449,7 @@ impl ValidatingWriterIo = ValidatingWriter(std.io.Writer)
         }
 
         self.length += count;
+
         return Ok(count);
     }
 
@@ -455,8 +464,10 @@ func main()
     requires(blocking_execution())
 {
     let mut writer: ValidatingWriter = ValidatingWriter();
+
     let mut sink: std.io.FormattingSink<ValidatingWriter> =
         std.io.FormattingSink<ValidatingWriter>(&mut writer);
+
     let value: u32 = 42;
     let mut formatted: usize = 0;
 
