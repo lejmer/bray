@@ -1,0 +1,44 @@
+module bray.standard_library_tests.atomic;
+
+using std.atomic;
+
+@test
+func generic_atomic_wrapper_covers_the_complete_operation_surface()
+{
+    let counter = std.atomic.atomic<u32>(1);
+
+    assert(std.atomic.load<u32>(&counter, std.atomic.LoadOrder.Relaxed) == 1);
+    std.atomic.store<u32>(&counter, 2, std.atomic.StoreOrder.Release);
+    assert(std.atomic.exchange<u32>(&counter, 3, std.atomic.ReadModifyWriteOrder.AcquireRelease) == 2);
+
+    let strong = std.atomic.compare_exchange<u32>(
+        &counter,
+        3,
+        5,
+        std.atomic.CompareExchangeOrder.SequentiallyConsistentAcquire,
+    );
+
+    assert(strong.0 == 3);
+    assert(strong.1);
+
+    let weak = std.atomic.compare_exchange_weak<u32>(&counter, 5, 7, std.atomic.CompareExchangeOrder.AcquireRelaxed);
+
+    assert(weak.0 == 5);
+
+    std.atomic.fetch_add<u32>(&counter, 3, std.atomic.ReadModifyWriteOrder.Relaxed);
+    std.atomic.fetch_sub<u32>(&counter, 1, std.atomic.ReadModifyWriteOrder.Acquire);
+    std.atomic.fetch_and<u32>(&counter, 15, std.atomic.ReadModifyWriteOrder.Release);
+    std.atomic.fetch_or<u32>(&counter, 16, std.atomic.ReadModifyWriteOrder.AcquireRelease);
+    std.atomic.fetch_xor<u32>(&counter, 3, std.atomic.ReadModifyWriteOrder.SequentiallyConsistent);
+
+    std.atomic.fence(std.atomic.FenceOrder.Acquire);
+    std.atomic.compiler_fence(std.atomic.FenceOrder.Release);
+    std.atomic.wait<u32>(&counter, 0, std.atomic.LoadOrder.Acquire);
+    std.atomic.notify_one<u32>(&counter);
+    std.atomic.notify_all<u32>(&counter);
+
+    let flag = std.atomic.atomic<bool>(false);
+
+    std.atomic.store<bool>(&flag, true, std.atomic.StoreOrder.SequentiallyConsistent);
+    assert(std.atomic.load<bool>(&flag, std.atomic.LoadOrder.SequentiallyConsistent));
+}

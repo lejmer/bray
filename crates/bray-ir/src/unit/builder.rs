@@ -768,6 +768,46 @@ mod tests {
     }
 
     #[test]
+    fn builders_reject_operation_illegal_atomic_orders() {
+        let bound = test_bound_unit(16);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+
+        let operand = MirOperand::Immediate {
+            value: MirImmediateValue::Unit,
+            ty,
+        };
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        let operation = match builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Memory(MirMemoryOperation::new(
+                CheckedMemoryOperationKind::AtomicLoad {
+                    value: ty,
+                    order: bray_bound_tree::MemoryOrder::Release,
+                },
+                [operand],
+                [ty],
+                Some(ty),
+            )),
+            Some(ty),
+        ) {
+            Ok(operation) => operation.operation(),
+            Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
+        };
+
+        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::InvalidMemoryOperation(operation))
+        );
+    }
+
+    #[test]
     fn builders_reject_incoherent_projected_place_types() {
         let bound = test_bound_unit(13);
         let source = MirSourceAnchor::from(bound.key().source());

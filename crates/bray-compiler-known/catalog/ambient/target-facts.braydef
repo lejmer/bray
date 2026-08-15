@@ -160,6 +160,102 @@ scope TargetAtomic at target.atomic {
     declaration TargetAtomicPointer {
         surface { const POINTER: bool = false; }
     }
+
+    declaration TargetAtomicU8Alignment {
+        surface { const U8_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicU8AlwaysLockFree {
+        surface { const U8_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicU8WaitNotify {
+        surface { const U8_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicU8CrossProcess {
+        surface { const U8_CROSS_PROCESS: bool = false; }
+    }
+
+    declaration TargetAtomicU16Alignment {
+        surface { const U16_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicU16AlwaysLockFree {
+        surface { const U16_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicU16WaitNotify {
+        surface { const U16_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicU16CrossProcess {
+        surface { const U16_CROSS_PROCESS: bool = false; }
+    }
+
+    declaration TargetAtomicU32Alignment {
+        surface { const U32_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicU32AlwaysLockFree {
+        surface { const U32_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicU32WaitNotify {
+        surface { const U32_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicU32CrossProcess {
+        surface { const U32_CROSS_PROCESS: bool = false; }
+    }
+
+    declaration TargetAtomicU64Alignment {
+        surface { const U64_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicU64AlwaysLockFree {
+        surface { const U64_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicU64WaitNotify {
+        surface { const U64_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicU64CrossProcess {
+        surface { const U64_CROSS_PROCESS: bool = false; }
+    }
+
+    declaration TargetAtomicU128Alignment {
+        surface { const U128_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicU128AlwaysLockFree {
+        surface { const U128_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicU128WaitNotify {
+        surface { const U128_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicU128CrossProcess {
+        surface { const U128_CROSS_PROCESS: bool = false; }
+    }
+
+    declaration TargetAtomicPointerAlignment {
+        surface { const POINTER_ALIGNMENT: usize = 1; }
+    }
+
+    declaration TargetAtomicPointerAlwaysLockFree {
+        surface { const POINTER_ALWAYS_LOCK_FREE: bool = false; }
+    }
+
+    declaration TargetAtomicPointerWaitNotify {
+        surface { const POINTER_WAIT_NOTIFY: bool = false; }
+    }
+
+    declaration TargetAtomicPointerCrossProcess {
+        surface { const POINTER_CROSS_PROCESS: bool = false; }
+    }
 }
 
 scope TargetAbi at target.abi {

@@ -849,6 +849,40 @@ extern trusted func native_read(pos value: Wide)
     }
 
     #[test]
+    fn unavailable_atomic_members_are_normal_foreign_abi_rejections() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+@layout(c)
+struct SharedState
+{
+    value: core.atomic.Atomic<u128>;
+}
+
+@link(name = "native")
+@symbol(name = "native_read")
+@abi(c)
+extern trusted func native_read(pos value: SharedState)
+    uses(foreign_call);
+"#,
+            "native",
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("foreign contract query must complete: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingForeignAbiTypeUnsupported,
+        );
+
+        assert!(result.value().is_none());
+    }
+
+    #[test]
     fn foreign_imports_require_the_exact_compiler_known_capability() {
         let compilation = compilation_with_link(
             r#"trusted module app;

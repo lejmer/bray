@@ -372,7 +372,15 @@ where
             | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
-            | CheckedMemoryOperationKind::CallbackState { .. } => {}
+            | CheckedMemoryOperationKind::CallbackState { .. }
+            | CheckedMemoryOperationKind::AtomicInitialize { .. }
+            | CheckedMemoryOperationKind::AtomicLoad { .. }
+            | CheckedMemoryOperationKind::AtomicStore { .. }
+            | CheckedMemoryOperationKind::AtomicExchange { .. }
+            | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+            | CheckedMemoryOperationKind::AtomicFetch { .. }
+            | CheckedMemoryOperationKind::AtomicWait { .. }
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => {}
             CheckedMemoryOperationKind::ExposeAddress { .. }
             | CheckedMemoryOperationKind::FromExposedAddress { .. }
             | CheckedMemoryOperationKind::CompareAddress { .. }

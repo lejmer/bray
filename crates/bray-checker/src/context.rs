@@ -301,6 +301,14 @@ pub trait CheckerRequestContext: Sync {
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>>;
 
+    /// Returns the target atomic representation selected for one concrete plain-storage type.
+    fn plain_storage_atomic_representation(
+        &self,
+        _ty: TypeId,
+    ) -> CheckerFactResult<Option<bray_target::TargetAtomicRepresentation>> {
+        Ok(None)
+    }
+
     /// Returns whether a declared type has finalization or destruction behavior.
     fn declared_type_has_lifecycle(
         &self,

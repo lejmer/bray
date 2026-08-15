@@ -3,7 +3,8 @@ use std::num::NonZeroU64;
 use bray_base::NonEmptySharedStr;
 
 use super::{
-    TargetAbiFacts, TargetAbiScalarFacts, TargetCAbiFacts, TargetForeignAbiFacts, TargetScalarFacts,
+    TargetAbiFacts, TargetAbiScalarFacts, TargetAtomicFacts, TargetCAbiFacts,
+    TargetForeignAbiFacts, TargetScalarFacts,
 };
 
 /// Stable identity details of one target profile.
@@ -49,66 +50,6 @@ impl TargetIdentityFacts {
     /// Returns the target ABI-family spelling.
     pub fn abi(&self) -> &str {
         self.abi.as_str()
-    }
-}
-
-/// Atomic representations available on one target.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetAtomicFacts {
-    u8: bool,
-    u16: bool,
-    u32: bool,
-    u64: bool,
-    u128: bool,
-    pointer: bool,
-}
-
-impl TargetAtomicFacts {
-    /// Creates atomic representation availability facts.
-    pub const fn new(u8: bool, u16: bool, u32: bool, u64: bool, u128: bool, pointer: bool) -> Self {
-        Self {
-            u8,
-            u16,
-            u32,
-            u64,
-            u128,
-            pointer,
-        }
-    }
-
-    /// Returns whether any atomic operation is available.
-    pub const fn any(self) -> bool {
-        self.u8 || self.u16 || self.u32 || self.u64 || self.u128 || self.pointer
-    }
-
-    /// Returns whether atomic `u8` operations are available.
-    pub const fn u8(self) -> bool {
-        self.u8
-    }
-
-    /// Returns whether atomic `u16` operations are available.
-    pub const fn u16(self) -> bool {
-        self.u16
-    }
-
-    /// Returns whether atomic `u32` operations are available.
-    pub const fn u32(self) -> bool {
-        self.u32
-    }
-
-    /// Returns whether atomic `u64` operations are available.
-    pub const fn u64(self) -> bool {
-        self.u64
-    }
-
-    /// Returns whether atomic `u128` operations are available.
-    pub const fn u128(self) -> bool {
-        self.u128
-    }
-
-    /// Returns whether atomic pointer operations are available.
-    pub const fn pointer(self) -> bool {
-        self.pointer
     }
 }
 
@@ -277,6 +218,13 @@ impl TargetFacts {
     /// Returns these facts with the supplied compiler-provided operation capabilities.
     pub const fn with_operations(mut self, operations: TargetOperationFacts) -> Self {
         self.operations = operations;
+
+        self
+    }
+
+    /// Returns these facts with the supplied atomic representation contracts.
+    pub const fn with_atomics(mut self, atomics: TargetAtomicFacts) -> Self {
+        self.atomics = atomics;
 
         self
     }

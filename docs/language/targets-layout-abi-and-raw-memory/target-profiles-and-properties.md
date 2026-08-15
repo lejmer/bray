@@ -121,6 +121,30 @@ target.atomic.U32
 target.atomic.U64
 target.atomic.U128
 target.atomic.POINTER
+target.atomic.U8_ALIGNMENT
+target.atomic.U8_ALWAYS_LOCK_FREE
+target.atomic.U8_WAIT_NOTIFY
+target.atomic.U8_CROSS_PROCESS
+target.atomic.U16_ALIGNMENT
+target.atomic.U16_ALWAYS_LOCK_FREE
+target.atomic.U16_WAIT_NOTIFY
+target.atomic.U16_CROSS_PROCESS
+target.atomic.U32_ALIGNMENT
+target.atomic.U32_ALWAYS_LOCK_FREE
+target.atomic.U32_WAIT_NOTIFY
+target.atomic.U32_CROSS_PROCESS
+target.atomic.U64_ALIGNMENT
+target.atomic.U64_ALWAYS_LOCK_FREE
+target.atomic.U64_WAIT_NOTIFY
+target.atomic.U64_CROSS_PROCESS
+target.atomic.U128_ALIGNMENT
+target.atomic.U128_ALWAYS_LOCK_FREE
+target.atomic.U128_WAIT_NOTIFY
+target.atomic.U128_CROSS_PROCESS
+target.atomic.POINTER_ALIGNMENT
+target.atomic.POINTER_ALWAYS_LOCK_FREE
+target.atomic.POINTER_WAIT_NOTIFY
+target.atomic.POINTER_CROSS_PROCESS
 target.abi.C
 target.abi.SYSTEM
 target.c.CHAR
@@ -155,6 +179,8 @@ target.platform.wall_clock
 target.platform.entropy
 target.platform.dynamic_loading
 ```
+
+Each `target.atomic.<REPRESENTATION>` Boolean reports whether any atomic operation exists for that representation. Its `_ALIGNMENT` companion is the required protected-storage alignment in bytes. `_ALWAYS_LOCK_FREE` is true only when every exposed operation for that representation is implemented without a lock. `_WAIT_NOTIFY` reports wait and notification availability. `_CROSS_PROCESS` reports whether the same operations may address storage shared between processes. These properties are independent, so availability never implies native lock freedom or wait support.
 
 `target.identity.NAME`, `target.identity.ARCH`, `target.identity.VENDOR`, `target.identity.SYSTEM`,
 `target.identity.ENVIRONMENT`, `target.identity.ABI`, and every `target.c` property have type `string`.

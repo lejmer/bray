@@ -340,7 +340,8 @@ impl Compilation {
         if super::super::representation::target_scalar(role).is_some()
             || matches!(
                 role,
-                RepresentationRole::Unit
+                RepresentationRole::Atomic
+                    | RepresentationRole::Unit
                     | RepresentationRole::Never
                     | RepresentationRole::RawPointer
                     | RepresentationRole::DevicePointer

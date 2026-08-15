@@ -18,6 +18,8 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "lowering coverage",
     "code generation coverage",
     "unavailable target rejection",
+    "atomic ordering rejection",
+    "atomic representation rejection",
     "invalid obligation rejection",
     "same-name isolation",
 ];

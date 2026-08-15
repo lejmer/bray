@@ -104,6 +104,41 @@ impl MemoryOrder {
             _ => None,
         }
     }
+
+    /// Returns the stable inspection spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Relaxed => "relaxed",
+            Self::Acquire => "acquire",
+            Self::Release => "release",
+            Self::AcquireRelease => "acquire_release",
+            Self::SequentiallyConsistent => "sequentially_consistent",
+        }
+    }
+
+    /// Returns whether this ordering is valid for an atomic load.
+    pub const fn valid_for_load(self) -> bool {
+        !matches!(self, Self::Release | Self::AcquireRelease)
+    }
+
+    /// Returns whether this ordering is valid for an atomic store.
+    pub const fn valid_for_store(self) -> bool {
+        !matches!(self, Self::Acquire | Self::AcquireRelease)
+    }
+
+    /// Returns whether this success ordering permits the supplied failure ordering.
+    pub const fn permits_failure(self, failure: Self) -> bool {
+        match (self, failure) {
+            (_, Self::Release | Self::AcquireRelease) => false,
+            (Self::Relaxed | Self::Release, Self::Relaxed) => true,
+            (Self::Acquire | Self::AcquireRelease, Self::Relaxed | Self::Acquire) => true,
+            (
+                Self::SequentiallyConsistent,
+                Self::Relaxed | Self::Acquire | Self::SequentiallyConsistent,
+            ) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Semantic role of one exactly checked inline-assembly operand.
@@ -727,6 +762,21 @@ pub enum MemoryLayoutQueryKind {
     Layout,
 }
 
+/// Integer fetch behavior selected for protected atomic storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AtomicFetchKind {
+    /// Wrapping integer addition.
+    Add,
+    /// Wrapping integer subtraction.
+    Subtract,
+    /// Bitwise conjunction.
+    And,
+    /// Bitwise disjunction.
+    Or,
+    /// Bitwise exclusive disjunction.
+    Xor,
+}
+
 /// Checked compiler-provided memory behavior at one call expression.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedMemoryOperationKind {
@@ -904,9 +954,83 @@ pub enum CheckedMemoryOperationKind {
         /// Checked compile-time assembly contract.
         contract: InlineAssemblyContract,
     },
+    /// Initialize protected atomic storage before it becomes shared.
+    AtomicInitialize {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+    },
+    /// Atomically load protected storage.
+    AtomicLoad {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Compile-time load ordering.
+        order: MemoryOrder,
+    },
+    /// Atomically store protected storage.
+    AtomicStore {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Compile-time store ordering.
+        order: MemoryOrder,
+    },
+    /// Atomically exchange protected storage.
+    AtomicExchange {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Compile-time read-modify-write ordering.
+        order: MemoryOrder,
+    },
+    /// Perform atomic compare-exchange.
+    AtomicCompareExchange {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Whether spurious failure is permitted.
+        weak: bool,
+        /// Compile-time success ordering.
+        success: MemoryOrder,
+        /// Compile-time failure ordering.
+        failure: MemoryOrder,
+    },
+    /// Perform an integer atomic fetch operation.
+    AtomicFetch {
+        /// Stored integer value type.
+        value: TypeId,
+        /// Arithmetic or bitwise operation.
+        kind: AtomicFetchKind,
+        /// Compile-time read-modify-write ordering.
+        order: MemoryOrder,
+    },
+    /// Wait while protected atomic storage equals one expected value.
+    AtomicWait {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Compile-time load ordering used by the wait.
+        order: MemoryOrder,
+    },
+    /// Notify waiters observing protected atomic storage.
+    AtomicNotify {
+        /// Stored atomic-compatible value type.
+        value: TypeId,
+        /// Whether every waiter is notified instead of at most one.
+        all: bool,
+    },
 }
 
 impl CheckedMemoryOperationKind {
+    /// Returns whether every atomic ordering carried by this operation is legal for its role.
+    pub const fn has_valid_atomic_ordering(self) -> bool {
+        match self {
+            Self::AtomicLoad { order, .. } | Self::AtomicWait { order, .. } => {
+                order.valid_for_load()
+            }
+            Self::AtomicStore { order, .. } => order.valid_for_store(),
+            Self::AtomicCompareExchange {
+                success, failure, ..
+            } => success.permits_failure(failure),
+            _ => true,
+        }
+    }
+
     /// Iterates compile-time values that form part of the checked operation contract.
     pub fn contract_constants(self) -> impl Iterator<Item = ConstantValueId> {
         let mut values = [None; MAX_INLINE_ASSEMBLY_CONTRACT_CONSTANTS];
@@ -941,7 +1065,10 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferSparePointer { .. }
             | Self::RawBufferRelease { .. }
             | Self::SliceLength
-            | Self::CallbackState { .. } => 1,
+            | Self::CallbackState { .. }
+            | Self::AtomicInitialize { .. }
+            | Self::AtomicLoad { .. }
+            | Self::AtomicNotify { .. } => 1,
             Self::VolatileRead { .. }
             | Self::ExposeAddress { .. }
             | Self::FromExposedAddress { .. } => 1,
@@ -952,11 +1079,16 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferRelocate { .. }
             | Self::ByteSliceCopy
             | Self::RawBufferSetInitializedCount
-            | Self::ByteBufferRead => 2,
+            | Self::ByteBufferRead
+            | Self::AtomicStore { .. }
+            | Self::AtomicExchange { .. }
+            | Self::AtomicFetch { .. }
+            | Self::AtomicWait { .. } => 2,
             Self::VolatileWrite { .. } | Self::CompareAddress { .. } => 2,
             Self::Copy { .. }
             | Self::RawDeallocate
-            | Self::ByteBufferFill => 3,
+            | Self::ByteBufferFill
+            | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
@@ -991,6 +1123,9 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferRelease { .. }
             | Self::SliceLength
             | Self::CallbackState { .. }
+            | Self::AtomicInitialize { .. }
+            | Self::AtomicLoad { .. }
+            | Self::AtomicNotify { .. }
             | Self::VolatileRead { .. }
             | Self::ExposeAddress { .. }
             | Self::FromExposedAddress { .. }
@@ -1009,10 +1144,17 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferSetInitializedCount
             | Self::ByteBufferRead
             | Self::VolatileWrite { .. }
-            | Self::CompareAddress { .. } => {
+            | Self::CompareAddress { .. }
+            | Self::AtomicStore { .. }
+            | Self::AtomicExchange { .. }
+            | Self::AtomicFetch { .. }
+            | Self::AtomicWait { .. } => {
                 if ordinal < 2 { Some(ordinal) } else { None }
             }
-            Self::Copy { .. } | Self::RawDeallocate | Self::ByteBufferFill => {
+            Self::Copy { .. }
+            | Self::RawDeallocate
+            | Self::ByteBufferFill
+            | Self::AtomicCompareExchange { .. } => {
                 if ordinal < 3 { Some(ordinal) } else { None }
             }
             Self::InlineAssembly { .. } => {
@@ -1050,7 +1192,105 @@ impl CheckedMemoryOperationKind {
                 | Self::UnreachableTermination
                 | Self::SpinLoopHint
                 | Self::InlineAssembly { output: None, .. }
+                | Self::AtomicStore { .. }
+                | Self::AtomicWait { .. }
+                | Self::AtomicNotify { .. }
         )
+    }
+}
+
+#[cfg(test)]
+mod atomic_order_tests {
+    use bray_symbols::{SemanticValueStore, TypeData};
+
+    use super::{CheckedMemoryOperationKind, MemoryOrder};
+
+    #[test]
+    fn operation_specific_ordering_matrix_is_exact() {
+        use MemoryOrder as Order;
+
+        assert!(Order::Relaxed.valid_for_load());
+        assert!(Order::Acquire.valid_for_load());
+        assert!(!Order::Release.valid_for_load());
+        assert!(!Order::AcquireRelease.valid_for_load());
+        assert!(Order::SequentiallyConsistent.valid_for_load());
+
+        assert!(Order::Relaxed.valid_for_store());
+        assert!(!Order::Acquire.valid_for_store());
+        assert!(Order::Release.valid_for_store());
+        assert!(!Order::AcquireRelease.valid_for_store());
+        assert!(Order::SequentiallyConsistent.valid_for_store());
+
+        assert!(!Order::Relaxed.valid_for_fence());
+        assert!(Order::Acquire.valid_for_fence());
+        assert!(Order::Release.valid_for_fence());
+        assert!(Order::AcquireRelease.valid_for_fence());
+        assert!(Order::SequentiallyConsistent.valid_for_fence());
+    }
+
+    #[test]
+    fn compare_exchange_failure_order_never_has_release_behavior() {
+        use MemoryOrder as Order;
+
+        for success in [
+            Order::Relaxed,
+            Order::Acquire,
+            Order::Release,
+            Order::AcquireRelease,
+            Order::SequentiallyConsistent,
+        ] {
+            assert!(!success.permits_failure(Order::Release));
+            assert!(!success.permits_failure(Order::AcquireRelease));
+        }
+
+        assert!(Order::Relaxed.permits_failure(Order::Relaxed));
+        assert!(!Order::Relaxed.permits_failure(Order::Acquire));
+        assert!(Order::AcquireRelease.permits_failure(Order::Acquire));
+        assert!(Order::SequentiallyConsistent.permits_failure(Order::SequentiallyConsistent));
+    }
+
+    #[test]
+    fn checked_atomic_kinds_apply_operation_specific_ordering_legality() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let value = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test atomic type must intern: {error:?}"));
+
+        assert!(
+            CheckedMemoryOperationKind::AtomicLoad {
+                value,
+                order: MemoryOrder::Acquire,
+            }
+            .has_valid_atomic_ordering()
+        );
+
+        assert!(
+            !CheckedMemoryOperationKind::AtomicLoad {
+                value,
+                order: MemoryOrder::Release,
+            }
+            .has_valid_atomic_ordering()
+        );
+
+        assert!(
+            !CheckedMemoryOperationKind::AtomicStore {
+                value,
+                order: MemoryOrder::Acquire,
+            }
+            .has_valid_atomic_ordering()
+        );
+
+        assert!(
+            !CheckedMemoryOperationKind::AtomicCompareExchange {
+                value,
+                weak: false,
+                success: MemoryOrder::Relaxed,
+                failure: MemoryOrder::Acquire,
+            }
+            .has_valid_atomic_ordering()
+        );
     }
 }
 

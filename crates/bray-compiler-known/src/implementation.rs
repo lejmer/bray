@@ -110,6 +110,38 @@ define_catalog_enum! {
         DivergingInlineAssembly => "DivergingInlineAssembly",
         /// Executes checked trusted inline assembly with alternate label continuations.
         BranchingInlineAssembly => "BranchingInlineAssembly",
+        /// Initializes protected atomic storage.
+        AtomicInitialize => "AtomicInitialize",
+        /// Atomically loads protected storage.
+        AtomicLoad => "AtomicLoad",
+        /// Atomically stores protected storage.
+        AtomicStore => "AtomicStore",
+        /// Atomically exchanges protected storage.
+        AtomicExchange => "AtomicExchange",
+        /// Performs strong atomic compare-exchange.
+        AtomicCompareExchange => "AtomicCompareExchange",
+        /// Performs weak atomic compare-exchange.
+        AtomicCompareExchangeWeak => "AtomicCompareExchangeWeak",
+        /// Atomically adds and returns the previous value.
+        AtomicFetchAdd => "AtomicFetchAdd",
+        /// Atomically subtracts and returns the previous value.
+        AtomicFetchSub => "AtomicFetchSub",
+        /// Atomically applies bitwise conjunction and returns the previous value.
+        AtomicFetchAnd => "AtomicFetchAnd",
+        /// Atomically applies bitwise disjunction and returns the previous value.
+        AtomicFetchOr => "AtomicFetchOr",
+        /// Atomically applies bitwise exclusive disjunction and returns the previous value.
+        AtomicFetchXor => "AtomicFetchXor",
+        /// Emits a target hardware memory fence.
+        AtomicFence => "AtomicFence",
+        /// Emits a compiler-only memory fence.
+        AtomicCompilerFence => "AtomicCompilerFence",
+        /// Waits while protected atomic storage equals an expected value.
+        AtomicWait => "AtomicWait",
+        /// Notifies one waiter observing protected atomic storage.
+        AtomicNotifyOne => "AtomicNotifyOne",
+        /// Notifies every waiter observing protected atomic storage.
+        AtomicNotifyAll => "AtomicNotifyAll",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -218,6 +250,22 @@ impl ImplementationHook {
         Self::InlineAssembly,
         Self::DivergingInlineAssembly,
         Self::BranchingInlineAssembly,
+        Self::AtomicInitialize,
+        Self::AtomicLoad,
+        Self::AtomicStore,
+        Self::AtomicExchange,
+        Self::AtomicCompareExchange,
+        Self::AtomicCompareExchangeWeak,
+        Self::AtomicFetchAdd,
+        Self::AtomicFetchSub,
+        Self::AtomicFetchAnd,
+        Self::AtomicFetchOr,
+        Self::AtomicFetchXor,
+        Self::AtomicFence,
+        Self::AtomicCompilerFence,
+        Self::AtomicWait,
+        Self::AtomicNotifyOne,
+        Self::AtomicNotifyAll,
     ];
 }
 

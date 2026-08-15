@@ -27,6 +27,7 @@ pub(super) const fn target_scalar(role: RepresentationRole) -> Option<TargetScal
         RepresentationRole::ScalarC256 => Some(TargetScalarKind::C256),
         RepresentationRole::Unit
         | RepresentationRole::Never
+        | RepresentationRole::Atomic
         | RepresentationRole::String
         | RepresentationRole::RawPointer
         | RepresentationRole::DevicePointer

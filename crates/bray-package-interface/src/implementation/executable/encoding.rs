@@ -1589,29 +1589,127 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 output,
                 labels,
                 contract,
-            } => {
-                self.wire.write_u32(39);
-                self.ty(inputs)?;
-
-                match output {
-                    Some(output) => {
-                        self.wire.write_u32(1);
-                        self.ty(output)?;
-                    }
-                    None => self.wire.write_u32(0),
-                }
-
-                match labels {
-                    Some(labels) => {
-                        self.wire.write_u32(1);
-                        self.ty(labels)?;
-                    }
-                    None => self.wire.write_u32(0),
-                }
-
-                self.inline_assembly_contract(contract)?;
+            } => self.inline_assembly_kind(inputs, output, labels, contract)?,
+            Kind::AtomicInitialize { value } => self.atomic_value_kind(40, value)?,
+            Kind::AtomicLoad { value, order } => self.atomic_ordered_value_kind(41, value, order)?,
+            Kind::AtomicStore { value, order } => {
+                self.atomic_ordered_value_kind(42, value, order)?;
             }
+            Kind::AtomicExchange { value, order } => {
+                self.atomic_ordered_value_kind(43, value, order)?;
+            }
+            Kind::AtomicCompareExchange {
+                value,
+                weak,
+                success,
+                failure,
+            } => self.atomic_compare_exchange_kind(value, weak, success, failure)?,
+            Kind::AtomicFetch { value, kind, order } => {
+                self.atomic_fetch_kind(value, kind, order)?;
+            }
+            Kind::AtomicWait { value, order } => {
+                self.atomic_ordered_value_kind(46, value, order)?;
+            }
+            Kind::AtomicNotify { value, all } => self.atomic_notify_kind(value, all)?,
         }
+
+        Ok(())
+    }
+
+    fn inline_assembly_kind(
+        &mut self,
+        inputs: TypeId,
+        output: Option<TypeId>,
+        labels: Option<TypeId>,
+        contract: InlineAssemblyContract,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.wire.write_u32(39);
+        self.ty(inputs)?;
+
+        match output {
+            Some(output) => {
+                self.wire.write_u32(1);
+                self.ty(output)?;
+            }
+            None => self.wire.write_u32(0),
+        }
+
+        match labels {
+            Some(labels) => {
+                self.wire.write_u32(1);
+                self.ty(labels)?;
+            }
+            None => self.wire.write_u32(0),
+        }
+
+        self.inline_assembly_contract(contract)
+    }
+
+    fn atomic_value_kind(
+        &mut self,
+        tag: u32,
+        value: TypeId,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.wire.write_u32(tag);
+
+        self.ty(value)
+    }
+
+    fn atomic_ordered_value_kind(
+        &mut self,
+        tag: u32,
+        value: TypeId,
+        order: bray_bound_tree::MemoryOrder,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.atomic_value_kind(tag, value)?;
+        self.atomic_order(order);
+
+        Ok(())
+    }
+
+    fn atomic_compare_exchange_kind(
+        &mut self,
+        value: TypeId,
+        weak: bool,
+        success: bray_bound_tree::MemoryOrder,
+        failure: bray_bound_tree::MemoryOrder,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.atomic_value_kind(44, value)?;
+        write_bool(&mut self.wire, weak);
+        self.atomic_order(success);
+        self.atomic_order(failure);
+
+        Ok(())
+    }
+
+    fn atomic_fetch_kind(
+        &mut self,
+        value: TypeId,
+        kind: bray_bound_tree::AtomicFetchKind,
+        order: bray_bound_tree::MemoryOrder,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.atomic_value_kind(45, value)?;
+
+        self.wire.write_u32(match kind {
+            bray_bound_tree::AtomicFetchKind::Add => 0,
+            bray_bound_tree::AtomicFetchKind::Subtract => 1,
+            bray_bound_tree::AtomicFetchKind::And => 2,
+            bray_bound_tree::AtomicFetchKind::Or => 3,
+            bray_bound_tree::AtomicFetchKind::Xor => 4,
+        });
+
+        self.atomic_order(order);
+
+        Ok(())
+    }
+
+    fn atomic_notify_kind(
+        &mut self,
+        value: TypeId,
+        all: bool,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.atomic_value_kind(47, value)?;
+        write_bool(&mut self.wire, all);
 
         Ok(())
     }
@@ -1680,6 +1778,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         Ok(())
+    }
+
+    fn atomic_order(&mut self, order: bray_bound_tree::MemoryOrder) {
+        self.wire.write_u32(order.to_u32());
     }
 
     fn text_operation(

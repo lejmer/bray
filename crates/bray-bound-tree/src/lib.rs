@@ -53,12 +53,12 @@ pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
 };
 pub use memory::{
-    CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
+    AtomicFetchKind, CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
     CheckedMemoryOperationsBuildError, InlineAssemblyConstraint, InlineAssemblyContract,
     InlineAssemblyOperand, InlineAssemblyOperandKind, InlineAssemblySymbol,
-    MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryCopyKind,
-    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus,
-    MemoryOrder, MemoryReadKind, PointerAddressComparison, VolatileAddressSpace,
+    MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
+    MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryOrder, MemoryReadKind,
+    PointerAddressComparison, VolatileAddressSpace,
 };
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,

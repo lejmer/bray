@@ -1,19 +1,21 @@
-use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTypeFact, CallableSignatureFact, CallableSymbolId,
-    ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact, ImplementationCoherenceFact,
-    ImplementationCoherenceKey, ImplementationSubjectFact, ImplementationSubjectTemplate,
-    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    ConstantDeclaredTypeFact, ExactSymbolId, GenericConstParameterDeclaredTypeFact,
+    GenericConstParameterSymbolId, ImplementationCoherenceFact, ImplementationCoherenceKey,
+    ImplementationSubjectFact, ImplementationSubjectTemplate, ImplementationSymbolId,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolOrigin,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
     TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::{
     CallableContractDeclarationSyntax, ConstantDeclarationSyntax, GenericConstParameterSyntax,
     ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
-    StructFieldDeclarationSyntax, TraitApplicationSyntax, TraitConstantMemberDeclarationSyntax,
-    TypeExpressionSyntax, UnionPayloadFieldSyntax,
+    StructFieldDeclarationSyntax, SyntaxKind, SyntaxWalkControl, TraitApplicationSyntax,
+    TraitConstantMemberDeclarationSyntax, TypeExpressionSyntax, UnionPayloadFieldSyntax,
+    walk_direct_child_nodes,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -103,10 +105,89 @@ impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeFact>
     ) -> BinderFactResult<SymbolFactResult<GenericConstParameterDeclaredTypeFact>> {
         let symbol = request.symbol();
 
-        bind_declaration_type::<GenericConstParameterSyntax>(context, symbol, |syntax| {
-            syntax.typed_identifier().type_expression()
-        })
+        if let Some(address) = context.imported_fact_address(symbol.into())? {
+            return super::imported::imported_declared_type(context, address);
+        }
+
+        let parameter = GenericConstParameterSymbolId::try_from_any(symbol)
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        let origin = context
+            .symbols()
+            .generic_const_parameter(parameter)
+            .map(|parameter| parameter.origin())
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        match origin {
+            SymbolOrigin::Source => {
+                bind_declaration_type::<GenericConstParameterSyntax>(context, symbol, |syntax| {
+                    syntax.typed_identifier().type_expression()
+                })
+            }
+            SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided => {
+                let syntax = compiler_known_generic_const_parameter(context, parameter)?;
+
+                type_binder(context, symbol)?
+                    .bind_type_expression(&syntax.typed_identifier().type_expression())
+            }
+            SymbolOrigin::Imported | SymbolOrigin::Synthesized => {
+                Err(BinderFactError::DependencyUnavailable)
+            }
+        }
     }
+}
+
+fn compiler_known_generic_const_parameter(
+    context: &CompilationBinderFacts<'_>,
+    symbol: GenericConstParameterSymbolId,
+) -> BinderFactResult<GenericConstParameterSyntax> {
+    let parameter = context
+        .symbols()
+        .generic_const_parameter(symbol)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let owner = parameter.owner().symbol();
+
+    let ordinal = usize::try_from(parameter.ordinal())
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    super::surface::with_declaration_root(context, owner, |root| {
+        let mut parameter = None;
+        let mut current = 0_usize;
+
+        walk_direct_child_nodes(&root, |child| {
+            if child.kind() != SyntaxKind::GenericParameterList {
+                return SyntaxWalkControl::Continue;
+            }
+
+            walk_direct_child_nodes(&child, |candidate| {
+                if !matches!(
+                    candidate.kind(),
+                    SyntaxKind::GenericTypeParameter | SyntaxKind::GenericConstParameter
+                ) {
+                    return SyntaxWalkControl::Continue;
+                }
+
+                if current == ordinal {
+                    parameter = candidate.cast::<GenericConstParameterSyntax>();
+
+                    return SyntaxWalkControl::Stop;
+                }
+
+                current = current.saturating_add(1);
+
+                SyntaxWalkControl::Continue
+            });
+
+            if parameter.is_some() {
+                SyntaxWalkControl::Stop
+            } else {
+                SyntaxWalkControl::Continue
+            }
+        });
+
+        parameter.ok_or(BinderFactError::DependencyUnavailable)
+    })
 }
 
 impl_declared_type_fact!(

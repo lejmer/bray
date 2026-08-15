@@ -240,6 +240,12 @@ fn target_fact_value_matches_kind(
         }
         TargetFactKind::PointerBits
         | TargetFactKind::PointerBytes
+        | TargetFactKind::AtomicU8Alignment
+        | TargetFactKind::AtomicU16Alignment
+        | TargetFactKind::AtomicU32Alignment
+        | TargetFactKind::AtomicU64Alignment
+        | TargetFactKind::AtomicU128Alignment
+        | TargetFactKind::AtomicPointerAlignment
         | TargetFactKind::AlignmentMaxStorage
         | TargetFactKind::AlignmentMaxAllocation => {
             matches!(value, PackageImplementationTargetFactValue::Usize(_))
@@ -274,6 +280,24 @@ fn target_fact_value_matches_kind(
         | TargetFactKind::AtomicU64
         | TargetFactKind::AtomicU128
         | TargetFactKind::AtomicPointer
+        | TargetFactKind::AtomicU8AlwaysLockFree
+        | TargetFactKind::AtomicU8WaitNotify
+        | TargetFactKind::AtomicU8CrossProcess
+        | TargetFactKind::AtomicU16AlwaysLockFree
+        | TargetFactKind::AtomicU16WaitNotify
+        | TargetFactKind::AtomicU16CrossProcess
+        | TargetFactKind::AtomicU32AlwaysLockFree
+        | TargetFactKind::AtomicU32WaitNotify
+        | TargetFactKind::AtomicU32CrossProcess
+        | TargetFactKind::AtomicU64AlwaysLockFree
+        | TargetFactKind::AtomicU64WaitNotify
+        | TargetFactKind::AtomicU64CrossProcess
+        | TargetFactKind::AtomicU128AlwaysLockFree
+        | TargetFactKind::AtomicU128WaitNotify
+        | TargetFactKind::AtomicU128CrossProcess
+        | TargetFactKind::AtomicPointerAlwaysLockFree
+        | TargetFactKind::AtomicPointerWaitNotify
+        | TargetFactKind::AtomicPointerCrossProcess
         | TargetFactKind::AbiC
         | TargetFactKind::AbiSystem
         | TargetFactKind::AddressSpaceHost

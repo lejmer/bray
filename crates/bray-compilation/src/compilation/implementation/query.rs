@@ -407,7 +407,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>)
 
     #[test]
     fn target_disabled_implementations_do_not_enter_active_source_identity() {
-        let source = target_gated_implementations("target.atomic.U64");
+        let source = target_gated_implementations("target.atomic.U128");
         let compilation = compilation(&source);
         let requirement = candidate_requirement(&compilation);
 

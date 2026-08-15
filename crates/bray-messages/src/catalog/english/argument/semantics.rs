@@ -383,6 +383,22 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::SpinLoopHint => "spin-loop hint",
         DiagnosticMemoryOperation::TargetFeatureCheck => "target feature check",
         DiagnosticMemoryOperation::InlineAssembly => "inline assembly",
+        DiagnosticMemoryOperation::AtomicInitialization => "atomic initialization",
+        DiagnosticMemoryOperation::AtomicLoad => "atomic load",
+        DiagnosticMemoryOperation::AtomicStore => "atomic store",
+        DiagnosticMemoryOperation::AtomicExchange => "atomic exchange",
+        DiagnosticMemoryOperation::AtomicCompareExchange => "strong atomic compare-exchange",
+        DiagnosticMemoryOperation::AtomicCompareExchangeWeak => "weak atomic compare-exchange",
+        DiagnosticMemoryOperation::AtomicFetchAdd => "atomic fetch-add",
+        DiagnosticMemoryOperation::AtomicFetchSubtract => "atomic fetch-subtract",
+        DiagnosticMemoryOperation::AtomicFetchAnd => "atomic fetch-and",
+        DiagnosticMemoryOperation::AtomicFetchOr => "atomic fetch-or",
+        DiagnosticMemoryOperation::AtomicFetchXor => "atomic fetch-xor",
+        DiagnosticMemoryOperation::AtomicFence => "atomic fence",
+        DiagnosticMemoryOperation::AtomicCompilerFence => "atomic compiler fence",
+        DiagnosticMemoryOperation::AtomicWait => "atomic wait",
+        DiagnosticMemoryOperation::AtomicNotifyOne => "atomic notify-one",
+        DiagnosticMemoryOperation::AtomicNotifyAll => "atomic notify-all",
     }
 }
 

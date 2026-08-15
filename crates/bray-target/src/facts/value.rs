@@ -1,6 +1,8 @@
 use crate::{Endianness, TargetProfile};
 
-use super::{TargetCScalarKind, TargetFactKind, TargetScalarKind};
+use super::{
+    TargetAtomicRepresentation, TargetCScalarKind, TargetFactKind, TargetScalarKind,
+};
 
 /// The typed value of one language-defined target fact.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -17,6 +19,7 @@ impl<'profile> TargetFactValue<'profile> {
     pub(crate) fn for_profile(profile: &'profile TargetProfile, kind: TargetFactKind) -> Self {
         let facts = profile.facts();
         let scalar = |kind| Self::Boolean(facts.scalars().supports(kind));
+        let atomic = |representation| facts.atomics().representation(representation);
 
         let c_scalar = |kind| {
             Self::String(
@@ -76,6 +79,90 @@ impl<'profile> TargetFactValue<'profile> {
             TargetFactKind::AtomicU64 => Self::Boolean(facts.atomics().u64()),
             TargetFactKind::AtomicU128 => Self::Boolean(facts.atomics().u128()),
             TargetFactKind::AtomicPointer => Self::Boolean(facts.atomics().pointer()),
+            TargetFactKind::AtomicU8Alignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::U8)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicU8AlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::U8).always_lock_free(),
+            ),
+            TargetFactKind::AtomicU8WaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U8).wait_notify())
+            }
+            TargetFactKind::AtomicU8CrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U8).cross_process())
+            }
+            TargetFactKind::AtomicU16Alignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::U16)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicU16AlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::U16).always_lock_free(),
+            ),
+            TargetFactKind::AtomicU16WaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U16).wait_notify())
+            }
+            TargetFactKind::AtomicU16CrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U16).cross_process())
+            }
+            TargetFactKind::AtomicU32Alignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::U32)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicU32AlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::U32).always_lock_free(),
+            ),
+            TargetFactKind::AtomicU32WaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U32).wait_notify())
+            }
+            TargetFactKind::AtomicU32CrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U32).cross_process())
+            }
+            TargetFactKind::AtomicU64Alignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::U64)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicU64AlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::U64).always_lock_free(),
+            ),
+            TargetFactKind::AtomicU64WaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U64).wait_notify())
+            }
+            TargetFactKind::AtomicU64CrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U64).cross_process())
+            }
+            TargetFactKind::AtomicU128Alignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::U128)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicU128AlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::U128).always_lock_free(),
+            ),
+            TargetFactKind::AtomicU128WaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U128).wait_notify())
+            }
+            TargetFactKind::AtomicU128CrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U128).cross_process())
+            }
+            TargetFactKind::AtomicPointerAlignment => Self::Usize(
+                atomic(TargetAtomicRepresentation::Pointer)
+                    .required_alignment()
+                    .get(),
+            ),
+            TargetFactKind::AtomicPointerAlwaysLockFree => Self::Boolean(
+                atomic(TargetAtomicRepresentation::Pointer).always_lock_free(),
+            ),
+            TargetFactKind::AtomicPointerWaitNotify => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::Pointer).wait_notify())
+            }
+            TargetFactKind::AtomicPointerCrossProcess => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::Pointer).cross_process())
+            }
             TargetFactKind::AbiC => Self::Boolean(facts.abis().c()),
             TargetFactKind::AbiSystem => Self::Boolean(facts.abis().system()),
             TargetFactKind::CChar => c_scalar(TargetCScalarKind::Char),

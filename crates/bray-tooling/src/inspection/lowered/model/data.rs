@@ -835,6 +835,23 @@ fn memory_operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
+    match memory.kind() {
+        CheckedMemoryOperationKind::AtomicLoad { order, .. }
+        | CheckedMemoryOperationKind::AtomicStore { order, .. }
+        | CheckedMemoryOperationKind::AtomicExchange { order, .. }
+        | CheckedMemoryOperationKind::AtomicFetch { order, .. }
+        | CheckedMemoryOperationKind::AtomicWait { order, .. } => {
+            parts.attribute("memory_order", order.as_str());
+        }
+        CheckedMemoryOperationKind::AtomicCompareExchange {
+            success, failure, ..
+        } => {
+            parts.attribute("success_order", success.as_str());
+            parts.attribute("failure_order", failure.as_str());
+        }
+        _ => {}
+    }
+
     let (name, types) = match memory.kind() {
         CheckedMemoryOperationKind::Address { pointee, .. } => {
             ("address", vec![("pointee", pointee)])
@@ -944,6 +961,48 @@ fn memory_operation_parts(
             }
 
             ("inline_assembly", types)
+        }
+        CheckedMemoryOperationKind::AtomicInitialize { value } => {
+            ("atomic_initialize", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicLoad { value, .. } => {
+            ("atomic_load", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicStore { value, .. } => {
+            ("atomic_store", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicExchange { value, .. } => {
+            ("atomic_exchange", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicCompareExchange {
+            value,
+            weak: false,
+            ..
+        } => ("atomic_compare_exchange", vec![("value", value)]),
+        CheckedMemoryOperationKind::AtomicCompareExchange {
+            value,
+            weak: true,
+            ..
+        } => ("atomic_compare_exchange_weak", vec![("value", value)]),
+        CheckedMemoryOperationKind::AtomicFetch { value, kind, .. } => {
+            let name = match kind {
+                bray_bound_tree::AtomicFetchKind::Add => "atomic_fetch_add",
+                bray_bound_tree::AtomicFetchKind::Subtract => "atomic_fetch_sub",
+                bray_bound_tree::AtomicFetchKind::And => "atomic_fetch_and",
+                bray_bound_tree::AtomicFetchKind::Or => "atomic_fetch_or",
+                bray_bound_tree::AtomicFetchKind::Xor => "atomic_fetch_xor",
+            };
+
+            (name, vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicWait { value, .. } => {
+            ("atomic_wait", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicNotify { value, all: false } => {
+            ("atomic_notify_one", vec![("value", value)])
+        }
+        CheckedMemoryOperationKind::AtomicNotify { value, all: true } => {
+            ("atomic_notify_all", vec![("value", value)])
         }
     };
 

@@ -1,5 +1,5 @@
 use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit, VolatileAddressSpace};
-use bray_codegen::CodegenFailure;
+use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
@@ -247,6 +247,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
             }
+            CheckedMemoryOperationKind::AtomicInitialize { .. }
+            | CheckedMemoryOperationKind::AtomicLoad { .. }
+            | CheckedMemoryOperationKind::AtomicStore { .. }
+            | CheckedMemoryOperationKind::AtomicExchange { .. }
+            | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+            | CheckedMemoryOperationKind::AtomicFetch { .. }
+            | CheckedMemoryOperationKind::AtomicWait { .. }
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => {
+                self.translate_atomic_memory(memory)
+            }
         }
     }
 
@@ -271,6 +281,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::UnreachableTermination
             | CheckedMemoryOperationKind::SpinLoopHint
             | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
+            CheckedMemoryOperationKind::AtomicInitialize { .. }
+            | CheckedMemoryOperationKind::AtomicLoad { .. }
+            | CheckedMemoryOperationKind::AtomicStore { .. }
+            | CheckedMemoryOperationKind::AtomicExchange { .. }
+            | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+            | CheckedMemoryOperationKind::AtomicFetch { .. }
+            | CheckedMemoryOperationKind::AtomicWait { .. }
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => self.atomic_memory_available(kind)?,
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
@@ -305,6 +323,91 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Err(CodegenFailure::UnsupportedTarget)
         }
     }
+
+    fn atomic_memory_available(
+        &self,
+        kind: CheckedMemoryOperationKind,
+    ) -> Result<bool, CodegenFailure> {
+        use bray_target::TargetAtomicRepresentation as Representation;
+
+        let value = match kind {
+            CheckedMemoryOperationKind::AtomicInitialize { value }
+            | CheckedMemoryOperationKind::AtomicLoad { value, .. }
+            | CheckedMemoryOperationKind::AtomicStore { value, .. }
+            | CheckedMemoryOperationKind::AtomicExchange { value, .. }
+            | CheckedMemoryOperationKind::AtomicCompareExchange { value, .. }
+            | CheckedMemoryOperationKind::AtomicFetch { value, .. }
+            | CheckedMemoryOperationKind::AtomicWait { value, .. }
+            | CheckedMemoryOperationKind::AtomicNotify { value, .. } => value,
+            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+        };
+
+        let mapping = self
+            .type_mapping(value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let representation = match mapping.kind() {
+            CodegenTypeKind::Boolean
+                if matches!(kind, CheckedMemoryOperationKind::AtomicFetch { .. }) =>
+            {
+                return Ok(false);
+            }
+            CodegenTypeKind::Boolean => Representation::U8,
+            CodegenTypeKind::SignedInteger(width) | CodegenTypeKind::UnsignedInteger(width) => {
+                match width.get() {
+                    8 => Representation::U8,
+                    16 => Representation::U16,
+                    32 => Representation::U32,
+                    64 => Representation::U64,
+                    128 => Representation::U128,
+                    _ => return Ok(false),
+                }
+            }
+            CodegenTypeKind::Pointer { .. } => Representation::Pointer,
+            CodegenTypeKind::Aggregate(_)
+            | CodegenTypeKind::Array { .. }
+            | CodegenTypeKind::Union { .. } => {
+                let Some(representation) = mapping
+                    .layout()
+                    .and_then(|layout| Representation::for_storage_size(layout.size()))
+                else {
+                    return Ok(false);
+                };
+
+                representation
+            }
+            _ => return Ok(false),
+        };
+
+        let facts = self
+            .request
+            .target()
+            .profile()
+            .facts()
+            .atomics()
+            .representation(representation);
+
+        let operations = facts.operations();
+
+        Ok(match kind {
+            CheckedMemoryOperationKind::AtomicInitialize { .. }
+            | CheckedMemoryOperationKind::AtomicLoad { .. }
+            | CheckedMemoryOperationKind::AtomicStore { .. } => operations.load_store(),
+            CheckedMemoryOperationKind::AtomicExchange { .. } => operations.exchange(),
+            CheckedMemoryOperationKind::AtomicCompareExchange { .. } => {
+                operations.compare_exchange()
+            }
+            CheckedMemoryOperationKind::AtomicFetch {
+                kind: bray_bound_tree::AtomicFetchKind::Add
+                    | bray_bound_tree::AtomicFetchKind::Subtract,
+                ..
+            } => operations.fetch_arithmetic(),
+            CheckedMemoryOperationKind::AtomicFetch { .. } => operations.fetch_bitwise(),
+            CheckedMemoryOperationKind::AtomicWait { .. }
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => facts.wait_notify(),
+            _ => false,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -312,7 +415,8 @@ mod tests {
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
     use bray_bound_tree::{
-        CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
+        AtomicFetchKind, CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind,
+        MemoryLayoutQueryKind,
         MemoryOffsetUnit, MemoryOrder, MemoryReadKind, PointerAddressComparison,
         VolatileAddressSpace,
     };
@@ -337,6 +441,7 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
+        TargetAtomicFacts, TargetAtomicOperationFacts, TargetAtomicRepresentationFacts,
         TargetAddressSpaceFacts, TargetFacts, TargetLayoutContract, TargetOperationFacts,
         TargetProfile, TargetValueLayout,
     };
@@ -353,6 +458,11 @@ mod tests {
         device_pointer: TypeId,
         usize: TypeId,
         boolean: TypeId,
+        compare_exchange_result: TypeId,
+        atomic_value: TypeId,
+        atomic_storage: TypeId,
+        atomic_pointer: TypeId,
+        atomic_compare_exchange_result: TypeId,
         tag: TypeId,
         layout: TypeId,
         layout_error: TypeId,
@@ -412,6 +522,17 @@ mod tests {
             }),
             "device volatile store did not retain target address space 5: {ir}"
         );
+
+        for spelling in [
+            "load atomic i32",
+            "store atomic i32",
+            "atomicrmw add",
+            "atomicrmw xchg",
+            "cmpxchg",
+            "atomic.wait",
+        ] {
+            assert!(ir.contains(spelling), "missing atomic LLVM for {spelling}");
+        }
 
         for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
             let call = ir
@@ -534,6 +655,32 @@ mod tests {
             ));
             }
         }
+
+    #[test]
+    fn aggregate_atomic_values_use_integer_storage_and_restore_semantic_values() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = memory_operation_fixture(&backend);
+        let context = Context::create();
+
+        let (_machine, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("aggregate atomic LLVM generation must succeed: {error:?}"))
+            .unwrap_or_else(|| panic!("aggregate atomic LLVM generation must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+
+        for spelling in [
+            "atomic.value.storage",
+            "atomic.value.bits",
+            "atomic.bits.storage",
+            "atomic.bits.value",
+        ] {
+            assert!(ir.contains(spelling), "missing aggregate atomic LLVM for {spelling}");
+        }
+    }
 
     fn memory_operation_fixture(
         backend: &LlvmCodeGenerator,
@@ -699,6 +846,9 @@ mod tests {
         )
         .result()
         .unwrap_or_else(|| panic!("memory read operation must produce a value"));
+
+        push_atomic_operations(&mut builder, entry, &source, types, address, read);
+        push_aggregate_atomic_operations(&mut builder, entry, &source, types, read);
 
         push_memory(
             &mut builder,
@@ -1224,7 +1374,19 @@ mod tests {
         let device_pointer = intern_type(&store, TypeData::tuple([pointer]));
         let usize = intern_type(&store, TypeData::tuple([device_pointer]));
         let boolean = intern_type(&store, TypeData::tuple([usize]));
-        let tag = intern_type(&store, TypeData::tuple([boolean]));
+        let compare_exchange_result = intern_type(&store, TypeData::tuple([value, boolean]));
+        let atomic_value = intern_type(&store, TypeData::tuple([value, value, value]));
+        let atomic_storage = intern_type(&store, TypeData::tuple([atomic_value, value]));
+        let atomic_pointer = intern_type(&store, TypeData::tuple([atomic_storage, value]));
+
+        let atomic_compare_exchange_result =
+            intern_type(&store, TypeData::tuple([atomic_value, boolean, value]));
+
+        let tag = intern_type(
+            &store,
+            TypeData::tuple([compare_exchange_result, atomic_compare_exchange_result]),
+        );
+
         let layout = intern_type(&store, TypeData::tuple([tag]));
         let layout_error = intern_type(&store, TypeData::tuple([layout]));
         let layout_result = intern_type(&store, TypeData::tuple([layout_error]));
@@ -1242,6 +1404,11 @@ mod tests {
             device_pointer,
             usize,
             boolean,
+            compare_exchange_result,
+            atomic_value,
+            atomic_storage,
+            atomic_pointer,
+            atomic_compare_exchange_result,
             tag,
             layout,
             layout_error,
@@ -1265,7 +1432,7 @@ mod tests {
         let facts = TargetFacts::new(
             baseline.identity().clone(),
             baseline.scalars(),
-            baseline.atomics(),
+            test_atomic_facts(),
             baseline.abis(),
             baseline.c_abi(),
             address_spaces,
@@ -1280,6 +1447,237 @@ mod tests {
                 });
 
         codegen_target_with_profile(profile, "x86_64-unknown-linux-gnu")
+    }
+
+    fn push_atomic_operations(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+        address: MirValueId,
+        value: MirValueId,
+    ) {
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicLoad {
+                value: types.value,
+                order: MemoryOrder::Acquire,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.value),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicExchange {
+                value: types.value,
+                order: MemoryOrder::SequentiallyConsistent,
+            },
+            [MirOperand::Value(address), MirOperand::Value(value)],
+            [types.pointer, types.value],
+            Some(types.value),
+        );
+
+        for weak in [false, true] {
+            push_memory(
+                builder,
+                block,
+                source,
+                CheckedMemoryOperationKind::AtomicCompareExchange {
+                    value: types.value,
+                    weak,
+                    success: MemoryOrder::AcquireRelease,
+                    failure: MemoryOrder::Acquire,
+                },
+                [
+                    MirOperand::Value(address),
+                    MirOperand::Value(value),
+                    MirOperand::Value(value),
+                ],
+                [types.pointer, types.value, types.value],
+                Some(types.compare_exchange_result),
+            );
+        }
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicStore {
+                value: types.value,
+                order: MemoryOrder::Release,
+            },
+            [MirOperand::Value(address), MirOperand::Value(value)],
+            [types.pointer, types.value],
+            None,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicWait {
+                value: types.value,
+                order: MemoryOrder::Acquire,
+            },
+            [MirOperand::Value(address), MirOperand::Value(value)],
+            [types.pointer, types.value],
+            None,
+        );
+
+        for all in [false, true] {
+            push_memory(
+                builder,
+                block,
+                source,
+                CheckedMemoryOperationKind::AtomicNotify {
+                    value: types.value,
+                    all,
+                },
+                [MirOperand::Value(address)],
+                [types.pointer],
+                None,
+            );
+        }
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicFetch {
+                value: types.value,
+                kind: AtomicFetchKind::Add,
+                order: MemoryOrder::AcquireRelease,
+            },
+            [MirOperand::Value(address), MirOperand::Value(value)],
+            [types.pointer, types.value],
+            Some(types.value),
+        );
+
+    }
+
+    fn push_aggregate_atomic_operations(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+        value: MirValueId,
+    ) {
+        let aggregate = builder
+            .push_operation(
+                block,
+                source.clone(),
+                MirOperationKind::Aggregate(MirAggregate::new(
+                    MirAggregateKind::Tuple,
+                    [MirOperand::Value(value)],
+                )),
+                Some(types.atomic_value),
+            )
+            .unwrap_or_else(|error| panic!("atomic aggregate fixture must be valid: {error:?}"))
+            .result()
+            .unwrap_or_else(|| panic!("atomic aggregate fixture must produce a value"));
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicInitialize {
+                value: types.atomic_value,
+            },
+            [MirOperand::Value(aggregate)],
+            [types.atomic_value],
+            Some(types.atomic_storage),
+        );
+
+        let address = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::Null {
+                pointee: types.atomic_value,
+            },
+            [],
+            [],
+            Some(types.atomic_pointer),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("atomic aggregate address must produce a value"));
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicLoad {
+                value: types.atomic_value,
+                order: MemoryOrder::Acquire,
+            },
+            [MirOperand::Value(address)],
+            [types.atomic_pointer],
+            Some(types.atomic_value),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicExchange {
+                value: types.atomic_value,
+                order: MemoryOrder::AcquireRelease,
+            },
+            [MirOperand::Value(address), MirOperand::Value(aggregate)],
+            [types.atomic_pointer, types.atomic_value],
+            Some(types.atomic_value),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::AtomicCompareExchange {
+                value: types.atomic_value,
+                weak: false,
+                success: MemoryOrder::AcquireRelease,
+                failure: MemoryOrder::Acquire,
+            },
+            [
+                MirOperand::Value(address),
+                MirOperand::Value(aggregate),
+                MirOperand::Value(aggregate),
+            ],
+            [
+                types.atomic_pointer,
+                types.atomic_value,
+                types.atomic_value,
+            ],
+            Some(types.atomic_compare_exchange_result),
+        );
+    }
+
+    fn test_atomic_facts() -> TargetAtomicFacts {
+        let unavailable = |alignment| TargetAtomicRepresentationFacts::unavailable(alignment);
+
+        let available = TargetAtomicRepresentationFacts::try_new(
+            TargetAtomicOperationFacts::integer(),
+            NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN),
+            true,
+            true,
+            true,
+        )
+        .unwrap_or_else(|| panic!("atomic test facts must be valid"));
+
+        TargetAtomicFacts::new(
+            unavailable(NonZeroU64::MIN),
+            unavailable(NonZeroU64::new(2).unwrap_or(NonZeroU64::MIN)),
+            available,
+            unavailable(NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN)),
+            unavailable(NonZeroU64::new(16).unwrap_or(NonZeroU64::MIN)),
+            unavailable(NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN)),
+        )
     }
 
     fn intern_type(store: &SemanticValueStore, data: TypeData) -> TypeId {
@@ -1353,6 +1751,40 @@ mod tests {
                 CodegenTypeKind::UnsignedInteger(width64),
             ),
             CodegenTypeMapping::new(types.boolean, layout(1, align1), CodegenTypeKind::Boolean),
+            CodegenTypeMapping::new(
+                types.compare_exchange_result,
+                layout(8, align4),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.value, 0),
+                    CodegenFieldLayout::new(None, types.boolean, 4),
+                ]),
+            ),
+            CodegenTypeMapping::new(
+                types.atomic_value,
+                layout(4, align4),
+                CodegenTypeKind::aggregate([CodegenFieldLayout::new(None, types.value, 0)]),
+            ),
+            CodegenTypeMapping::new(
+                types.atomic_storage,
+                layout(4, align4),
+                CodegenTypeKind::UnsignedInteger(width32),
+            ),
+            CodegenTypeMapping::new(
+                types.atomic_pointer,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.atomic_storage,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
+            CodegenTypeMapping::new(
+                types.atomic_compare_exchange_result,
+                layout(8, align4),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.atomic_value, 0),
+                    CodegenFieldLayout::new(None, types.boolean, 4),
+                ]),
+            ),
             CodegenTypeMapping::new(
                 types.tag,
                 layout(1, align1),

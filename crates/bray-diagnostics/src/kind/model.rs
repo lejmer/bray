@@ -347,6 +347,8 @@ define_diagnostic_kinds! {
     CheckingTargetMemoryOperationUnavailable,
     /// A target-control literal contract is invalid for the selected target.
     CheckingInvalidTargetControlContract,
+    /// A compiler-provided atomic operation received an invalid compile-time memory order.
+    CheckingInvalidAtomicMemoryOrder,
     /// A compiler-provided memory operation lacks a required trusted guarantee.
     CheckingMissingTrustedMemoryGuarantees,
     /// A compiler-provided memory operation uses invalidated allocation storage.
@@ -758,6 +760,7 @@ impl DiagnosticKind {
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
             Self::CheckingInvalidTargetControlContract => 7096,
+            Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
@@ -1106,6 +1109,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"
             }
+            Self::CheckingInvalidAtomicMemoryOrder => "checking_invalid_atomic_memory_order",
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 "checking_missing_trusted_memory_guarantees"
             }

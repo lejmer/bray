@@ -3,11 +3,43 @@ use bray_bound_tree::{
     MemoryOffsetUnit,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_diagnostics::DiagnosticMemoryOperation;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticMemoryOperation, SeverityKind,
+};
+use bray_source::SourceSpan;
+
+use crate::diagnostic::diagnostic_id;
+
+pub(crate) fn add_target_memory_operation_unavailable(
+    span: SourceSpan,
+    target: &str,
+    operation: DiagnosticMemoryOperation,
+    diagnostics: &mut DiagnosticBag,
+) {
+    diagnostics.add(
+        Diagnostic::new(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::UnsupportedTargetRequirement,
+            span,
+        ))
+        .with_arg(DiagnosticArg::target_triple(target))
+        .with_arg(DiagnosticArg::memory_operation(operation)),
+    );
+}
 
 pub(crate) const fn diagnostic_memory_operation(
     hook: ImplementationHook,
 ) -> Option<DiagnosticMemoryOperation> {
+    if let Some(operation) = crate::atomic::diagnostic_hook(hook) {
+        return Some(operation);
+    }
+
     use DiagnosticMemoryOperation as Operation;
     use ImplementationHook as Hook;
 
@@ -68,6 +100,10 @@ pub(crate) const fn diagnostic_memory_operation(
 pub(crate) const fn diagnostic_checked_memory_operation(
     kind: CheckedMemoryOperationKind,
 ) -> DiagnosticMemoryOperation {
+    if let Some(operation) = crate::atomic::diagnostic_checked_operation(kind) {
+        return operation;
+    }
+
     use DiagnosticMemoryOperation as Operation;
 
     match kind {
@@ -166,6 +202,16 @@ pub(crate) const fn diagnostic_checked_memory_operation(
         CheckedMemoryOperationKind::SpinLoopHint => Operation::SpinLoopHint,
         CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => Operation::TargetFeatureCheck,
         CheckedMemoryOperationKind::InlineAssembly { .. } => Operation::InlineAssembly,
+        CheckedMemoryOperationKind::AtomicInitialize { .. }
+        | CheckedMemoryOperationKind::AtomicLoad { .. }
+        | CheckedMemoryOperationKind::AtomicStore { .. }
+        | CheckedMemoryOperationKind::AtomicExchange { .. }
+        | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
+        | CheckedMemoryOperationKind::AtomicFetch { .. }
+        | CheckedMemoryOperationKind::AtomicWait { .. }
+        | CheckedMemoryOperationKind::AtomicNotify { .. } => {
+            panic!("atomic diagnostic operation must be classified above")
+        }
     }
 }
 

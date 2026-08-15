@@ -72,6 +72,12 @@ async func yield_now();
 The task helpers observe the same logical state as `std.run`. `yield_now()` additionally permits another ready task to execute
 before the calling task resumes. Native-thread helpers under `std.thread` observe the same logical run state.
 
+## Atomic storage
+
+`std.atomic` provides the ordinary safe wrapper `Atomic<T>` over protected compiler-provided atomic storage. `atomic(value)` is its only primary constructor. The module exposes `load`, `store`, `exchange`, strong and weak `compare_exchange`, integer `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, and `fetch_xor`, hardware and compiler `fence`, `wait`, `notify_one`, and `notify_all`.
+
+The copyable policy unions `LoadOrder`, `StoreOrder`, `ReadModifyWriteOrder`, `FenceOrder`, and `CompareExchangeOrder` make invalid operation and ordering combinations unrepresentable. Their ordinary exhaustive dispatch invokes compiler-provided primitives with closed ordering constants. These declarations are not recognized by module or declaration name. Exact ordering, target, wait, and synchronization behavior is defined by [Atomic operation contracts](atomic-operation-contracts.md).
+
 ## Channels
 
 `std.channel` provides bounded multiple-producer, single-consumer channels. `Sender<T>` and `Receiver<T>` are nonforgeable owner

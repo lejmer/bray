@@ -59,6 +59,8 @@ define_catalog_enum! {
         RawPointer => "RawPointer",
         /// A compiler-controlled pointer in the selected target's device address space.
         DevicePointer => "DevicePointer",
+        /// Protected compiler-controlled atomic storage.
+        Atomic => "Atomic",
         /// A compiler-known result value.
         Result => "Result",
         /// A compiler-known run-boundary result value.

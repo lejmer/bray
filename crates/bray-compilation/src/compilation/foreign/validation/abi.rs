@@ -114,12 +114,15 @@ fn target_abi_value_from_named(
         DeclaredLayoutMode::Transparent => TargetLayoutContract::Transparent,
     };
 
-    let alignment = super::super::layout::aggregate_alignment(
+    let Some(alignment) = super::super::layout::aggregate_alignment(
         compilation,
         definition,
         substitution,
         cancellation,
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
 
     Ok(Some(TargetAbiValue::Aggregate(TargetAggregateAbi::new(
         contract, alignment,
