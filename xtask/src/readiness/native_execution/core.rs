@@ -27,6 +27,89 @@ const INVALID_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
 pub(super) const PRODUCT_NAME: &str = "application";
 
+pub(super) struct BuiltFixture {
+    output: tempfile::TempDir,
+    executable: PathBuf,
+    objects: Vec<PathBuf>,
+}
+
+impl BuiltFixture {
+    fn build_command_line(
+        prefix: &str,
+        target: NativeTarget,
+        build: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        Self::build(prefix, target, "command.line", build)
+    }
+
+    pub(super) fn build_standard_library(
+        prefix: &str,
+        target: NativeTarget,
+        build: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        Self::build(prefix, target, "std", build)
+    }
+
+    fn build(
+        prefix: &str,
+        target: NativeTarget,
+        package: &str,
+        build: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        let output = native_output(prefix)?;
+
+        build(output.path())?;
+
+        let executable_name = TargetOutputName::for_native(
+            target.object_format(),
+            TargetOutputKind::Executable,
+        )
+        .file_name(PRODUCT_NAME)
+        .ok_or_else(|| format!("{prefix} fixture executable name is invalid"))?;
+
+        let expected_executable = output.path().join(executable_name);
+
+        let generation_reference = output
+            .path()
+            .join(".bray/products")
+            .join(package)
+            .join(PRODUCT_NAME)
+            .join("published-generation.json");
+
+        let executable = executable_path(output.path(), package).map_err(|error| {
+            format!(
+                "could not resolve {prefix} fixture for package {package}, output {} exists {}, executable {} exists {}, generation reference {} exists {}: {error}",
+                output.path().display(),
+                output.path().exists(),
+                expected_executable.display(),
+                expected_executable.exists(),
+                generation_reference.display(),
+                generation_reference.exists(),
+            )
+        })?;
+
+        let objects = object_files(output.path(), target)?;
+
+        Ok(Self {
+            output,
+            executable,
+            objects,
+        })
+    }
+
+    pub(super) fn output(&self) -> &Path {
+        self.output.path()
+    }
+
+    pub(super) fn executable(&self) -> &Path {
+        &self.executable
+    }
+
+    pub(super) fn objects(&self) -> &[PathBuf] {
+        &self.objects
+    }
+}
+
 pub(crate) fn audit(root: &Path) -> Result<(), String> {
     let target = NativeTarget::current().ok_or_else(|| {
         "native execution readiness requires a supported compiler host".to_owned()
@@ -112,44 +195,49 @@ fn audit_memory_operations(
 }
 
 fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = native_output("bray-native-memory-layout-first-")?;
-    let second = native_output("bray-native-memory-layout-second-")?;
     let fixtures = [STANDARD_MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE];
 
-    build_standard_library_fixtures(root, target, runtime, first.path(), &fixtures)?;
+    let first = BuiltFixture::build_standard_library(
+        "bray-native-memory-layout-first-",
+        target,
+        |output| build_standard_library_fixtures(root, target, runtime, output, &fixtures),
+    )?;
 
-    build_standard_library_fixtures(root, target, runtime, second.path(), &fixtures)?;
-
-    let first_executable = executable_path(first.path(), "command.line")?;
-    let second_executable = executable_path(second.path(), "command.line")?;
-    let first_objects = object_files(first.path(), target)?;
-    let second_objects = object_files(second.path(), target)?;
+    let second = BuiltFixture::build_standard_library(
+        "bray-native-memory-layout-second-",
+        target,
+        |output| build_standard_library_fixtures(root, target, runtime, output, &fixtures),
+    )?;
 
     require_equal_files(
-        &first_executable,
-        &second_executable,
+        first.executable(),
+        second.executable(),
         "memory layout executable",
     )?;
 
-    require_equal_artifacts(&first_objects, &second_objects)?;
+    require_equal_artifacts(first.objects(), second.objects())?;
     require_lowered_layout_operations(root, target)?;
 
-    execute_product(&first_executable, 42, "executing memory layout operations")
+    execute_product(first.executable(), 42, "executing memory layout operations")
 }
 
 fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let output = native_output("bray-native-text-cursor-")?;
-
-    build_standard_library_fixtures(
-        root,
+    let output = BuiltFixture::build_standard_library(
+        "bray-native-text-cursor-",
         target,
-        runtime,
-        output.path(),
-        &[STANDARD_TEXT_FIXTURE, TEXT_CURSOR_FIXTURE],
+        |output| {
+            build_standard_library_fixtures(
+                root,
+                target,
+                runtime,
+                output,
+                &[STANDARD_TEXT_FIXTURE, TEXT_CURSOR_FIXTURE],
+            )
+        },
     )?;
 
     execute_product(
-        &executable_path(output.path(), "std")?,
+        output.executable(),
         42,
         "executing standard text scalar iteration",
     )
@@ -202,26 +290,27 @@ fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<()
 }
 
 fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = native_output("bray-native-abi-first-")?;
-    let second = native_output("bray-native-abi-second-")?;
+    let first = BuiltFixture::build_command_line(
+        "bray-native-abi-first-",
+        target,
+        |output| build_fixture(root, target, runtime, ABI_FIXTURE, output),
+    )?;
 
-    build_fixture(root, target, runtime, ABI_FIXTURE, first.path())?;
-    build_fixture(root, target, runtime, ABI_FIXTURE, second.path())?;
-
-    let first_executable = executable_path(first.path(), "command.line")?;
-    let second_executable = executable_path(second.path(), "command.line")?;
-    let first_objects = object_files(first.path(), target)?;
-    let second_objects = object_files(second.path(), target)?;
+    let second = BuiltFixture::build_command_line(
+        "bray-native-abi-second-",
+        target,
+        |output| build_fixture(root, target, runtime, ABI_FIXTURE, output),
+    )?;
 
     require_equal_files(
-        &first_executable,
-        &second_executable,
+        first.executable(),
+        second.executable(),
         "ABI fixture executable",
     )?;
 
-    require_equal_artifacts(&first_objects, &second_objects)?;
+    require_equal_artifacts(first.objects(), second.objects())?;
 
-    let report = inspect_objects(root, &first_objects)?;
+    let report = inspect_objects(root, first.objects())?;
 
     require_evidence(
         &report,
@@ -233,7 +322,7 @@ fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         ],
     )?;
 
-    let host_object = first.path().join("native-host.o");
+    let host_object = first.output().join("native-host.o");
 
     compile_host(root, &host_object)?;
 
@@ -244,8 +333,8 @@ fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         &["Name: _start", "R_X86_64_PLT32 bray_identity"],
     )?;
 
-    let executable = first.path().join("native-host");
-    let bray_objects = objects_without_executable_host(root, &first_objects)?;
+    let executable = first.output().join("native-host");
+    let bray_objects = objects_without_executable_host(root, first.objects())?;
 
     link_host(root, &host_object, &bray_objects, &executable)?;
 
@@ -275,33 +364,33 @@ fn audit_repeatable_fixture(
     name: &str,
     required_object_evidence: &[&str],
 ) -> Result<(), String> {
-    let first = native_output(&format!("{prefix}first-"))?;
-    let second = native_output(&format!("{prefix}second-"))?;
+    let first = BuiltFixture::build_command_line(
+        &format!("{prefix}first-"),
+        target,
+        |output| build_fixture(root, target, runtime, fixture, output),
+    )?;
 
-    build_fixture(root, target, runtime, fixture, first.path())?;
-    build_fixture(root, target, runtime, fixture, second.path())?;
-
-    let first_executable = executable_path(first.path(), "command.line")?;
-    let second_executable = executable_path(second.path(), "command.line")?;
+    let second = BuiltFixture::build_command_line(
+        &format!("{prefix}second-"),
+        target,
+        |output| build_fixture(root, target, runtime, fixture, output),
+    )?;
 
     require_equal_files(
-        &first_executable,
-        &second_executable,
+        first.executable(),
+        second.executable(),
         &format!("{name} executable"),
     )?;
 
-    let first_objects = object_files(first.path(), target)?;
-    let second_objects = object_files(second.path(), target)?;
-
-    require_equal_artifacts(&first_objects, &second_objects)?;
+    require_equal_artifacts(first.objects(), second.objects())?;
 
     if !required_object_evidence.is_empty() {
-        let report = inspect_objects(root, &first_objects)?;
+        let report = inspect_objects(root, first.objects())?;
 
         require_evidence(&report, required_object_evidence)?;
     }
 
-    execute_product(&first_executable, expected, &format!("executing {name}"))
+    execute_product(first.executable(), expected, &format!("executing {name}"))
 }
 
 fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
@@ -321,23 +410,23 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
             Some("native readiness panic"),
         ),
     ] {
-        let first = native_output("bray-native-host-first-")?;
-        let second = native_output("bray-native-host-second-")?;
-
-        build_fixture(root, target, runtime, fixture, first.path())?;
-        build_fixture(root, target, runtime, fixture, second.path())?;
-
-        let first_executable = executable_path(first.path(), "command.line")?;
-        let second_executable = executable_path(second.path(), "command.line")?;
-
-        require_equal_files(&first_executable, &second_executable, name)?;
-
-        require_equal_artifacts(
-            &object_files(first.path(), target)?,
-            &object_files(second.path(), target)?,
+        let first = BuiltFixture::build_command_line(
+            "bray-native-host-first-",
+            target,
+            |output| build_fixture(root, target, runtime, fixture, output),
         )?;
 
-        let output = product_output(&first_executable, name)?;
+        let second = BuiltFixture::build_command_line(
+            "bray-native-host-second-",
+            target,
+            |output| build_fixture(root, target, runtime, fixture, output),
+        )?;
+
+        require_equal_files(first.executable(), second.executable(), name)?;
+
+        require_equal_artifacts(first.objects(), second.objects())?;
+
+        let output = product_output(first.executable(), name)?;
 
         if output.status.code() != Some(expected) {
             return Err(crate::command::failure(name, &output));
@@ -615,4 +704,39 @@ fn output_contains(output: &Output, required: &str) -> bool {
 fn llvm_tool(root: &Path, tool: bray_diagnostics::DiagnosticLlvmToolRole) -> PathBuf {
     bray_tooling::llvm_tool_path(tool)
         .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, tool.executable_name()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuiltFixture;
+
+    #[test]
+    fn built_fixture_owns_its_workspace_through_use_and_removes_it_on_drop() {
+        let output = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test fixture output must exist: {error:?}"));
+
+        let directory = output.path().to_owned();
+        let executable = directory.join("application.exe");
+        let object = directory.join("application.obj");
+
+        std::fs::write(&executable, b"executable")
+            .unwrap_or_else(|error| panic!("test executable must write: {error:?}"));
+
+        std::fs::write(&object, b"object")
+            .unwrap_or_else(|error| panic!("test object must write: {error:?}"));
+
+        let fixture = BuiltFixture {
+            output,
+            executable,
+            objects: vec![object],
+        };
+
+        assert!(fixture.output().is_dir());
+        assert!(fixture.executable().is_file());
+        assert!(fixture.objects()[0].is_file());
+
+        drop(fixture);
+
+        assert!(!directory.exists());
+    }
 }

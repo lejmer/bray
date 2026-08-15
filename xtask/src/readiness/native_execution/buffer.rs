@@ -7,7 +7,7 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
-use super::core::{PRODUCT_NAME, executable_path, execute_product, native_output};
+use super::core::{BuiltFixture, PRODUCT_NAME, execute_product};
 
 const STANDARD_BUFFER_FIXTURES: &[&str] = &[
     "xtask/fixtures/native-execution/standard-raw-buffer.bray",
@@ -26,6 +26,8 @@ const STANDARD_MEMORY_SOURCE: &str = "standard-library/std/src/memory.bray";
 const STANDARD_BYTES_ROOT_SOURCE: &str = "standard-library/std/src/bytes.bray";
 const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes/buffer.bray";
 const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
+const STANDARD_NUMERIC_CHECKED_SOURCE: &str = "standard-library/std/src/numeric/checked.bray";
+const STANDARD_NUMERIC_LIMITS_SOURCE: &str = "standard-library/std/src/numeric/limits.bray";
 const STANDARD_FORMAT_ROOT_SOURCE: &str = "standard-library/std/src/format.bray";
 const STANDARD_FORMAT_OPTIONS_SOURCE: &str = "standard-library/std/src/format/options.bray";
 const STANDARD_FORMAT_ARGUMENT_SOURCE: &str = "standard-library/std/src/format/argument.bray";
@@ -42,8 +44,6 @@ pub(super) fn audit_standard_buffer(
     runtime: &Path,
 ) -> Result<(), String> {
     for fixture in STANDARD_BUFFER_FIXTURES {
-        let output = native_output("bray-native-standard-buffer-")?;
-
         let fixtures = [
             STANDARD_ROOT_SOURCE,
             STANDARD_MEMORY_SOURCE,
@@ -52,12 +52,16 @@ pub(super) fn audit_standard_buffer(
             fixture,
         ];
 
-        build_standard_library_fixtures(root, target, runtime, output.path(), &fixtures)
-            .map_err(|error| format!("{fixture}: {error}"))?;
+        let output = BuiltFixture::build_standard_library(
+            "bray-native-standard-buffer-",
+            target,
+            |output| build_standard_library_fixtures(root, target, runtime, output, &fixtures),
+        )
+        .map_err(|error| format!("{fixture}: {error}"))?;
 
         let context = format!("executing standard byte-buffer fixture {fixture}");
 
-        execute_product(&executable_path(output.path(), "std")?, 0, &context)?;
+        execute_product(output.executable(), 0, &context)?;
     }
 
     Ok(())
@@ -68,8 +72,6 @@ pub(super) fn audit_standard_format(
     target: NativeTarget,
     runtime: &Path,
 ) -> Result<(), String> {
-    let output = native_output("bray-native-standard-format-")?;
-
     let fixtures = [
         STANDARD_ROOT_SOURCE,
         STANDARD_MEMORY_SOURCE,
@@ -77,6 +79,8 @@ pub(super) fn audit_standard_format(
         STANDARD_BYTES_SOURCE,
         STANDARD_STRING_SOURCE,
         STANDARD_CHARACTER_SOURCE,
+        STANDARD_NUMERIC_CHECKED_SOURCE,
+        STANDARD_NUMERIC_LIMITS_SOURCE,
         STANDARD_FORMAT_ROOT_SOURCE,
         STANDARD_FORMAT_OPTIONS_SOURCE,
         STANDARD_FORMAT_ARGUMENT_SOURCE,
@@ -86,10 +90,14 @@ pub(super) fn audit_standard_format(
         STANDARD_FORMAT_FIXTURE,
     ];
 
-    build_standard_library_fixtures(root, target, runtime, output.path(), &fixtures)?;
+    let output = BuiltFixture::build_standard_library(
+        "bray-native-standard-format-",
+        target,
+        |output| build_standard_library_fixtures(root, target, runtime, output, &fixtures),
+    )?;
 
     execute_product(
-        &executable_path(output.path(), "std")?,
+        output.executable(),
         0,
         "executing standard formatting fixture",
     )

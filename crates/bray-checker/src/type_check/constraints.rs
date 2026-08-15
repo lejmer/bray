@@ -6,7 +6,7 @@ use crate::{
 };
 use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundLiteralKind, BoundStructuredExpressionKind,
+    BoundLiteralKind, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
@@ -380,6 +380,15 @@ where
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
         match (expression, data.as_ref()) {
+            (BoundExpression::Name(name), TypeData::Callable(_))
+                if matches!(
+                    name.target(),
+                    BoundReferenceTarget::Surface(symbol)
+                        if bray_symbols::CallableDefinitionId::try_new(symbol).is_some()
+                ) =>
+            {
+                inference.add_evidence(variable, expectation.ty(), expectation.expression());
+            }
             (
                 BoundExpression::StructConstruction(construction),
                 TypeData::Named {

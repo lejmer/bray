@@ -864,7 +864,9 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
     }
 
     match role {
-        RepresentationRole::String | RepresentationRole::RawPointer => MemberRepresentation {
+        RepresentationRole::String
+        | RepresentationRole::RawPointer
+        | RepresentationRole::DevicePointer => MemberRepresentation {
             finite: true,
             plain: false,
             copyable: Copyability::Always,

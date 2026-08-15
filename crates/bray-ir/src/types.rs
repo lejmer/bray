@@ -110,7 +110,12 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::Offset { pointee, .. }
         | CheckedMemoryOperationKind::Read { pointee, .. }
         | CheckedMemoryOperationKind::Write { pointee }
-        | CheckedMemoryOperationKind::Copy { pointee, .. } => {
+        | CheckedMemoryOperationKind::Copy { pointee, .. }
+        | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
+        | CheckedMemoryOperationKind::VolatileWrite { pointee, .. }
+        | CheckedMemoryOperationKind::ExposeAddress { pointee }
+        | CheckedMemoryOperationKind::FromExposedAddress { pointee }
+        | CheckedMemoryOperationKind::CompareAddress { pointee, .. } => {
             types.insert(pointee);
         }
         CheckedMemoryOperationKind::Reinterpret { source, target } => {
@@ -121,6 +126,24 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         }
         CheckedMemoryOperationKind::CallbackState { state } => {
             types.insert(state);
+        }
+        CheckedMemoryOperationKind::InlineAssembly {
+            inputs,
+            output,
+            labels,
+            contract,
+        } => {
+            types.insert(inputs);
+
+            if let Some(output) = output {
+                types.insert(output);
+            }
+
+            if let Some(labels) = labels {
+                types.insert(labels);
+            }
+
+            types.extend(contract.operands().map(bray_bound_tree::InlineAssemblyOperand::ty));
         }
         CheckedMemoryOperationKind::RawBufferSparePointer { element }
         | CheckedMemoryOperationKind::RawBufferRelease { element }
@@ -141,7 +164,13 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteSliceCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::SliceLength => {}
+        | CheckedMemoryOperationKind::SliceLength
+        | CheckedMemoryOperationKind::Fence { .. }
+        | CheckedMemoryOperationKind::CatastrophicAbort
+        | CheckedMemoryOperationKind::DebuggerTrap
+        | CheckedMemoryOperationKind::UnreachableTermination
+        | CheckedMemoryOperationKind::SpinLoopHint
+        | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => {}
     }
 }
 
@@ -189,6 +218,15 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             }
 
             collect_edge_types(otherwise, types);
+        }
+        MirTerminatorKind::InlineAssembly(assembly) => {
+            collect_operand_types(assembly.inputs(), types);
+            types.insert(assembly.inputs_type());
+            types.insert(assembly.output_type());
+
+            for operand in assembly.contract().operands() {
+                types.insert(operand.ty());
+            }
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {

@@ -131,7 +131,10 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
         MirOperationKind::Call(call) => collect_call_values(call, demands),
-        MirOperationKind::Memory(memory) => collect_operands(memory.operands(), demands),
+        MirOperationKind::Memory(memory) => {
+            demands.values.extend(memory.kind().contract_constants());
+            collect_operands(memory.operands(), demands);
+        }
         MirOperationKind::Text(text) => collect_operands(text.operands(), demands),
         MirOperationKind::PanicReport(cause) => collect_panic_values(cause, demands),
         MirOperationKind::Async(operation) => collect_async_values(operation, demands),
@@ -184,6 +187,10 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
                 demands.values.insert(case.value());
                 collect_edge_values(case.edge(), demands);
             }
+        }
+        MirTerminatorKind::InlineAssembly(assembly) => {
+            demands.values.extend(assembly.contract().constant_values());
+            collect_operand_value(assembly.inputs(), demands);
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_ir::MirSourceAnchor;
 use bray_runtime_interface::ProtectedFrameOperation;
-use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
+use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
     CodegenCallableMapping, CodegenCallableTarget, CodegenConstantMapping,
@@ -343,6 +343,18 @@ impl CodegenMappings {
             .find(|mapping| {
                 mapping.semantic_type() == mapping.representation()
             })
+    }
+
+    /// Returns immutable semantic data for a demanded constant in any valid use representation.
+    pub fn constant_data(&self, value: ConstantValueId) -> Option<&ConstantValueData> {
+        let start = self
+            .constants
+            .partition_point(|mapping| mapping.value() < value);
+
+        self.constants
+            .get(start)
+            .filter(|mapping| mapping.value() == value)
+            .map(CodegenConstantMapping::data)
     }
 
     /// Returns the materialized mapping for one exact constant use representation.

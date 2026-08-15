@@ -62,7 +62,7 @@ pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceVali
 
 #[cfg(test)]
 mod tests {
-    use super::read_count;
+    use super::{FORMAT_VERSION, read_count};
     use crate::wire::{WireEncoder, WireReader};
     use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
@@ -83,5 +83,10 @@ mod tests {
                 maximum: 1,
             })
         );
+    }
+
+    #[test]
+    fn target_control_operations_use_executable_format_one() {
+        assert_eq!(FORMAT_VERSION, 1);
     }
 }

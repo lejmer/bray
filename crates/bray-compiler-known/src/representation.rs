@@ -57,6 +57,8 @@ define_catalog_enum! {
         String => "String",
         /// A compiler-controlled raw pointer.
         RawPointer => "RawPointer",
+        /// A compiler-controlled pointer in the selected target's device address space.
+        DevicePointer => "DevicePointer",
         /// A compiler-known result value.
         Result => "Result",
         /// A compiler-known run-boundary result value.

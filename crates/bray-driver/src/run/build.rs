@@ -657,8 +657,8 @@ mod tests {
             OsString::from("executable"),
             OsString::from("--output"),
             output.as_os_str().to_os_string(),
-            OsString::from("--managed-output-directory"),
-            OsString::from("native/debug/command.line"),
+            OsString::from("--inspect"),
+            OsString::from("relocatable-object"),
             source.path().as_os_str().to_os_string(),
         ]);
 
@@ -671,13 +671,8 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
 
-        let directory = bray_emitter::ManagedOutputDirectory::try_new("native/debug/command.line")
-            .unwrap_or_else(|| panic!("test managed output directory must be valid"));
-
-        let destination = bray_emitter::ManagedFilesystemDestination::new(&output, directory);
-
         let executable = bray_emitter::resolve_published_artifact(
-            destination,
+            &output,
             &command_product("application"),
             ArtifactKind::Executable,
             0,
@@ -686,9 +681,7 @@ mod tests {
 
         assert!(executable.is_file());
 
-        let public_directory = output.join("native/debug/command.line");
-
-        assert_eq!(executable.parent(), Some(public_directory.as_path()));
+        assert_eq!(executable.parent(), Some(output.as_path()));
 
         std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));

@@ -199,6 +199,7 @@ pub struct MirMemoryOperation {
     operands: Arc<[MirOperand]>,
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
+    inline_assembly_symbols: Arc<[MirCallableReference]>,
 }
 
 impl MirMemoryOperation {
@@ -214,7 +215,18 @@ impl MirMemoryOperation {
             operands: shared_slice(operands),
             operand_types: shared_slice(operand_types),
             result_type,
+            inline_assembly_symbols: Arc::from([]),
         }
+    }
+
+    /// Retains closed callable symbols referenced by assembly operands in descriptor order.
+    pub fn with_inline_assembly_symbols(
+        mut self,
+        symbols: impl IntoIterator<Item = MirCallableReference>,
+    ) -> Self {
+        self.inline_assembly_symbols = shared_slice(symbols);
+
+        self
     }
 
     /// Returns the checked memory behavior.
@@ -235,6 +247,11 @@ impl MirMemoryOperation {
     /// Returns the selected result type when the operation produces a value.
     pub const fn result_type(&self) -> Option<TypeId> {
         self.result_type
+    }
+
+    /// Returns closed callable symbols referenced by assembly operands in descriptor order.
+    pub fn inline_assembly_symbols(&self) -> &[MirCallableReference] {
+        &self.inline_assembly_symbols
     }
 }
 

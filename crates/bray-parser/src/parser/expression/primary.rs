@@ -212,7 +212,13 @@ impl Parser {
         loop {
             if self.at(SyntaxKind::CloseParenToken)
                 || self.at(SyntaxKind::EndOfFileToken)
-                || at_boundary(self)
+            {
+                break;
+            }
+
+            if !self.at(SyntaxKind::CommaToken)
+                && !self.at_parenthesized_tuple_missing_separator()
+                && at_boundary(self)
             {
                 break;
             }
@@ -221,7 +227,6 @@ impl Parser {
 
             if self.at(SyntaxKind::CloseParenToken)
                 || self.at(SyntaxKind::EndOfFileToken)
-                || at_boundary(self)
             {
                 break;
             }

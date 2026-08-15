@@ -28,6 +28,12 @@ pub(super) fn validate_memory_operation(
         return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
     }
 
+    if !matches!(memory.kind(), CheckedMemoryOperationKind::InlineAssembly { .. })
+        && !memory.inline_assembly_symbols().is_empty()
+    {
+        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+    }
+
     let types = memory.operand_types();
 
     let valid = match memory.kind() {
@@ -38,6 +44,13 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::Offset { .. } => memory.result_type() == Some(types[0]),
         CheckedMemoryOperationKind::Read { pointee, .. } => memory.result_type() == Some(pointee),
         CheckedMemoryOperationKind::Write { pointee } => types[1] == pointee,
+        CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
+            memory.result_type() == Some(pointee)
+        }
+        CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => types[1] == pointee,
+        CheckedMemoryOperationKind::ExposeAddress { .. }
+        | CheckedMemoryOperationKind::FromExposedAddress { .. }
+        | CheckedMemoryOperationKind::CompareAddress { .. } => true,
         CheckedMemoryOperationKind::Copy { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::LayoutQuery { .. } => true,
         CheckedMemoryOperationKind::RawAllocate => types[0] == types[1],
@@ -58,7 +71,30 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::ByteSliceCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SliceLength
-        | CheckedMemoryOperationKind::CallbackState { .. } => true,
+        | CheckedMemoryOperationKind::CallbackState { .. }
+        | CheckedMemoryOperationKind::Fence { .. }
+        | CheckedMemoryOperationKind::CatastrophicAbort
+        | CheckedMemoryOperationKind::DebuggerTrap
+        | CheckedMemoryOperationKind::UnreachableTermination
+        | CheckedMemoryOperationKind::SpinLoopHint
+        | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
+        CheckedMemoryOperationKind::InlineAssembly {
+            inputs,
+            output,
+            labels,
+            contract,
+        } => {
+            types[0] == inputs
+                && labels.is_none()
+                && memory.result_type() == output
+                && contract
+                    .operands()
+                    .filter(|operand| {
+                        operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol
+                    })
+                    .count()
+                    == memory.inline_assembly_symbols().len()
+        }
     };
 
     if !valid {

@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, PatternOperation, PatternProjection, SelectedConversion,
+    ConstructionTarget, ConversionTarget, InlineAssemblyContract, InlineAssemblyOperandKind,
+    PatternOperation, PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
@@ -923,6 +924,21 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(14);
                 self.cleanup_edge(cleanup)?;
             }
+            MirTerminatorKind::InlineAssembly(assembly) => {
+                self.wire.write_u32(15);
+                self.inline_assembly_contract(assembly.contract())?;
+                self.operand(assembly.inputs())?;
+                self.ty(assembly.inputs_type())?;
+                self.ty(assembly.output_type())?;
+                self.wire.write_u32(assembly.normal().slot());
+                write_count(&mut self.wire, assembly.alternates().len());
+
+                for alternate in assembly.alternates() {
+                    self.wire.write_u32(alternate.slot());
+                }
+
+                self.callable_references(assembly.symbols())?;
+            }
         }
 
         Ok(())
@@ -1390,6 +1406,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
+        self.callable_references(operation.inline_assembly_symbols())?;
+
         Ok(())
     }
 
@@ -1500,6 +1518,165 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(state)?;
             }
             Kind::ByteSliceCopy => self.wire.write_u32(27),
+            Kind::VolatileRead {
+                pointee,
+                address_space,
+                kind,
+            } => {
+                self.wire.write_u32(28);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match address_space {
+                    bray_bound_tree::VolatileAddressSpace::Host => 0,
+                    bray_bound_tree::VolatileAddressSpace::Device => 1,
+                });
+
+                self.wire.write_u32(match kind {
+                    bray_bound_tree::MemoryReadKind::Copy => 0,
+                    bray_bound_tree::MemoryReadKind::Move => 1,
+                });
+            }
+            Kind::VolatileWrite {
+                pointee,
+                address_space,
+            } => {
+                self.wire.write_u32(29);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match address_space {
+                    bray_bound_tree::VolatileAddressSpace::Host => 0,
+                    bray_bound_tree::VolatileAddressSpace::Device => 1,
+                });
+            }
+            Kind::ExposeAddress { pointee } => {
+                self.wire.write_u32(30);
+                self.ty(pointee)?;
+            }
+            Kind::FromExposedAddress { pointee } => {
+                self.wire.write_u32(31);
+                self.ty(pointee)?;
+            }
+            Kind::CompareAddress {
+                pointee,
+                comparison,
+            } => {
+                self.wire.write_u32(32);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match comparison {
+                    bray_bound_tree::PointerAddressComparison::Equal => 0,
+                    bray_bound_tree::PointerAddressComparison::Less => 1,
+                });
+            }
+            Kind::Fence {
+                compiler_only,
+                order,
+            } => {
+                self.wire.write_u32(33);
+                write_bool(&mut self.wire, compiler_only);
+                self.wire.write_u32(order.to_u32());
+            }
+            Kind::CatastrophicAbort => self.wire.write_u32(34),
+            Kind::DebuggerTrap => self.wire.write_u32(35),
+            Kind::UnreachableTermination => self.wire.write_u32(36),
+            Kind::SpinLoopHint => self.wire.write_u32(37),
+            Kind::TargetFeatureEnabled { feature } => {
+                self.wire.write_u32(38);
+                self.constant_value(feature)?;
+            }
+            Kind::InlineAssembly {
+                inputs,
+                output,
+                labels,
+                contract,
+            } => {
+                self.wire.write_u32(39);
+                self.ty(inputs)?;
+
+                match output {
+                    Some(output) => {
+                        self.wire.write_u32(1);
+                        self.ty(output)?;
+                    }
+                    None => self.wire.write_u32(0),
+                }
+
+                match labels {
+                    Some(labels) => {
+                        self.wire.write_u32(1);
+                        self.ty(labels)?;
+                    }
+                    None => self.wire.write_u32(0),
+                }
+
+                self.inline_assembly_contract(contract)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn inline_assembly_contract(
+        &mut self,
+        contract: InlineAssemblyContract,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        for value in contract.constant_values() {
+            self.constant_value(value)?;
+        }
+
+        let operands = contract.operands().collect::<Vec<_>>();
+        write_count(&mut self.wire, operands.len());
+
+        for operand in operands {
+            self.wire.write_u32(match operand.kind() {
+                InlineAssemblyOperandKind::Input => 0,
+                InlineAssemblyOperandKind::LateOutput => 1,
+                InlineAssemblyOperandKind::Output => 2,
+                InlineAssemblyOperandKind::InOut => 3,
+                InlineAssemblyOperandKind::EarlyInOut => 4,
+                InlineAssemblyOperandKind::Immediate => 5,
+                InlineAssemblyOperandKind::Symbol => 6,
+                InlineAssemblyOperandKind::Memory => 7,
+                InlineAssemblyOperandKind::Label => 8,
+            });
+
+            self.ty(operand.ty())?;
+            write_optional(&mut self.wire, operand.input(), WireEncoder::write_u16);
+
+            write_optional(
+                &mut self.wire,
+                operand.runtime_input(),
+                WireEncoder::write_u16,
+            );
+
+            write_optional(&mut self.wire, operand.output(), WireEncoder::write_u16);
+
+            match operand.constant() {
+                Some(constant) => {
+                    self.wire.write_u32(1);
+                    self.constant_value(constant)?;
+                }
+                None => self.wire.write_u32(0),
+            }
+
+            let (start, length) = operand.constraint_range();
+
+            self.wire.write_u16(start);
+            self.wire.write_u16(length);
+        }
+
+        Ok(())
+    }
+
+    fn callable_references(
+        &mut self,
+        references: &[bray_ir::MirCallableReference],
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        write_count(&mut self.wire, references.len());
+
+        for reference in references {
+            self.callable_instance(reference.instance())?;
+            self.callable_abi(reference.abi());
         }
 
         Ok(())

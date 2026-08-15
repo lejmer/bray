@@ -276,4 +276,40 @@ mod tests {
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
+
+    #[test]
+    fn tuple_separators_take_precedence_over_the_enclosing_argument_boundary() {
+        const SOURCE: &str =
+            "assemble(inputs = (value, value, 7), symbols = (alternate, pointer));";
+
+        let sources = source_store([SOURCE]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        let call = expression
+            .call_operations()
+            .next()
+            .unwrap_or_else(|| panic!("call operation must be present"));
+
+        let tuple_arities = call
+            .argument_list()
+            .arguments()
+            .map(|argument| {
+                argument
+                    .expression()
+                    .primary_expression()
+                    .and_then(|primary| primary.tuple_expressions().next())
+                    .map_or(0, |tuple| tuple.expressions().count())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(expression.full_text(), SOURCE.trim_end_matches(';'));
+        assert_eq!(tuple_arities, [3, 2]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
 }

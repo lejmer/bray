@@ -989,6 +989,10 @@ impl DiagnosticKind {
                 &[TargetTriple, MemoryOperation],
                 primary_components!(&[TargetTriple, MemoryOperation]),
             ),
+            Self::CheckingInvalidTargetControlContract => Self::quality_source(
+                &[TargetTriple, MemoryOperation],
+                primary_components!(&[TargetTriple, MemoryOperation]),
+            ),
             Self::CheckingInvalidCallbackStateContext => Self::quality_source(
                 &[CallbackStateProblem],
                 note_components!(

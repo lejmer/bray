@@ -370,6 +370,19 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::ByteSliceCopy => "byte sequence copy",
         DiagnosticMemoryOperation::ByteBufferRead => "byte buffer read",
         DiagnosticMemoryOperation::SliceLength => "slice length access",
+        DiagnosticMemoryOperation::VolatileRead => "volatile read",
+        DiagnosticMemoryOperation::VolatileWrite => "volatile write",
+        DiagnosticMemoryOperation::PointerExposeAddress => "pointer address exposure",
+        DiagnosticMemoryOperation::PointerFromExposedAddress => "pointer address reconstruction",
+        DiagnosticMemoryOperation::PointerAddressComparison => "pointer address comparison",
+        DiagnosticMemoryOperation::CompilerFence => "compiler fence",
+        DiagnosticMemoryOperation::HardwareFence => "hardware fence",
+        DiagnosticMemoryOperation::CatastrophicAbort => "catastrophic abort",
+        DiagnosticMemoryOperation::DebuggerTrap => "debugger trap",
+        DiagnosticMemoryOperation::UnreachableTermination => "unreachable termination",
+        DiagnosticMemoryOperation::SpinLoopHint => "spin-loop hint",
+        DiagnosticMemoryOperation::TargetFeatureCheck => "target feature check",
+        DiagnosticMemoryOperation::InlineAssembly => "inline assembly",
     }
 }
 

@@ -1,7 +1,12 @@
 trusted module application;
 
+func alternate() -> never
+{
+    loop {}
+}
+
 trusted func main() -> i32
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
+    uses(device_memory, intrinsic, layout_reinterpret, manual_alloc, raw_memory, unchecked_alias, unchecked_init)
 {
     let released: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
     let released_ok = !core.memory.is_null<u8>(released);
@@ -15,17 +20,71 @@ trusted func main() -> i32
 
     trusted core.memory.write<u8>(pointer, 7);
     trusted core.memory.write<u8>(next, 9);
+    trusted core.target.volatile_store<u8>(pointer, 11);
+
+    trusted core.target.assembly<(RawPointer<u8>, ), unit>(
+        template = "incb $0",
+        constraints = "m",
+        clobbers = "memory",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+    );
+
     trusted core.memory.copy<u8>(source = pointer, destination = destination, count = 2);
     trusted core.memory.copy_overlapping<u8>(source = destination, destination = overlapping_destination, count = 2);
 
+    let volatile: u8 = trusted core.target.volatile_load<u8>(pointer);
     let copied: u8 = trusted core.memory.read<u8>(overlapping_destination);
+
     let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
     let advanced: RawPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 0);
+    let address: usize = trusted core.target.expose_address<u8>(advanced);
+    let reconstructed: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
     let null: RawPointer<u8> = core.memory.null<u8>();
-    let copied_ok = copied == 7;
-    let advanced_ok = !core.memory.is_null<u8>(advanced);
+
+    trusted core.target.compiler_fence(MemoryOrder.SequentiallyConsistent);
+    trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
+    trusted core.target.spin_loop_hint();
+
+    let target_feature = trusted core.target.feature_enabled("sse2");
+
+    let assembly: (i32, ) = trusted core.target.assembly<(i32, ), (i32, )>(
+        template = "",
+        constraints = "+reg",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (42,),
+    );
+
+    let branching: (i32, ) = trusted core.target.branching_assembly<(i32, ), (i32, ), (func() -> never, )>(
+        template = "",
+        constraints = "+reg,label",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (42,),
+        labels = (alternate,),
+    );
+
+    trusted core.target.branching_assembly<(RawPointer<u8>, ), unit, (func() -> never, )>(
+        template = "",
+        constraints = "m,label",
+        clobbers = "",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+        labels = (alternate,),
+    );
+
+    let copied_ok = copied == 12 && volatile == 12;
+    let advanced_ok = trusted core.target.address_equal<u8>(advanced, reconstructed);
     let null_ok = core.memory.is_null<u8>(null);
-    let valid = released_ok && copied_ok && advanced_ok && null_ok;
+    let target_feature_known = target_feature || !target_feature;
+
+    let valid = released_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly.0 == 42 &&
+        branching.0 == 42;
 
     if valid
     {

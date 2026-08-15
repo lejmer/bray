@@ -26,7 +26,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let (function, signature) = match call.target() {
+        let result = match call.target() {
             MirCallTarget::Direct(_) => {
                 let mapping = self
                     .request
@@ -63,7 +63,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .get_function(symbol.name().as_str())
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                (function, symbol.signature())
+                // Owning the signature releases the immutable mapping borrow before invocation
+                // mutates translation state.
+                let signature = symbol.signature().clone();
+
+                self.invoke_function(function, &signature, &semantic_arguments, "call")
             }
             MirCallTarget::Indirect { callee, .. } => {
                 let callee_type = self.operand_type(callee)?;
@@ -84,17 +88,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let function_type = self.types.function_type(&signature)?;
 
-                return self.invoke_indirect(
+                self.invoke_indirect(
                     function_type,
                     pointer,
                     &signature,
                     &semantic_arguments,
                     "call.indirect",
-                );
+                )
             }
-        };
-
-        let result = self.invoke_function(function, signature, &semantic_arguments, "call")?;
+        }?;
 
         if result.is_some() {
             return Ok(result);

@@ -3,7 +3,9 @@
 use bray_bound_tree::{
     BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind,
     ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    PatternOperation, PatternProjection, SelectedConversion, SelectedImplementationWitness,
+    InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind,
+    MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder, PatternOperation, PatternProjection,
+    SelectedConversion, SelectedImplementationWitness,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
@@ -34,8 +36,9 @@ use crate::semantic::{SemanticDecodeContext, read_symbol_reference};
 use crate::wire::WireReader;
 use crate::{
     ImportedSemanticFacts, InterfaceExecutableTemplate, InterfaceSymbolResolver,
-    InterfaceValidationError, InterfaceValidationLimits,
+    InterfaceConstantValueKind, InterfaceValidationError, InterfaceValidationLimits,
 };
+use bray_target::InlineAssemblyOptions;
 
 use super::support::{FORMAT_VERSION, read_bool, read_count, read_optional, read_u32};
 
@@ -294,6 +297,54 @@ enum ValueRecordOrigin {
 struct OperationRecord {
     result: Option<u32>,
     kind: MirOperationKind,
+}
+
+#[derive(Clone, Copy)]
+enum AssemblyConstantRole {
+    Text,
+    Integer,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum AssemblyConstantPayload {
+    Text(std::sync::Arc<str>),
+    Integer(u64),
+}
+
+fn assembly_constant_payload(
+    role: AssemblyConstantRole,
+    kind: &InterfaceConstantValueKind,
+) -> Option<AssemblyConstantPayload> {
+    match (role, kind) {
+        (AssemblyConstantRole::Text, InterfaceConstantValueKind::String(text)) => {
+            Some(AssemblyConstantPayload::Text(text.clone()))
+        }
+        (AssemblyConstantRole::Integer, InterfaceConstantValueKind::Integer(integer)) => {
+            integer.to_u64().map(AssemblyConstantPayload::Integer)
+        }
+        _ => None,
+    }
+}
+
+fn assembly_options_valid(bits: u64, has_normal_output: bool) -> bool {
+    InlineAssemblyOptions::try_new(bits)
+        .is_some_and(|options| {
+            !options.may_unwind() && (has_normal_output || !options.pure())
+        })
+}
+
+fn assembly_type_counts(contract: InlineAssemblyContract) -> (usize, usize, usize) {
+    let mut inputs = 0_usize;
+    let mut outputs = 0_usize;
+    let mut labels = 0_usize;
+
+    for operand in contract.operands() {
+        inputs += usize::from(operand.runtime_input().is_some());
+        outputs += usize::from(operand.output().is_some());
+        labels += usize::from(operand.kind() == InlineAssemblyOperandKind::Label);
+    }
+
+    (inputs, outputs, labels)
 }
 
 struct Decoder<'data, 'facts, R> {
@@ -1126,12 +1177,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        Ok(MirMemoryOperation::new(
-            kind,
-            operands,
-            operand_types,
-            result_type,
-        ))
+        Ok(
+            MirMemoryOperation::new(kind, operands, operand_types, result_type)
+                .with_inline_assembly_symbols(self.callable_references()?),
+        )
     }
 
     fn memory_kind(&mut self) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {
@@ -1220,6 +1269,91 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             25 => Ok(Kind::SliceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
             27 => Ok(Kind::ByteSliceCopy),
+            28 => Ok(Kind::VolatileRead {
+                pointee: self.ty()?,
+                address_space: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::VolatileAddressSpace::Host,
+                    1 => bray_bound_tree::VolatileAddressSpace::Device,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+                kind: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::MemoryReadKind::Copy,
+                    1 => bray_bound_tree::MemoryReadKind::Move,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            29 => Ok(Kind::VolatileWrite {
+                pointee: self.ty()?,
+                address_space: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::VolatileAddressSpace::Host,
+                    1 => bray_bound_tree::VolatileAddressSpace::Device,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            30 => Ok(Kind::ExposeAddress {
+                pointee: self.ty()?,
+            }),
+            31 => Ok(Kind::FromExposedAddress {
+                pointee: self.ty()?,
+            }),
+            32 => Ok(Kind::CompareAddress {
+                pointee: self.ty()?,
+                comparison: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::PointerAddressComparison::Equal,
+                    1 => bray_bound_tree::PointerAddressComparison::Less,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            33 => {
+                let compiler_only = super::support::read_bool(&mut self.reader)?;
+
+                let Some(order) = MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
+                else {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                };
+
+                if !order.valid_for_fence() {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                }
+
+                Ok(Kind::Fence {
+                    compiler_only,
+                    order,
+                })
+            }
+            34 => Ok(Kind::CatastrophicAbort),
+            35 => Ok(Kind::DebuggerTrap),
+            36 => Ok(Kind::UnreachableTermination),
+            37 => Ok(Kind::SpinLoopHint),
+            38 => Ok(Kind::TargetFeatureEnabled {
+                feature: self.constant_value()?,
+            }),
+            39 => {
+                let inputs = self.ty()?;
+
+                let output = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some(self.ty()?),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                let labels = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some(self.ty()?),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                let contract = self.inline_assembly_contract(output.is_some())?;
+
+                self.validate_inline_assembly_types(inputs, output, labels, contract)?;
+
+                Ok(Kind::InlineAssembly {
+                    inputs,
+                    output,
+                    labels,
+                    contract,
+                })
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1246,6 +1380,174 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             operand_types,
             result_type,
         ))
+    }
+
+    fn inline_assembly_contract(
+        &mut self,
+        has_normal_output: bool,
+    ) -> Result<InlineAssemblyContract, ExecutableTemplateDecodeError> {
+        let (template, template_text) = self.string_constant_value()?;
+
+        let (constraints, constraint_text) = self.string_constant_value()?;
+
+        let (clobbers, _) = self.string_constant_value()?;
+
+        let (features, _) = self.string_constant_value()?;
+
+        let (options, option_bits) = self.integer_constant_value()?;
+
+        if !assembly_options_valid(option_bits, has_normal_output) {
+            return Err(ExecutableTemplateDecodeError::Malformed);
+        }
+
+        let count = self.count()?;
+
+        if count > MAX_INLINE_ASSEMBLY_OPERANDS {
+            return Err(ExecutableTemplateDecodeError::Malformed);
+        }
+
+        let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
+        for destination in operands.iter_mut().take(count) {
+            let kind = match read_u32(&mut self.reader)? {
+                0 => InlineAssemblyOperandKind::Input,
+                1 => InlineAssemblyOperandKind::LateOutput,
+                2 => InlineAssemblyOperandKind::Output,
+                3 => InlineAssemblyOperandKind::InOut,
+                4 => InlineAssemblyOperandKind::EarlyInOut,
+                5 => InlineAssemblyOperandKind::Immediate,
+                6 => InlineAssemblyOperandKind::Symbol,
+                7 => InlineAssemblyOperandKind::Memory,
+                8 => InlineAssemblyOperandKind::Label,
+                _ => return Err(ExecutableTemplateDecodeError::Malformed),
+            };
+
+            let ty = self.ty()?;
+            let input = self.optional_u16()?;
+            let runtime_input = self.optional_u16()?;
+            let output = self.optional_u16()?;
+
+            let constant = match read_u32(&mut self.reader)? {
+                0 => None,
+                1 => Some(self.integer_constant_value()?.0),
+                _ => return Err(ExecutableTemplateDecodeError::Malformed),
+            };
+
+            let start = self
+                .reader
+                .read_u16()
+                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
+
+            let length = self
+                .reader
+                .read_u16()
+                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
+
+            *destination = Some(InlineAssemblyOperand::new(
+                kind,
+                ty,
+                input,
+                runtime_input,
+                output,
+                constant,
+                None,
+                start,
+                length,
+            ));
+        }
+
+        let count = u8::try_from(count).map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
+
+        decoded_inline_assembly_contract(
+            template,
+            constraints,
+            clobbers,
+            features,
+            options,
+            operands,
+            count,
+            &template_text,
+            &constraint_text,
+        )
+    }
+
+    fn validate_inline_assembly_types(
+        &self,
+        inputs: bray_symbols::TypeId,
+        output: Option<bray_symbols::TypeId>,
+        labels: Option<bray_symbols::TypeId>,
+        contract: InlineAssemblyContract,
+    ) -> Result<(), ExecutableTemplateDecodeError> {
+        let (input_count, output_count, label_count) = assembly_type_counts(contract);
+
+        let inputs = self.assembly_tuple_elements(Some(inputs), input_count)?;
+        let outputs = self.assembly_tuple_elements(output, output_count)?;
+        let labels = self.assembly_tuple_elements(labels, label_count)?;
+
+        decoded_inline_assembly_types(contract, &inputs, &outputs, &labels)
+    }
+
+    fn validate_inline_assembly_value_types(
+        &self,
+        inputs: bray_symbols::TypeId,
+        output: Option<bray_symbols::TypeId>,
+        contract: InlineAssemblyContract,
+    ) -> Result<(), ExecutableTemplateDecodeError> {
+        let (input_count, output_count, _) = assembly_type_counts(contract);
+
+        let inputs = self.assembly_tuple_elements(Some(inputs), input_count)?;
+        let outputs = self.assembly_tuple_elements(output, output_count)?;
+
+        decoded_inline_assembly_value_types(contract, &inputs, &outputs)
+    }
+
+    fn assembly_tuple_elements(
+        &self,
+        ty: Option<bray_symbols::TypeId>,
+        expected: usize,
+    ) -> Result<Vec<bray_symbols::TypeId>, ExecutableTemplateDecodeError> {
+        let elements = match ty {
+            Some(ty) => self
+                .facts
+                .assembly_value_element_types(ty)
+                .ok_or(ExecutableTemplateDecodeError::Malformed)?,
+            None if expected == 0 => Vec::new(),
+            None => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
+        if elements.len() != expected {
+            return Err(ExecutableTemplateDecodeError::Malformed);
+        }
+
+        Ok(elements)
+    }
+
+    fn optional_u16(&mut self) -> Result<Option<u16>, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(None),
+            1 => self
+                .reader
+                .read_u16()
+                .map(Some)
+                .map_err(|_| ExecutableTemplateDecodeError::Malformed),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn callable_references(
+        &mut self,
+    ) -> Result<Vec<MirCallableReference>, ExecutableTemplateDecodeError> {
+        let count = self.count()?;
+        let mut references = self.items(count)?;
+
+        for _ in 0..count {
+            references.push(MirCallableReference::new(
+                self.callable_instance()?,
+                self.callable_abi()?,
+            ));
+        }
+
+        Ok(references)
     }
 
     fn text_kind(&mut self) -> Result<MirTextOperationKind, ExecutableTemplateDecodeError> {
@@ -1457,6 +1759,38 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             14 => Ok(MirTerminatorKind::CancelCurrentRun {
                 cleanup: self.cleanup_edge()?,
             }),
+            15 => {
+                let contract = self.inline_assembly_contract(true)?;
+                let inputs = self.operand()?;
+                let inputs_type = self.ty()?;
+                let output_type = self.ty()?;
+
+                self.validate_inline_assembly_value_types(
+                    inputs_type,
+                    Some(output_type),
+                    contract,
+                )?;
+
+                let normal = self.block_id()?;
+                let alternate_count = self.count()?;
+                let mut alternates = self.items(alternate_count)?;
+
+                for _ in 0..alternate_count {
+                    alternates.push(self.block_id()?);
+                }
+
+                Ok(MirTerminatorKind::InlineAssembly(
+                    bray_ir::MirInlineAssemblyTerminator::new(
+                        contract,
+                        inputs,
+                        inputs_type,
+                        output_type,
+                        normal,
+                        alternates,
+                        self.callable_references()?,
+                    ),
+                ))
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1647,6 +1981,57 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             .ok_or(ExecutableTemplateDecodeError::Malformed)
     }
 
+    fn string_constant_value(
+        &mut self,
+    ) -> Result<(bray_symbols::ConstantValueId, std::sync::Arc<str>), ExecutableTemplateDecodeError>
+    {
+        let (value, payload) = self.assembly_constant_value(AssemblyConstantRole::Text)?;
+
+        match payload {
+            AssemblyConstantPayload::Text(text) => Ok((value, text)),
+            AssemblyConstantPayload::Integer(_) => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn integer_constant_value(
+        &mut self,
+    ) -> Result<(bray_symbols::ConstantValueId, u64), ExecutableTemplateDecodeError> {
+        let (value, payload) = self.assembly_constant_value(AssemblyConstantRole::Integer)?;
+
+        match payload {
+            AssemblyConstantPayload::Integer(integer) => Ok((value, integer)),
+            AssemblyConstantPayload::Text(_) => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn assembly_constant_value(
+        &mut self,
+        role: AssemblyConstantRole,
+    ) -> Result<
+        (bray_symbols::ConstantValueId, AssemblyConstantPayload),
+        ExecutableTemplateDecodeError,
+    > {
+        let slot = index(read_u32(&mut self.reader)?)?;
+
+        let value = self
+            .facts
+            .constant_values()
+            .get(slot)
+            .copied()
+            .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+        let kind = self
+            .facts
+            .interface_constant_values()
+            .get(slot)
+            .map(crate::InterfaceConstantValue::kind)
+            .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+        assembly_constant_payload(role, kind)
+            .map(|payload| (value, payload))
+            .ok_or(ExecutableTemplateDecodeError::Malformed)
+    }
+
     fn constant_term(
         &mut self,
     ) -> Result<bray_symbols::ConstantTermId, ExecutableTemplateDecodeError> {
@@ -1767,5 +2152,292 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             self.unit,
             read_u32(&mut self.reader)?,
         ))
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "package validation joins every decoded assembly contract field"
+)]
+fn decoded_inline_assembly_contract(
+    template: bray_symbols::ConstantValueId,
+    constraints: bray_symbols::ConstantValueId,
+    clobbers: bray_symbols::ConstantValueId,
+    features: bray_symbols::ConstantValueId,
+    options: bray_symbols::ConstantValueId,
+    operands: [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
+    count: u8,
+    template_text: &str,
+    constraint_text: &str,
+) -> Result<InlineAssemblyContract, ExecutableTemplateDecodeError> {
+    InlineAssemblyContract::try_new(
+        template,
+        constraints,
+        clobbers,
+        features,
+        options,
+        operands,
+        count,
+        template_text,
+        constraint_text,
+    )
+    .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+fn decoded_inline_assembly_types(
+    contract: InlineAssemblyContract,
+    inputs: &[bray_symbols::TypeId],
+    outputs: &[bray_symbols::TypeId],
+    labels: &[bray_symbols::TypeId],
+) -> Result<(), ExecutableTemplateDecodeError> {
+    contract
+        .operand_types_valid(inputs, outputs, labels)
+        .then_some(())
+        .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+fn decoded_inline_assembly_value_types(
+    contract: InlineAssemblyContract,
+    inputs: &[bray_symbols::TypeId],
+    outputs: &[bray_symbols::TypeId],
+) -> Result<(), ExecutableTemplateDecodeError> {
+    contract
+        .value_types_valid(inputs, outputs)
+        .then_some(())
+        .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS,
+    };
+    use bray_symbols::{
+        ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore, TypeData,
+    };
+
+    use crate::InterfaceConstantValueKind;
+
+    use super::{
+        AssemblyConstantPayload, AssemblyConstantRole, ExecutableTemplateDecodeError,
+        assembly_constant_payload, assembly_options_valid, decoded_inline_assembly_contract,
+        decoded_inline_assembly_types, decoded_inline_assembly_value_types,
+    };
+
+    #[test]
+    fn malformed_package_assembly_constant_roles_are_rejected_before_mir() {
+        let text = InterfaceConstantValueKind::String("reg".into());
+        let integer = InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(0));
+        let boolean = InterfaceConstantValueKind::Boolean(false);
+
+        assert_eq!(
+            assembly_constant_payload(AssemblyConstantRole::Text, &text),
+            Some(AssemblyConstantPayload::Text("reg".into()))
+        );
+
+        assert_eq!(
+            assembly_constant_payload(AssemblyConstantRole::Integer, &integer),
+            Some(AssemblyConstantPayload::Integer(0))
+        );
+
+        assert_eq!(
+            assembly_constant_payload(AssemblyConstantRole::Text, &integer),
+            None
+        );
+
+        assert_eq!(
+            assembly_constant_payload(AssemblyConstantRole::Integer, &text),
+            None
+        );
+
+        assert_eq!(
+            assembly_constant_payload(AssemblyConstantRole::Text, &boolean),
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_package_assembly_options_are_rejected_before_mir() {
+        assert!(assembly_options_valid(0, false));
+        assert!(assembly_options_valid(1, true));
+        assert!(!assembly_options_valid(1, false));
+        assert!(!assembly_options_valid(1 << 3, true));
+        assert!(!assembly_options_valid(1 << 4, true));
+    }
+
+    #[test]
+    fn malformed_package_assembly_descriptors_are_rejected_before_mir() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let ty = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test assembly type must intern: {error:?}"));
+
+        let constant = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(false),
+            ))
+            .unwrap_or_else(|error| panic!("test assembly constant must intern: {error:?}"));
+
+        let input = InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Input,
+            ty,
+            Some(0),
+            Some(0),
+            None,
+            None,
+            None,
+            0,
+            3,
+        );
+
+        let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+        operands[0] = Some(input);
+
+        let decode = |operands, count, template, constraints| {
+            decoded_inline_assembly_contract(
+                constant,
+                constant,
+                constant,
+                constant,
+                constant,
+                operands,
+                count,
+                template,
+                constraints,
+            )
+        };
+
+        assert!(decode(operands, 1, "use $0", "reg").is_ok());
+
+        assert_eq!(
+            decode(operands, 1, "use $1", "reg"),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+
+        let mut reserved_register = operands;
+
+        reserved_register[0] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Input,
+            ty,
+            Some(0),
+            Some(0),
+            None,
+            None,
+            None,
+            0,
+            1,
+        ));
+
+        assert_eq!(
+            decode(reserved_register, 1, "", "m"),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+
+        let contract = decode(operands, 1, "", "reg")
+            .unwrap_or_else(|error| panic!("valid package contract must decode: {error:?}"));
+
+        let mismatched = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("mismatched package type must intern: {error:?}"));
+
+        assert_eq!(
+            decoded_inline_assembly_types(contract, &[mismatched], &[], &[]),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+
+        let mut mixed = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+        mixed[0] = Some(input);
+
+        mixed[1] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Memory,
+            ty,
+            Some(1),
+            Some(1),
+            None,
+            None,
+            None,
+            4,
+            1,
+        ));
+
+        mixed[2] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Immediate,
+            ty,
+            Some(2),
+            None,
+            None,
+            Some(constant),
+            None,
+            6,
+            1,
+        ));
+
+        mixed[3] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Symbol,
+            ty,
+            Some(3),
+            None,
+            None,
+            None,
+            None,
+            8,
+            1,
+        ));
+
+        mixed[4] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Label,
+            ty,
+            None,
+            None,
+            None,
+            None,
+            None,
+            10,
+            5,
+        ));
+
+        let mixed = decode(mixed, 5, "", "reg,m,i,s,label")
+            .unwrap_or_else(|error| panic!("mixed package contract must decode: {error:?}"));
+
+        assert_eq!(
+            decoded_inline_assembly_types(mixed, &[ty, ty], &[], &[ty]),
+            Ok(())
+        );
+
+        assert_eq!(
+            decoded_inline_assembly_value_types(mixed, &[ty, ty], &[]),
+            Ok(())
+        );
+
+        let mut duplicate_runtime = operands;
+
+        duplicate_runtime[1] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Input,
+            ty,
+            Some(1),
+            Some(0),
+            None,
+            None,
+            None,
+            4,
+            3,
+        ));
+
+        assert_eq!(
+            decode(duplicate_runtime, 2, "", "reg,reg"),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+
+        let mut sparse = operands;
+        sparse[0] = None;
+        sparse[1] = Some(input);
+
+        assert_eq!(
+            decode(sparse, 2, "", "reg,reg"),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
     }
 }

@@ -519,6 +519,7 @@ fn target_data_layout() -> TargetDataLayout {
     let address_spaces = [
         TargetAddressSpace::new(TargetAddressSpaceKind::Default, 0),
         TargetAddressSpace::new(TargetAddressSpaceKind::Function, 0),
+        TargetAddressSpace::new(TargetAddressSpaceKind::Device, 5),
     ];
 
     let Ok(layout) = TargetDataLayout::try_new(scalars, aggregate_alignment, address_spaces) else {

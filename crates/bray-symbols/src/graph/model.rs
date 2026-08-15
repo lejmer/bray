@@ -339,6 +339,40 @@ macro_rules! define_symbol_graph {
                 ))
             }
 
+            /// Returns one callable's generic parameters in declaration order.
+            pub fn callable_generic_parameters(
+                &self,
+                callable: crate::CallableSymbolId,
+            ) -> Option<Vec<crate::GenericParameterSymbolId>> {
+                let (types, constants) = map_callable_symbol!(self, callable, |symbol| (
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters()
+                ))?;
+
+                let mut parameters = types
+                    .iter()
+                    .copied()
+                    .map(crate::GenericParameterSymbolId::Type)
+                    .chain(
+                        constants
+                            .iter()
+                            .copied()
+                            .map(crate::GenericParameterSymbolId::Const),
+                    )
+                    .collect::<Vec<_>>();
+
+                parameters.sort_unstable_by_key(|parameter| match parameter {
+                    crate::GenericParameterSymbolId::Type(parameter) => self
+                        .generic_type_parameter(*parameter)
+                        .map(|parameter| parameter.ordinal()),
+                    crate::GenericParameterSymbolId::Const(parameter) => self
+                        .generic_const_parameter(*parameter)
+                        .map(|parameter| parameter.ordinal()),
+                });
+
+                Some(parameters)
+            }
+
             /// Returns how one callable entered the compilation.
             pub fn callable_origin(
                 &self,

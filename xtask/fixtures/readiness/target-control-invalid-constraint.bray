@@ -1,0 +1,14 @@
+trusted module target_control_invalid_constraint;
+
+trusted func invalid_constraint() -> i32
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    return trusted core.target.assembly<(i32, ), (i32, )>(
+        template = "",
+        constraints = "=unknown,reg",
+        clobbers = "",
+        features = "",
+        options = 0,
+        inputs = (1,),
+    ).0;
+}

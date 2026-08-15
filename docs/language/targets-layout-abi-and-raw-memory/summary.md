@@ -31,4 +31,4 @@ Device memory and ABI-oriented helper declarations are ordinary declarations who
 
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
-- Previous: [ABI-oriented memory helpers](abi-oriented-memory-helpers.md)
+- Previous: [Target control and inline assembly](target-control-and-inline-assembly.md)

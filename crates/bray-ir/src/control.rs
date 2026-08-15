@@ -7,6 +7,76 @@ use crate::{
     MirBlockId, MirCallableReference, MirFrameStateId, MirOperand, MirPlace, MirSourceAnchor,
 };
 
+/// Trusted inline assembly whose checked labels may leave the ordinary control-flow path.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirInlineAssemblyTerminator {
+    contract: bray_bound_tree::InlineAssemblyContract,
+    inputs: MirOperand,
+    inputs_type: TypeId,
+    output_type: TypeId,
+    normal: MirBlockId,
+    alternates: Arc<[MirBlockId]>,
+    symbols: Arc<[MirCallableReference]>,
+}
+
+impl MirInlineAssemblyTerminator {
+    /// Creates one explicit assembly terminator with normal and alternate successors.
+    pub fn new(
+        contract: bray_bound_tree::InlineAssemblyContract,
+        inputs: MirOperand,
+        inputs_type: TypeId,
+        output_type: TypeId,
+        normal: MirBlockId,
+        alternates: impl IntoIterator<Item = MirBlockId>,
+        symbols: impl IntoIterator<Item = MirCallableReference>,
+    ) -> Self {
+        Self {
+            contract,
+            inputs,
+            inputs_type,
+            output_type,
+            normal,
+            alternates: shared_slice(alternates),
+            symbols: shared_slice(symbols),
+        }
+    }
+
+    /// Returns the exactly checked assembly contract.
+    pub const fn contract(&self) -> bray_bound_tree::InlineAssemblyContract {
+        self.contract
+    }
+
+    /// Returns the structural input tuple.
+    pub const fn inputs(&self) -> &MirOperand {
+        &self.inputs
+    }
+
+    /// Returns the structural input tuple type.
+    pub const fn inputs_type(&self) -> TypeId {
+        self.inputs_type
+    }
+
+    /// Returns the structural output tuple supplied to normal continuation.
+    pub const fn output_type(&self) -> TypeId {
+        self.output_type
+    }
+
+    /// Returns the sole ordinary continuation block.
+    pub const fn normal(&self) -> MirBlockId {
+        self.normal
+    }
+
+    /// Returns alternate successor blocks in checked label-constraint order.
+    pub fn alternates(&self) -> &[MirBlockId] {
+        &self.alternates
+    }
+
+    /// Returns closed callable symbols referenced by assembly operands in descriptor order.
+    pub fn symbols(&self) -> &[MirCallableReference] {
+        &self.symbols
+    }
+}
+
 /// One source-independent structural condition tested by MIR control flow.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirPatternPredicate {
@@ -259,6 +329,8 @@ pub enum MirTerminatorKind {
         /// Destination when no case matches.
         otherwise: MirEdge,
     },
+    /// Execute target-gated assembly that may transfer to one typed external label.
+    InlineAssembly(MirInlineAssemblyTerminator),
     /// Return from this unit.
     Return(Option<MirOperand>),
     /// End a path that cannot continue.
@@ -373,6 +445,13 @@ impl MirTerminatorKind {
 
                 visit(otherwise.target());
             }
+            Self::InlineAssembly(assembly) => {
+                visit(assembly.normal());
+
+                for alternate in assembly.alternates() {
+                    visit(*alternate);
+                }
+            }
             Self::Suspend {
                 resume,
                 cancellation,
@@ -431,6 +510,7 @@ impl MirTerminatorKind {
             | Self::PatternBranch { .. }
             | Self::Iterate { .. }
             | Self::Switch { .. }
+            | Self::InlineAssembly(_)
             | Self::Return(_)
             | Self::Unreachable
             | Self::PropagatePanic { .. }
@@ -442,5 +522,71 @@ impl MirTerminatorKind {
             | Self::Panic { .. }
             | Self::CancelCurrentRun { .. } => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind,
+        MAX_INLINE_ASSEMBLY_OPERANDS,
+    };
+
+    use super::{MirInlineAssemblyTerminator, MirTerminatorKind};
+    use crate::{MirBlockId, MirImmediateValue, MirOperand, MirUnitId};
+
+    #[test]
+    fn inline_assembly_successors_include_normal_and_every_alternate() {
+        let unit = MirUnitId::new(7);
+        let normal = MirBlockId::from_slot(unit, 1);
+        let first = MirBlockId::from_slot(unit, 2);
+        let second = MirBlockId::from_slot(unit, 3);
+        let ty = crate::test_support::test_type();
+        let constant = crate::test_support::test_constant_value();
+        let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
+        operands[0] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Label,
+            ty,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            5,
+        ));
+
+        let contract = InlineAssemblyContract::try_new(
+            constant,
+            constant,
+            constant,
+            constant,
+            constant,
+            operands,
+            1,
+            "",
+            "label",
+        )
+        .unwrap_or_else(|| panic!("test assembly contract must validate"));
+
+        let terminator = MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
+            contract,
+            MirOperand::Immediate {
+                value: MirImmediateValue::Unit,
+                ty,
+            },
+            ty,
+            ty,
+            normal,
+            [first, second],
+            [],
+        ));
+
+        let mut successors = Vec::new();
+
+        terminator.for_each_successor(|successor| successors.push(successor));
+
+        assert_eq!(successors, [normal, first, second]);
     }
 }

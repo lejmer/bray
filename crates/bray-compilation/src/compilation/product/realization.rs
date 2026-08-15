@@ -36,7 +36,7 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultFact, CallableParameterDefaultValue, CallableParameterSignature,
     CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId,
+    DeclaredLayoutMode, ForeignCallableDirection, GenericArgument, GenericSubstitutionId,
     ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId, PackageIdentity,
     ReceiverMode, ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
     SemanticValueStore, StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId,
@@ -2925,7 +2925,15 @@ impl Compilation {
 
         if let Some(role) = role
             && let Some(mapping) =
-                self.codegen_compiler_known_type(ty, role, target, cancellation, mappings, pending)?
+                self.codegen_compiler_known_type(
+                    ty,
+                    role,
+                    substitution,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )?
         {
             return Ok(mapping);
         }
@@ -2938,7 +2946,12 @@ impl Compilation {
             .declaration_symbol::<StructSymbolId>(&heap_key)
             .is_some_and(|heap| definition == NamedTypeSymbolId::Struct(heap))
         {
-            return Ok(pointer_mapping(ty, ty, target));
+            return Ok(pointer_mapping(
+                ty,
+                ty,
+                target,
+                TargetAddressSpaceKind::Default,
+            ));
         }
 
         match definition {
@@ -2999,6 +3012,7 @@ impl Compilation {
         &self,
         ty: TypeId,
         role: RepresentationRole,
+        substitution: GenericSubstitutionId,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
@@ -3012,8 +3026,29 @@ impl Compilation {
             )));
         }
 
-        if role == RepresentationRole::RawPointer {
-            return Ok(Some(pointer_mapping(ty, ty, target)));
+        if matches!(role, RepresentationRole::RawPointer | RepresentationRole::DevicePointer) {
+            let substitution = self
+                .semantic_value_store()?
+                .generic_substitution_data(substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let [binding] = substitution.bindings() else {
+                return Err(CodegenFactError::UnresolvedType(ty));
+            };
+
+            let GenericArgument::Type(pointee) = binding.argument() else {
+                return Err(CodegenFactError::UnresolvedType(ty));
+            };
+
+            let address_space = match role {
+                RepresentationRole::RawPointer => TargetAddressSpaceKind::Default,
+                RepresentationRole::DevicePointer => TargetAddressSpaceKind::Device,
+                _ => return Err(CodegenFactError::UnresolvedType(ty)),
+            };
+
+            self.codegen_type(pointee, target, cancellation, mappings, pending)?;
+
+            return Ok(Some(pointer_mapping(ty, pointee, target, address_space)));
         }
 
         if let Some(scalar) = super::super::representation::target_scalar(role) {
@@ -3046,7 +3081,7 @@ impl Compilation {
             )
             .map(Some),
             RepresentationRole::Future => {
-                let pointer = self.codegen_representation_type(RepresentationRole::RawPointer)?;
+                let pointer = self.codegen_opaque_pointer_type()?;
 
                 self.codegen_aggregate_type(
                     ty,
@@ -3061,7 +3096,12 @@ impl Compilation {
                 )
                 .map(Some)
             }
-            RepresentationRole::Task => Ok(Some(pointer_mapping(ty, ty, target))),
+            RepresentationRole::Task => Ok(Some(pointer_mapping(
+                ty,
+                ty,
+                target,
+                TargetAddressSpaceKind::Default,
+            ))),
             RepresentationRole::Result
             | RepresentationRole::RunResult
             | RepresentationRole::ConversionError => Ok(None),
@@ -3072,6 +3112,7 @@ impl Compilation {
             RepresentationRole::Unit
             | RepresentationRole::Never
             | RepresentationRole::RawPointer
+            | RepresentationRole::DevicePointer
             | RepresentationRole::ScalarBool
             | RepresentationRole::ScalarChar
             | RepresentationRole::ScalarI8
@@ -3262,7 +3303,12 @@ impl Compilation {
             {
                 self.codegen_type(pointee, target, cancellation, mappings, pending)?;
 
-                return Ok(pointer_mapping(ty, pointee, target));
+                return Ok(pointer_mapping(
+                    ty,
+                    pointee,
+                    target,
+                    TargetAddressSpaceKind::Default,
+                ));
             }
             TypeData::Slice(element) => {
                 self.codegen_type(pointee, target, cancellation, mappings, pending)?;
@@ -3285,7 +3331,14 @@ impl Compilation {
 
                 vec![pointer, pointer]
             }
-            _ => return Ok(pointer_mapping(ty, pointee, target)),
+            _ => {
+                return Ok(pointer_mapping(
+                    ty,
+                    pointee,
+                    target,
+                    TargetAddressSpaceKind::Default,
+                ));
+            }
         };
 
         self.codegen_aggregate_type(
@@ -3868,7 +3921,7 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             CodegenResultMapping::direct(future, None, [])
-        } else if is_unit(self, result_type)? {
+        } else if is_void_result(self, result_type)? {
             CodegenResultMapping::Void
         } else {
             CodegenResultMapping::direct(result_type, None, [])
@@ -3950,9 +4003,9 @@ impl Compilation {
         let result =
             self.concrete_codegen_type(result, substitution, Some(instance), cancellation)?;
 
-        let is_unit = is_unit(self, result)?;
+        let is_void = is_void_result(self, result)?;
 
-        let result = if is_unit {
+        let result = if is_void {
             CodegenResultMapping::Void
         } else {
             CodegenResultMapping::direct(result, None, [])
@@ -4134,7 +4187,7 @@ impl Compilation {
             return Ok(void_signature(CallableAbi::Bray));
         }
 
-        let pointer = self.codegen_representation_type(RepresentationRole::RawPointer)?;
+        let pointer = self.codegen_opaque_pointer_type()?;
         let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
         let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
         let parameter = |ty| CodegenParameterMapping::direct(ty, None, []);
@@ -4186,6 +4239,18 @@ impl Compilation {
             self.semantic_value_store()?,
             NamedTypeSymbolId::Struct(definition),
         )
+    }
+
+    fn codegen_opaque_pointer_type(&self) -> Result<TypeId, FactQueryError> {
+        let element = self.codegen_representation_type(RepresentationRole::ScalarU8)?;
+
+        self.available_compiler_known_symbols()
+            .unary_representation_type(
+                self.semantic_value_store()?,
+                RepresentationRole::RawPointer,
+                element,
+            )
+            .ok_or(FactQueryError::InfrastructureFailure)
     }
 }
 
@@ -4385,13 +4450,18 @@ fn scalar_mapping(
     ))
 }
 
-fn pointer_mapping(ty: TypeId, pointee: TypeId, target: &CodegenTarget) -> CodegenTypeMapping {
+fn pointer_mapping(
+    ty: TypeId,
+    pointee: TypeId,
+    target: &CodegenTarget,
+    address_space: TargetAddressSpaceKind,
+) -> CodegenTypeMapping {
     CodegenTypeMapping::new(
         ty,
         pointer_layout(target),
         CodegenTypeKind::Pointer {
             target: pointee,
-            address_space: TargetAddressSpaceKind::Default,
+            address_space,
         },
     )
 }
@@ -4421,7 +4491,7 @@ fn callable_type_signature(
         callable.result()
     };
 
-    let result = if is_unit(compilation, result_type)? {
+    let result = if is_void_result(compilation, result_type)? {
         CodegenResultMapping::Void
     } else {
         CodegenResultMapping::direct(result_type, None, [])
@@ -4580,7 +4650,7 @@ fn dependency_symbol(
         .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
 }
 
-fn is_unit(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError> {
+fn is_void_result(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
     let data = values
@@ -4591,10 +4661,10 @@ fn is_unit(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError
         return Ok(false);
     };
 
-    Ok(
-        super::super::foreign::compiler_known_representation(compilation, *definition)
-            == Some(RepresentationRole::Unit),
-    )
+    Ok(matches!(
+        super::super::foreign::compiler_known_representation(compilation, *definition),
+        Some(RepresentationRole::Unit | RepresentationRole::Never)
+    ))
 }
 
 fn sized_layout(
@@ -4828,6 +4898,7 @@ mod tests {
         CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
         CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenParameterMapping,
         CodegenResultMapping, CodegenSymbolKey, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
+        TargetAddressSpaceKind,
     };
     use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_ir::{
@@ -4849,7 +4920,8 @@ mod tests {
 
     use super::{
         dependency_symbol, direct_helper_symbol, indirect_abi_value, indirect_parameter_kind,
-        named_type, pointer_layout, receiver_codegen_type, substitute_contextual_self,
+        is_void_result, named_type, pointer_layout, receiver_codegen_type,
+        substitute_contextual_self,
     };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
@@ -5671,6 +5743,61 @@ mod tests {
     }
 
     #[test]
+    fn compiler_known_pointers_retain_their_semantic_pointee_and_address_space() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let element = compilation
+            .compiler_known_type(RepresentationRole::ScalarU8)
+            .expect("byte representation must resolve");
+
+        let pointer = |role| {
+            compilation
+                .available_compiler_known_symbols()
+                .unary_representation_type(values, role, element)
+                .unwrap_or_else(|| panic!("{role:?} pointer type must resolve"))
+        };
+
+        let raw = pointer(RepresentationRole::RawPointer);
+        let device = pointer(RepresentationRole::DevicePointer);
+        let mappings = realized_types(&compilation, &target, [raw, device]);
+
+        assert!(matches!(
+            mappings[&raw].kind(),
+            CodegenTypeKind::Pointer {
+                target,
+                address_space: TargetAddressSpaceKind::Default,
+            } if *target == element
+        ));
+
+        assert!(matches!(
+            mappings[&device].kind(),
+            CodegenTypeKind::Pointer {
+                target,
+                address_space: TargetAddressSpaceKind::Device,
+            } if *target == element
+        ));
+    }
+
+    #[test]
+    fn never_returning_callables_use_void_codegen_results() {
+        let compilation = compilation("module app; func main() {}");
+
+        let never = compilation
+            .compiler_known_type(RepresentationRole::Never)
+            .unwrap_or_else(|error| panic!("never representation must resolve: {error:?}"));
+
+        assert!(
+            is_void_result(&compilation, never)
+                .unwrap_or_else(|error| panic!("void result classification must resolve: {error:?}"))
+        );
+    }
+
+    #[test]
     fn cancellation_observation_runtime_helper_returns_boolean() {
         let compilation = compilation("module app; func main() {}");
 
@@ -5688,6 +5815,36 @@ mod tests {
             signature.result(),
             &CodegenResultMapping::direct(boolean, None, [])
         );
+    }
+
+    #[test]
+    fn generator_runtime_signatures_demand_concrete_opaque_pointers() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let signature = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
+            .expect("generator begin signature must realize");
+
+        let Some(CodegenParameterMapping::Direct { ty: pointer, .. }) =
+            signature.parameters().first()
+        else {
+            panic!("generator begin must receive one direct state pointer");
+        };
+
+        let element = compilation
+            .compiler_known_type(RepresentationRole::ScalarU8)
+            .expect("byte representation must resolve");
+
+        let mappings = realized_types(&compilation, &target, [*pointer]);
+
+        assert!(matches!(
+            mappings[pointer].kind(),
+            CodegenTypeKind::Pointer {
+                target,
+                address_space: TargetAddressSpaceKind::Default,
+            } if *target == element
+        ));
     }
 
     #[test]

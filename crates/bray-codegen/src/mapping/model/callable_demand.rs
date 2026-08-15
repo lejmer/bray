@@ -85,22 +85,38 @@ pub fn demanded_callable_instances_for_mir(
     unit: &bray_ir::MirUnit,
 ) -> BTreeSet<DemandedCallableInstance> {
     unit.operations_with_ids()
-        .filter_map(|(operation, data)| {
-            operation_callable_instance(CodegenCallSite::Operation(operation), data.kind())
+        .flat_map(|(operation, data)| {
+            operation_callable_instances(operation, data.kind())
         })
-        .chain(unit.blocks_with_ids().filter_map(|(block, data)| {
-            terminator_callable_instance(
-                CodegenCallSite::Terminator(block),
-                data.terminator().kind(),
-            )
+        .chain(unit.blocks_with_ids().flat_map(|(block, data)| {
+            terminator_callable_instances(block, data.terminator().kind())
         }))
         .collect()
 }
 
-fn operation_callable_instance(
-    site: CodegenCallSite,
+fn operation_callable_instances(
+    operation_id: bray_ir::MirOperationId,
     operation: &MirOperationKind,
-) -> Option<DemandedCallableInstance> {
+) -> Vec<DemandedCallableInstance> {
+    if let MirOperationKind::Memory(memory) = operation {
+        return memory
+            .inline_assembly_symbols()
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(symbol, reference)| DemandedCallableInstance {
+                site: CodegenCallSite::InlineAssemblyOperation {
+                    operation: operation_id,
+                    symbol,
+                },
+                reference,
+                trait_dispatch: None,
+                intrinsic: None,
+                witnesses: Arc::from([]),
+            })
+            .collect();
+    }
+
     let call = match operation {
         MirOperationKind::Call(call)
         | MirOperationKind::Async(MirAsyncOperation::CreateFrame {
@@ -126,11 +142,11 @@ fn operation_callable_instance(
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Async(_)
-        | MirOperationKind::Host(_) => return None,
+        | MirOperationKind::Host(_) => return Vec::new(),
     };
 
     let MirCallTarget::Direct(reference) = call.target() else {
-        return None;
+        return Vec::new();
     };
 
     let mut witnesses = call.dispatch_witnesses().to_vec();
@@ -139,28 +155,43 @@ fn operation_callable_instance(
     witnesses.sort_unstable();
     witnesses.dedup();
 
-    Some(DemandedCallableInstance {
-        site,
+    vec![DemandedCallableInstance {
+        site: CodegenCallSite::Operation(operation_id),
         reference: *reference,
         trait_dispatch: call.trait_dispatch(),
         intrinsic: call.intrinsic(),
         witnesses: witnesses.into(),
-    })
+    }]
 }
 
-fn terminator_callable_instance(
-    site: CodegenCallSite,
+fn terminator_callable_instances(
+    block: bray_ir::MirBlockId,
     terminator: &MirTerminatorKind,
-) -> Option<DemandedCallableInstance> {
-    let MirTerminatorKind::Iterate { next, witness, .. } = terminator else {
-        return None;
-    };
-
-    Some(DemandedCallableInstance {
-        site,
-        reference: *next,
-        trait_dispatch: None,
-        intrinsic: None,
-        witnesses: Arc::from([*witness]),
-    })
+) -> Vec<DemandedCallableInstance> {
+    match terminator {
+        MirTerminatorKind::Iterate { next, witness, .. } => vec![DemandedCallableInstance {
+            site: CodegenCallSite::Terminator(block),
+            reference: *next,
+            trait_dispatch: None,
+            intrinsic: None,
+            witnesses: Arc::from([*witness]),
+        }],
+        MirTerminatorKind::InlineAssembly(assembly) => assembly
+            .symbols()
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(symbol, reference)| DemandedCallableInstance {
+                site: CodegenCallSite::InlineAssemblyTerminator {
+                    block,
+                    symbol,
+                },
+                reference,
+                trait_dispatch: None,
+                intrinsic: None,
+                witnesses: Arc::from([]),
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }

@@ -22,6 +22,7 @@ impl TargetCompatibility {
         Requirement: Into<Arc<str>>,
     {
         let target_profile_revision = NonEmptySharedStr::try_new(target_profile_revision)?;
+
         let backend_requirements: Option<Vec<_>> = backend_requirements
             .into_iter()
             .map(NonEmptySharedStr::try_new)

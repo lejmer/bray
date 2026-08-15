@@ -899,6 +899,52 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::CallbackState { state } => {
             ("callback_state", vec![("state", state)])
         }
+        CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
+            ("volatile_read", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => {
+            ("volatile_write", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::ExposeAddress { pointee } => {
+            ("expose_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::FromExposedAddress { pointee } => {
+            ("from_exposed_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::CompareAddress { pointee, .. } => {
+            ("compare_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::Fence { compiler_only, .. } => (
+            if compiler_only { "compiler_fence" } else { "hardware_fence" },
+            Vec::new(),
+        ),
+        CheckedMemoryOperationKind::CatastrophicAbort => ("catastrophic_abort", Vec::new()),
+        CheckedMemoryOperationKind::DebuggerTrap => ("debugger_trap", Vec::new()),
+        CheckedMemoryOperationKind::UnreachableTermination => {
+            ("unreachable_termination", Vec::new())
+        }
+        CheckedMemoryOperationKind::SpinLoopHint => ("spin_loop_hint", Vec::new()),
+        CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => {
+            ("target_feature_enabled", Vec::new())
+        }
+        CheckedMemoryOperationKind::InlineAssembly {
+            inputs,
+            output,
+            labels,
+            ..
+        } => {
+            let mut types = vec![("inputs", inputs)];
+
+            if let Some(output) = output {
+                types.push(("output", output));
+            }
+
+            if let Some(labels) = labels {
+                types.push(("labels", labels));
+            }
+
+            ("inline_assembly", types)
+        }
     };
 
     parts.attribute("memory_operation", name);
@@ -1512,6 +1558,29 @@ fn inspection_terminator(
             parts.edge("otherwise", otherwise, None, &context)?;
 
             "switch"
+        }
+        MirTerminatorKind::InlineAssembly(assembly) => {
+            parts.operand("inputs", assembly.inputs(), &context)?;
+            parts.r#type("inputs", assembly.inputs_type(), &context)?;
+            parts.r#type("output", assembly.output_type(), &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("normal"),
+                target: assembly.normal().slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            for (index, alternate) in assembly.alternates().iter().enumerate() {
+                parts.edges.push(InspectionMirEdge {
+                    role: format!("alternate[{index}]"),
+                    target: alternate.slot(),
+                    arguments: Vec::new(),
+                    cleanup_phase: None,
+                });
+            }
+
+            "inline_assembly"
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {

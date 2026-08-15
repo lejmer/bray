@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
+use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_symbols::{
     AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
     GenericSubstitutionId, ImplementationCoherenceEvidence, ImplementationInstanceId,
     ImplementationSubject, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
-    TargetFactDependency, TraitApplicationId, TypeId,
+    SymbolKeyData, TargetFactDependency, TraitApplicationId, TypeId,
 };
 
 use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
@@ -456,6 +457,35 @@ impl ImportedSemanticFacts {
     /// Returns canonical constant values in interface table order.
     pub fn constant_values(&self) -> &[ConstantValueId] {
         &self.constant_values
+    }
+
+    /// Returns the durable constant values corresponding to the imported IDs.
+    pub(crate) fn interface_constant_values(&self) -> &[crate::InterfaceConstantValue] {
+        self.interface_facts.constant_values()
+    }
+
+    /// Returns canonical assembly elements for a tuple or the language unit type.
+    pub(crate) fn assembly_value_element_types(&self, ty: TypeId) -> Option<Vec<TypeId>> {
+        let slot = self.types.iter().position(|candidate| *candidate == ty)?;
+        let ty = self.interface_facts.types().get(slot)?;
+
+        let elements = match ty {
+            crate::InterfaceType::Tuple(elements) => elements,
+            crate::InterfaceType::Named {
+                definition: crate::InterfaceSymbolReference::CompilerKnown(reference),
+                ..
+            } if matches!(
+                reference.key().data(),
+                SymbolKeyData::CompilerKnownDeclaration { key, .. }
+                    if CompilerKnownDeclarationKey::try_new("Unit").as_ref() == Some(key)
+            ) => return Some(Vec::new()),
+            _ => return None,
+        };
+
+        elements
+            .iter()
+            .map(|element| self.types.get(element.to_index()?).copied())
+            .collect()
     }
 
     /// Returns canonical open constant terms in interface table order.

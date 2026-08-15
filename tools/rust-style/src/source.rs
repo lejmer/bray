@@ -9,13 +9,17 @@ const EXCLUDED_DIRECTORIES: [&str; 4] = [".cargo-targets", ".git", ".worktrees",
 
 pub(super) fn rust_source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut paths = Vec::new();
-    collect_rust_source_paths(root, &mut paths)?;
+    collect_rust_source_paths(root, root, &mut paths)?;
     paths.sort();
 
     Ok(paths)
 }
 
-fn collect_rust_source_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+fn collect_rust_source_paths(
+    root: &Path,
+    directory: &Path,
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), String> {
     let entries = std::fs::read_dir(directory)
         .map_err(|error| io_error("read directory", directory, error))?;
 
@@ -29,8 +33,8 @@ fn collect_rust_source_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Resu
         let path = entry.path();
 
         if file_type.is_dir() {
-            if !is_excluded_directory(&path) {
-                collect_rust_source_paths(&path, paths)?;
+            if !is_excluded_directory(root, &path) {
+                collect_rust_source_paths(root, &path, paths)?;
             }
         } else if file_type.is_file() && path.extension().is_some_and(|extension| extension == "rs")
         {
@@ -41,10 +45,13 @@ fn collect_rust_source_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Resu
     Ok(())
 }
 
-fn is_excluded_directory(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| EXCLUDED_DIRECTORIES.contains(&name))
+fn is_excluded_directory(root: &Path, path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    EXCLUDED_DIRECTORIES.contains(&name)
+        && (name != "target" || path.parent().is_some_and(|parent| parent == root))
 }
 
 pub(super) fn source_text(source: &str, range: TextRange) -> &str {
@@ -221,11 +228,23 @@ mod tests {
 
     #[test]
     fn source_discovery_excludes_repository_metadata_and_build_workspaces() {
+        let root = Path::new("workspace");
+
         for directory in [".cargo-targets", ".git", ".worktrees", "target"] {
-            assert!(is_excluded_directory(Path::new(directory)));
+            assert!(is_excluded_directory(root, &root.join(directory)));
         }
 
-        assert!(!is_excluded_directory(Path::new("crates")));
+        assert!(!is_excluded_directory(root, &root.join("crates")));
+
+        assert!(!is_excluded_directory(
+            root,
+            &root.join("crates/example/src/target")
+        ));
+
+        assert!(is_excluded_directory(
+            root,
+            &root.join("crates/example/.git")
+        ));
     }
 
     #[test]

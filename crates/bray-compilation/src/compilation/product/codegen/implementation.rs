@@ -730,9 +730,11 @@ mod tests {
         CodegenStatus, DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement,
         OptimizationLevel, partition_codegen_units,
     };
+    use bray_bound_tree::BoundCallResult;
     use bray_compiler_known::RepresentationRole;
     use bray_ir::{
-        MirHelperReference, MirHostOperation, MirOperationKind, MirUnitKey, MirUnitKind,
+        MirCallTarget, MirHelperReference, MirHostOperation, MirOperationKind, MirTerminatorKind,
+        MirUnitKey, MirUnitKind,
     };
     use bray_linker::{
         LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
@@ -764,7 +766,9 @@ mod tests {
         NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
         SymbolOrigin, TraitApplicationData, TypeData,
     };
-    use bray_target::NativeTarget;
+    use bray_target::{
+        NativeTarget, TargetAddressSpaceFacts, TargetFacts, TargetProfile,
+    };
     use bray_testing::TemporaryFile;
 
     use super::NativeProductFactError;
@@ -796,6 +800,211 @@ mod tests {
         "{\n",
         "    let accepted: i32 = accept<i32>(1);\n",
         "    let repeated: usize = repeat<2>();\n",
+        "}\n",
+    );
+
+    const TARGET_FENCE_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "@copy\n",
+        "public union FenceChoice\n",
+        "{\n",
+        "    Acquire;\n",
+        "    Release;\n",
+        "    AcquireRelease;\n",
+        "    SequentiallyConsistent;\n",
+        "}\n",
+        "\n",
+        "public trusted func fence(order: FenceChoice) uses(intrinsic)\n",
+        "{\n",
+        "    match order\n",
+        "    {\n",
+        "        case FenceChoice.Acquire\n",
+        "        {\n",
+        "            trusted core.target.hardware_fence(MemoryOrder.Acquire);\n",
+        "        }\n",
+        "        case FenceChoice.Release\n",
+        "        {\n",
+        "            trusted core.target.hardware_fence(MemoryOrder.Release);\n",
+        "        }\n",
+        "        case FenceChoice.AcquireRelease\n",
+        "        {\n",
+        "            trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);\n",
+        "        }\n",
+        "        case FenceChoice.SequentiallyConsistent\n",
+        "        {\n",
+        "            trusted core.target.hardware_fence(\n",
+        "                MemoryOrder.SequentiallyConsistent,\n",
+        "            );\n",
+        "        }\n",
+        "    }\n",
+        "}\n",
+    );
+
+    const STRUCTURAL_ASSEMBLY_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "public trusted func assemble(pos value: i32) -> i32\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    let outputs: (i32, i32) = trusted core.target.assembly<\n",
+        "        (i32, i32, i32),\n",
+        "        (i32, i32),\n",
+        "    >(\n",
+        "        template = \"\",\n",
+        "        constraints = \"+reg,=reg,reg,i\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 1,\n",
+        "        inputs = (value, value, 7),\n",
+        "    );\n",
+        "\n",
+        "    return outputs.0;\n",
+        "}\n",
+        "\n",
+        "func alternate() -> never\n",
+        "{\n",
+        "    loop {}\n",
+        "}\n",
+        "\n",
+        "func generic_alternate<T>(pos value: T) -> never\n",
+        "{\n",
+        "    loop {}\n",
+        "}\n",
+        "\n",
+        "public trusted func assemble_addresses(pos pointer: RawPointer<u8>)\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    let ignored: (i32,) = trusted core.target.assembly<\n",
+        "        (func() -> never, func(pos value: i32) -> never, RawPointer<u8>),\n",
+        "        (i32,),\n",
+        "    >(\n",
+        "        template = \"\",\n",
+        "        constraints = \"=reg,s,s,m\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 1,\n",
+        "        inputs = (alternate, generic_alternate, pointer),\n",
+        "    );\n",
+        "}\n",
+        "\n",
+        "public trusted func branch(pos value: i32) -> i32\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    let output: (i32,) = trusted core.target.branching_assembly<\n",
+        "        (i32,),\n",
+        "        (i32,),\n",
+        "        (func() -> never,),\n",
+        "    >(\n",
+        "        template = \"\",\n",
+        "        constraints = \"+reg,label\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 1,\n",
+        "        inputs = (value,),\n",
+        "        labels = (alternate,),\n",
+        "    );\n",
+        "\n",
+        "    return output.0;\n",
+        "}\n",
+    );
+
+    const MEMORY_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module memory_assembly;\n",
+        "\n",
+        "public trusted func assemble_memory(pos pointer: RawPointer<u8>)\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.assembly<(RawPointer<u8>,), unit>(\n",
+        "        template = \"incb $0\",\n",
+        "        constraints = \"m\",\n",
+        "        clobbers = \"memory\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const VOID_BRANCHING_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module void_branching_assembly;\n",
+        "\n",
+        "func alternate() -> never\n",
+        "{\n",
+        "    loop {}\n",
+        "}\n",
+        "\n",
+        "public trusted func branch_void(pos pointer: RawPointer<u8>)\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.branching_assembly<\n",
+        "        (RawPointer<u8>,),\n",
+        "        unit,\n",
+        "        (func() -> never,),\n",
+        "    >(\n",
+        "        template = \"\",\n",
+        "        constraints = \"m,label\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "        labels = (alternate,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const DIVERGING_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module diverging_assembly;\n",
+        "\n",
+        "public trusted func diverge() -> never\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.diverging_assembly<(i32,)>(\n",
+        "        template = \"ud2\",\n",
+        "        constraints = \"reg\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (0,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const DEVICE_VOLATILE_CONTRACT_SOURCE: &str = concat!(
+        "trusted module device_contract;\n",
+        "\n",
+        "trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> u8\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.device_volatile_store<u8>(pointer, value);\n",
+        "    trusted core.target.assembly<(DevicePointer<u8>,), unit>(\n",
+        "        template = \"\",\n",
+        "        constraints = \"m\",\n",
+        "        clobbers = \"memory\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "    );\n",
+        "    return trusted core.target.device_volatile_load<u8>(pointer);\n",
+        "}\n",
+    );
+
+    const DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func alternate() -> never\n",
+        "{\n",
+        "    loop {}\n",
+        "}\n",
+        "\n",
+        "func identity<T>(pos value: T) -> T\n",
+        "{\n",
+        "    return value;\n",
+        "}\n",
+        "\n",
+        "public func exercise() -> func() -> never\n",
+        "{\n",
+        "    return identity<(func() -> never,)>(value = (alternate,)).0;\n",
         "}\n",
     );
 
@@ -1348,6 +1557,256 @@ mod tests {
             mapping.value() == borrowed.value()
                 && mapping.semantic_type() == mapping.representation()
         }));
+    }
+
+    #[test]
+    fn target_fence_wrapper_emits_valid_native_units() {
+        let (backend, compilation) =
+            codegen_compilation_for_product(TARGET_FENCE_SOURCE, ProductKind::Library);
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("target fence wrapper must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn structural_assembly_emits_valid_native_units() {
+        let (backend, compilation) =
+            codegen_compilation_for_product(STRUCTURAL_ASSEMBLY_SOURCE, ProductKind::Library);
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "branch",
+            ))
+            .unwrap_or_else(|error| panic!("branching assembly must lower: {error:?}"));
+
+        let mir = lowered
+            .value()
+            .as_ref()
+            .and_then(bray_lowering::LoweredUnit::mir)
+            .unwrap_or_else(|| panic!("branching assembly must produce MIR: {lowered:#?}"));
+
+        let assembly = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::InlineAssembly(assembly) => Some(assembly),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("branching assembly must lower as a terminator"));
+
+        let [alternate] = assembly.alternates() else {
+            panic!("one checked label must produce one alternate trampoline");
+        };
+
+        let alternate = mir
+            .block(*alternate)
+            .unwrap_or_else(|| panic!("alternate trampoline must exist"));
+
+        let [operation] = alternate.operations() else {
+            panic!("alternate trampoline must contain one callback call");
+        };
+
+        let operation = mir
+            .operation(*operation)
+            .unwrap_or_else(|| panic!("alternate callback operation must exist"));
+
+        let MirOperationKind::Call(call) = operation.kind() else {
+            panic!("alternate trampoline must call its checked label");
+        };
+
+        let MirCallTarget::Indirect { .. } = call.target() else {
+            panic!("assembly labels must remain runtime callable values");
+        };
+
+        let never = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<bray_symbols::StructSymbolId>(RepresentationRole::Never)
+            .and_then(|definition| {
+                compilation
+                    .semantic_value_store()
+                    .ok()
+                    .and_then(|values| {
+                        crate::compilation::substitution::named_type(
+                            values,
+                            NamedTypeSymbolId::Struct(definition),
+                        )
+                        .ok()
+                    })
+            })
+            .unwrap_or_else(|| panic!("never representation must resolve"));
+
+        assert!(call.arguments().is_empty());
+        assert_eq!(call.result(), BoundCallResult::Immediate(never));
+
+        assert!(matches!(
+            alternate.terminator().kind(),
+            MirTerminatorKind::Unreachable
+        ));
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("structural assembly must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn indirect_memory_assembly_emits_valid_native_units() {
+        let (backend, compilation) = codegen_compilation_for_product(
+            MEMORY_ASSEMBLY_SOURCE,
+            ProductKind::Library,
+        );
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("memory assembly must realize: {error:?}"));
+
+        let artifacts =
+            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+
+        assert!(artifacts.iter().any(|artifact| {
+            std::str::from_utf8(artifact)
+                .is_ok_and(|artifact| artifact.contains("ptr elementtype(i8)"))
+        }));
+    }
+
+    #[test]
+    fn void_branching_assembly_emits_valid_native_units() {
+        assert_source_emits_valid_native_units(
+            VOID_BRANCHING_ASSEMBLY_SOURCE,
+            crate::BuildConfiguration::Development,
+        );
+    }
+
+    #[test]
+    fn impure_diverging_assembly_survives_optimized_native_codegen() {
+        let (backend, compilation) = codegen_compilation_for_product(
+            DIVERGING_ASSEMBLY_SOURCE,
+            ProductKind::Library,
+        );
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Release,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("diverging assembly must realize: {error:?}"));
+
+        let artifacts =
+            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+
+        assert!(artifacts.iter().any(|artifact| {
+            std::str::from_utf8(artifact)
+                .is_ok_and(|artifact| artifact.contains("asm sideeffect \"ud2\""))
+        }));
+    }
+
+    #[test]
+    fn device_volatile_contracts_accept_device_pointer_storage_facts() {
+        let native = NativeTarget::X86_64LinuxGnu.profile();
+        let baseline = native.facts();
+
+        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+            .unwrap_or_else(|| panic!("test target must expose host and device address spaces"));
+
+        let facts = TargetFacts::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            baseline.abis(),
+            baseline.c_abi(),
+            address_spaces,
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        let profile = TargetProfile::try_new(
+            native.identity().clone(),
+            native.machine().clone(),
+            facts,
+        )
+        .unwrap_or_else(|error| panic!("device-capable target profile must validate: {error:?}"));
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                DEVICE_VOLATILE_CONTRACT_SOURCE,
+                0,
+            )],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::new(profile, RuntimeAbiVersion::new(1, 0)),
+            ),
+        );
+
+        let compilation = crate::Compilation::load(request)
+            .unwrap_or_else(|error| panic!("device contract compilation must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    fn assert_source_emits_valid_native_units(
+        source: &str,
+        configuration: crate::BuildConfiguration,
+    ) {
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Library);
+
+        let facts = compilation
+            .native_product_facts(test_product_identity(), configuration, None, [], None)
+            .unwrap_or_else(|error| panic!("target-control source must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn explicit_generic_tuple_expectations_reach_direct_callable_elements() {
+        let _ = codegen_compilation_for_product(
+            DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE,
+            ProductKind::Library,
+        );
     }
 
     #[test]

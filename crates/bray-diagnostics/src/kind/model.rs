@@ -345,6 +345,8 @@ define_diagnostic_kinds! {
     CheckingTargetAbiRepresentationUnsupported,
     /// The selected target does not provide a compiler-provided memory operation.
     CheckingTargetMemoryOperationUnavailable,
+    /// A target-control literal contract is invalid for the selected target.
+    CheckingInvalidTargetControlContract,
     /// A compiler-provided memory operation lacks a required trusted guarantee.
     CheckingMissingTrustedMemoryGuarantees,
     /// A compiler-provided memory operation uses invalidated allocation storage.
@@ -755,6 +757,7 @@ impl DiagnosticKind {
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
+            Self::CheckingInvalidTargetControlContract => 7096,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
@@ -1099,6 +1102,9 @@ impl DiagnosticKind {
             }
             Self::CheckingTargetMemoryOperationUnavailable => {
                 "checking_target_memory_operation_unavailable"
+            }
+            Self::CheckingInvalidTargetControlContract => {
+                "checking_invalid_target_control_contract"
             }
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 "checking_missing_trusted_memory_guarantees"

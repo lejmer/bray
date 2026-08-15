@@ -289,8 +289,9 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
+        literals: &bray_bound_tree::CheckedLiteralValues,
     ) -> CheckerOutcome<CheckedMemoryOperations> {
-        check_memory_operations(request, selections)
+        check_memory_operations(request, selections, literals)
     }
 }
 

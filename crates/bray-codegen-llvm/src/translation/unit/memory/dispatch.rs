@@ -1,4 +1,4 @@
-use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit};
+use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit, VolatileAddressSpace};
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
 use inkwell::IntPredicate;
@@ -193,6 +193,60 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::SliceLength => {
                 self.translate_slice_length(memory).map(Some)
             }
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee,
+                address_space,
+                ..
+            } => {
+                self.translate_volatile_read(memory, pointee, address_space)
+                    .map(Some)
+            }
+            CheckedMemoryOperationKind::VolatileWrite { address_space, .. } => {
+                self.translate_volatile_write(memory, address_space)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::ExposeAddress { .. } => {
+                self.translate_expose_address(memory).map(Some)
+            }
+            CheckedMemoryOperationKind::FromExposedAddress { .. } => {
+                self.translate_from_exposed_address(operation, memory).map(Some)
+            }
+            CheckedMemoryOperationKind::CompareAddress { comparison, .. } => {
+                self.translate_address_comparison(memory, comparison).map(Some)
+            }
+            CheckedMemoryOperationKind::Fence {
+                compiler_only,
+                order,
+            } => {
+                self.translate_fence(order, compiler_only)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::CatastrophicAbort => {
+                self.translate_catastrophic_abort()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::DebuggerTrap => {
+                self.translate_debugger_trap()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::UnreachableTermination => Ok(None),
+            CheckedMemoryOperationKind::SpinLoopHint => {
+                self.translate_spin_loop_hint()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::TargetFeatureEnabled { feature } => {
+                self.translate_target_feature(feature).map(Some)
+            }
+            CheckedMemoryOperationKind::InlineAssembly {
+                output, contract, ..
+            } => {
+                self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
+            }
         }
     }
 
@@ -200,12 +254,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         kind: CheckedMemoryOperationKind,
     ) -> Result<(), CodegenFailure> {
-        let operations = self.request.target().profile().facts().operations();
+        let facts = self.request.target().profile().facts();
+        let operations = facts.operations();
+
+        let control = bray_target::TargetControlFacts::for_architecture(
+            self.request.target().profile().machine().architecture(),
+        );
 
         let available = match kind {
             CheckedMemoryOperationKind::LayoutQuery { .. }
             | CheckedMemoryOperationKind::SliceLength
-            | CheckedMemoryOperationKind::CallbackState { .. } => true,
+            | CheckedMemoryOperationKind::CallbackState { .. }
+            | CheckedMemoryOperationKind::Fence { .. }
+            | CheckedMemoryOperationKind::CatastrophicAbort
+            | CheckedMemoryOperationKind::DebuggerTrap
+            | CheckedMemoryOperationKind::UnreachableTermination
+            | CheckedMemoryOperationKind::SpinLoopHint
+            | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
@@ -222,6 +287,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::RawBufferRelocate { .. } => {
                 operations.allocation() && operations.raw_memory()
             }
+            CheckedMemoryOperationKind::VolatileRead {
+                address_space: VolatileAddressSpace::Device,
+                ..
+            }
+            | CheckedMemoryOperationKind::VolatileWrite {
+                address_space: VolatileAddressSpace::Device,
+                ..
+            } => operations.raw_memory() && facts.address_spaces().device(),
+            CheckedMemoryOperationKind::InlineAssembly { .. } => control.inline_assembly(),
             _ => operations.raw_memory(),
         };
 
@@ -239,7 +313,8 @@ mod tests {
 
     use bray_bound_tree::{
         CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
-        MemoryOffsetUnit, MemoryReadKind,
+        MemoryOffsetUnit, MemoryOrder, MemoryReadKind, PointerAddressComparison,
+        VolatileAddressSpace,
     };
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
@@ -262,7 +337,8 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
-        TargetLayoutContract, TargetOperationFacts, TargetProfile, TargetValueLayout,
+        TargetAddressSpaceFacts, TargetFacts, TargetLayoutContract, TargetOperationFacts,
+        TargetProfile, TargetValueLayout,
     };
     use inkwell::context::Context;
 
@@ -274,6 +350,7 @@ mod tests {
         aligned_value: TypeId,
         borrow: TypeId,
         pointer: TypeId,
+        device_pointer: TypeId,
         usize: TypeId,
         boolean: TypeId,
         tag: TypeId,
@@ -303,9 +380,17 @@ mod tests {
 
         let ir = module.print_to_string().to_string();
 
+        assert!(module.verify().is_ok(), "{ir}");
+
         for spelling in [
             "llvm.memcpy",
             "llvm.memmove",
+            "load volatile",
+            "store volatile",
+            "ptrtoint",
+            "inttoptr",
+            "llvm.debugtrap",
+            "pause",
             bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
             bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
         ] {
@@ -314,6 +399,19 @@ mod tests {
                 "missing generated LLVM for {spelling}"
             );
         }
+
+        assert!(
+            ir.lines()
+                .any(|line| line.contains("load volatile i32, ptr addrspace(5)")),
+            "device volatile load did not retain target address space 5: {ir}"
+        );
+
+        assert!(
+            ir.lines().any(|line| {
+                line.contains("store volatile i32") && line.contains("ptr addrspace(5)")
+            }),
+            "device volatile store did not retain target address space 5: {ir}"
+        );
 
         for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
             let call = ir
@@ -434,8 +532,8 @@ mod tests {
                 backend.prepare_module(fixture.request(), &context),
                 Err(bray_codegen::CodegenFailure::UnsupportedTarget)
             ));
+            }
         }
-    }
 
     fn memory_operation_fixture(
         backend: &LlvmCodeGenerator,
@@ -613,6 +711,136 @@ mod tests {
             [types.pointer, types.value],
             None,
         );
+
+        let volatile_read = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Host,
+                kind: MemoryReadKind::Copy,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.value),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("volatile read must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileWrite {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Host,
+            },
+            [
+                MirOperand::Value(address),
+                MirOperand::Value(volatile_read),
+            ],
+            [types.pointer, types.value],
+            None,
+        );
+
+        let device_pointer = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::Null {
+                pointee: types.value,
+            },
+            [],
+            [],
+            Some(types.device_pointer),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("device null operation must produce a value"));
+
+        let device_value = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Device,
+                kind: MemoryReadKind::Copy,
+            },
+            [MirOperand::Value(device_pointer)],
+            [types.device_pointer],
+            Some(types.value),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("device volatile read must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileWrite {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Device,
+            },
+            [
+                MirOperand::Value(device_pointer),
+                MirOperand::Value(device_value),
+            ],
+            [types.device_pointer, types.value],
+            None,
+        );
+
+        let exposed = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::ExposeAddress {
+                pointee: types.value,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.usize),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("address exposure must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::FromExposedAddress {
+                pointee: types.value,
+            },
+            [MirOperand::Value(exposed)],
+            [types.usize],
+            Some(types.pointer),
+        );
+
+        for comparison in [PointerAddressComparison::Equal, PointerAddressComparison::Less] {
+            push_memory(
+                &mut builder,
+                entry,
+                &source,
+                CheckedMemoryOperationKind::CompareAddress {
+                    pointee: types.value,
+                    comparison,
+                },
+                [MirOperand::Value(address), MirOperand::Value(null)],
+                [types.pointer, types.pointer],
+                Some(types.boolean),
+            );
+        }
+
+        for kind in [
+            CheckedMemoryOperationKind::Fence {
+                compiler_only: true,
+                order: MemoryOrder::SequentiallyConsistent,
+            },
+            CheckedMemoryOperationKind::DebuggerTrap,
+            CheckedMemoryOperationKind::SpinLoopHint,
+        ] {
+            push_memory(&mut builder, entry, &source, kind, [], [], None);
+        }
 
         for kind in [MemoryCopyKind::NonOverlapping, MemoryCopyKind::Overlapping] {
             push_memory(
@@ -993,7 +1221,8 @@ mod tests {
         let aligned_value = intern_type(&store, TypeData::tuple([value, value]));
         let borrow = intern_type(&store, TypeData::tuple([value]));
         let pointer = intern_type(&store, TypeData::tuple([borrow]));
-        let usize = intern_type(&store, TypeData::tuple([pointer]));
+        let device_pointer = intern_type(&store, TypeData::tuple([pointer]));
+        let usize = intern_type(&store, TypeData::tuple([device_pointer]));
         let boolean = intern_type(&store, TypeData::tuple([usize]));
         let tag = intern_type(&store, TypeData::tuple([boolean]));
         let layout = intern_type(&store, TypeData::tuple([tag]));
@@ -1010,6 +1239,7 @@ mod tests {
             aligned_value,
             borrow,
             pointer,
+            device_pointer,
             usize,
             boolean,
             tag,
@@ -1027,10 +1257,21 @@ mod tests {
     fn memory_target(raw_memory: bool, allocation: bool) -> bray_codegen::CodegenTarget {
         let profile = test_target_profile();
 
-        let facts = profile
-            .facts()
-            .clone()
-            .with_operations(TargetOperationFacts::new(raw_memory, allocation));
+        let baseline = profile.facts();
+
+        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+            .unwrap_or_else(|| panic!("memory test address spaces must be valid"));
+
+        let facts = TargetFacts::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            baseline.abis(),
+            baseline.c_abi(),
+            address_spaces,
+            baseline.alignments(),
+            TargetOperationFacts::new(raw_memory, allocation),
+        );
 
         let profile =
             TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
@@ -1096,6 +1337,14 @@ mod tests {
                 CodegenTypeKind::Pointer {
                     target: types.value,
                     address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
+            CodegenTypeMapping::new(
+                types.device_pointer,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.value,
+                    address_space: TargetAddressSpaceKind::Device,
                 },
             ),
             CodegenTypeMapping::new(

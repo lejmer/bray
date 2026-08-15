@@ -318,6 +318,7 @@ const fn diagnostic_representation(role: RepresentationRole) -> Option<Diagnosti
         RepresentationRole::Never => Some(DiagnosticType::Never),
         RepresentationRole::String => Some(DiagnosticType::String),
         RepresentationRole::RawPointer
+        | RepresentationRole::DevicePointer
         | RepresentationRole::Result
         | RepresentationRole::RunResult
         | RepresentationRole::PanicReport

@@ -33,6 +33,20 @@ pub enum CodegenCallSite {
     Operation(MirOperationId),
     /// An iterator call stored by one block terminator.
     Terminator(MirBlockId),
+    /// A callable symbol operand retained by one assembly operation.
+    InlineAssemblyOperation {
+        /// Containing MIR operation.
+        operation: MirOperationId,
+        /// Symbol ordinal among the operation's assembly symbol operands.
+        symbol: usize,
+    },
+    /// A callable symbol operand retained by one assembly terminator.
+    InlineAssemblyTerminator {
+        /// Containing MIR block.
+        block: MirBlockId,
+        /// Symbol ordinal among the terminator's assembly symbol operands.
+        symbol: usize,
+    },
 }
 
 /// The concrete realization selected for one direct MIR call.

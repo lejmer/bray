@@ -6,6 +6,7 @@ ambient/target-facts.braydef
 ambient/traits.braydef
 ambient/target-scalars.braydef
 core/memory.braydef
+core/target-control.braydef
 recognized/conversion.braydef
 recognized/memory.braydef
 recognized/string.braydef

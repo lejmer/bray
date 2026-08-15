@@ -109,9 +109,11 @@ mod tests {
         let Some(bray) = TargetCallingConvention::try_new("bray-x86_64") else {
             panic!("test Bray calling convention must be valid");
         };
+
         let Some(c) = TargetCallingConvention::try_new("sysv64") else {
             panic!("test C calling convention must be valid");
         };
+
         let Some(system) = TargetCallingConvention::try_new("sysv64") else {
             panic!("test system calling convention must be valid");
         };

@@ -458,17 +458,12 @@ fn metadata(
                         .into_iter()
                         .chain([RuntimeCapability::Reactor]),
                 )?
-                .with_platform_services([
-                    PlatformServiceRole::StandardInputRead,
-                    PlatformServiceRole::StandardOutputWrite,
-                    PlatformServiceRole::StandardOutputFlush,
-                    PlatformServiceRole::StandardOutputLock,
-                    PlatformServiceRole::StandardOutputUnlock,
-                    PlatformServiceRole::StandardErrorWrite,
-                    PlatformServiceRole::StandardErrorFlush,
-                    PlatformServiceRole::StandardErrorLock,
-                    PlatformServiceRole::StandardErrorUnlock,
-                ])
+                .with_platform_services(
+                    RuntimeArchiveKind::TestHost
+                        .platform_services()
+                        .iter()
+                        .copied(),
+                )
                 .with_dependencies([common_identity.clone()]),
             );
         }
@@ -722,6 +717,23 @@ impl RuntimeArchiveKind {
             Self::TestHost => "bray_runtime_test_host",
         }
     }
+
+    pub(super) const fn platform_services(self) -> &'static [PlatformServiceRole] {
+        match self {
+            Self::TestHost => &[
+                PlatformServiceRole::StandardInputRead,
+                PlatformServiceRole::StandardOutputWrite,
+                PlatformServiceRole::StandardOutputFlush,
+                PlatformServiceRole::StandardOutputLock,
+                PlatformServiceRole::StandardOutputUnlock,
+                PlatformServiceRole::StandardErrorWrite,
+                PlatformServiceRole::StandardErrorFlush,
+                PlatformServiceRole::StandardErrorLock,
+                PlatformServiceRole::StandardErrorUnlock,
+            ],
+            _ => &[],
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -750,7 +762,12 @@ pub(super) enum CommandError {
     NativeSymbolToolUnavailable(bray_tooling::LlvmToolPathError),
     NativeSymbolInspection(std::io::Error),
     NativeSymbolInspectionFailed,
-    RuntimeComponentBoundary(RuntimeArchiveKind),
+    RuntimeComponentBoundary {
+        kind: RuntimeArchiveKind,
+        missing: Vec<String>,
+        forbidden: Vec<String>,
+        undeclared_platform_services: Vec<String>,
+    },
     RuntimePartitionTool(std::io::Error),
     RuntimePartitionToolUnavailable(bray_tooling::LlvmToolPathError),
     RuntimePartitionFailed,
@@ -829,10 +846,18 @@ impl fmt::Display for CommandError {
             Self::NativeSymbolInspectionFailed => {
                 formatter.write_str("runtime archive symbol inspection failed")
             }
-            Self::RuntimeComponentBoundary(kind) => {
+            Self::RuntimeComponentBoundary {
+                kind,
+                missing,
+                forbidden,
+                undeclared_platform_services,
+            } => {
                 write!(
                     formatter,
-                    "runtime {kind:?} archive has an invalid exported surface"
+                    "runtime {kind:?} archive has an invalid exported surface: missing [{}], forbidden [{}], undeclared platform services [{}]",
+                    missing.join(", "),
+                    forbidden.join(", "),
+                    undeclared_platform_services.join(", ")
                 )
             }
             Self::RuntimePartitionTool(error) => {
