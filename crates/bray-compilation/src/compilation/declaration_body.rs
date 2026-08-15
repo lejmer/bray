@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     CallableParameterDefaultQuery, CallableParameterSymbolId, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, PredicateDefinition,
     PredicateDefinitionQuery, PredicateDefinitionState, PredicateDefinitionSymbolId,
-    StructFieldDefaultQuery, StructFieldSymbolId, SymbolFactRequest,
+    StructFieldDefaultQuery, StructFieldSymbolId, SymbolQueryRequest,
     TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
     UnionPayloadFieldDefaultQuery, UnionPayloadFieldSymbolId,
 };
 
 use super::Compilation;
-use super::binder::binder_fact_error;
+use super::binder::binding_query_error;
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -24,10 +24,10 @@ impl Compilation {
         let binding_context = self.binding_context(&self.state.cancellation)?;
 
         binding_context
-            .symbol_fact(SymbolFactRequest::<CallableParameterDefaultQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<CallableParameterDefaultQuery>::new(
                 owner,
             ))
-            .map_err(binder_fact_error)
+            .map_err(binding_query_error)
     }
 
     /// Returns the runtime default owned by one struct field.
@@ -38,8 +38,8 @@ impl Compilation {
         let binding_context = self.binding_context(&self.state.cancellation)?;
 
         binding_context
-            .symbol_fact(SymbolFactRequest::<StructFieldDefaultQuery>::new(owner))
-            .map_err(binder_fact_error)
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldDefaultQuery>::new(owner))
+            .map_err(binding_query_error)
     }
 
     /// Returns the runtime default owned by one union payload field.
@@ -50,10 +50,10 @@ impl Compilation {
         let binding_context = self.binding_context(&self.state.cancellation)?;
 
         binding_context
-            .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldDefaultQuery>::new(
                 owner,
             ))
-            .map_err(binder_fact_error)
+            .map_err(binding_query_error)
     }
 
     /// Returns the semantic definition state of one predicate declaration.
@@ -66,16 +66,18 @@ impl Compilation {
 
         match owner {
             PredicateDefinitionSymbolId::Predicate(owner) => binding_context
-                .symbol_fact(SymbolFactRequest::<PredicateDefinitionQuery>::new(owner))
-                .map_err(binder_fact_error),
+                .resolve_symbol_query(SymbolQueryRequest::<PredicateDefinitionQuery>::new(owner))
+                .map_err(binding_query_error),
             PredicateDefinitionSymbolId::TraitMember(owner) => binding_context
-                .symbol_fact(SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(owner))
-                .map_err(binder_fact_error),
-            PredicateDefinitionSymbolId::TraitFulfillment(owner) => binding_context
-                .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(owner),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitPredicateMemberDefinitionQuery>::new(owner),
                 )
-                .map_err(binder_fact_error),
+                .map_err(binding_query_error),
+            PredicateDefinitionSymbolId::TraitFulfillment(owner) => binding_context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(owner),
+                )
+                .map_err(binding_query_error),
         }
     }
 }

@@ -247,18 +247,17 @@ mod tests {
         BoundControlTransferKind, BoundDependencyContract, BoundErrorExpression, BoundExpression,
         BoundExpressionId, BoundLiteralExpression, BoundLiteralKind, BoundOperator,
         BoundResolvedCall, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsync,
-        CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
-        CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
-        CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-        CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, ControlCompletion,
-        ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        InlineAssemblyContract, Liveness, MemoryAddressKind, MemoryCopyKind,
-        MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus,
-        MemoryOrder, MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall,
-        SelectedConversion, SelectedOperation, SelectedPropagation, SelectedPropagationBoundary,
-        SemanticSelection, SemanticSelectionEntry, StorageFlow, StoragePlanBuilder,
-        VolatileAddressSpace,
+        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior,
+        CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
+        CheckedLiteralValueEntry, CheckedLiteralValues, CheckedMemoryOperation,
+        CheckedMemoryOperationKind, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+        CheckedSemanticSelections, ControlCompletion, ControlCompletionKind, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, InlineAssemblyContract, Liveness,
+        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
+        MemoryOperationDecision, MemoryOperationStatus, MemoryOrder, MemoryReadKind,
+        OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation,
+        SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+        SemanticSelectionEntry, StorageFlow, StoragePlanBuilder, VolatileAddressSpace,
     };
     use bray_ir::{
         MirBinaryOperator, MirCallArgument, MirOperationKind, MirTerminatorKind, MirUnitKind,
@@ -1146,16 +1145,14 @@ mod tests {
         let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
-        let refinements =
-            CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-                .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
+            .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
 
         let dependencies = CheckedDependencyContracts::try_new(
             &unit,

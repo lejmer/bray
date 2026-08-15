@@ -20,8 +20,8 @@ pub use executable::{
 pub use identity::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationTemplateSchemaRevision,
     PackageImplementationConfiguration, PackageImplementationIdentity,
-    PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
-    PackageImplementationTargetProperties,
+    PackageImplementationTargetProperties, PackageImplementationTargetProperty,
+    PackageImplementationTargetPropertyValue,
 };
 pub use model::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,

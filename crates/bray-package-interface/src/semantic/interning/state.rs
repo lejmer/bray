@@ -36,7 +36,12 @@ impl InternState {
     pub(super) fn from_imported(semantics: &ImportedSemantics) -> Self {
         Self {
             types: semantics.types.iter().copied().map(Some).collect(),
-            constant_values: semantics.constant_values.iter().copied().map(Some).collect(),
+            constant_values: semantics
+                .constant_values
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
             constant_terms: semantics.constant_terms.iter().copied().map(Some).collect(),
             dependency_contracts: semantics
                 .dependency_contracts
@@ -45,8 +50,18 @@ impl InternState {
                 .map(Some)
                 .collect(),
             substitutions: semantics.substitutions.iter().copied().map(Some).collect(),
-            trait_applications: semantics.trait_applications.iter().copied().map(Some).collect(),
-            callable_instances: semantics.callable_instances.iter().copied().map(Some).collect(),
+            trait_applications: semantics
+                .trait_applications
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            callable_instances: semantics
+                .callable_instances
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
             implementation_instances: semantics
                 .implementation_instances
                 .iter()

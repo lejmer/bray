@@ -9,7 +9,7 @@ use super::ResolvedName;
 use super::diagnostic::lookup_diagnostic;
 use super::path::token_reference;
 use super::path::{NameAccess, bind_module_path};
-use crate::{BinderFactContext, BinderFactResult};
+use crate::{BindingQueryContext, BindingQueryResult};
 
 /// A named implementation selected by one explicit source `using` declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,16 +32,19 @@ impl BoundImplementationUsing {
 
 /// Binds one module-level path as a named trait implementation.
 pub fn bind_named_trait_implementation_path<C>(
-    facts: &C,
+    binding_context: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BinderFactResult<MemberLookupResult<NamedTraitImplementationSymbolId, AnySymbolId>>
+) -> BindingQueryResult<MemberLookupResult<NamedTraitImplementationSymbolId, AnySymbolId>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     Ok(classify_named_trait_implementation(bind_module_path(
-        facts, module, path, access,
+        binding_context,
+        module,
+        path,
+        access,
     )?))
 }
 
@@ -50,15 +53,15 @@ where
 /// Valid `using` declarations for other symbol categories produce no implementation
 /// activation and no diagnostic.
 pub fn bind_implementation_using<C>(
-    facts: &C,
+    binding_context: &C,
     module: ModuleSymbolId,
     declaration: &UsingDeclarationSyntax,
-) -> BinderFactResult<DiagnosticResult<Option<BoundImplementationUsing>>>
+) -> BindingQueryResult<DiagnosticResult<Option<BoundImplementationUsing>>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    if facts.is_cancelled() {
-        return Err(crate::BinderFactError::Cancelled);
+    if binding_context.is_cancelled() {
+        return Err(crate::BindingQueryError::Cancelled);
     }
 
     let access = if declaration.internal_keyword().is_some() {
@@ -68,7 +71,7 @@ where
     };
 
     let path = declaration.path();
-    let result = bind_named_trait_implementation_path(facts, module, &path, access)?;
+    let result = bind_named_trait_implementation_path(binding_context, module, &path, access)?;
 
     let value = match &result {
         MemberLookupResult::Found(implementation) => Some(BoundImplementationUsing {
@@ -160,10 +163,10 @@ mod tests {
     use bray_symbols::{AnySymbolId, MemberLookupResult, SymbolKind};
 
     use super::{bind_implementation_using, bind_named_trait_implementation_path};
-    use crate::BinderFactContext;
-    use crate::fact::test_support::TestFixture;
+    use crate::BindingQueryContext;
     use crate::lookup::NameAccess;
     use crate::lookup::test_support::{path, source_module};
+    use crate::query::test_support::TestFixture;
 
     #[test]
     fn direct_imported_declarations_bind_through_their_package_path() {
@@ -192,11 +195,11 @@ mod tests {
             "DisplayVec",
         );
 
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
-        let declaration = using_declaration(&facts);
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
+        let declaration = using_declaration(&binding_context);
 
-        let result = bind_implementation_using(&facts, module, &declaration)
+        let result = bind_implementation_using(&binding_context, module, &declaration)
             .unwrap_or_else(|error| panic!("implementation using must bind: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
@@ -231,11 +234,11 @@ mod tests {
             "run",
         );
 
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
-        let declaration = using_declaration(&facts);
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
+        let declaration = using_declaration(&binding_context);
 
-        let result = bind_implementation_using(&facts, module, &declaration)
+        let result = bind_implementation_using(&binding_context, module, &declaration)
             .unwrap_or_else(|error| panic!("ordinary using probe must complete: {error:?}"));
 
         assert!(result.value().is_none());
@@ -302,12 +305,12 @@ mod tests {
             "DisplayVec",
         );
 
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
 
         assert_eq!(
             bind_named_trait_implementation_path(
-                &facts,
+                &binding_context,
                 module,
                 &path("DisplayVec"),
                 NameAccess::Public,
@@ -331,12 +334,12 @@ mod tests {
             "DisplayVec",
         );
 
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
 
         assert_eq!(
             bind_named_trait_implementation_path(
-                &facts,
+                &binding_context,
                 module,
                 &path("dependency.api.DisplayVec"),
                 NameAccess::Public,
@@ -362,13 +365,13 @@ mod tests {
             "DisplayVec",
         );
 
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
         let implementation_path = path("dependency.api.DisplayVec");
 
         let bind = || {
             bind_named_trait_implementation_path(
-                &facts,
+                &binding_context,
                 module,
                 &implementation_path,
                 NameAccess::Public,
@@ -404,11 +407,11 @@ mod tests {
         }
     }
 
-    fn using_declaration<C>(facts: &C) -> bray_syntax::UsingDeclarationSyntax
+    fn using_declaration<C>(binding_context: &C) -> bray_syntax::UsingDeclarationSyntax
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
-        facts
+        binding_context
             .syntax()
             .source_units()
             .first()
@@ -423,12 +426,12 @@ mod tests {
         let source = format!("module app;\nusing {source_path};\nconst ready: bool = true;");
 
         let fixture = TestFixture::from_source(&source);
-        let facts = fixture.context_with_imported(&imported.symbols);
-        let module = source_module(&facts).0;
+        let binding_context = fixture.context_with_imported(&imported.symbols);
+        let module = source_module(&binding_context).0;
 
         assert_eq!(
             bind_named_trait_implementation_path(
-                &facts,
+                &binding_context,
                 module,
                 &path(source_path),
                 NameAccess::Public,

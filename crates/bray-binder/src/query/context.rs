@@ -5,86 +5,17 @@ use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageSymbolId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId,
     SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
 
-use crate::{BinderFactResult, NameAccess};
+use crate::{BindingQueryResult, ImportedPathRoot, NameAccess};
 
-/// One selected imported package root for a qualified source path.
-#[derive(Clone, Copy, Debug)]
-pub struct ImportedPathRoot<'symbols> {
-    symbols: &'symbols ImportedSymbolSkeleton,
-    package: PackageSymbolId,
-    consumed_components: usize,
-}
-
-impl<'symbols> ImportedPathRoot<'symbols> {
-    /// Selects the longest imported package identity that prefixes a source path.
-    pub fn select(symbols: &'symbols ImportedSymbolSkeleton, components: &[&str]) -> Option<Self> {
-        symbols
-            .packages()
-            .iter()
-            .filter_map(|package| {
-                let component_count = package.identity().as_str().split('.').count();
-
-                package
-                    .identity()
-                    .as_str()
-                    .split('.')
-                    .eq(components.iter().take(component_count).copied())
-                    .then_some((package.id(), component_count))
-            })
-            .max_by_key(|(_, component_count)| *component_count)
-            .and_then(|(package, _)| Self::for_path(symbols, package, components))
-    }
-
-    /// Creates a root when the package identity is an exact prefix of the source path.
-    pub fn for_path(
-        symbols: &'symbols ImportedSymbolSkeleton,
-        package: PackageSymbolId,
-        components: &[&str],
-    ) -> Option<Self> {
-        let package_identity = symbols.package(package)?.identity();
-        let consumed_components = package_identity.as_str().split('.').count();
-
-        if consumed_components > components.len()
-            || !package_identity
-                .as_str()
-                .split('.')
-                .eq(components[..consumed_components].iter().copied())
-        {
-            return None;
-        }
-
-        Some(Self {
-            symbols,
-            package,
-            consumed_components,
-        })
-    }
-
-    /// Returns the imported identity provider for the selected package.
-    pub const fn symbols(self) -> &'symbols ImportedSymbolSkeleton {
-        self.symbols
-    }
-
-    /// Returns the exact imported package identity selected by the path prefix.
-    pub const fn package(self) -> PackageSymbolId {
-        self.package
-    }
-
-    /// Returns the number of source path components occupied by the package identity.
-    pub const fn consumed_components(self) -> usize {
-        self.consumed_components
-    }
-}
-
-/// Injected read-only facts available to one binding computation.
-pub trait BinderFactContext: Send + Sync {
-    /// The origin-neutral provider for symbol-facing semantic facts.
+/// Injected read-only services available to one binding computation.
+pub trait BindingQueryContext: Send + Sync {
+    /// The origin-neutral provider for symbol-facing semantic queries.
     type SymbolSemantics: Send + Sync + ?Sized;
     /// The compilation-owned cancellation observer.
     type Cancellation: Cancellation + ?Sized;
@@ -99,17 +30,17 @@ pub trait BinderFactContext: Send + Sync {
     fn symbols(&self) -> &SymbolGraph;
 
     /// Returns one exact symbol's stable semantic key across supported origins.
-    fn symbol_key(&self, symbol: AnySymbolId) -> BinderFactResult<Option<&SymbolKey>> {
+    fn symbol_key(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<&SymbolKey>> {
         Ok(self.symbols().symbol_key(symbol))
     }
 
     /// Returns whether recovery contributed to one exact symbol's surface.
-    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<bool>> {
         Ok(self.symbols().symbol_is_recovered(symbol))
     }
 
     /// Returns one exact symbol's immediate semantic owner across supported origins.
-    fn containing_symbol(&self, symbol: AnySymbolId) -> BinderFactResult<Option<AnySymbolId>> {
+    fn containing_symbol(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<AnySymbolId>> {
         Ok(self.symbols().containing_symbol(symbol))
     }
 
@@ -117,7 +48,7 @@ pub trait BinderFactContext: Send + Sync {
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
-    ) -> BinderFactResult<Option<CallableParameterDefaultProviderSymbolId>> {
+    ) -> BindingQueryResult<Option<CallableParameterDefaultProviderSymbolId>> {
         Ok(self
             .symbols()
             .callable_parameter(parameter)
@@ -128,7 +59,7 @@ pub trait BinderFactContext: Send + Sync {
     fn runtime_default_subject(
         &self,
         provider: AnySymbolId,
-    ) -> BinderFactResult<Option<AnySymbolId>> {
+    ) -> BindingQueryResult<Option<AnySymbolId>> {
         Ok(self.symbols().runtime_default_subject(provider))
     }
 
@@ -137,7 +68,7 @@ pub trait BinderFactContext: Send + Sync {
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
         Ok(self.symbols().lookup_member(owner, name))
     }
 
@@ -145,10 +76,10 @@ pub trait BinderFactContext: Send + Sync {
     fn imported_path_root(
         &self,
         components: &[&str],
-    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>>;
 
     /// Returns the selected dependencies' immutable imported symbol surface.
-    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>>;
+    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
 
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(
@@ -156,13 +87,13 @@ pub trait BinderFactContext: Send + Sync {
         module: ModuleSymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>;
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>;
 
     /// Returns the complete declaration-level member surface associated with a named type.
     fn type_associated_surface(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>>;
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>>;
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;
@@ -170,7 +101,7 @@ pub trait BinderFactContext: Send + Sync {
     /// Returns the selected language-level target profile.
     fn selected_target(&self) -> &TargetProfile;
 
-    /// Returns the origin-neutral symbol-fact provider.
+    /// Returns the origin-neutral symbol query provider.
     fn symbol_semantics(&self) -> &Self::SymbolSemantics;
 
     /// Returns the cancellation observer for this binding request.
@@ -186,11 +117,11 @@ pub trait BinderFactContext: Send + Sync {
 mod tests {
     use bray_symbols::SymbolOrigin;
 
-    use super::BinderFactContext;
-    use crate::fact::test_support::TestFixture;
+    use super::BindingQueryContext;
+    use crate::query::test_support::TestFixture;
 
     #[test]
-    fn contexts_expose_exact_immutable_fact_inputs() {
+    fn contexts_expose_exact_immutable_query_inputs() {
         let fixture = TestFixture::new();
         let context = fixture.context();
 
@@ -221,6 +152,6 @@ mod tests {
     fn contexts_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<crate::fact::test_support::TestContext<'static>>();
+        assert_send_sync::<crate::query::test_support::TestContext<'static>>();
     }
 }

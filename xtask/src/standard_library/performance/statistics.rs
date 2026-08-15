@@ -23,8 +23,8 @@ pub(super) fn calibrated_inner_iterations<'a>(
         .div_ceil(u128::from(fastest_typical_interval))
         .max(1);
 
-    let selected = u64::try_from(selected)
-        .map_err(|_| "batch calibration count exceeds u64".to_owned())?;
+    let selected =
+        u64::try_from(selected).map_err(|_| "batch calibration count exceeds u64".to_owned())?;
 
     NonZeroU64::new(selected)
         .ok_or_else(|| "batch calibration selected a zero repetition count".to_owned())
@@ -160,12 +160,7 @@ mod tests {
         let seed = NonZeroU64::MIN;
 
         assert!(
-            calibrated_inner_iterations(
-                seed,
-                100_000_000,
-                std::iter::empty::<&[u64]>(),
-            )
-            .is_err()
+            calibrated_inner_iterations(seed, 100_000_000, std::iter::empty::<&[u64]>(),).is_err()
         );
 
         assert!(calibrated_inner_iterations(seed, 100_000_000, [&[][..]]).is_err());
@@ -174,8 +169,7 @@ mod tests {
 
         assert!(
             calibrated_inner_iterations(
-                NonZeroU64::new(u64::MAX)
-                    .unwrap_or_else(|| panic!("maximum u64 must be nonzero")),
+                NonZeroU64::new(u64::MAX).unwrap_or_else(|| panic!("maximum u64 must be nonzero")),
                 u64::MAX,
                 [&[1][..]],
             )

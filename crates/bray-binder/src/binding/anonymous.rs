@@ -5,13 +5,13 @@ use bray_syntax::{LambdaExpressionSyntax, SourceSyntaxNode};
 
 use super::name::symbol_name;
 use super::{BindingError, BindingResult};
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, BinderDependency};
 use crate::unit::AnonymousCallableBoundary;
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(crate) fn bind_anonymous_callable_reference(
         &mut self,
@@ -102,9 +102,9 @@ mod tests {
     use bray_symbols::{LocalSymbolRegionId, MemberLookupResult, SymbolName, SymbolOrdinal};
     use bray_syntax::LambdaExpressionSyntax;
 
-    use crate::BinderFactContext;
+    use crate::BindingQueryContext;
     use crate::binder::Binder;
-    use crate::fact::test_support::TestFixture;
+    use crate::query::test_support::TestFixture;
     use crate::unit::BoundUnitLocalBuilder;
 
     #[test]
@@ -120,9 +120,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let Some(lambda) =
             crate::binding::test_support::first_descendant::<LambdaExpressionSyntax>(&block)
@@ -179,7 +179,7 @@ mod tests {
             Err(error) => panic!("nested lambda unit must build: {error:?}"),
         };
 
-        let mut binder = Binder::new(&facts, nested_unit);
+        let mut binder = Binder::new(&binding_context, nested_unit);
         let root = binder.unit().root_scope();
 
         let boundary = match binder.bind_anonymous_callable_boundary(root, &lambda) {
@@ -189,13 +189,13 @@ mod tests {
 
         assert_eq!(boundary.unit(), &nested_key);
 
-        let Some(module) = facts.symbols().modules().first() else {
+        let Some(module) = binding_context.symbols().modules().first() else {
             panic!("test graph must contain a module");
         };
 
         let capture_lookup = crate::lookup::lookup_unqualified_name(
             binder.unit(),
-            facts.symbols(),
+            binding_context.symbols(),
             boundary.scope(),
             Some(module.id()),
             "captured",
@@ -206,7 +206,7 @@ mod tests {
 
         let parameter_lookup = crate::lookup::lookup_unqualified_name(
             binder.unit(),
-            facts.symbols(),
+            binding_context.symbols(),
             boundary.scope(),
             Some(module.id()),
             "value",

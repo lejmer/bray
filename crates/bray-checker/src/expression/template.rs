@@ -16,8 +16,8 @@ use bray_symbols::{
 
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
-    CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerFactError,
-    CheckerFactResult, CheckerInfrastructureError, PredicateCandidateTemplate,
+    CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerInfrastructureError,
+    CheckerQueryError, CheckerQueryResult, PredicateCandidateTemplate,
     normalize_type_valued_members, resolve_callable_signature_template,
     resolve_type_expression_template,
 };
@@ -203,7 +203,7 @@ pub(super) fn resolve_declaration_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerFactResult<TemplateResolution<CallableCandidate>>
+) -> CheckerQueryResult<TemplateResolution<CallableCandidate>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -225,7 +225,7 @@ pub(super) fn resolve_open_declaration_candidate<C>(
     template: &CallableDeclarationCandidateTemplate,
     explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
-) -> CheckerFactResult<CallableCandidate>
+) -> CheckerQueryResult<CallableCandidate>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -245,7 +245,7 @@ pub(super) fn resolve_declaration_candidate_with_arguments<C>(
     template: &CallableDeclarationCandidateTemplate,
     arguments: Vec<GenericArgument>,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerFactResult<TemplateResolution<CallableCandidate>>
+) -> CheckerQueryResult<TemplateResolution<CallableCandidate>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -285,7 +285,7 @@ where
         values
             .inherit_generic_substitution(substitution, callable_owner)
             .map_err(|_| {
-                CheckerFactError::Infrastructure(
+                CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 )
             })?
@@ -294,7 +294,7 @@ where
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);
 
     let result = call_result(request, callable_type, signature.result())
-        .map_err(CheckerFactError::Infrastructure)?;
+        .map_err(CheckerQueryError::Infrastructure)?;
 
     let resolution = BoundResolvedCall::new(BoundCallableTarget::Declaration(instance), [], result);
 
@@ -306,7 +306,7 @@ where
         }
 
         let Some(provider) = default.provider() else {
-            return Err(CheckerFactError::Infrastructure(
+            return Err(CheckerQueryError::Infrastructure(
                 CheckerInfrastructureError::InvalidSemanticSelectionInput,
             ));
         };
@@ -357,7 +357,7 @@ pub(crate) fn resolve_signature<C>(
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerFactResult<TemplateResolution<CallableSignature>>
+) -> CheckerQueryResult<TemplateResolution<CallableSignature>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -366,7 +366,7 @@ where
         [template.callable_type(), template.result()],
         diagnostics,
     )
-    .map_err(CheckerFactError::Infrastructure)?
+    .map_err(CheckerQueryError::Infrastructure)?
     {
         TemplateResolution::Resolved(constants) => constants,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
@@ -379,7 +379,7 @@ where
         &constants,
     )
     .map_err(|_| {
-        CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
     })?
     else {
         return Ok(TemplateResolution::Unsupported);
@@ -444,10 +444,10 @@ where
             bray_symbols::GenericArgumentTemplate::Constant(occurrence) => {
                 let result = match request.checked_constant_expression(*occurrence) {
                     Ok(result) => result,
-                    Err(CheckerFactError::Cancelled) => {
+                    Err(CheckerQueryError::Cancelled) => {
                         return Ok(TemplateResolution::Unsupported);
                     }
-                    Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
                 };
 
                 // Candidate preparation owns dependency diagnostics after the query result drops.
@@ -474,10 +474,10 @@ where
         for occurrence in template.constant_expressions() {
             let result = match request.checked_constant_expression(occurrence) {
                 Ok(result) => result,
-                Err(CheckerFactError::Cancelled) => {
+                Err(CheckerQueryError::Cancelled) => {
                     return Ok(TemplateResolution::Unsupported);
                 }
-                Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+                Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
             };
 
             // Template resolution owns dependency diagnostics after the query result drops.

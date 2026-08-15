@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_codegen::{
     CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability, CodegenSpecialization,
     CodegenTarget, DemandedCallableInstance, IntrinsicCall,
@@ -17,13 +17,13 @@ use bray_symbols::{
     ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsQuery,
     GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
-    NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolFactRequest, TargetSizedIntegerType,
+    NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolQueryRequest, TargetSizedIntegerType,
     TraitCallableMemberSymbolId,
 };
 
 use super::super::CodegenPreparationError;
 use super::super::Compilation;
-use super::super::binder::binder_fact_error;
+use super::super::binder::binding_query_error;
 use super::super::implementation::{
     callable_instance, implementation_fulfillments, implementation_instance_requirement,
     selected_callable,
@@ -263,7 +263,9 @@ impl Compilation {
             .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
 
         let binding_context = self.binding_context(&self.state.cancellation)?;
-        let identity = structural_type_identity(self.semantic_value_store()?, &binding_context, ty)?;
+
+        let identity =
+            structural_type_identity(self.semantic_value_store()?, &binding_context, ty)?;
 
         let key = CodegenInstanceKey::new(
             MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),
@@ -330,10 +332,10 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let signature = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 definition.callable_symbol(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         if !signature.value().has_body() {
             return Ok(MirUnitKey::ExternalCallable(definition));
@@ -432,10 +434,10 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let constraints = binding_context
-            .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
                 dispatch.owner(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         let constraint = constraints
             .value()
@@ -504,7 +506,8 @@ impl Compilation {
             .implementation_instance_data(witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let fulfillments = implementation_fulfillments(&binding_context, implementation.definition())?;
+        let fulfillments =
+            implementation_fulfillments(&binding_context, implementation.definition())?;
 
         let fulfillment = selected_callable(&binding_context, fulfillments.callables, member)
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -567,7 +570,8 @@ impl Compilation {
     ) -> Result<ImplementationRequirementKey, CodegenPreparationError> {
         let binding_context = self.binding_context(cancellation)?;
 
-        implementation_instance_requirement(&binding_context, witness).map_err(CodegenPreparationError::from)
+        implementation_instance_requirement(&binding_context, witness)
+            .map_err(CodegenPreparationError::from)
     }
 
     fn concrete_codegen_forwarded_constraint_witnesses(
@@ -677,8 +681,8 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let constraints = binding_context
-            .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(owner))
-            .map_err(binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
+            .map_err(binding_query_error)?;
 
         if constraints.diagnostics().has_errors() {
             return Err(CodegenPreparationError::Diagnostics(
@@ -859,8 +863,10 @@ impl Compilation {
         &self,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<(CodegenImplementationWitness, ImplementationInstanceId)>, CodegenPreparationError>
-    {
+    ) -> Result<
+        Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
+        CodegenPreparationError,
+    > {
         let values = self.semantic_value_store()?;
         let binding_context = self.binding_context(cancellation)?;
         let mut concrete = BTreeMap::new();

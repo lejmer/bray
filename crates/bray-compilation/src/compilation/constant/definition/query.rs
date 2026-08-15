@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind,
     CheckedSemanticSelections, CheckedTemplateKind,
@@ -19,7 +19,8 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionQuery, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolFactRequest, TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,
+    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDefinitionQuery,
 };
 
 use super::support::{
@@ -29,7 +30,7 @@ use super::support::{
 };
 use crate::compilation::Compilation;
 use crate::compilation::binder::{
-    binder_fact_error, has_visible_generic_parameters, imported_declaration_template,
+    binding_query_error, has_visible_generic_parameters, imported_declaration_template,
 };
 use crate::compilation::checker::checker_result;
 use crate::compilation::constant::call::{
@@ -38,8 +39,8 @@ use crate::compilation::constant::call::{
 use crate::compilation::substitution::empty_substitution;
 use crate::compilation::unit::semantic_unit_context_for;
 use crate::fact::{
-    CancellationToken, CompilationFactKey, ConstantInstanceFactKey, FactQueryError,
-    PublishedUnitFact,
+    CancellationToken, CompilationFactKey, ConstantInstanceQueryKey, FactQueryError,
+    PublishedUnitResult,
 };
 
 impl Compilation {
@@ -126,18 +127,18 @@ impl Compilation {
 
         match definition {
             AnyConstantDefinitionId::Constant(owner) => binding_context
-                .symbol_fact(SymbolFactRequest::<ConstantDefinitionQuery>::new(owner))
-                .map_err(binder_fact_error),
+                .resolve_symbol_query(SymbolQueryRequest::<ConstantDefinitionQuery>::new(owner))
+                .map_err(binding_query_error),
             AnyConstantDefinitionId::TraitMember(owner) => binding_context
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionQuery>::new(
-                    owner,
-                ))
-                .map_err(binder_fact_error),
-            AnyConstantDefinitionId::TraitFulfillment(owner) => binding_context
-                .symbol_fact(
-                    SymbolFactRequest::<TraitConstantFulfillmentDefinitionQuery>::new(owner),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitConstantMemberDefinitionQuery>::new(owner),
                 )
-                .map_err(binder_fact_error),
+                .map_err(binding_query_error),
+            AnyConstantDefinitionId::TraitFulfillment(owner) => binding_context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitConstantFulfillmentDefinitionQuery>::new(owner),
+                )
+                .map_err(binding_query_error),
         }
     }
 
@@ -191,7 +192,7 @@ impl Compilation {
 
             let imported = binding_context
                 .imported_semantic_address(definition.into_any())
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
             if let Some(address) = imported {
                 let result = imported_declaration_template(
@@ -199,7 +200,7 @@ impl Compilation {
                     address,
                     CheckedTemplateKind::ConstantDefinition,
                 )
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
                 let diagnostics = result.diagnostics().clone();
                 let state = imported_constant_definition(definition, result.value().as_ref())?;
@@ -245,7 +246,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<ConstantTermId>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<ConstantTermId>>, FactQueryError> {
         if !matches!(
             key.kind(),
             BoundUnitKind::ConstantTemplate | BoundUnitKind::EmbeddedConstant
@@ -253,7 +254,7 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        self.unit_fact(
+        self.unit_query(
             &self.state.symbolic_constant_terms,
             CompilationFactKey::SymbolicConstantTerm(key.clone()),
             key.clone(),
@@ -324,7 +325,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<EvaluatedConstantCall>>, FactQueryError> {
         let target = self.requested_target().profile().clone();
-        let key = ConstantInstanceFactKey::new(instance, target, limits);
+        let key = ConstantInstanceQueryKey::new(instance, target, limits);
         let cell = self.state.constant_instances.cell(key.clone())?;
 
         let published = cell.get_or_compute(
@@ -432,12 +433,15 @@ impl Compilation {
 
         let address = binding_context
             .imported_semantic_address(instance.definition().into_any())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let template =
-            imported_declaration_template(&binding_context, address, CheckedTemplateKind::ConstantDefinition)
-                .map_err(binder_fact_error)?;
+        let template = imported_declaration_template(
+            &binding_context,
+            address,
+            CheckedTemplateKind::ConstantDefinition,
+        )
+        .map_err(binding_query_error)?;
 
         let definition_result =
             self.constant_definition_with_cancellation(instance.definition(), cancellation)?;
@@ -763,7 +767,7 @@ impl Compilation {
         &self,
         definition: CallableDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        let result = self.fact(
+        let result = self.evaluate_query(
             CompilationFactKey::CallableBodyKeys,
             &self.state.callable_body_keys,
             || {
@@ -800,7 +804,7 @@ impl Compilation {
     fn constant_template_keys(
         &self,
     ) -> Result<&BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError> {
-        let result = self.fact(
+        let result = self.evaluate_query(
             CompilationFactKey::ConstantTemplateKeys,
             &self.state.constant_template_keys,
             || {
@@ -856,7 +860,7 @@ mod tests {
         call_parameter_values, constant_callable_root, empty_concrete_substitution,
     };
     use crate::SelectedTarget;
-    use crate::fact::{ConstantCallFactKey, ConstantInstanceFactKey, FactCellTestEvent};
+    use crate::fact::{ConstantCallQueryKey, ConstantInstanceQueryKey, FactCellTestEvent};
     use crate::test_support::{FactTestGate, compilation};
     use bray_checker::{ConstantCallRequest, ConstantEvaluationLimits};
 
@@ -966,7 +970,7 @@ mod tests {
 
         let target = compilation.requested_target().profile().clone();
 
-        let shallow = ConstantCallFactKey::new(
+        let shallow = ConstantCallQueryKey::new(
             callable,
             None,
             Arc::from(request.arguments()),
@@ -975,7 +979,7 @@ mod tests {
             ConstantEvaluationLimits::default().with_call_depth(1),
         );
 
-        let deep = ConstantCallFactKey::new(
+        let deep = ConstantCallQueryKey::new(
             callable,
             None,
             Arc::from(request.arguments()),
@@ -1428,12 +1432,12 @@ mod tests {
         .unwrap_or_else(|error| panic!("alternate target profile must be valid: {error:?}"));
 
         assert_ne!(
-            ConstantInstanceFactKey::new(
+            ConstantInstanceQueryKey::new(
                 instance,
                 baseline.profile().clone(),
                 ConstantEvaluationLimits::default(),
             ),
-            ConstantInstanceFactKey::new(instance, alternate, ConstantEvaluationLimits::default(),)
+            ConstantInstanceQueryKey::new(instance, alternate, ConstantEvaluationLimits::default(),)
         );
     }
 
@@ -1467,8 +1471,8 @@ mod tests {
     fn instance_semantic_key(
         compilation: &crate::Compilation,
         instance: ConstantInstanceKey,
-    ) -> ConstantInstanceFactKey {
-        ConstantInstanceFactKey::new(
+    ) -> ConstantInstanceQueryKey {
+        ConstantInstanceQueryKey::new(
             instance,
             compilation.requested_target().profile().clone(),
             ConstantEvaluationLimits::default(),

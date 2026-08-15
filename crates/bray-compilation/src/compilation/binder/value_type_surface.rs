@@ -1,4 +1,6 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_bound_tree::{
     BoundReferenceTarget, BoundUnitKind, BoundUnitRoot, DeclaredValueTypeConstraintKind,
     DeclaredValueTypeTerm,
@@ -8,7 +10,7 @@ use bray_symbols::{
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
     ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolFactRequest,
+    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
     TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
@@ -21,11 +23,11 @@ use super::value_type::{DeclaredValueTypeBinding, local_value};
 use crate::compilation::substitution::contextual_self_type;
 
 impl DeclaredValueTypeBinding<'_> {
-    pub(super) fn bind_visible_generic_const_parameters(&mut self) -> BinderFactResult<()> {
+    pub(super) fn bind_visible_generic_const_parameters(&mut self) -> BindingQueryResult<()> {
         for parameter in visible_generic_const_parameters(self.context.symbols(), self.owner) {
             self.check_cancellation()?;
 
-            let result = self.context.symbol_fact(SymbolFactRequest::<
+            let result = self.context.resolve_symbol_query(SymbolQueryRequest::<
                 GenericConstParameterDeclaredTypeQuery,
             >::new(parameter))?;
 
@@ -38,7 +40,7 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    pub(super) fn bind_unit_surface(&mut self) -> BinderFactResult<()> {
+    pub(super) fn bind_unit_surface(&mut self) -> BindingQueryResult<()> {
         match self.unit.key().kind() {
             BoundUnitKind::CallableBody => self.bind_callable_surface(self.owner, true),
             BoundUnitKind::AnonymousCallable => self.bind_anonymous_callable_surface(),
@@ -56,13 +58,13 @@ impl DeclaredValueTypeBinding<'_> {
         &mut self,
         owner: AnySymbolId,
         supplies_result_expectation: bool,
-    ) -> BinderFactResult<()> {
-        let callable =
-            CallableSymbolId::try_from_any(owner).ok_or(BinderFactError::DependencyUnavailable)?;
+    ) -> BindingQueryResult<()> {
+        let callable = CallableSymbolId::try_from_any(owner)
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let result = self
             .context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))?;
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))?;
 
         let signature = result.value();
 
@@ -80,14 +82,14 @@ impl DeclaredValueTypeBinding<'_> {
                         .context
                         .semantic_values()
                         .type_data(receiver.ty())
-                        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
                     match receiver_type.as_ref() {
                         bray_symbols::TypeData::ContextualSelf(
                             context @ bray_symbols::SelfTypeContext::NamedType(_),
                         ) => TypeExpressionTemplate::Resolved(
                             contextual_self_type(self.context, *context)
-                                .map_err(|_| BinderFactError::DependencyUnavailable)?,
+                                .map_err(|_| BindingQueryError::DependencyUnavailable)?,
                         ),
                         bray_symbols::TypeData::ContextualSelf(
                             bray_symbols::SelfTypeContext::Implementation(implementation),
@@ -114,7 +116,7 @@ impl DeclaredValueTypeBinding<'_> {
     fn callable_body_result(
         &mut self,
         result: &TypeExpressionTemplate,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let TypeExpressionTemplate::Resolved(ty) = result else {
             return Ok(owned_template(result));
         };
@@ -129,23 +131,23 @@ impl DeclaredValueTypeBinding<'_> {
                 self.context,
                 bray_symbols::SelfTypeContext::NamedType(definition),
             )
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
             let self_data = self
                 .context
                 .semantic_values()
                 .type_data(self_ty)
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
             let bray_symbols::TypeData::Named { substitution, .. } = self_data.as_ref() else {
-                return Err(BinderFactError::DependencyUnavailable);
+                return Err(BindingQueryError::DependencyUnavailable);
             };
 
             let result = self
                 .context
                 .semantic_values()
                 .substitute_type(*ty, *substitution)
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
             return Ok(TypeExpressionTemplate::Resolved(result));
         }
@@ -154,14 +156,14 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .semantic_values()
             .type_data(*ty)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         match data.as_ref() {
             bray_symbols::TypeData::ContextualSelf(
                 context @ bray_symbols::SelfTypeContext::NamedType(_),
             ) => contextual_self_type(self.context, *context)
                 .map(TypeExpressionTemplate::Resolved)
-                .map_err(|_| BinderFactError::DependencyUnavailable),
+                .map_err(|_| BindingQueryError::DependencyUnavailable),
             bray_symbols::TypeData::ContextualSelf(
                 bray_symbols::SelfTypeContext::Implementation(implementation),
             ) => self.implementation_subject_type(*implementation),
@@ -169,16 +171,16 @@ impl DeclaredValueTypeBinding<'_> {
         }
     }
 
-    fn bind_anonymous_callable_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_anonymous_callable_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::AnonymousCallable { callable, .. } = self.unit.root() else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let symbol = self
             .unit
             .local_symbols()
             .anonymous_callable(callable)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let syntax = self
             .unit
@@ -186,7 +188,7 @@ impl DeclaredValueTypeBinding<'_> {
             .source()
             .syntax()
             .find_descendant::<LambdaExpressionSyntax>(self.context.syntax())
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let callable_type =
             type_binder(self.context, self.owner)?.bind_anonymous_callable_type(&syntax)?;
@@ -199,7 +201,7 @@ impl DeclaredValueTypeBinding<'_> {
         let parameters = syntax.parameter_list().parameters().collect::<Vec<_>>();
 
         if parameters.len() != symbol.parameters().len() {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         }
 
         for (parameter, syntax) in symbol.parameters().iter().copied().zip(parameters) {
@@ -228,29 +230,27 @@ impl DeclaredValueTypeBinding<'_> {
     fn implementation_subject_type(
         &mut self,
         implementation: bray_symbols::ImplementationSymbolId,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
-        let subject =
-            self.context
-                .symbol_fact(SymbolFactRequest::<ImplementationSubjectQuery>::new(
-                    implementation,
-                ))?;
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
+        let subject = self.context.resolve_symbol_query(SymbolQueryRequest::<
+            ImplementationSubjectQuery,
+        >::new(implementation))?;
 
         self.diagnostics = self.diagnostics.merged(subject.diagnostics());
 
         Ok(owned_template(subject.value().ty()))
     }
 
-    fn bind_runtime_default_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_runtime_default_surface(&mut self) -> BindingQueryResult<()> {
         let declaration = self
             .context
             .symbols()
             .runtime_default_subject(self.owner)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let template = self.declared_surface_value_type(declaration)?;
 
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let value = surface_value(declaration);
@@ -266,11 +266,11 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    fn bind_constant_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_constant_surface(&mut self) -> BindingQueryResult<()> {
         let template = self.constant_declared_type(self.owner)?;
 
         let BoundUnitRoot::Expression(initializer) = self.unit.root() else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let value = surface_value(self.owner);
@@ -286,9 +286,9 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    fn bind_embedded_constant_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_embedded_constant_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let occurrence =
@@ -298,14 +298,14 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .compilation()
             .embedded_constant_expected_type(occurrence)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         let template = match expected {
             ConstantExpressionExpectedType::Resolved(ty) => TypeExpressionTemplate::Resolved(ty),
             ConstantExpressionExpectedType::GenericParameter(parameter) => self
                 .context
-                .symbol_fact(
-                    SymbolFactRequest::<GenericConstParameterDeclaredTypeQuery>::new(parameter),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<GenericConstParameterDeclaredTypeQuery>::new(parameter),
                 )
                 .map(|result| owned_template(result.value()))?,
         };
@@ -315,15 +315,13 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    fn bind_predicate_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_predicate_surface(&mut self) -> BindingQueryResult<()> {
         let predicate = PredicateDefinitionSymbolId::try_from_any(self.owner)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
-        let result =
-            self.context
-                .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateQuery>::new(
-                    predicate,
-                ))?;
+        let result = self.context.resolve_symbol_query(SymbolQueryRequest::<
+            PredicateSignatureTemplateQuery,
+        >::new(predicate))?;
 
         for parameter in result.value().parameters() {
             self.add_evidence(
@@ -335,7 +333,7 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    fn bind_contract_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_contract_surface(&mut self) -> BindingQueryResult<()> {
         self.bind_callable_surface(self.owner, false)?;
 
         let result = self
@@ -355,16 +353,16 @@ impl DeclaredValueTypeBinding<'_> {
         Ok(())
     }
 
-    fn bind_target_gate_surface(&mut self) -> BinderFactResult<()> {
+    fn bind_target_gate_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let boolean = self
             .context
             .compilation()
             .target_property_type(TargetPropertyKind::ScalarBool)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         self.add_evidence(
             DeclaredValueTypeTerm::Expression(expression),
@@ -377,27 +375,27 @@ impl DeclaredValueTypeBinding<'_> {
     fn callable_signature(
         &self,
         owner: AnySymbolId,
-    ) -> BinderFactResult<
+    ) -> BindingQueryResult<
         std::sync::Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>,
     > {
-        let callable =
-            CallableSymbolId::try_from_any(owner).ok_or(BinderFactError::DependencyUnavailable)?;
+        let callable = CallableSymbolId::try_from_any(owner)
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         self.context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
     }
 
     fn declared_surface_value_type(
         &self,
         declaration: AnySymbolId,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         match declaration {
             AnySymbolId::CallableParameter(parameter) => {
                 let record = self
                     .context
                     .symbols()
                     .callable_parameter(parameter)
-                    .ok_or(BinderFactError::DependencyUnavailable)?;
+                    .ok_or(BindingQueryError::DependencyUnavailable)?;
 
                 let signature = self.callable_signature(record.owner().into_any())?;
 
@@ -408,44 +406,46 @@ impl DeclaredValueTypeBinding<'_> {
                         record.ordinal(),
                         self.context.semantic_values(),
                     )
-                    .map_err(|_| BinderFactError::DependencyUnavailable)
+                    .map_err(|_| BindingQueryError::DependencyUnavailable)
             }
             AnySymbolId::StructField(field) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(field))
+                .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(field))
                 .map(|result| owned_template(result.value())),
             AnySymbolId::UnionPayloadField(field) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(field))
+                .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field))
                 .map(|result| owned_template(result.value())),
-            _ => Err(BinderFactError::DependencyUnavailable),
+            _ => Err(BindingQueryError::DependencyUnavailable),
         }
     }
 
     fn constant_declared_type(
         &self,
         owner: AnySymbolId,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         match owner {
             AnySymbolId::Constant(constant) => self.constant_type(constant),
             AnySymbolId::TraitConstantMember(member) => self
                 .context
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDeclaredTypeQuery>::new(member))
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitConstantMemberDeclaredTypeQuery>::new(member),
+                )
                 .map(|result| owned_template(result.value())),
             AnySymbolId::TraitConstantFulfillment(fulfillment) => self
                 .context
-                .symbol_fact(
-                    SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeQuery>::new(fulfillment),
-                )
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    TraitConstantFulfillmentDeclaredTypeQuery,
+                >::new(fulfillment))
                 .map(|result| owned_template(result.value())),
-            _ => Err(BinderFactError::DependencyUnavailable),
+            _ => Err(BindingQueryError::DependencyUnavailable),
         }
     }
 
     pub(super) fn bind_surface_reference_type(
         &mut self,
         target: BoundReferenceTarget,
-    ) -> BinderFactResult<()> {
+    ) -> BindingQueryResult<()> {
         let BoundReferenceTarget::Surface(symbol) = target else {
             return Ok(());
         };
@@ -469,9 +469,11 @@ impl DeclaredValueTypeBinding<'_> {
     fn constant_type(
         &self,
         constant: ConstantSymbolId,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         self.context
-            .symbol_fact(SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(constant))
+            .resolve_symbol_query(SymbolQueryRequest::<ConstantDeclaredTypeQuery>::new(
+                constant,
+            ))
             .map(|result| owned_template(result.value()))
     }
 }
@@ -479,10 +481,10 @@ impl DeclaredValueTypeBinding<'_> {
 fn callable_parameter_templates(
     context: &CompilationBindingContext<'_>,
     signature: &CallableSignatureTemplate,
-) -> BinderFactResult<Vec<(CallableParameterSymbolId, TypeExpressionTemplate)>> {
+) -> BindingQueryResult<Vec<(CallableParameterSymbolId, TypeExpressionTemplate)>> {
     let types = signature
         .parameter_type_templates(context.semantic_values())
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     Ok(signature.parameters().iter().copied().zip(types).collect())
 }

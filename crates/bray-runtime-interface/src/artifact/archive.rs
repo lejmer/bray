@@ -176,11 +176,7 @@ fn validate_big_archive_fixed_links(
     first_free_member: u64,
 ) -> Result<(), ArchiveValidationError> {
     if first_member == 0 {
-        if member_table != 0
-            || global_symbols != 0
-            || global_symbols_64 != 0
-            || last_member != 0
-        {
+        if member_table != 0 || global_symbols != 0 || global_symbols_64 != 0 || last_member != 0 {
             return Err(ArchiveValidationError::Invalid);
         }
     } else {
@@ -246,8 +242,7 @@ fn validate_big_archive_fixed_links(
     let main_chain = big_archive_chain(members, first_member)?;
     let free_chain = big_archive_chain(members, first_free_member)?;
 
-    if !main_chain.is_disjoint(&free_chain)
-        || main_chain.len() + free_chain.len() != members.len()
+    if !main_chain.is_disjoint(&free_chain) || main_chain.len() + free_chain.len() != members.len()
     {
         return Err(ArchiveValidationError::Invalid);
     }

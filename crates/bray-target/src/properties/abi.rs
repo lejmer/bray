@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use super::{TargetScalarSupport, TargetScalarKind};
+use super::{TargetScalarKind, TargetScalarSupport};
 
 const ALL_SCALARS: u32 = (1 << 22) - 1;
 const OPTIONAL_SCALARS: u32 = TargetScalarKind::R16.bit()

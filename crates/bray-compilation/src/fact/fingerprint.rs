@@ -157,10 +157,18 @@ mod tests {
     #[test]
     fn provider_artifacts_do_not_change_the_semantic_identity_namespace() {
         let mut first = CompilationInputs::default();
-        first.insert(CompilationInputKey::StandardLibraryProviders, &"providers-a");
+
+        first.insert(
+            CompilationInputKey::StandardLibraryProviders,
+            &"providers-a",
+        );
 
         let mut second = CompilationInputs::default();
-        second.insert(CompilationInputKey::StandardLibraryProviders, &"providers-b");
+
+        second.insert(
+            CompilationInputKey::StandardLibraryProviders,
+            &"providers-b",
+        );
 
         assert!(first.has_same_identity_namespace(&second));
 

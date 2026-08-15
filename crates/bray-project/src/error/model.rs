@@ -6,7 +6,7 @@ use bray_diagnostics::{
     DiagnosticKind, DiagnosticProjectManifestField, SeverityKind,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity};
-use bray_target::{TargetPropertyKind, TargetIdentity};
+use bray_target::{TargetIdentity, TargetPropertyKind};
 
 use super::diagnostic::invalid_manifest_diagnostic;
 use crate::TargetPredicateValueKind;

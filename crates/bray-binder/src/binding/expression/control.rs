@@ -8,7 +8,7 @@ use bray_syntax::{ForExpressionSyntax, MatchExpressionSyntax, WithExpressionSynt
 
 use super::ExpressionBinder;
 use super::support::iteration_source_mode;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::binding::BindingResult;
 
@@ -20,7 +20,7 @@ impl ExpressionBinder {
         syntax: &WithExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let initializer = self.bind_expression(binder, scope, syntax.expression().as_ref())?;
         let pattern_syntax = syntax.irrefutable_pattern();
@@ -70,7 +70,7 @@ impl ExpressionBinder {
         syntax: &ForExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let iteration =
             self.bind_expression(binder, scope, Some(&syntax.iteration_source().expression()))?;
@@ -159,7 +159,7 @@ impl ExpressionBinder {
         syntax: &MatchExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let subject =
             self.bind_expression(binder, scope, Some(&syntax.match_subject().expression()))?;
@@ -221,7 +221,7 @@ impl ExpressionBinder {
 
 fn match_arm_is_recovered<C>(binder: &Binder<'_, C>, arm: BoundMatchArm) -> bool
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     binder.pattern_is_recovered(arm.pattern())
         || arm

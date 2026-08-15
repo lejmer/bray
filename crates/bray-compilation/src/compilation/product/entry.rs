@@ -1,4 +1,4 @@
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
@@ -8,14 +8,15 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, CallableConstness, CallableContractTemplate,
-    CallableContractTemplateQuery, CallableContractsQuery, CallableExecution, CallableSignatureQuery,
-    CallableSignatureTemplate, DeclarationPredicateClauseKind, FunctionSymbolId, GenericArgument,
-    GenericArgumentTemplate, NamedTypeSymbolId, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TestResultShape, TypeData, TypeExpressionTemplate, TypeId,
+    CallableContractTemplateQuery, CallableContractsQuery, CallableExecution,
+    CallableSignatureQuery, CallableSignatureTemplate, DeclarationPredicateClauseKind,
+    FunctionSymbolId, GenericArgument, GenericArgumentTemplate, NamedTypeSymbolId,
+    SemanticValueStore, SymbolGraph, SymbolQueryRequest, TestResultShape, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -260,10 +261,10 @@ pub(super) fn validate_entry(
     };
 
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
             function.into(),
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
@@ -317,18 +318,18 @@ pub(super) fn validate_entry(
     }
 
     let contracts = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
             function.into(),
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
     let contract_template = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractTemplateQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
             function.into(),
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(contract_template.diagnostics().iter().cloned());
 

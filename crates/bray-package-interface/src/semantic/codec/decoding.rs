@@ -1,8 +1,8 @@
+mod bundle;
 mod common;
 mod contract;
 mod declaration;
 mod directory;
-mod bundle;
 mod inspection;
 mod selection;
 mod support;

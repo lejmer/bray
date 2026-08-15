@@ -24,7 +24,7 @@ impl Compilation {
         let updated_state = Arc::get_mut(&mut updated.state)
             .unwrap_or_else(|| panic!("new compilation state must be uniquely owned"));
 
-        reuse_published_facts(&self.state, updated_state);
+        reuse_resolved_querys(&self.state, updated_state);
 
         Ok(updated)
     }
@@ -77,7 +77,7 @@ impl Compilation {
     }
 }
 
-fn reuse_published_facts(
+fn reuse_resolved_querys(
     previous: &super::state::CompilationState,
     updated: &mut super::state::CompilationState,
 ) {

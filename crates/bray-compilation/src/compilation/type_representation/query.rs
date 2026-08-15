@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerSource,
-    DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
-    TypeRepresentationContext, check_declared_type_representation,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
+    CheckerSource, DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant,
+    RepresentationIntegerType, TypeRepresentationContext, check_declared_type_representation,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
@@ -14,16 +14,18 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
     DeclarationExpressionTemplate, DeclaredTypeRepresentation, IntegerConstant, NamedTypeSymbolId,
-    StructFieldTypeQuery, StructSymbolId, SymbolFactRequest, SymbolProvider, TypeId,
+    StructFieldTypeQuery, StructSymbolId, SymbolProvider, SymbolQueryRequest, TypeId,
     UnionPayloadFieldTypeQuery,
 };
 
 use super::super::Compilation;
 use super::super::binder::{self, CompilationBindingContext};
-use super::super::checker::checker_fact_error;
+use super::super::checker::checker_query_error;
 use super::super::substitution::named_type;
 use super::support::{checked_integer, checked_integer_constant, integer_role, symbol_span};
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
+};
 
 impl Compilation {
     /// Returns the checked source-level representation contract of one named type.
@@ -89,18 +91,25 @@ impl Compilation {
 
         let definition = match subject {
             NamedTypeSymbolId::Struct(id) => {
-                let record = SymbolProvider::<StructSymbolId>::symbol(binding_context.symbols(), id)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let record =
+                    SymbolProvider::<StructSymbolId>::symbol(binding_context.symbols(), id)
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let fields = record
                     .fields()
                     .iter()
-                    .map(|field| self.struct_field_definition(&binding_context, *field, &mut diagnostics))
+                    .map(|field| {
+                        self.struct_field_definition(&binding_context, *field, &mut diagnostics)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 DeclaredTypeDefinition::structure(
                     subject,
-                    symbol_span(binding_context.symbols(), subject.into_any(), record.syntax_anchor())?,
+                    symbol_span(
+                        binding_context.symbols(),
+                        subject.into_any(),
+                        record.syntax_anchor(),
+                    )?,
                     fields,
                     directives.value().clone(),
                     !surface.value().lifecycle_members().is_empty(),
@@ -114,8 +123,11 @@ impl Compilation {
                     .union(id)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let span =
-                    symbol_span(binding_context.symbols(), subject.into_any(), record.syntax_anchor())?;
+                let span = symbol_span(
+                    binding_context.symbols(),
+                    subject.into_any(),
+                    record.syntax_anchor(),
+                )?;
 
                 let variants = record
                     .variants()
@@ -152,15 +164,19 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let ty = binding_context
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(field))
-            .map_err(binder::binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(field))
+            .map_err(binder::binding_query_error)?;
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
         Ok(DeclaredStorageMember::struct_field(
             field,
             ty.value().clone(),
-            symbol_span(binding_context.symbols(), field.into(), record.syntax_anchor())?,
+            symbol_span(
+                binding_context.symbols(),
+                field.into(),
+                record.syntax_anchor(),
+            )?,
             record.is_recovered(),
         ))
     }
@@ -176,7 +192,11 @@ impl Compilation {
             .union_variant(variant)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let span = symbol_span(binding_context.symbols(), variant.into(), record.syntax_anchor())?;
+        let span = symbol_span(
+            binding_context.symbols(),
+            variant.into(),
+            record.syntax_anchor(),
+        )?;
 
         let directives = self.declaration_directives(variant.into())?;
 
@@ -209,15 +229,19 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let ty = binding_context
-            .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(field))
-            .map_err(binder::binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field))
+            .map_err(binder::binding_query_error)?;
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
         Ok(DeclaredStorageMember::union_payload_field(
             field,
             ty.value().clone(),
-            symbol_span(binding_context.symbols(), field.into(), record.syntax_anchor())?,
+            symbol_span(
+                binding_context.symbols(),
+                field.into(),
+                record.syntax_anchor(),
+            )?,
             record.is_recovered(),
         ))
     }
@@ -246,20 +270,20 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn type_definition(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeDefinition>> {
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeDefinition>> {
         self.compilation
             .declared_type_definition(subject, self.cancellation)
-            .map_err(checker_fact_error)
+            .map_err(checker_query_error)
     }
 
     fn imported_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<Option<DeclaredTypeRepresentation>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<DeclaredTypeRepresentation>>> {
         let symbols = self
             .compilation
             .symbol_graph()
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         if symbols.symbol_key(subject.into_any()).is_some() {
             return Ok(DiagnosticResult::without_diagnostics(None));
@@ -268,7 +292,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let imported = self
             .compilation
             .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let Some(address) = imported
             .value()
@@ -288,7 +312,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
                 ),
                 self.cancellation,
             )
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let representation = match result.value().as_ref() {
             [ImportedSemanticRecord::TypeRepresentation(representation)] => {
@@ -296,7 +320,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             }
             [] => None,
             _ => {
-                return Err(CheckerFactError::Infrastructure(
+                return Err(CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 ));
             }
@@ -330,10 +354,10 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn unsigned_integer(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<DiagnosticResult<Option<u64>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<u64>>> {
         let ty = self
             .representation_type(RepresentationRole::ScalarUsize)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let occurrence = ConstantExpressionOccurrence::new(
             ConstantExpressionOccurrenceKey::new(expression.owner(), expression.syntax()),
@@ -343,15 +367,15 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let checked = self
             .compilation
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let value = checked_integer(
             self.compilation
                 .semantic_value_store()
-                .map_err(checker_fact_error)?,
+                .map_err(checker_query_error)?,
             *checked.value(),
         )
-        .map_err(checker_fact_error)?;
+        .map_err(checker_query_error)?;
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
@@ -359,10 +383,10 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn integer_type(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<Option<RepresentationIntegerType>> {
+    ) -> CheckerQueryResult<Option<RepresentationIntegerType>> {
         let source = self
             .source(expression.syntax())
-            .map_err(CheckerFactError::Infrastructure)?;
+            .map_err(CheckerQueryError::Infrastructure)?;
 
         let Some(role) = integer_role(source.text()) else {
             return Ok(None);
@@ -375,7 +399,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         &self,
         expression: DeclarationExpressionTemplate,
         expected: Option<RepresentationIntegerType>,
-    ) -> CheckerFactResult<DiagnosticResult<Option<IntegerConstant>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<IntegerConstant>>> {
         let expected = match expected {
             Some(expected) => expected,
             None => self.integer_type_for_role(RepresentationRole::ScalarU128)?,
@@ -389,15 +413,15 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let checked = self
             .compilation
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let value = checked_integer_constant(
             self.compilation
                 .semantic_value_store()
-                .map_err(checker_fact_error)?,
+                .map_err(checker_query_error)?,
             *checked.value(),
         )
-        .map_err(checker_fact_error)?;
+        .map_err(checker_query_error)?;
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
@@ -405,12 +429,14 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn integer_type_for_role(
         &self,
         role: RepresentationRole,
-    ) -> CheckerFactResult<RepresentationIntegerType> {
-        let ty = self.representation_type(role).map_err(checker_fact_error)?;
+    ) -> CheckerQueryResult<RepresentationIntegerType> {
+        let ty = self
+            .representation_type(role)
+            .map_err(checker_query_error)?;
 
         let representation =
             role.integer_representation()
-                .ok_or(CheckerFactError::Infrastructure(
+                .ok_or(CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 ))?;
 

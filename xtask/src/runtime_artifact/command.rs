@@ -85,7 +85,12 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
 
     let output = options.native.target_output(target);
 
-    build(target, &output, &options.profile, MemoryObservation::Disabled)
+    build(
+        target,
+        &output,
+        &options.profile,
+        MemoryObservation::Disabled,
+    )
 }
 
 fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
@@ -102,12 +107,7 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let output = directory.path().join(target.as_str());
 
-    let package = build(
-        target,
-        &output,
-        "release",
-        MemoryObservation::Disabled,
-    )?;
+    let package = build(target, &output, "release", MemoryObservation::Disabled)?;
 
     crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())
@@ -144,12 +144,7 @@ fn build(
     let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
         .map_err(CommandError::Publication)?;
 
-    build_contents(
-        target,
-        publication.contents(),
-        profile,
-        memory_observation,
-    )?;
+    build_contents(target, publication.contents(), profile, memory_observation)?;
 
     let output = publication.publish().map_err(CommandError::Publication)?;
 
@@ -436,10 +431,10 @@ fn metadata(
                 ),
             ] {
                 let roles = contract
-                .role_bindings()
-                .iter()
-                .map(RuntimeRoleBinding::role)
-                .filter(|role| runtime_role_archive(*role) == Some(kind));
+                    .role_bindings()
+                    .iter()
+                    .map(RuntimeRoleBinding::role)
+                    .filter(|role| runtime_role_archive(*role) == Some(kind));
 
                 metadata_components.push(
                     component_metadata(
@@ -925,9 +920,7 @@ fn required_value(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{
-        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest,
-    };
+    use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest};
     use bray_target::NativeTarget;
 
     use super::{
@@ -1042,7 +1035,12 @@ mod tests {
             let test_host = first
                 .components()
                 .iter()
-                .find(|component| component.identity().as_str().ends_with("test_runner.test_host"))
+                .find(|component| {
+                    component
+                        .identity()
+                        .as_str()
+                        .ends_with("test_runner.test_host")
+                })
                 .unwrap_or_else(|| panic!("runtime metadata must contain test output support"));
 
             assert_eq!(

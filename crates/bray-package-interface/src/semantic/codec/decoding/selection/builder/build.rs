@@ -8,7 +8,7 @@ use super::tables::SelectedTables;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
-use crate::semantic::codec::decoding::{contract, declaration, directory, bundle, surface, value};
+use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, value};
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
@@ -30,7 +30,9 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let mut context = SemanticDecodeContext::new(limits);
 
-    let directory = bundle::required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
+    let directory =
+        bundle::required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
+
     let directory = directory::decode_semantic_directory(directory, limits, &mut context)?;
 
     if kind == InterfaceSemanticRecordKind::CallableParameterDefault {
@@ -170,7 +172,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         if matches!(
             kind,
-            InterfaceSemanticRecordKind::Implementation | InterfaceSemanticRecordKind::TargetProperty
+            InterfaceSemanticRecordKind::Implementation
+                | InterfaceSemanticRecordKind::TargetProperty
         ) {
             for index in self.record_indexes(
                 directory,

@@ -10,7 +10,8 @@ use bray_diagnostics::{
 };
 use bray_symbols::CallableAbi;
 use bray_target::{
-    TargetForeignAbiContract, TargetLayoutContract, TargetProfile, TargetScalarKind, TargetValueLayout,
+    TargetForeignAbiContract, TargetLayoutContract, TargetProfile, TargetScalarKind,
+    TargetValueLayout,
 };
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerSource};
@@ -314,7 +315,10 @@ fn callable_abi_violation(
         })
 }
 
-fn foreign_abi_contract(target: &TargetProfile, abi: CallableAbi) -> Option<TargetForeignAbiContract> {
+fn foreign_abi_contract(
+    target: &TargetProfile,
+    abi: CallableAbi,
+) -> Option<TargetForeignAbiContract> {
     match abi {
         CallableAbi::Bray => None,
         CallableAbi::C => target.properties().abis().c_contract(),
@@ -556,7 +560,7 @@ mod tests {
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation};
     use bray_symbols::CallableAbi;
     use bray_target::{
-        TargetAbiSupport, TargetProperties, TargetIdentity, TargetLayoutContract, TargetProfile,
+        TargetAbiSupport, TargetIdentity, TargetLayoutContract, TargetProfile, TargetProperties,
         TargetValueLayout,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;

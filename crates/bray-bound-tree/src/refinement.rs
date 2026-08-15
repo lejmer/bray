@@ -211,8 +211,8 @@ impl CheckedRefinements {
 #[cfg(test)]
 mod tests {
     use super::{
-        CheckedRefinements, Refinement, RefinementKind, RefinementSetBuildError,
-        RefinementOccurrence,
+        CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
+        RefinementSetBuildError,
     };
     use crate::{
         AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
@@ -290,7 +290,10 @@ mod tests {
             CheckedRefinements::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
-                [RefinementOccurrence::new(expression.into(), [foreign_refinement])],
+                [RefinementOccurrence::new(
+                    expression.into(),
+                    [foreign_refinement]
+                )],
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)

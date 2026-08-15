@@ -13,7 +13,7 @@ use bray_syntax::{
 use super::super::name::symbol_name;
 use super::ExpressionBinder;
 use super::support::member_selector;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::binding::BindingResult;
 
@@ -24,7 +24,7 @@ impl ExpressionBinder {
         syntax: &LeadingDotVariantExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let selector =
             symbol_name(syntax.source(), &syntax.identifier_token()).map(BoundMemberSelector::Name);
@@ -46,7 +46,7 @@ impl ExpressionBinder {
         receiver: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let namespace = match binder.unit_view().expression(receiver) {
             Some(BoundExpression::Name(name)) => match name.target() {
@@ -105,7 +105,7 @@ impl ExpressionBinder {
         receiver: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let member = syntax.member_access_operation();
         let selector = member_selector(&member);

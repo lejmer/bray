@@ -11,7 +11,7 @@ use bray_syntax::{
 
 use super::ExpressionBinder;
 use super::support::iteration_source_mode;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::binding::BindingResult;
 
@@ -25,7 +25,7 @@ impl ExpressionBinder {
         kind: BoundStructuredExpressionKind,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
         S: SourceSyntaxNode + SyntaxWalkRoot,
     {
         let region = SyntaxAnchor::from_node(syntax);
@@ -49,7 +49,7 @@ impl ExpressionBinder {
         syntax: &GeneratorIterationExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let source =
             self.bind_expression(binder, scope, Some(&syntax.iteration_source().expression()))?;
@@ -116,7 +116,7 @@ impl ExpressionBinder {
         kind: BoundStructuredExpressionKind,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let is_recovered = syntax.is_recovered() || binder.expression_is_recovered(iteration);
 

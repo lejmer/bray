@@ -16,7 +16,7 @@ use bray_symbols::{
     ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
     ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSymbolId, ImportedInterfaceId, ImportedSemanticAddress, InterfaceSymbolId,
-    NamedTypeSymbolId, ProductIdentity, SymbolFactKind, TypeId,
+    NamedTypeSymbolId, ProductIdentity, SymbolQueryKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -52,21 +52,21 @@ impl ImportedExecutableTemplateAddress {
     }
 }
 
-/// Exact host selections that determine one native product fact.
+/// Exact host selections that determine one native product.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct NativeProductFactKey {
+pub(crate) struct NativeProductQueryKey {
     product: ProductIdentity,
     configuration: crate::BuildConfiguration,
-    runtime: Option<std::sync::Arc<[RuntimeComponentFactIdentity]>>,
+    runtime: Option<std::sync::Arc<[RuntimeComponentQueryIdentity]>>,
     required_capabilities: std::sync::Arc<[RuntimeCapability]>,
     linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
 }
 
-impl NativeProductFactKey {
+impl NativeProductQueryKey {
     pub(crate) fn new(
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
-        runtime: Option<std::sync::Arc<[RuntimeComponentFactIdentity]>>,
+        runtime: Option<std::sync::Arc<[RuntimeComponentQueryIdentity]>>,
         required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
         linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
     ) -> Self {
@@ -84,16 +84,16 @@ impl NativeProductFactKey {
     }
 }
 
-/// Complete immutable identity of one runtime catalog component used by a native product fact.
+/// Complete immutable identity of one runtime catalog component used by a native product query.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct RuntimeComponentFactIdentity {
+pub(crate) struct RuntimeComponentQueryIdentity {
     component: RuntimeArtifactId,
     purpose: RuntimeArtifactPurpose,
     digest: RuntimeArtifactDigest,
     archive: std::path::PathBuf,
 }
 
-impl RuntimeComponentFactIdentity {
+impl RuntimeComponentQueryIdentity {
     pub(crate) fn new(
         component: RuntimeArtifactId,
         purpose: RuntimeArtifactPurpose,
@@ -109,7 +109,7 @@ impl RuntimeComponentFactIdentity {
     }
 }
 
-/// The exact artifact-local address of one imported symbol-owned fact category.
+/// The exact artifact-local address of one imported symbol-owned semantic record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedSemanticRecordKey {
     interface: ImportedInterfaceId,
@@ -118,7 +118,7 @@ pub struct ImportedSemanticRecordKey {
 }
 
 impl ImportedSemanticRecordKey {
-    /// Creates one exact imported semantic-fact address.
+    /// Creates one exact imported semantic-record address.
     pub const fn new(
         interface: ImportedInterfaceId,
         owner: InterfaceSymbolId,
@@ -131,32 +131,32 @@ impl ImportedSemanticRecordKey {
         }
     }
 
-    /// Returns the loaded interface containing this fact.
+    /// Returns the loaded interface containing this record.
     pub const fn interface(self) -> ImportedInterfaceId {
         self.interface
     }
 
-    /// Returns the interface-local symbol that owns this fact.
+    /// Returns the interface-local symbol that owns this record.
     pub const fn owner(self) -> InterfaceSymbolId {
         self.owner
     }
 
-    /// Returns the exact semantic fact category.
+    /// Returns the exact semantic record category.
     pub const fn kind(self) -> InterfaceSemanticRecordKind {
         self.kind
     }
 }
 
-/// The exact compilation-local key for one symbol-owned semantic fact.
+/// The exact compilation-local key for one symbol-owned semantic query.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SymbolFactKey {
+pub struct SymbolQueryKey {
     symbol: AnySymbolId,
-    kind: SymbolFactKind,
+    kind: SymbolQueryKind,
 }
 
-impl SymbolFactKey {
-    /// Creates a key from an exact symbol identity and fact category.
-    pub const fn new(symbol: AnySymbolId, kind: SymbolFactKind) -> Self {
+impl SymbolQueryKey {
+    /// Creates a key from an exact symbol identity and query category.
+    pub const fn new(symbol: AnySymbolId, kind: SymbolQueryKind) -> Self {
         Self { symbol, kind }
     }
 
@@ -166,14 +166,14 @@ impl SymbolFactKey {
     }
 
     #[cfg(test)]
-    pub(crate) const fn kind(self) -> SymbolFactKind {
+    pub(crate) const fn kind(self) -> SymbolQueryKind {
         self.kind
     }
 }
 
 /// The complete compilation-local identity of one concrete constant evaluation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct ConstantInstanceFactKey {
+pub(crate) struct ConstantInstanceQueryKey {
     instance: ConstantInstanceKey,
     target: TargetProfile,
     limits: bray_checker::ConstantEvaluationLimits,
@@ -181,7 +181,7 @@ pub(crate) struct ConstantInstanceFactKey {
 
 /// The complete compilation-local identity of one selected constant call.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct ConstantCallFactKey {
+pub(crate) struct ConstantCallQueryKey {
     callable: CallableInstanceId,
     selected_implementation: Option<ImplementationInstanceId>,
     arguments: std::sync::Arc<[ConstantValueId]>,
@@ -192,12 +192,12 @@ pub(crate) struct ConstantCallFactKey {
 
 /// The exact compilation-local identity of one iteration source selection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct IterationSourceFactKey {
+pub(crate) struct IterationSourceQueryKey {
     unit: BoundUnitKey,
     expression: BoundExpressionId,
 }
 
-impl IterationSourceFactKey {
+impl IterationSourceQueryKey {
     pub(crate) const fn new(unit: BoundUnitKey, expression: BoundExpressionId) -> Self {
         Self { unit, expression }
     }
@@ -213,14 +213,14 @@ impl IterationSourceFactKey {
 
 /// The exact compilation-local identity of one non-call operation selection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct OperationSelectionFactKey {
+pub(crate) struct OperationSelectionQueryKey {
     unit: BoundUnitKey,
     expression: BoundExpressionId,
 }
 
 /// Complete identity of one independently requested code generation contribution.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct CodegenArtifactFactKey {
+pub(crate) struct CodegenArtifactQueryKey {
     unit: CodegenUnitKey,
     mappings: CodegenMappings,
     target: CodegenTarget,
@@ -231,7 +231,7 @@ pub(crate) struct CodegenArtifactFactKey {
     artifacts: BackendArtifactRequest,
 }
 
-impl CodegenArtifactFactKey {
+impl CodegenArtifactQueryKey {
     pub(crate) fn new(
         unit: CodegenUnitKey,
         mappings: CodegenMappings,
@@ -259,7 +259,7 @@ impl CodegenArtifactFactKey {
     }
 }
 
-impl OperationSelectionFactKey {
+impl OperationSelectionQueryKey {
     pub(crate) const fn new(unit: BoundUnitKey, expression: BoundExpressionId) -> Self {
         Self { unit, expression }
     }
@@ -283,7 +283,7 @@ pub(crate) struct ConstantCallDependencyKey {
     target: TargetProfile,
 }
 
-impl ConstantCallFactKey {
+impl ConstantCallQueryKey {
     pub(crate) fn new(
         callable: CallableInstanceId,
         selected_implementation: Option<ImplementationInstanceId>,
@@ -334,7 +334,7 @@ impl ConstantCallFactKey {
     }
 }
 
-impl ConstantInstanceFactKey {
+impl ConstantInstanceQueryKey {
     pub(crate) const fn new(
         instance: ConstantInstanceKey,
         target: TargetProfile,
@@ -362,7 +362,7 @@ pub(crate) enum CompilationFactKey {
     ModuleContributionGate(ModulePartId),
     /// Source-backed directives attached to one callable type occurrence.
     CallableTypeDirectives(CallableTypeDirectiveKey),
-    /// The complete canonical compiler-known symbol and fact provider.
+    /// The complete canonical compiler-known symbol and semantics provider.
     CompilerKnownSymbols,
     /// One canonical immutable bound unit selected by its exact stable key.
     BoundUnit(BoundUnitKey),
@@ -375,9 +375,9 @@ pub(crate) enum CompilationFactKey {
     /// Source predicate definitions mapped to their exact expression units.
     PredicateDefinitionKeys,
     /// One concrete constant value for an exact semantic instance and target profile.
-    ConstantInstance(ConstantInstanceFactKey),
+    ConstantInstance(ConstantInstanceQueryKey),
     /// One selected constant-call evaluation for exact arguments, target, and limits.
-    ConstantCall(ConstantCallFactKey),
+    ConstantCall(ConstantCallQueryKey),
     /// The semantic identity shared by nested evaluations of one selected constant call.
     ConstantCallCycle(ConstantCallDependencyKey),
     /// Durable control-flow analysis for one bound unit.
@@ -394,7 +394,7 @@ pub(crate) enum CompilationFactKey {
     StoragePlan(BoundUnitKey),
     /// Durable last-use and lexical scope-boundary decisions for one bound unit.
     Liveness(BoundUnitKey),
-    /// Durable flow-sensitive facts available at checked operation occurrences.
+    /// Durable flow-sensitive refinements available at checked operation occurrences.
     Refinements(BoundUnitKey),
     /// Checked storage, ownership, movement, and borrow decisions for one bound unit.
     StorageFlow(BoundUnitKey),
@@ -402,7 +402,7 @@ pub(crate) enum CompilationFactKey {
     DependencyContracts(BoundUnitKey),
     /// Checked compiler-provided memory operations for one bound unit.
     MemoryOperations(BoundUnitKey),
-    /// Async frame, suspension, task, and cleanup facts for one bound unit.
+    /// Async frame, suspension, task, and cleanup analysis for one bound unit.
     AsyncAnalysis(BoundUnitKey),
     /// Direct callable and runtime-default behavior contributions from one bound unit.
     BodyBehaviorContributions(BoundUnitKey),
@@ -411,12 +411,12 @@ pub(crate) enum CompilationFactKey {
     /// The lowering result for one exact checked semantic unit.
     LoweredUnit(BoundUnitKey),
     /// One exact backend artifact contribution requested from a code generation unit.
-    CodegenArtifact(CodegenArtifactFactKey),
-    /// Complete native product facts for exact product and host selections.
-    NativeProduct(NativeProductFactKey),
+    CodegenArtifact(CodegenArtifactQueryKey),
+    /// The complete native product for exact product and host selections.
+    NativeProduct(NativeProductQueryKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
-    /// The private fixed-point computation shared by expression type and selection facts.
+    /// The private fixed-point computation shared by expression types and semantic selections.
     ExpressionSemantics(BoundUnitKey),
     /// The private expression fixed point used before iteration element types are selected.
     ProvisionalExpressionSemantics(BoundUnitKey),
@@ -451,11 +451,11 @@ pub(crate) enum CompilationFactKey {
     /// The selected implementation witness for one exact requirement.
     ImplementationSelection(ImplementationRequirementKey),
     /// The exact protocol operations selected for one iteration source occurrence.
-    IterationSource(IterationSourceFactKey),
-    OperationSelection(OperationSelectionFactKey),
-    /// Decoded and remapped semantic facts for one compiled dependency interface.
+    IterationSource(IterationSourceQueryKey),
+    OperationSelection(OperationSelectionQueryKey),
+    /// Decoded and remapped semantics for one compiled dependency interface.
     ImportedSemanticGraph(ImportedInterfaceId),
-    /// One exact decoded and remapped imported symbol-owned fact category.
+    /// One exact decoded and remapped imported symbol-owned semantic record.
     ImportedSemanticRecord(ImportedSemanticRecordKey),
     /// One checked imported const-callable body selected from an implementation artifact.
     ImportedConstantCallableBody(ImportedSemanticAddress),
@@ -489,8 +489,8 @@ pub(crate) enum CompilationFactKey {
     SourceReferenceIndex(SourceId),
     /// The deterministic compilation-wide symbol identity graph.
     SymbolGraph,
-    /// One symbol-owned semantic fact.
-    Symbol(SymbolFactKey),
+    /// One symbol-owned semantic query.
+    Symbol(SymbolQueryKey),
     /// The syntax tree composed from every loaded source unit.
     SyntaxTree,
 }
@@ -593,28 +593,28 @@ impl CompilationFactKey {
     }
 }
 
-impl From<SymbolFactKey> for CompilationFactKey {
-    fn from(key: SymbolFactKey) -> Self {
+impl From<SymbolQueryKey> for CompilationFactKey {
+    fn from(key: SymbolQueryKey) -> Self {
         Self::Symbol(key)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolFactKind, SymbolId};
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolQueryKind};
 
     use super::{
-        CompilationFactKey, ConstantCallDependencyKey, ConstantCallFactKey,
-        ConstantInstanceFactKey, ImportedSemanticRecordKey, SymbolFactKey,
+        CompilationFactKey, ConstantCallDependencyKey, ConstantCallQueryKey,
+        ConstantInstanceQueryKey, ImportedSemanticRecordKey, SymbolQueryKey,
     };
 
     #[test]
     fn symbol_semantic_keys_keep_exact_identity_and_category() {
         let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(7)));
-        let key = SymbolFactKey::new(symbol, SymbolFactKind::CallableSignature);
+        let key = SymbolQueryKey::new(symbol, SymbolQueryKind::CallableSignature);
 
         assert_eq!(key.symbol(), symbol);
-        assert_eq!(key.kind(), SymbolFactKind::CallableSignature);
+        assert_eq!(key.kind(), SymbolQueryKind::CallableSignature);
 
         assert_eq!(
             CompilationFactKey::from(key),
@@ -628,9 +628,9 @@ mod tests {
 
         assert_send_sync::<CompilationFactKey>();
         assert_send_sync::<ConstantCallDependencyKey>();
-        assert_send_sync::<ConstantCallFactKey>();
-        assert_send_sync::<ConstantInstanceFactKey>();
+        assert_send_sync::<ConstantCallQueryKey>();
+        assert_send_sync::<ConstantInstanceQueryKey>();
         assert_send_sync::<ImportedSemanticRecordKey>();
-        assert_send_sync::<SymbolFactKey>();
+        assert_send_sync::<SymbolQueryKey>();
     }
 }

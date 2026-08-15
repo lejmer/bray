@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_symbols::{
     AnonymousCallableSymbolId, CallableExecution, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, SymbolFactKind, SymbolKind,
+    LocalSymbolSnapshot, SymbolKind, SymbolQueryKind,
 };
 
 use crate::{
@@ -271,7 +271,7 @@ fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bo
         }
         BoundUnitKeyData::ConstantTemplate(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::ConstantDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
             actual,
         ),
         BoundUnitKeyData::EmbeddedConstant(declared) => {
@@ -279,17 +279,17 @@ fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bo
         }
         BoundUnitKeyData::PredicateDefinition(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::PredicateDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::PredicateDefinition),
             actual,
         ),
         BoundUnitKeyData::Constraint(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::GenericConstraints),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::GenericConstraints),
             actual,
         ),
         BoundUnitKeyData::ContractClause(declared) => declared_region_matches(
             declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::CallableContracts),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
             actual,
         ),
         BoundUnitKeyData::TargetGate(declared) => {
@@ -338,13 +338,13 @@ fn anonymous_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -
         && actual.ordinal().is_none()
 }
 
-const fn runtime_default_query_kind(owner: SymbolKind) -> Option<SymbolFactKind> {
+const fn runtime_default_query_kind(owner: SymbolKind) -> Option<SymbolQueryKind> {
     match owner {
         SymbolKind::CallableParameterDefaultProvider => {
-            Some(SymbolFactKind::CallableParameterDefault)
+            Some(SymbolQueryKind::CallableParameterDefault)
         }
-        SymbolKind::StructFieldDefaultProvider => Some(SymbolFactKind::StructFieldDefault),
-        SymbolKind::UnionPayloadDefaultProvider => Some(SymbolFactKind::UnionPayloadFieldDefault),
+        SymbolKind::StructFieldDefaultProvider => Some(SymbolQueryKind::StructFieldDefault),
+        SymbolKind::UnionPayloadDefaultProvider => Some(SymbolQueryKind::UnionPayloadFieldDefault),
         _ => None,
     }
 }

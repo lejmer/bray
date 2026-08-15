@@ -394,8 +394,8 @@ impl StorageFlow {
 #[cfg(test)]
 mod tests {
     use super::{
-        StorageExitDecision, StorageFlow, StorageFlowBuildError,
-        StorageOperationDecision, StorageOperationStatus, StorageSuspensionState,
+        StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageOperationDecision,
+        StorageOperationStatus, StorageSuspensionState,
     };
     use crate::{
         BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,

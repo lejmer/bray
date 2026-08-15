@@ -110,8 +110,11 @@ impl<'project> ProjectCompiler<'project> {
 
         let output_root = self.graph.output_root().beneath(self.workspace_root);
 
-        let relative_output_directory =
-            self.relative_output_directory(product.identity(), planned.target_name(), configuration);
+        let relative_output_directory = self.relative_output_directory(
+            product.identity(),
+            planned.target_name(),
+            configuration,
+        );
 
         let output_directory = output_root.join(&relative_output_directory);
 
@@ -639,9 +642,10 @@ impl<'project> ProjectCompiler<'project> {
         target_name: &str,
         configuration: TackBuildConfiguration,
     ) -> PathBuf {
-        self.graph.output_root().beneath(self.workspace_root).join(
-            self.relative_output_directory(product, target_name, configuration),
-        )
+        self.graph
+            .output_root()
+            .beneath(self.workspace_root)
+            .join(self.relative_output_directory(product, target_name, configuration))
     }
 
     pub(crate) fn lock_published_product(
@@ -659,13 +663,13 @@ impl<'project> ProjectCompiler<'project> {
         );
 
         let directory = bray_emitter::ManagedOutputDirectory::try_new(relative.replace('\\', "/"))
-        .ok_or_else(|| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
-                operation: DiagnosticProjectOperation::ProductOutputDirectory,
-                path: PathBuf::from(&relative),
-                error: DiagnosticIoErrorKind::InvalidInput,
-            })
-        })?;
+            .ok_or_else(|| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                    path: PathBuf::from(&relative),
+                    error: DiagnosticIoErrorKind::InvalidInput,
+                })
+            })?;
 
         bray_emitter::lock_published_product(
             bray_emitter::ManagedFilesystemDestination::new(output_root, directory),

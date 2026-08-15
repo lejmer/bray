@@ -1,9 +1,9 @@
 mod audit;
 mod availability;
 mod error;
-mod semantic;
 mod provider;
 mod role;
+mod semantic;
 mod validation;
 
 pub use audit::{
@@ -12,13 +12,13 @@ pub use audit::{
 };
 pub use availability::AvailableCompilerKnownSymbols;
 pub use error::CompilerKnownSymbolBuildError;
-pub use semantic::{CompilerKnownDeclarationSemantics, CompilerKnownSemanticKey};
 pub use provider::{CompilerKnownScopeSymbolId, CompilerKnownSymbolProvider};
 pub use role::{
     CompilerKnownIterationProtocol, CompilerKnownOperationContract,
     CompilerKnownOrderingRepresentation, CompilerKnownResultRepresentation,
     CompilerKnownRunResultRepresentation, CompilerKnownSymbolRoleRegistry,
 };
+pub use semantic::{CompilerKnownDeclarationSemantics, CompilerKnownSemanticKey};
 
 #[cfg(test)]
 mod test_support;

@@ -32,30 +32,34 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         },
     );
 
-    encode_record_table(&mut encoder, &semantics.constraints, |encoder, constraint| {
-        write_symbol_reference(encoder, &constraint.owner);
-        encoder.write_u32(constraint.ordinal.raw());
+    encode_record_table(
+        &mut encoder,
+        &semantics.constraints,
+        |encoder, constraint| {
+            write_symbol_reference(encoder, &constraint.owner);
+            encoder.write_u32(constraint.ordinal.raw());
 
-        match constraint.kind {
-            InterfaceConstraintKind::Predicate(predicate) => {
-                encoder.write_u32(1);
-                encoder.write_u32(predicate.dependency_contract.raw());
+            match constraint.kind {
+                InterfaceConstraintKind::Predicate(predicate) => {
+                    encoder.write_u32(1);
+                    encoder.write_u32(predicate.dependency_contract.raw());
+                }
+                InterfaceConstraintKind::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    encoder.write_u32(2);
+                    encoder.write_u32(subject.raw());
+                    encoder.write_u32(application.raw());
+                }
+                InterfaceConstraintKind::TypeEquality { left, right } => {
+                    encoder.write_u32(3);
+                    encoder.write_u32(left.raw());
+                    encoder.write_u32(right.raw());
+                }
             }
-            InterfaceConstraintKind::TraitSatisfaction {
-                subject,
-                application,
-            } => {
-                encoder.write_u32(2);
-                encoder.write_u32(subject.raw());
-                encoder.write_u32(application.raw());
-            }
-            InterfaceConstraintKind::TypeEquality { left, right } => {
-                encoder.write_u32(3);
-                encoder.write_u32(left.raw());
-                encoder.write_u32(right.raw());
-            }
-        }
-    });
+        },
+    );
 
     encode_record_table(
         &mut encoder,
@@ -79,7 +83,9 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
 
     section(
         InterfaceSectionTag::Contracts,
-        semantics.dependency_contracts.len() + semantics.constraints.len() + semantics.callable_contracts.len(),
+        semantics.dependency_contracts.len()
+            + semantics.constraints.len()
+            + semantics.callable_contracts.len(),
         encoder,
     )
 }

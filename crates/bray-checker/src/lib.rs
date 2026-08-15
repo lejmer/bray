@@ -3,8 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod analysis;
-mod atomic;
 mod asynchronous;
+mod atomic;
 mod behavior;
 mod constant;
 mod context;
@@ -46,8 +46,8 @@ pub use constant::{
     resolve_type_expression_template,
 };
 pub use context::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource, ImplementationHookResolution,
+    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution,
 };
 pub use diagnostic::diagnostic_type;
 pub use expression::NestedCallableEvidence;

@@ -29,7 +29,9 @@ impl Compilation {
         let arguments = substitution
             .bindings()
             .iter()
-            .map(|binding| StructuralValueEncoder::argument_key(values, &binding_context, binding.argument()))
+            .map(|binding| {
+                StructuralValueEncoder::argument_key(values, &binding_context, binding.argument())
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(CodegenSpecialization::generic(arguments))

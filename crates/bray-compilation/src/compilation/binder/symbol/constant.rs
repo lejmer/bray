@@ -1,26 +1,30 @@
-use bray_binder::BinderFactResult;
+use bray_binder::BindingQueryResult;
 use bray_symbols::{
-    AnyConstantDefinitionId, ConstantDefinitionQuery, SymbolFactRequest, SymbolFactResult,
+    AnyConstantDefinitionId, ConstantDefinitionQuery, SymbolQueryRequest,
     TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,
 };
 
-use super::binding::{CompilationSymbolFactBinding, binder_error};
+use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
 use super::cache::CompilationSymbolSemantics;
 use crate::compilation::binder::CompilationBindingContext;
-use crate::fact::SymbolFactCache;
+use crate::fact::SymbolQueryCache;
 
 macro_rules! impl_constant_definition_query {
     ($contract:ty, $cache:ident, $definition:expr) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolSemantics {
-            fn cache(&self) -> &SymbolFactCache<$contract> {
+        impl CompilationSymbolQueryEvaluator<$contract> for CompilationSymbolSemantics {
+            fn cache(&self) -> &SymbolQueryCache<$contract> {
                 &self.$cache
             }
 
             fn bind(
                 &self,
                 context: &CompilationBindingContext<'_>,
-                request: SymbolFactRequest<$contract>,
-            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                request: SymbolQueryRequest<$contract>,
+            ) -> BindingQueryResult<
+                bray_diagnostics::DiagnosticResult<
+                    <$contract as bray_symbols::SymbolQueryContract>::Value,
+                >,
+            > {
                 context
                     .compilation()
                     .compute_constant_definition($definition(request.owner()), context.cancellation)

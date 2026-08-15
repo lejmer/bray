@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantProjection,
@@ -11,7 +11,7 @@ use bray_symbols::{
     ImplementationInstanceId, SemanticValueStore, TraitApplicationId, TypeData, TypeId,
 };
 
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation) fn structural_type_identity(
@@ -654,7 +654,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let key = self
             .binding_context
             .symbol_key(id)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         key.hash(&mut self.digest);

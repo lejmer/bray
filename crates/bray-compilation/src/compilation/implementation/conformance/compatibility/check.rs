@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableContractClause, CallableContractSet, CallableContractsQuery,
@@ -11,12 +11,12 @@ use bray_symbols::{
     GenericArgument, GenericConstParameterDeclaredTypeQuery, GenericConstraintsQuery,
     GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateQuery, RuntimeDefaultPresence, SymbolFactRequest, TraitApplicationId,
-    TraitMemberFulfillmentId, TraitMemberRequirementId, TraitTypeFulfillmentValueQuery, TypeData,
-    TypeExpressionTemplate,
+    PredicateSignatureTemplateQuery, RuntimeDefaultPresence, SymbolQueryRequest,
+    TraitApplicationId, TraitMemberFulfillmentId, TraitMemberRequirementId,
+    TraitTypeFulfillmentValueQuery, TypeData, TypeExpressionTemplate,
 };
 
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 use super::constraint::{constraints_are_compatible, substitute_requirement_trait_application};
@@ -29,11 +29,11 @@ use super::types::{
     dependency_contracts_are_compatible, substitute_requirement_type, type_templates_are_compatible,
 };
 
-macro_rules! demand_fact {
+macro_rules! resolve_query {
     ($binding_context:expr, $diagnostics:expr, $contract:ty, $owner:expr) => {{
         let result = $binding_context
-            .symbol_fact(SymbolFactRequest::<$contract>::new($owner))
-            .map_err(binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<$contract>::new($owner))
+            .map_err(binding_query_error)?;
 
         *$diagnostics = $diagnostics.merged(result.diagnostics());
 
@@ -50,7 +50,8 @@ pub(in crate::compilation::implementation::conformance) struct CompatibilityCont
     binding_context: &'binding_context CompilationBindingContext<'compilation>,
     subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
-    type_bindings: &'binding_context BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>,
+    type_bindings:
+        &'binding_context BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>,
 }
 
 impl<'binding_context, 'compilation> CompatibilityContext<'binding_context, 'compilation> {
@@ -98,14 +99,14 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
             TraitMemberRequirementId::Constant(requirement),
             TraitMemberFulfillmentId::Constant(fulfillment),
         ) => {
-            let requirement = demand_fact!(
+            let requirement = resolve_query!(
                 binding_context,
                 diagnostics,
                 bray_symbols::TraitConstantMemberDeclaredTypeQuery,
                 requirement
             );
 
-            let fulfillment = demand_fact!(
+            let fulfillment = resolve_query!(
                 binding_context,
                 diagnostics,
                 bray_symbols::TraitConstantFulfillmentDeclaredTypeQuery,
@@ -130,7 +131,7 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
             )
         }
         (TraitMemberRequirementId::Type(_), TraitMemberFulfillmentId::Type(fulfillment)) => {
-            let value = demand_fact!(
+            let value = resolve_query!(
                 binding_context,
                 diagnostics,
                 TraitTypeFulfillmentValueQuery,
@@ -194,11 +195,19 @@ fn callable_is_compatible(
     let trait_application = context.trait_application;
     let type_bindings = context.type_bindings;
 
-    let requirement_signature =
-        demand_fact!(binding_context, diagnostics, CallableSignatureQuery, requirement);
+    let requirement_signature = resolve_query!(
+        binding_context,
+        diagnostics,
+        CallableSignatureQuery,
+        requirement
+    );
 
-    let fulfillment_signature =
-        demand_fact!(binding_context, diagnostics, CallableSignatureQuery, fulfillment);
+    let fulfillment_signature = resolve_query!(
+        binding_context,
+        diagnostics,
+        CallableSignatureQuery,
+        fulfillment
+    );
 
     let (generic_mismatch, generic_substitution) = generic_surfaces_are_compatible(
         values,
@@ -426,14 +435,14 @@ fn generic_surfaces_are_compatible(
         return Ok((Some(GenericSurfaceMismatch::FulfillmentIsNotGeneric), None));
     };
 
-    let requirement = demand_fact!(
+    let requirement = resolve_query!(
         binding_context,
         diagnostics,
         GenericDeclarationTemplateQuery,
         requirement_owner
     );
 
-    let fulfillment = demand_fact!(
+    let fulfillment = resolve_query!(
         binding_context,
         diagnostics,
         GenericDeclarationTemplateQuery,
@@ -518,14 +527,14 @@ fn generic_surfaces_are_compatible(
             continue;
         };
 
-        let requirement_type = demand_fact!(
+        let requirement_type = resolve_query!(
             binding_context,
             diagnostics,
             GenericConstParameterDeclaredTypeQuery,
             *requirement
         );
 
-        let fulfillment_type = demand_fact!(
+        let fulfillment_type = resolve_query!(
             binding_context,
             diagnostics,
             GenericConstParameterDeclaredTypeQuery,
@@ -552,14 +561,14 @@ fn generic_surfaces_are_compatible(
         }
     }
 
-    let requirement_constraints = demand_fact!(
+    let requirement_constraints = resolve_query!(
         binding_context,
         diagnostics,
         GenericConstraintsQuery,
         requirement_owner
     );
 
-    let fulfillment_constraints = demand_fact!(
+    let fulfillment_constraints = resolve_query!(
         binding_context,
         diagnostics,
         GenericConstraintsQuery,
@@ -636,8 +645,19 @@ fn callable_contract_mismatch(
     fulfillment: CallableSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
-    let requirement = demand_fact!(binding_context, diagnostics, CallableContractsQuery, requirement);
-    let fulfillment = demand_fact!(binding_context, diagnostics, CallableContractsQuery, fulfillment);
+    let requirement = resolve_query!(
+        binding_context,
+        diagnostics,
+        CallableContractsQuery,
+        requirement
+    );
+
+    let fulfillment = resolve_query!(
+        binding_context,
+        diagnostics,
+        CallableContractsQuery,
+        fulfillment
+    );
 
     contract_set_mismatch(
         values,
@@ -873,14 +893,14 @@ fn predicate_is_compatible(
     let trait_application = context.trait_application;
     let type_bindings = context.type_bindings;
 
-    let requirement_signature = demand_fact!(
+    let requirement_signature = resolve_query!(
         binding_context,
         diagnostics,
         PredicateSignatureTemplateQuery,
         requirement
     );
 
-    let fulfillment_signature = demand_fact!(
+    let fulfillment_signature = resolve_query!(
         binding_context,
         diagnostics,
         PredicateSignatureTemplateQuery,

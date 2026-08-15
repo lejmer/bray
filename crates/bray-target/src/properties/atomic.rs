@@ -147,8 +147,7 @@ impl TargetAtomicRepresentationSupport {
         cross_process: bool,
     ) -> Option<Self> {
         if !required_alignment.get().is_power_of_two()
-            || ((!operations.any())
-                && (always_lock_free || wait_notify || cross_process))
+            || ((!operations.any()) && (always_lock_free || wait_notify || cross_process))
             || (wait_notify && !operations.load_store())
         {
             return None;

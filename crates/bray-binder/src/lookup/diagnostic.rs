@@ -7,7 +7,7 @@ use bray_symbols::MemberLookupResult;
 
 use super::binding::NameLookupResult;
 use super::category::ResolvedName;
-use crate::{BinderFactContext, binder::Binder};
+use crate::{BindingQueryContext, binder::Binder};
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct NameReference {
@@ -42,7 +42,7 @@ pub(super) fn report_lookup_result<C, T>(
     expected: DiagnosticNameKind,
     result: &NameLookupResult<T>,
 ) where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     if let Some(diagnostic) = lookup_diagnostic(reference, expected, result) {
         binder.add_diagnostic(diagnostic);

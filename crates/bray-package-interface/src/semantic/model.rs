@@ -3,8 +3,8 @@ mod bundle;
 mod constant;
 mod declaration;
 mod dependency;
-mod record;
 mod id;
+mod record;
 mod support;
 mod template;
 mod ty;
@@ -30,6 +30,11 @@ pub use dependency::{
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot,
 };
+pub use id::{
+    InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,
+    InterfaceConstantValueId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
+    InterfaceImplementationInstanceId, InterfaceTraitApplicationId, InterfaceTypeId,
+};
 pub use record::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
@@ -37,11 +42,6 @@ pub use record::{
     InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticRecord,
     InterfaceSemanticRecordKind, InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
     InterfaceTrustedCapabilityRequirement,
-};
-pub use id::{
-    InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,
-    InterfaceConstantValueId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstanceId, InterfaceTraitApplicationId, InterfaceTypeId,
 };
 pub use support::{
     InterfaceImplementationReference, InterfaceSupportEntity, InterfaceSupportImplementation,

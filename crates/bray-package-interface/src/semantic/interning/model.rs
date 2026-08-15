@@ -15,8 +15,8 @@ use crate::{InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceSymbolRefe
 
 use super::InternState;
 use super::declaration_model::{
-    ImportedCallableParameterDefault, ImportedCallableSignature,
-    ImportedGenericDeclaration, ImportedPredicateDefinition,
+    ImportedCallableParameterDefault, ImportedCallableSignature, ImportedGenericDeclaration,
+    ImportedPredicateDefinition,
 };
 
 /// Resolves artifact-local and dependency symbol references into one compilation snapshot.
@@ -344,7 +344,11 @@ impl ImportedSemantics {
         template: &crate::InterfaceCheckedTemplate,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<CheckedTemplate, InterfaceSemanticInternError> {
-        InternState::from_imported(self).convert_template(template, &self.interface_semantics, symbols)
+        InternState::from_imported(self).convert_template(
+            template,
+            &self.interface_semantics,
+            symbols,
+        )
     }
 
     /// Returns the exact semantics selected by symbol owner and category.
@@ -475,7 +479,10 @@ impl ImportedSemantics {
                 reference.key().data(),
                 SymbolKeyData::CompilerKnownDeclaration { key, .. }
                     if CompilerKnownDeclarationKey::try_new("Unit").as_ref() == Some(key)
-            ) => return Some(Vec::new()),
+            ) =>
+            {
+                return Some(Vec::new());
+            }
             _ => return None,
         };
 
@@ -578,10 +585,7 @@ impl ImportedSemantics {
         self.interface_semantics.types().get(slot)
     }
 
-    fn resolve_interface_types(
-        &self,
-        types: &[crate::InterfaceTypeId],
-    ) -> Option<Vec<TypeId>> {
+    fn resolve_interface_types(&self, types: &[crate::InterfaceTypeId]) -> Option<Vec<TypeId>> {
         types
             .iter()
             .map(|ty| self.types.get(ty.to_index()?).copied())

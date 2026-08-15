@@ -8,16 +8,16 @@ mod model;
 mod scalar;
 mod value;
 
-pub use abi::{TargetAbiSupport, TargetAbiScalars, TargetForeignAbiContract};
+pub use abi::{TargetAbiScalars, TargetAbiSupport, TargetForeignAbiContract};
 pub use atomic::{
-    TargetAtomicSupport, TargetAtomicOperations, TargetAtomicRepresentation,
-    TargetAtomicRepresentationSupport,
+    TargetAtomicOperations, TargetAtomicRepresentation, TargetAtomicRepresentationSupport,
+    TargetAtomicSupport,
 };
 pub use c::{TargetCDataModel, TargetCScalarKind};
 pub use kind::TargetPropertyKind;
 pub use model::{
-    TargetAddressSpaces, TargetAlignmentLimits, TargetProperties, TargetPlatformIdentity,
-    TargetOperationSupport,
+    TargetAddressSpaces, TargetAlignmentLimits, TargetOperationSupport, TargetPlatformIdentity,
+    TargetProperties,
 };
-pub use scalar::{TargetScalarSupport, TargetScalarKind};
+pub use scalar::{TargetScalarKind, TargetScalarSupport};
 pub use value::TargetPropertyValue;

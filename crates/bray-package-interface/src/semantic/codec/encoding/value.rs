@@ -178,12 +178,20 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
 pub(super) fn encode_constants(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    encode_record_table(&mut encoder, &semantics.constant_values, |encoder, value| {
-        encoder.write_u32(value.ty.raw());
-        encode_constant_value(encoder, &value.kind);
-    });
+    encode_record_table(
+        &mut encoder,
+        &semantics.constant_values,
+        |encoder, value| {
+            encoder.write_u32(value.ty.raw());
+            encode_constant_value(encoder, &value.kind);
+        },
+    );
 
-    encode_record_table(&mut encoder, &semantics.constant_terms, encode_constant_term);
+    encode_record_table(
+        &mut encoder,
+        &semantics.constant_terms,
+        encode_constant_term,
+    );
 
     section(
         InterfaceSectionTag::Constants,

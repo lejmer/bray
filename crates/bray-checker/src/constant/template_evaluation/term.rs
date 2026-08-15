@@ -12,7 +12,7 @@ use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
 use super::support::{
-    TemplateEvaluationFailure, binary_operator, fact_failure, integer_index, operation_failure,
+    TemplateEvaluationFailure, binary_operator, integer_index, operation_failure, query_failure,
 };
 use crate::CheckerRequestContext;
 
@@ -291,7 +291,7 @@ where
             ConstantInstanceKey::new(definition, substitution, selected_implementation),
             evaluator.budget.remaining_limits(evaluator.limits),
         )
-        .map_err(fact_failure)?;
+        .map_err(query_failure)?;
 
     evaluator.diagnostics = evaluator.diagnostics.merged(result.diagnostics());
 

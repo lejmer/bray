@@ -5,14 +5,14 @@ use bray_syntax::{
 };
 
 use super::core::TypeExpressionBinder;
-use crate::BinderFactResult;
+use crate::BindingQueryResult;
 
 impl TypeExpressionBinder<'_> {
     /// Binds an operand that may denote a type in static constraint context.
     pub fn bind_static_type_operand(
         mut self,
         operand: &StaticTypeOperandSyntax,
-    ) -> BinderFactResult<Option<DiagnosticResult<TypeExpressionTemplate>>> {
+    ) -> BindingQueryResult<Option<DiagnosticResult<TypeExpressionTemplate>>> {
         let syntax = match operand {
             StaticTypeOperandSyntax::Type(syntax) => syntax.clone(),
             StaticTypeOperandSyntax::Expression(expression) => {

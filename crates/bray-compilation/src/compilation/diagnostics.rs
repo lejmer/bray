@@ -3,12 +3,12 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
-    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync,
-    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
-    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-    DeclaredValueTypeTemplates, Liveness, SemanticSelection, StorageFlow, StoragePlan,
+    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync, CheckedBodyBehavior,
+    CheckedControlFlow, CheckedDependencyContracts, CheckedMemoryOperations, CheckedPatterns,
+    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SemanticSelection, StorageFlow,
+    StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -23,9 +23,9 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsQuery, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
-    ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, SemanticFactResult, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceQuery,
-    diagnostic_symbol_identity, diagnostic_symbol_kind,
+    ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, SymbolGraph, SymbolKey, SymbolOrigin,
+    SymbolQueryRequest, TraitImplementationConformanceQuery, diagnostic_symbol_identity,
+    diagnostic_symbol_kind,
 };
 use bray_syntax::{
     ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
@@ -34,7 +34,7 @@ use bray_syntax::{
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::state::{CheckedExpressionSemantics, Compilation};
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(
@@ -116,7 +116,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticBag, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::SemanticDiagnostics,
             &self.state.semantic_diagnostics,
             cancellation,
@@ -150,7 +150,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticBag, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::CheckDiagnostics,
             &self.state.check_diagnostics,
             cancellation,
@@ -204,8 +204,8 @@ impl Compilation {
             .filter(|module| module.origin() == SymbolOrigin::Source)
         {
             let surface = binder
-                .symbol_fact(SymbolFactRequest::<ModuleSurfaceQuery>::new(module.id()))
-                .map_err(super::binder::binder_fact_error)?;
+                .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module.id()))
+                .map_err(super::binder::binding_query_error)?;
 
             sources.push(SemanticDiagnosticSource::ModuleSurface(surface));
         }
@@ -227,8 +227,10 @@ impl Compilation {
                 let callable = callables[index];
 
                 binder
-                    .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(callable))
-                    .map_err(super::binder::binder_fact_error)
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                        callable,
+                    ))
+                    .map_err(super::binder::binding_query_error)
             })?;
 
         for contracts in contract_results {
@@ -272,14 +274,14 @@ impl Compilation {
         }
 
         while let Some((_, _, _, key)) = pending.pop_first() {
-            let (bound, unit_facts) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
+            let (bound, unit_querys) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
 
             for nested in bound.result().value().nested_units() {
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 pending.insert(unit_order_key(nested.clone()));
             }
 
-            sources.extend(unit_facts);
+            sources.extend(unit_querys);
         }
 
         let query_diagnostics =
@@ -318,7 +320,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<
         (
-            Arc<PublishedUnitFact<BoundUnit>>,
+            Arc<PublishedUnitResult<BoundUnit>>,
             Vec<SemanticDiagnosticSource>,
         ),
         FactQueryError,
@@ -659,7 +661,7 @@ enum SemanticDiagnosticSource {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     EmbeddedConstants(DiagnosticResult<bray_checker::CheckedConstantTerms>),
-    ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
+    ExpressionSemantics(Arc<PublishedUnitResult<CheckedExpressionSemantics>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlow>>),
     Patterns(Arc<DiagnosticResult<CheckedPatterns>>),
     Storage(Arc<DiagnosticResult<StoragePlan>>),
@@ -674,9 +676,21 @@ enum SemanticDiagnosticSource {
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
     ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
-    CallableContracts(Arc<SymbolFactResult<CallableContractsQuery>>),
+    CallableContracts(
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
+            >,
+        >,
+    ),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
-    TraitConformance(Arc<SemanticFactResult<TraitImplementationConformanceQuery>>),
+    TraitConformance(
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+    ),
 }
 
 impl SemanticDiagnosticSource {

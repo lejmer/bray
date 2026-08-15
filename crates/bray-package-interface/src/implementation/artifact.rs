@@ -1185,12 +1185,20 @@ mod tests {
 
         assert_ne!(
             alternate_target.target_properties().machine(),
-            artifact.identity().configuration().target_properties().machine()
+            artifact
+                .identity()
+                .configuration()
+                .target_properties()
+                .machine()
         );
 
         assert_ne!(
             alternate_target.target_properties().properties(),
-            artifact.identity().configuration().target_properties().properties()
+            artifact
+                .identity()
+                .configuration()
+                .target_properties()
+                .properties()
         );
 
         assert_eq!(

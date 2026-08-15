@@ -7,8 +7,8 @@ use bray_parser::parse_source_unit;
 use bray_source::TextSize;
 use bray_symbols::{
     LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
-    SymbolFactKind, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey, SynthesizedSymbolKey,
+    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SymbolKey,
+    SymbolKind, SymbolOrdinal, SymbolQueryKind, SymbolRootKey, SynthesizedSymbolKey,
 };
 
 use crate::test_source_snapshot;
@@ -122,7 +122,7 @@ fn runtime_default_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapsho
     let symbols = local_symbols(
         unit,
         owner,
-        LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::CallableParameterDefault),
+        LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableParameterDefault),
         syntax,
     );
 
@@ -141,7 +141,7 @@ fn constant_template_unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnaps
     let symbols = local_symbols(
         unit,
         owner,
-        LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::ConstantDefinition),
+        LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
         syntax,
     );
 

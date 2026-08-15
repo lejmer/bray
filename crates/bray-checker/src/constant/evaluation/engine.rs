@@ -878,8 +878,8 @@ mod tests {
         AnySymbolId, ConstantSymbolId, ConstantTermData, ConstantValueData, ConstantValueKind,
         GenericConstParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
         LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
-        PackageIdentity, RealConstantBits, StructFieldSymbolId, StructSymbolId, SymbolFactKind,
-        SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TargetSizedIntegerType,
+        PackageIdentity, RealConstantBits, StructFieldSymbolId, StructSymbolId, SymbolId,
+        SymbolKey, SymbolKind, SymbolQueryKind, SymbolRootKey, TargetSizedIntegerType,
         TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
@@ -895,7 +895,7 @@ mod tests {
         semantic_values, trait_callable_instance, tuple_type,
     };
     use crate::{
-        CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerUnitView,
+        CheckerInfrastructureError, CheckerOutcome, CheckerQueryResult, CheckerUnitView,
         ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
         ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
         ConstantEvaluator, ConstantReferenceResolution, DeclaredUnitContext,
@@ -1475,14 +1475,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(true)
         }
 
         fn resolve(
             &self,
             request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             self.requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1502,14 +1502,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(true)
         }
 
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             Ok(ConstantCallResolution::Cycle)
         }
     }
@@ -1520,14 +1520,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(false)
         }
 
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             panic!("ineligible calls must not be evaluated")
         }
     }
@@ -2447,7 +2447,7 @@ mod tests {
 
         let region_key = LocalSymbolRegionKey::try_new(
             key.declared_owner().clone(),
-            LocalSymbolRegionRole::DeclarationQuery(SymbolFactKind::ConstantDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
             [key.source().syntax()],
             None,
         );

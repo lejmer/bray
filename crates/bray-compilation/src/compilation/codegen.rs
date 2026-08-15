@@ -22,7 +22,7 @@ use bray_symbols::CallableAbi;
 use bray_symbols::CallableDefinitionId;
 
 use super::Compilation;
-use crate::fact::{CancellationToken, CodegenArtifactFactKey, CompilationFactKey, FactQueryError};
+use crate::fact::{CancellationToken, CodegenArtifactQueryKey, CompilationFactKey, FactQueryError};
 
 impl Compilation {
     pub(super) fn codegen_units_for_plan(
@@ -180,7 +180,9 @@ impl Compilation {
             )),
             MirUnitKey::ImportedExecutable(key) => self
                 .imported_executable_mir(*key, mir_unit, instance.target().clone(), cancellation)?
-                .ok_or_else(|| CodegenPreparationError::MirUnavailable(instance.template().clone())),
+                .ok_or_else(|| {
+                    CodegenPreparationError::MirUnavailable(instance.template().clone())
+                }),
             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenPreparationError::MirUnavailable(instance.template().clone()),
             ),
@@ -237,7 +239,7 @@ impl Compilation {
         )
         .map_err(CodegenPreparationError::InvalidRequest)?;
 
-        let key = CodegenArtifactFactKey::new(
+        let key = CodegenArtifactQueryKey::new(
             unit.key().clone(),
             mappings.clone(),
             target.clone(),
@@ -365,7 +367,9 @@ fn codegen_mappings(
                 bray_runtime_interface::native_runtime_role_symbol(reference.role())
                     .and_then(BinarySymbolName::try_new)
             })
-            .ok_or(CodegenPreparationError::MissingRuntimeRole(reference.role()))?;
+            .ok_or(CodegenPreparationError::MissingRuntimeRole(
+                reference.role(),
+            ))?;
 
         // The mapping owns the selected runtime spelling past the host-contract borrow.
         symbols.push(symbol_mapping(
@@ -454,7 +458,7 @@ pub enum CodegenPreparationError {
     LayoutOverflow(bray_symbols::TypeId),
     /// A deterministic generated binary symbol could not be represented.
     InvalidSymbolName,
-    /// The compilation fact runtime could not complete the request.
+    /// The compilation query runtime could not complete the request.
     Query(FactQueryError),
 }
 

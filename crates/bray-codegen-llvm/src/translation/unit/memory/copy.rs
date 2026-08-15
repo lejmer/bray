@@ -17,15 +17,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let source = self.operand(source)?.into_struct_value();
 
-        let source_pointer = llvm(self.builder.build_extract_value(source, 0, "memory.slice.pointer"))?
-            .into_pointer_value();
+        let source_pointer = llvm(self.builder.build_extract_value(
+            source,
+            0,
+            "memory.slice.pointer",
+        ))?
+        .into_pointer_value();
 
-        let bytes = llvm(self.builder.build_extract_value(source, 1, "memory.slice.length"))?
-            .into_int_value();
+        let bytes = llvm(
+            self.builder
+                .build_extract_value(source, 1, "memory.slice.length"),
+        )?
+        .into_int_value();
 
         let destination = self.memory_pointer(destination)?;
 
-        llvm(self.builder.build_memcpy(destination, 1, source_pointer, 1, bytes))?;
+        llvm(
+            self.builder
+                .build_memcpy(destination, 1, source_pointer, 1, bytes),
+        )?;
+
         self.observe_memory_copy(bytes)?;
 
         Ok(())

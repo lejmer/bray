@@ -1,15 +1,15 @@
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::resolve_callable_signature_template;
 use bray_compiler_known::{CompilerKnownDeclarationKey, CompilerKnownOperationRole};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableInstanceData, CallableSignature, CallableSignatureQuery, GenericArgument,
     GenericParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSelection, SymbolFactRequest, TraitCallableMemberSymbolId, TypeId,
+    ImplementationSelection, SymbolQueryRequest, TraitCallableMemberSymbolId, TypeId,
 };
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBindingContext, binder_fact_error};
+use super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::implementation::{
     callable_instance, implementation_fulfillments, implementation_requirement, selected_callable,
 };
@@ -75,15 +75,16 @@ pub(in crate::compilation) fn selected_storage_callable(
         .declaration_symbol::<TraitCallableMemberSymbolId>(member_key)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, member) else {
+    let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, member)
+    else {
         return Ok(DiagnosticResult::new(None, diagnostics));
     };
 
     let signature = binding_context
-        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
             fulfillment.into(),
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics = diagnostics.merged(signature.diagnostics());
 

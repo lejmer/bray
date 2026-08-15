@@ -2,8 +2,8 @@ use super::{contract, declaration, directory, selection, support, surface, templ
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
+    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError, InterfaceValidationLimits,
+    PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub(crate) const COMPLETE_SEMANTIC_SECTIONS: &[InterfaceSectionTag] = &[
@@ -149,7 +149,9 @@ pub(crate) fn selected_semantic_sections(
 
     match kind {
         crate::InterfaceSemanticRecordKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
-        crate::InterfaceSemanticRecordKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
+        crate::InterfaceSemanticRecordKind::GenericDeclaration => {
+            Some(GENERIC_DECLARATION_SECTIONS)
+        }
         crate::InterfaceSemanticRecordKind::CallableParameterDefault => {
             Some(CALLABLE_PARAMETER_DEFAULT_SECTIONS)
         }
@@ -445,7 +447,11 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("runtime requirement must decode: {error:?}"));
 
-        assert_eq!(decoded.runtime_requirements(), semantics.runtime_requirements());
+        assert_eq!(
+            decoded.runtime_requirements(),
+            semantics.runtime_requirements()
+        );
+
         assert!(decoded.types().is_empty());
         assert!(decoded.callable_contracts().is_empty());
     }

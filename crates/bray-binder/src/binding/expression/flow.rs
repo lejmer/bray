@@ -8,7 +8,7 @@ use bray_syntax::{
 };
 
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::binding::{BindingError, BindingResult};
 
@@ -20,7 +20,7 @@ impl ExpressionBinder {
         syntax: SyntaxNodeView<'_>,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let kind = match syntax.kind() {
             SyntaxKind::YieldExpression => BoundControlTransferKind::Yield,
@@ -56,7 +56,7 @@ impl ExpressionBinder {
         syntax: SyntaxNodeView<'_>,
     ) -> BindingResult<Option<BoundExpressionId>>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut result = None;
         let mut first = true;
@@ -96,7 +96,7 @@ fn control_transfer_target<C>(
     kind: BoundControlTransferKind,
 ) -> Option<bray_declarations::SyntaxAnchor>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let target = match kind {
         BoundControlTransferKind::Yield => binder.control_target_of_kinds(&[

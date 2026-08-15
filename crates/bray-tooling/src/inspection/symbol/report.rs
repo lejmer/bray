@@ -30,7 +30,7 @@ pub(crate) enum SymbolInspectionRenderError {
     SourceIndex,
     Symbol,
     SymbolCycle,
-    SymbolFact,
+    SymbolState,
     Type,
     UnsupportedRelationship,
 }
@@ -103,7 +103,7 @@ impl SymbolInspectionReport {
 
         let semantic_values = compilation
             .semantic_value_store()
-            .map_err(|_| SymbolInspectionRenderError::SymbolFact)?;
+            .map_err(|_| SymbolInspectionRenderError::SymbolState)?;
 
         let mut context = SymbolInspectionContext::new(
             compilation,
@@ -288,7 +288,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(signature) = self
             .compilation
             .callable_signature_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolFact)?
+            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
         {
             self.diagnostics
                 .add_range(signature.diagnostics().iter().cloned());
@@ -308,7 +308,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(signature) = self
             .compilation
             .predicate_signature_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolFact)?
+            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
         {
             self.diagnostics
                 .add_range(signature.diagnostics().iter().cloned());
@@ -341,7 +341,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(ty) = self
             .compilation
             .symbol_type_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolFact)?
+            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
         {
             self.diagnostics.add_range(ty.diagnostics().iter().cloned());
 

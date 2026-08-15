@@ -22,7 +22,7 @@ pub(crate) enum LoweredInspectionRenderError {
     LoweringState,
     Model,
     Source,
-    SymbolFact,
+    SymbolState,
     UnitState,
 }
 
@@ -111,11 +111,11 @@ fn inspect_units(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| LoweredInspectionRenderError::SymbolFact)?;
+        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| LoweredInspectionRenderError::SymbolFact)?;
+        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
     let mut diagnostics = source_diagnostics;

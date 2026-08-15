@@ -17,8 +17,7 @@ use crate::{
 
 use super::common::resolve_symbol_key;
 use super::{
-    ImportedDeclarationTemplate, InterfaceSemanticInternError, InterfaceSymbolResolver,
-    InternState,
+    ImportedDeclarationTemplate, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {
@@ -104,13 +103,10 @@ impl InternState {
         let mut temporaries = template.temporaries().iter().peekable();
 
         for (node_index, node) in template.nodes().iter().enumerate() {
-            while temporaries
-                .peek()
-                .is_some_and(|temporary| {
-                    usize::try_from(temporary.initializer().raw())
-                        .is_ok_and(|initializer| initializer < node_index)
-                })
-            {
+            while temporaries.peek().is_some_and(|temporary| {
+                usize::try_from(temporary.initializer().raw())
+                    .is_ok_and(|initializer| initializer < node_index)
+            }) {
                 let Some(temporary) = temporaries.next() else {
                     break;
                 };

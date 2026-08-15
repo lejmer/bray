@@ -7,7 +7,8 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableSignatureQuery, GenericConstraintsQuery, StructFieldTypeQuery, UnionPayloadFieldTypeQuery,
+    CallableSignatureQuery, GenericConstraintsQuery, StructFieldTypeQuery,
+    UnionPayloadFieldTypeQuery,
 };
 
 use super::built_in_operator;
@@ -22,9 +23,9 @@ use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence, NestedCallableEvidence,
-    PatternCheckInput,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
+    NestedCallableEvidence, PatternCheckInput,
 };
 
 pub(crate) fn check_expression_semantics<C>(
@@ -41,10 +42,10 @@ pub(crate) fn check_expression_semantics<C>(
 )>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<GenericConstraintsQuery>
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     if declared_types.unit() != request.view().unit()
@@ -141,8 +142,8 @@ fn check_provisional_expression_types<C>(
 ) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
@@ -176,8 +177,8 @@ fn check_expression_semantics_once<C>(
 )>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
@@ -219,8 +220,8 @@ fn prepare_expression_check<'view, C>(
 >
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     let supplemental_types = nested_callables
@@ -339,8 +340,8 @@ fn finish_expression_check<C>(
 )>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
         + ?Sized,
 {
     let type_result = match finish_expression_types_with_deferred(

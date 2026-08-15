@@ -6,14 +6,14 @@ use bray_bound_tree::{
     BoundUnitRoot, BoundUnitView,
 };
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolFactContract,
-    SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    AvailableCompilerKnownSymbols, CallableSymbolId, SemanticValueStore, SymbolGraph,
+    SymbolQueryContract, SymbolQueryRequest,
 };
 use bray_target::TargetProfile;
 
 use crate::{
-    CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
+    CheckerInfrastructureError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
 };
 
 /// A validated read-only view of one bound unit for focused checker services.
@@ -171,42 +171,42 @@ where
         self,
         owner: bray_symbols::AnySymbolId,
         name: &str,
-    ) -> CheckerFactResult<bray_symbols::MemberLookupResult<bray_symbols::AnySymbolId>> {
+    ) -> CheckerQueryResult<bray_symbols::MemberLookupResult<bray_symbols::AnySymbolId>> {
         self.context.lookup_member(owner, name)
     }
 
     pub(crate) fn member_name(
         self,
         member: bray_symbols::AnySymbolId,
-    ) -> CheckerFactResult<Option<&'view bray_symbols::SymbolName>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::SymbolName>> {
         self.context.member_name(member)
     }
 
     pub(crate) fn structure(
         self,
         id: bray_symbols::StructSymbolId,
-    ) -> CheckerFactResult<Option<&'view bray_symbols::StructSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::StructSymbol>> {
         self.context.structure(id)
     }
 
     pub(crate) fn union(
         self,
         id: bray_symbols::UnionSymbolId,
-    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionSymbol>> {
         self.context.union(id)
     }
 
     pub(crate) fn union_variant(
         self,
         id: bray_symbols::UnionVariantSymbolId,
-    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionVariantSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionVariantSymbol>> {
         self.context.union_variant(id)
     }
 
     pub(crate) fn union_payload_field(
         self,
         id: bray_symbols::UnionPayloadFieldSymbolId,
-    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionPayloadFieldSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionPayloadFieldSymbol>> {
         self.context.union_payload_field(id)
     }
 
@@ -219,7 +219,7 @@ where
     pub(crate) fn implementation_hook(
         self,
         symbol: bray_symbols::AnySymbolId,
-    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
         self.context.implementation_hook(symbol)
     }
 
@@ -232,7 +232,7 @@ where
     pub(crate) fn checked_constant_expression(
         self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
         self.context.checked_constant_expression(occurrence)
     }
 
@@ -240,14 +240,14 @@ where
     pub(crate) fn generic_constraints(
         self,
         obligation: bray_symbols::GenericConstraintObligationKey,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
         self.context.generic_constraints(obligation)
     }
 
     pub(crate) fn implementation_selection(
         self,
         requirement: bray_symbols::ImplementationRequirementKey,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>>
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>>
     {
         self.context.implementation_selection(requirement)
     }
@@ -256,7 +256,7 @@ where
     pub(crate) fn declared_type_representation(
         self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerFactResult<
+    ) -> CheckerQueryResult<
         bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
     > {
         self.context.declared_type_representation(subject)
@@ -265,14 +265,14 @@ where
     pub(crate) fn plain_storage_atomic_representation(
         self,
         ty: bray_symbols::TypeId,
-    ) -> CheckerFactResult<Option<bray_target::TargetAtomicRepresentation>> {
+    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>> {
         self.context.plain_storage_atomic_representation(ty)
     }
 
     pub(crate) fn declared_type_has_lifecycle(
         self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>> {
         self.context.declared_type_has_lifecycle(subject)
     }
 
@@ -280,7 +280,7 @@ where
     pub(crate) fn checked_constant_terms(
         self,
         template: &bray_symbols::TypeExpressionTemplate,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>> {
         let mut terms = BTreeMap::new();
         let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
@@ -293,7 +293,7 @@ where
         }
 
         let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|_| {
-            crate::CheckerFactError::Infrastructure(
+            crate::CheckerQueryError::Infrastructure(
                 CheckerInfrastructureError::SemanticValueUnavailable,
             )
         })?;
@@ -321,15 +321,17 @@ where
     }
 
     /// Requests one exact symbol-owned semantic query.
-    pub fn symbol_fact<F>(
+    pub fn resolve_symbol_query<F>(
         self,
-        request: SymbolFactRequest<F>,
-    ) -> CheckerFactResult<Arc<SymbolFactResult<F>>>
+        request: SymbolQueryRequest<F>,
+    ) -> CheckerQueryResult<
+        Arc<bray_diagnostics::DiagnosticResult<<F as bray_symbols::SymbolQueryContract>::Value>>,
+    >
     where
-        F: SymbolFactContract,
-        C: CheckerSemanticFactProvider<F>,
+        F: SymbolQueryContract,
+        C: CheckerSemanticQueryProvider<F>,
     {
-        self.context.symbol_fact(request)
+        self.context.resolve_symbol_query(request)
     }
 
     /// Returns whether compilation cancellation has been requested.

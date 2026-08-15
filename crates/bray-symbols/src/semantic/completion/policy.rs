@@ -2,22 +2,22 @@ use crate::{AnySymbolId, GenericOwnerId, SymbolKind};
 
 /// A semantic completion boundary for one declaration symbol.
 ///
-/// Executable bodies use separate checked-unit facts and are deliberately absent from this
+/// Executable bodies use separate checked-unit analyses and are deliberately absent from this
 /// symbol completion family.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SymbolCompletionLevel {
     /// Only the deterministic symbol identity skeleton is required.
     Identity,
-    /// Every applicable fact needed to describe the declaration surface is required.
+    /// Every applicable query needed to describe the declaration surface is required.
     DeclarationSurface,
 }
 
-/// An exact category of semantic fact owned by a declaration symbol.
+/// An exact category of semantic query owned by a declaration symbol.
 ///
-/// Instance-specific facts with additional semantic inputs use their own typed keys rather than
+/// Instance-specific queries with additional semantic inputs use their own typed keys rather than
 /// discarding those inputs into this symbol-only category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SymbolFactKind {
+pub enum SymbolQueryKind {
     /// Typed members and their ordinary-name index.
     Members,
     /// Imports contributing to a module surface.
@@ -76,39 +76,39 @@ pub enum SymbolFactKind {
     OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 28] = [
-    SymbolFactKind::Members,
-    SymbolFactKind::Imports,
-    SymbolFactKind::Directives,
-    SymbolFactKind::GenericParameters,
-    SymbolFactKind::GenericDeclarationTemplate,
-    SymbolFactKind::GenericConstraints,
-    SymbolFactKind::CallableSignature,
-    SymbolFactKind::CallableContracts,
-    SymbolFactKind::CallableContractTemplate,
-    SymbolFactKind::PredicateSignatureTemplate,
-    SymbolFactKind::CallableContractType,
-    SymbolFactKind::ConstantDeclaredType,
-    SymbolFactKind::ConstantDefinition,
-    SymbolFactKind::CallableParameterDefault,
-    SymbolFactKind::UnevaluatedDefaultTemplate,
-    SymbolFactKind::StructFieldType,
-    SymbolFactKind::TypeMemberValue,
-    SymbolFactKind::StructFieldDefault,
-    SymbolFactKind::UnionPayloadFieldType,
-    SymbolFactKind::UnionPayloadFieldDefault,
-    SymbolFactKind::PredicateDefinition,
-    SymbolFactKind::UnionVariantPayload,
-    SymbolFactKind::ImplementationSubject,
-    SymbolFactKind::ImplementedTraitApplication,
-    SymbolFactKind::ImplementationHeadTemplate,
-    SymbolFactKind::ImplementationCoherence,
-    SymbolFactKind::OverloadArms,
-    SymbolFactKind::OverloadSignatureTemplate,
+pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 28] = [
+    SymbolQueryKind::Members,
+    SymbolQueryKind::Imports,
+    SymbolQueryKind::Directives,
+    SymbolQueryKind::GenericParameters,
+    SymbolQueryKind::GenericDeclarationTemplate,
+    SymbolQueryKind::GenericConstraints,
+    SymbolQueryKind::CallableSignature,
+    SymbolQueryKind::CallableContracts,
+    SymbolQueryKind::CallableContractTemplate,
+    SymbolQueryKind::PredicateSignatureTemplate,
+    SymbolQueryKind::CallableContractType,
+    SymbolQueryKind::ConstantDeclaredType,
+    SymbolQueryKind::ConstantDefinition,
+    SymbolQueryKind::CallableParameterDefault,
+    SymbolQueryKind::UnevaluatedDefaultTemplate,
+    SymbolQueryKind::StructFieldType,
+    SymbolQueryKind::TypeMemberValue,
+    SymbolQueryKind::StructFieldDefault,
+    SymbolQueryKind::UnionPayloadFieldType,
+    SymbolQueryKind::UnionPayloadFieldDefault,
+    SymbolQueryKind::PredicateDefinition,
+    SymbolQueryKind::UnionVariantPayload,
+    SymbolQueryKind::ImplementationSubject,
+    SymbolQueryKind::ImplementedTraitApplication,
+    SymbolQueryKind::ImplementationHeadTemplate,
+    SymbolQueryKind::ImplementationCoherence,
+    SymbolQueryKind::OverloadArms,
+    SymbolQueryKind::OverloadSignatureTemplate,
 ];
 
-impl SymbolFactKind {
-    /// Returns whether this fact participates in the requested completion boundary when applicable.
+impl SymbolQueryKind {
+    /// Returns whether this query participates in the requested completion boundary when applicable.
     pub const fn is_required_for(self, level: SymbolCompletionLevel) -> bool {
         match level {
             SymbolCompletionLevel::Identity => false,
@@ -127,9 +127,9 @@ impl SymbolFactKind {
         }
     }
 
-    /// Returns whether this symbol category can own the fact.
+    /// Returns whether this symbol category can own the query.
     ///
-    /// Presence-dependent facts such as runtime defaults are filtered against the exact symbol
+    /// Presence-dependent queries such as runtime defaults are filtered against the exact symbol
     /// record while constructing a completion plan.
     pub const fn is_applicable_to(self, symbol: AnySymbolId) -> bool {
         let kind = symbol.kind();
@@ -142,12 +142,12 @@ impl SymbolFactKind {
             | Self::GenericDeclarationTemplate
             | Self::GenericConstraints => GenericOwnerId::try_new(symbol).is_some(),
             Self::CallableSignature | Self::CallableContracts | Self::CallableContractTemplate => {
-                supports_callable_facts(kind)
+                supports_callable_queries(kind)
             }
-            Self::PredicateSignatureTemplate => supports_predicate_facts(kind),
+            Self::PredicateSignatureTemplate => supports_predicate_queries(kind),
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
             Self::ConstantDeclaredType => supports_declared_constant_type(kind),
-            Self::ConstantDefinition => supports_constant_facts(kind),
+            Self::ConstantDefinition => supports_constant_queries(kind),
             Self::CallableParameterDefault => matches!(kind, SymbolKind::CallableParameter),
             Self::UnevaluatedDefaultTemplate => matches!(
                 kind,
@@ -165,7 +165,7 @@ impl SymbolFactKind {
             Self::UnionPayloadFieldType | Self::UnionPayloadFieldDefault => {
                 matches!(kind, SymbolKind::UnionPayloadField)
             }
-            Self::PredicateDefinition => supports_predicate_facts(kind),
+            Self::PredicateDefinition => supports_predicate_queries(kind),
             Self::UnionVariantPayload => matches!(kind, SymbolKind::UnionVariant),
             Self::ImplementationSubject
             | Self::ImplementedTraitApplication
@@ -204,11 +204,11 @@ const fn supports_members(kind: SymbolKind) -> bool {
     )
 }
 
-const fn supports_callable_facts(kind: SymbolKind) -> bool {
+const fn supports_callable_queries(kind: SymbolKind) -> bool {
     kind.is_callable()
 }
 
-const fn supports_constant_facts(kind: SymbolKind) -> bool {
+const fn supports_constant_queries(kind: SymbolKind) -> bool {
     matches!(
         kind,
         SymbolKind::Constant
@@ -218,10 +218,10 @@ const fn supports_constant_facts(kind: SymbolKind) -> bool {
 }
 
 const fn supports_declared_constant_type(kind: SymbolKind) -> bool {
-    matches!(kind, SymbolKind::GenericConstParameter) || supports_constant_facts(kind)
+    matches!(kind, SymbolKind::GenericConstParameter) || supports_constant_queries(kind)
 }
 
-const fn supports_predicate_facts(kind: SymbolKind) -> bool {
+const fn supports_predicate_queries(kind: SymbolKind) -> bool {
     matches!(
         kind,
         SymbolKind::Predicate
@@ -236,7 +236,7 @@ const fn supports_implementation_semantics(kind: SymbolKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SymbolCompletionLevel, SymbolFactKind};
+    use super::{SymbolCompletionLevel, SymbolQueryKind};
     use crate::{
         AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId,
         CompilerKnownEnvironmentSymbolId, ConstantSymbolId, FunctionSymbolId, PackageSymbolId,
@@ -244,19 +244,19 @@ mod tests {
     };
 
     #[test]
-    fn completion_levels_select_fact_work() {
+    fn completion_levels_select_query_work() {
         assert!(
-            SymbolFactKind::CallableSignature
+            SymbolQueryKind::CallableSignature
                 .is_required_for(SymbolCompletionLevel::DeclarationSurface)
         );
 
         assert!(
-            !SymbolFactKind::CallableSignature.is_required_for(SymbolCompletionLevel::Identity)
+            !SymbolQueryKind::CallableSignature.is_required_for(SymbolCompletionLevel::Identity)
         );
     }
 
     #[test]
-    fn fact_applicability_uses_exact_symbol_categories() {
+    fn query_applicability_uses_exact_symbol_categories() {
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
         let constant = AnySymbolId::from(ConstantSymbolId::from_symbol_id(SymbolId::new(2)));
 
@@ -276,16 +276,16 @@ mod tests {
             SymbolId::new(7),
         ));
 
-        assert!(SymbolFactKind::Directives.is_applicable_to(function));
-        assert!(!SymbolFactKind::Directives.is_applicable_to(parameter));
-        assert!(SymbolFactKind::CallableSignature.is_applicable_to(function));
-        assert!(!SymbolFactKind::CallableSignature.is_applicable_to(constant));
-        assert!(SymbolFactKind::ConstantDefinition.is_applicable_to(constant));
-        assert!(SymbolFactKind::GenericConstraints.is_applicable_to(function));
-        assert!(SymbolFactKind::Members.is_applicable_to(compiler_known));
-        assert!(!SymbolFactKind::Members.is_applicable_to(package));
-        assert!(SymbolFactKind::CallableContractType.is_applicable_to(contract));
-        assert!(SymbolFactKind::TypeMemberValue.is_applicable_to(type_fulfillment));
+        assert!(SymbolQueryKind::Directives.is_applicable_to(function));
+        assert!(!SymbolQueryKind::Directives.is_applicable_to(parameter));
+        assert!(SymbolQueryKind::CallableSignature.is_applicable_to(function));
+        assert!(!SymbolQueryKind::CallableSignature.is_applicable_to(constant));
+        assert!(SymbolQueryKind::ConstantDefinition.is_applicable_to(constant));
+        assert!(SymbolQueryKind::GenericConstraints.is_applicable_to(function));
+        assert!(SymbolQueryKind::Members.is_applicable_to(compiler_known));
+        assert!(!SymbolQueryKind::Members.is_applicable_to(package));
+        assert!(SymbolQueryKind::CallableContractType.is_applicable_to(contract));
+        assert!(SymbolQueryKind::TypeMemberValue.is_applicable_to(type_fulfillment));
     }
 
     #[test]
@@ -293,6 +293,6 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<SymbolCompletionLevel>();
-        assert_send_sync::<SymbolFactKind>();
+        assert_send_sync::<SymbolQueryKind>();
     }
 }

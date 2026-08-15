@@ -90,11 +90,10 @@ pub(super) fn audit_standard_format(
         STANDARD_FORMAT_FIXTURE,
     ];
 
-    let output = BuiltFixture::build_standard_library(
-        "bray-native-standard-format-",
-        target,
-        |output| build_standard_library_fixtures(root, target, runtime, output, &fixtures),
-    )?;
+    let output =
+        BuiltFixture::build_standard_library("bray-native-standard-format-", target, |output| {
+            build_standard_library_fixtures(root, target, runtime, output, &fixtures)
+        })?;
 
     execute_product(
         output.executable(),

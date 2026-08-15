@@ -203,9 +203,7 @@ impl<'constraint> InlineAssemblyConstraint<'constraint> {
             });
         }
 
-        if class.is_empty()
-            || class.starts_with(['=', '+', '&', '*', '%'])
-            || class.contains('\0')
+        if class.is_empty() || class.starts_with(['=', '+', '&', '*', '%']) || class.contains('\0')
         {
             return None;
         }
@@ -599,10 +597,7 @@ impl InlineAssemblyContract {
 
             operand_fields_valid(*operand)
                 && operand.constraint_range() == (start, length)
-                && constraint_kind_valid(
-                    operand.kind(),
-                    &constraints[range.0..range.0 + range.1],
-                )
+                && constraint_kind_valid(operand.kind(), &constraints[range.0..range.0 + range.1])
         });
 
         ranges_valid
@@ -1176,7 +1171,11 @@ impl CheckedMemoryOperationKind {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
             } => {
-                if ordinal == 0 { Some(0) } else { None }
+                if ordinal == 0 {
+                    Some(0)
+                } else {
+                    None
+                }
             }
             Self::UninitWrite { .. }
             | Self::BorrowFrom { .. }
@@ -1194,16 +1193,28 @@ impl CheckedMemoryOperationKind {
             | Self::AtomicExchange { .. }
             | Self::AtomicFetch { .. }
             | Self::AtomicWait { .. } => {
-                if ordinal < 2 { Some(ordinal) } else { None }
+                if ordinal < 2 {
+                    Some(ordinal)
+                } else {
+                    None
+                }
             }
             Self::Copy { .. }
             | Self::RawDeallocate
             | Self::ByteBufferFill
             | Self::AtomicCompareExchange { .. } => {
-                if ordinal < 3 { Some(ordinal) } else { None }
+                if ordinal < 3 {
+                    Some(ordinal)
+                } else {
+                    None
+                }
             }
             Self::InlineAssembly { .. } => {
-                if ordinal == 5 { Some(0) } else { None }
+                if ordinal == 5 {
+                    Some(0)
+                } else {
+                    None
+                }
             }
             Self::UninitNew { .. }
             | Self::Null { .. }
@@ -1531,10 +1542,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("first assembly constant must intern: {error:?}"));
 
         let second = values
-            .intern_constant_value(ConstantValueData::new(
-                ty,
-                ConstantValueKind::Boolean(true),
-            ))
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
             .unwrap_or_else(|error| panic!("second assembly constant must intern: {error:?}"));
 
         let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
@@ -1575,8 +1583,15 @@ mod tests {
             contract,
         };
 
-        assert_eq!(contract.constant_values().collect::<Vec<_>>(), [first, second]);
-        assert_eq!(operation.contract_constants().collect::<Vec<_>>(), [first, second]);
+        assert_eq!(
+            contract.constant_values().collect::<Vec<_>>(),
+            [first, second]
+        );
+
+        assert_eq!(
+            operation.contract_constants().collect::<Vec<_>>(),
+            [first, second]
+        );
     }
 
     #[test]
@@ -1592,8 +1607,7 @@ mod tests {
         );
 
         assert_eq!(
-            InlineAssemblyConstraint::try_parse("+{rax}")
-                .map(InlineAssemblyConstraint::explicit),
+            InlineAssemblyConstraint::try_parse("+{rax}").map(InlineAssemblyConstraint::explicit),
             Some(true),
         );
 
@@ -1764,11 +1778,7 @@ mod tests {
         let element = error_type();
 
         let cases = [
-            (
-                CheckedMemoryOperationKind::UninitNew { element },
-                0,
-                true,
-            ),
+            (CheckedMemoryOperationKind::UninitNew { element }, 0, true),
             (
                 CheckedMemoryOperationKind::UninitPointer {
                     kind: MemoryAddressKind::Shared,
@@ -1777,21 +1787,13 @@ mod tests {
                 1,
                 true,
             ),
-            (
-                CheckedMemoryOperationKind::UninitWrite { element },
-                2,
-                true,
-            ),
+            (CheckedMemoryOperationKind::UninitWrite { element }, 2, true),
             (
                 CheckedMemoryOperationKind::UninitAssumeInitialized { element },
                 1,
                 true,
             ),
-            (
-                CheckedMemoryOperationKind::UninitMove { element },
-                1,
-                true,
-            ),
+            (CheckedMemoryOperationKind::UninitMove { element }, 1, true),
             (
                 CheckedMemoryOperationKind::BorrowFrom {
                     kind: MemoryAddressKind::Mutable,

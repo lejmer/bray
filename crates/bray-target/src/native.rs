@@ -1,9 +1,10 @@
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetAtomicSupport, TargetAtomicOperations,
-    TargetAtomicRepresentationSupport, TargetCDataModel, TargetProperties, TargetIdentity,
-    TargetMachineProperties, TargetOperationSupport, TargetProfile, TargetScalarKind,
+    Endianness, ObjectFormat, TargetArchitecture, TargetAtomicOperations,
+    TargetAtomicRepresentationSupport, TargetAtomicSupport, TargetCDataModel, TargetIdentity,
+    TargetMachineProperties, TargetOperationSupport, TargetProfile, TargetProperties,
+    TargetScalarKind,
 };
 
 /// Native target profiles provided by the Bray toolchain.
@@ -99,14 +100,20 @@ impl NativeTarget {
 
         let (vendor, system, environment, abi) = self.identity_properties();
 
-        let properties = TargetProperties::try_portable(vendor, system, environment, abi, self.c_abi_properties())
-            .map(|properties| {
-                properties
-                    .with_atomics(native_atomic_properties())
-                    .with_operations(TargetOperationSupport::new(true, true))
-                    .with_dynamic_loading(true)
-            })
-            .unwrap_or_else(|| panic!("native target properties must be valid"));
+        let properties = TargetProperties::try_portable(
+            vendor,
+            system,
+            environment,
+            abi,
+            self.c_abi_properties(),
+        )
+        .map(|properties| {
+            properties
+                .with_atomics(native_atomic_properties())
+                .with_operations(TargetOperationSupport::new(true, true))
+                .with_dynamic_loading(true)
+        })
+        .unwrap_or_else(|| panic!("native target properties must be valid"));
 
         TargetProfile::try_new(self.identity(), machine, properties)
             .unwrap_or_else(|error| panic!("native target profile must be valid: {error:?}"))
@@ -322,7 +329,10 @@ mod tests {
             };
 
             assert_eq!(
-                profile.properties().c_abi().mapping(TargetCScalarKind::Long),
+                profile
+                    .properties()
+                    .c_abi()
+                    .mapping(TargetCScalarKind::Long),
                 Some(expected_long)
             );
         }

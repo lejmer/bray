@@ -1,15 +1,15 @@
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ExternalDeclarationIdentity,
     ExternalSymbolKeyData, GenericArgument, GenericOwnerId, GenericSubstitutionData,
     ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, SymbolFactRequest, SymbolKeyData, TraitApplicationData,
+    ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest, TraitApplicationData,
     TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
     TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery, TraitTypeMemberSymbolId, TypeId,
 };
 
-use super::super::binder::{CompilationBindingContext, binder_fact_error};
+use super::super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 #[derive(Clone, Copy)]
@@ -62,10 +62,10 @@ pub(in crate::compilation) fn implementation_instance_requirement(
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let coherence = binding_context
-        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
             instance.definition(),
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     let application = coherence
         .value()
@@ -90,11 +90,12 @@ pub(in crate::compilation) fn selected_type_valued_member(
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeValuedMemberResolution, FactQueryError> {
-    let expected_name =
-        fulfillment_name(binding_context, member.into()).ok_or(FactQueryError::InfrastructureFailure)?;
+    let expected_name = fulfillment_name(binding_context, member.into())
+        .ok_or(FactQueryError::InfrastructureFailure)?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(binding_context, (*fulfillment).into()).is_some_and(|name| name == expected_name)
+        fulfillment_name(binding_context, (*fulfillment).into())
+            .is_some_and(|name| name == expected_name)
     });
 
     let Some(fulfillment) = matching.next() else {
@@ -106,10 +107,10 @@ pub(in crate::compilation) fn selected_type_valued_member(
     }
 
     let result = binding_context
-        .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<TraitTypeFulfillmentValueQuery>::new(
             fulfillment,
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     *diagnostics = diagnostics.merged(result.diagnostics());
 
@@ -117,7 +118,9 @@ pub(in crate::compilation) fn selected_type_valued_member(
         return Ok(TypeValuedMemberResolution::Invalid);
     }
 
-    let checked = binding_context.compilation().checked_constant_terms(result.value())?;
+    let checked = binding_context
+        .compilation()
+        .checked_constant_terms(result.value())?;
 
     *diagnostics = diagnostics.merged(checked.diagnostics());
 
@@ -142,36 +145,37 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
     binding_context: &'binding_context CompilationBindingContext<'_>,
     implementation: ImplementationSymbolId,
 ) -> Result<ImplementationFulfillments<'binding_context>, FactQueryError> {
-    let source =
-        match implementation {
-            ImplementationSymbolId::Inherent(id) => binding_context
-                .symbols()
-                .inherent_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-            ImplementationSymbolId::UnnamedTrait(id) => binding_context
-                .symbols()
-                .unnamed_trait_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-            ImplementationSymbolId::NamedTrait(id) => binding_context
-                .symbols()
-                .named_trait_implementation(id)
-                .map(|symbol| ImplementationFulfillments {
-                    callables: symbol.callable_fulfillments(),
-                    types: symbol.type_fulfillments(),
-                }),
-        };
+    let source = match implementation {
+        ImplementationSymbolId::Inherent(id) => binding_context
+            .symbols()
+            .inherent_implementation(id)
+            .map(|symbol| ImplementationFulfillments {
+                callables: symbol.callable_fulfillments(),
+                types: symbol.type_fulfillments(),
+            }),
+        ImplementationSymbolId::UnnamedTrait(id) => binding_context
+            .symbols()
+            .unnamed_trait_implementation(id)
+            .map(|symbol| ImplementationFulfillments {
+                callables: symbol.callable_fulfillments(),
+                types: symbol.type_fulfillments(),
+            }),
+        ImplementationSymbolId::NamedTrait(id) => binding_context
+            .symbols()
+            .named_trait_implementation(id)
+            .map(|symbol| ImplementationFulfillments {
+                callables: symbol.callable_fulfillments(),
+                types: symbol.type_fulfillments(),
+            }),
+    };
 
     if let Some(fulfillments) = source {
         return Ok(fulfillments);
     }
 
-    let imported = binding_context.imported_symbols().map_err(binder_fact_error)?;
+    let imported = binding_context
+        .imported_symbols()
+        .map_err(binding_query_error)?;
 
     let imported = match implementation {
         ImplementationSymbolId::Inherent(id) => imported
@@ -205,7 +209,8 @@ pub(in crate::compilation) fn selected_callable(
     let expected_name = fulfillment_name(binding_context, member.into())?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(binding_context, (*fulfillment).into()).is_some_and(|name| name == expected_name)
+        fulfillment_name(binding_context, (*fulfillment).into())
+            .is_some_and(|name| name == expected_name)
     });
 
     let fulfillment = matching.next()?;

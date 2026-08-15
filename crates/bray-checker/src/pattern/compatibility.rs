@@ -9,13 +9,13 @@ use bray_symbols::{
 
 use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn pattern_is_compatible(

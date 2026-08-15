@@ -282,8 +282,8 @@ where
                             Some(resolution.hook())
                         }
                         Ok(_) => None,
-                        Err(crate::CheckerFactError::Cancelled) => return Ok(None),
-                        Err(crate::CheckerFactError::Infrastructure(error)) => return Err(error),
+                        Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
+                        Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
                     }
                 }
                 BoundCallableTarget::Indirect(_) => match input.callee_member {
@@ -292,8 +292,8 @@ where
                             Some(resolution.hook())
                         }
                         Ok(_) => None,
-                        Err(crate::CheckerFactError::Cancelled) => return Ok(None),
-                        Err(crate::CheckerFactError::Infrastructure(error)) => return Err(error),
+                        Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
+                        Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
                     },
                     None => None,
                 },

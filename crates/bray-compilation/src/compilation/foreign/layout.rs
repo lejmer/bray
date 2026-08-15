@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_symbols::{
     GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeQuery,
-    SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeQuery,
+    SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::Compilation;
@@ -123,15 +123,15 @@ fn named_alignment(
         NamedTypeSymbolId::Struct(structure) => {
             let structure = binding_context
                 .structure(structure)
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignments = Vec::with_capacity(structure.fields().len());
 
             for field in structure.fields() {
                 let field = binding_context
-                    .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(*field))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                    .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let Some(alignment) = resolve_member_alignment(
                     compilation,
@@ -152,7 +152,7 @@ fn named_alignment(
         NamedTypeSymbolId::Union(union) => {
             let union = binding_context
                 .union(union)
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignment = match representation.value().union_tag_type() {
@@ -171,13 +171,15 @@ fn named_alignment(
             for variant in union.variants() {
                 let variant = binding_context
                     .union_variant(*variant)
-                    .map_err(super::super::binder::binder_fact_error)?
+                    .map_err(super::super::binder::binding_query_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 for field in variant.payload_fields() {
                     let field = binding_context
-                        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(*field))
-                        .map_err(super::super::binder::binder_fact_error)?;
+                        .resolve_symbol_query(
+                            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(*field),
+                        )
+                        .map_err(super::super::binder::binding_query_error)?;
 
                     let Some(member_alignment) = resolve_member_alignment(
                         compilation,

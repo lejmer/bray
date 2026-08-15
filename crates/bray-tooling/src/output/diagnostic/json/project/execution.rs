@@ -301,11 +301,9 @@ impl DiagnosticProjectSelectionJson {
             Problem::InvalidDependencyProduct(value) => Self::InvalidDependencyProduct {
                 value: value.clone(),
             },
-            Problem::InvalidPlatformServiceBinding(value) => {
-                Self::InvalidPlatformServiceBinding {
-                    value: value.clone(),
-                }
-            }
+            Problem::InvalidPlatformServiceBinding(value) => Self::InvalidPlatformServiceBinding {
+                value: value.clone(),
+            },
             Problem::NoMatchingProduct(selection) => Self::NoMatchingProduct {
                 selection: selection.clone(),
             },

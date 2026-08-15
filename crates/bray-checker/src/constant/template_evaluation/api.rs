@@ -299,7 +299,7 @@ mod tests {
     use super::super::super::limits::ConstantEvaluationLimits;
     use super::{evaluate_constant_callable_template, evaluate_generic_constraint_template};
     use crate::test_support::{TestCheckerContext, semantic_values};
-    use crate::{CheckerFactResult, ConstantReferenceResolution};
+    use crate::{CheckerQueryResult, ConstantReferenceResolution};
 
     #[test]
     fn constant_body_templates_evaluate_closed_results_and_report_usage() {
@@ -518,14 +518,17 @@ mod tests {
     struct UnusedTemplateResolver;
 
     impl ConstantCallResolver for UnusedTemplateResolver {
-        fn is_constant_callable(&self, _callable: CallableInstanceData) -> CheckerFactResult<bool> {
+        fn is_constant_callable(
+            &self,
+            _callable: CallableInstanceData,
+        ) -> CheckerQueryResult<bool> {
             unreachable!("closed test template must not resolve calls")
         }
 
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             unreachable!("closed test template must not resolve calls")
         }
     }
@@ -539,7 +542,7 @@ mod tests {
             &self,
             _instance: bray_symbols::ConstantInstanceKey,
             _limits: crate::ConstantEvaluationLimits,
-        ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
         {
             unreachable!("closed test template must not resolve constants")
         }

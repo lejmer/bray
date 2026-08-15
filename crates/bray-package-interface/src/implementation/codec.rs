@@ -11,8 +11,8 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{PackageIdentity, PackageVersion};
 use bray_target::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetPropertyKind, TargetIdentity,
-    TargetMachineProperties,
+    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
+    TargetPropertyKind,
 };
 
 use crate::decode::{DecodeBudget, map_wire_error};
@@ -28,8 +28,8 @@ use super::{
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
-    PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
-    PackageImplementationTargetProperties,
+    PackageImplementationTargetProperties, PackageImplementationTargetProperty,
+    PackageImplementationTargetPropertyValue,
 };
 use crate::external_key::{read_external_key, write_external_key};
 
@@ -315,7 +315,10 @@ fn read_configuration(
     ))
 }
 
-fn write_target_properties(encoder: &mut WireEncoder, target: &PackageImplementationTargetProperties) {
+fn write_target_properties(
+    encoder: &mut WireEncoder,
+    target: &PackageImplementationTargetProperties,
+) {
     write_string(encoder, target.identity().as_str());
     write_machine(encoder, target.machine());
     encoder.write_u16(u16::try_from(target.properties().len()).unwrap_or(u16::MAX));

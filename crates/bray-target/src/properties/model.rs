@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use bray_base::NonEmptySharedStr;
 
 use super::{
-    TargetAbiSupport, TargetAbiScalars, TargetAtomicSupport, TargetCDataModel,
+    TargetAbiScalars, TargetAbiSupport, TargetAtomicSupport, TargetCDataModel,
     TargetForeignAbiContract, TargetScalarSupport,
 };
 
@@ -287,7 +287,9 @@ mod tests {
     use std::num::NonZeroU64;
 
     use crate::test_support::test_target_profile;
-    use crate::{TargetAlignmentLimits, TargetPropertyKind, TargetPropertyValue, TargetPlatformIdentity};
+    use crate::{
+        TargetAlignmentLimits, TargetPlatformIdentity, TargetPropertyKind, TargetPropertyValue,
+    };
 
     #[test]
     fn derived_properties_cannot_contradict_machine_properties() {

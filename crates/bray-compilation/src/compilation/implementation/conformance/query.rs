@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticCallableBehaviorComponent,
     DiagnosticCallableBehaviorPhase, DiagnosticCallableConstness,
@@ -18,7 +18,7 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     CallableSignatureQuery, ConstantDefinitionState, ImplementationCoherenceQuery,
-    ImplementationSymbolId, PredicateDefinitionState, SemanticFactResult, SymbolFactRequest,
+    ImplementationSymbolId, PredicateDefinitionState, SymbolQueryRequest,
     TraitConstantMemberDefinitionQuery, TraitImplementationConformance,
     TraitImplementationConformanceQuery, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitPredicateMemberDefinitionQuery, TraitRequirementConformance, TraitRequirementResolution,
@@ -40,7 +40,14 @@ impl Compilation {
     pub fn trait_implementation_conformance(
         &self,
         implementation: ImplementationSymbolId,
-    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         self.trait_implementation_conformance_with_cancellation(
             implementation,
             &self.state.cancellation,
@@ -51,7 +58,14 @@ impl Compilation {
         &self,
         implementation: ImplementationSymbolId,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<TraitImplementationConformanceQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -79,7 +93,12 @@ impl Compilation {
         &self,
         implementation: ImplementationSymbolId,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<TraitImplementationConformanceQuery>, FactQueryError> {
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<
+            <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
+        >,
+        FactQueryError,
+    > {
         cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
@@ -87,10 +106,10 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let coherence = binding_context
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
-            .map_err(crate::compilation::binder::binder_fact_error)?;
+            .map_err(crate::compilation::binder::binding_query_error)?;
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -265,7 +284,12 @@ impl Compilation {
                             }
                         }
                     }
-                    None if requirement_has_default(&binding_context, requirement, &mut diagnostics)? => {
+                    None if requirement_has_default(
+                        &binding_context,
+                        requirement,
+                        &mut diagnostics,
+                    )? =>
+                    {
                         TraitRequirementResolution::TraitDefault
                     }
                     None => {
@@ -1057,10 +1081,10 @@ fn type_fulfillment_bindings(
         };
 
         let value = binding_context
-            .symbol_fact(SymbolFactRequest::<TraitTypeFulfillmentValueQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<TraitTypeFulfillmentValueQuery>::new(
                 *fulfillment,
             ))
-            .map_err(crate::compilation::binder::binder_fact_error)?;
+            .map_err(crate::compilation::binder::binding_query_error)?;
 
         *diagnostics = diagnostics.merged(value.diagnostics());
 
@@ -1121,10 +1145,10 @@ fn requirement_has_default(
     match requirement {
         TraitMemberRequirementId::Callable(requirement) => {
             let signature = binding_context
-                .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                     requirement.into(),
                 ))
-                .map_err(crate::compilation::binder::binder_fact_error)?;
+                .map_err(crate::compilation::binder::binding_query_error)?;
 
             *diagnostics = diagnostics.merged(signature.diagnostics());
 
@@ -1132,10 +1156,10 @@ fn requirement_has_default(
         }
         TraitMemberRequirementId::Constant(requirement) => {
             let definition = binding_context
-                .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionQuery>::new(
-                    requirement,
-                ))
-                .map_err(crate::compilation::binder::binder_fact_error)?;
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitConstantMemberDefinitionQuery>::new(requirement),
+                )
+                .map_err(crate::compilation::binder::binding_query_error)?;
 
             *diagnostics = diagnostics.merged(definition.diagnostics());
 
@@ -1146,10 +1170,10 @@ fn requirement_has_default(
         }
         TraitMemberRequirementId::Predicate(requirement) => {
             let definition = binding_context
-                .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(requirement),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitPredicateMemberDefinitionQuery>::new(requirement),
                 )
-                .map_err(crate::compilation::binder::binder_fact_error)?;
+                .map_err(crate::compilation::binder::binding_query_error)?;
 
             *diagnostics = diagnostics.merged(definition.diagnostics());
 

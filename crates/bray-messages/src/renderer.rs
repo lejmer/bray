@@ -279,15 +279,14 @@ mod tests {
         DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
         DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
         DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
-        DiagnosticRuntimeArtifactProblem,
-        DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
-        DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates,
-        DiagnosticSelectionKind, DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections,
-        DiagnosticSourceInput, DiagnosticSourceInputOrigin, DiagnosticStorageAccess,
-        DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-        DiagnosticSuggestion, DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
-        DiagnosticType, DiagnosticTypeArgument, DiagnosticUnionTagProblem, DiagnosticVisibility,
-        DiagnosticYieldCardinality, SeverityKind,
+        DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+        DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
+        DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
+        DiagnosticSelectionRejections, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
+        DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
+        DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionKind,
+        DiagnosticTargetPredicateValueKind, DiagnosticType, DiagnosticTypeArgument,
+        DiagnosticUnionTagProblem, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;

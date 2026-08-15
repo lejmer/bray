@@ -7,8 +7,9 @@ use bray_base::{lowercase_hex, sha256_file};
 use bray_diagnostics::DiagnosticLlvmToolRole;
 
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, BoundedList, LinkerMapReport, RetainedInput,
-    SectionSize, MAX_DYNAMIC_LIBRARY_COUNT, MAX_RETAINED_INPUT_COUNT, MAX_SECTION_COUNT,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, BoundedList, LinkerMapReport,
+    MAX_DYNAMIC_LIBRARY_COUNT, MAX_RETAINED_INPUT_COUNT, MAX_SECTION_COUNT, RetainedInput,
+    SectionSize,
 };
 
 pub(super) fn inspect(
@@ -167,8 +168,8 @@ pub(super) fn contains_retained_provenance(map: &str, expected: &str) -> bool {
     map.split_whitespace().any(|token| {
         let token = token.trim_matches(|character: char| matches!(character, ',' | ';' | '"'));
 
-        if let Some((artifact, member)) = archive_member(token)
-            .or_else(|| microsoft_archive_member(token))
+        if let Some((artifact, member)) =
+            archive_member(token).or_else(|| microsoft_archive_member(token))
         {
             return artifact.to_ascii_lowercase().contains(&expected)
                 || member.to_ascii_lowercase().contains(&expected);

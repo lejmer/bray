@@ -4,7 +4,7 @@ use bray_runtime_interface::PlatformServiceBinding;
 use bray_standard_library::PackageSourceAuthority;
 
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
-use bray_target::{TargetPropertyKind, TargetIdentity, TargetOutputKind, TargetProfile};
+use bray_target::{TargetIdentity, TargetOutputKind, TargetProfile, TargetPropertyKind};
 
 use crate::{ProjectPath, TargetPredicate};
 

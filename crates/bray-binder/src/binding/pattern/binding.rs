@@ -12,7 +12,7 @@ use bray_symbols::{LocalBindingSymbolId, LocalScopeId, SymbolName, SymbolOrdinal
 use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
 use super::syntax::{BindingOccurrence, PatternSyntax, bound_mode, pattern_kind};
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, PatternBindingMode};
 use crate::binding::name::{
     name_is_available, name_text_is_available, report_name_already_defined, symbol_name,
@@ -248,7 +248,7 @@ macro_rules! define_pattern_binder {
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     define_pattern_binder!(
         bind_irrefutable_pattern,
@@ -549,7 +549,7 @@ where
     }
 
     fn type_is_error(&self, ty: TypeId) -> bool {
-        self.facts()
+        self.binding_context()
             .semantic_values()
             .type_data(ty)
             .is_ok_and(|data| matches!(data.as_ref(), bray_symbols::TypeData::Error))
@@ -578,7 +578,7 @@ mod tests {
     use bray_syntax::CasePatternSyntax;
 
     use crate::binder::PatternBindingMode;
-    use crate::fact::test_support::TestFixture;
+    use crate::query::test_support::TestFixture;
 
     #[test]
     fn case_patterns_retain_match_mode_and_alternative_shape() {
@@ -596,9 +596,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -615,7 +615,9 @@ mod tests {
         );
 
         let root = binder.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
+
+        let context =
+            crate::binding::test_support::internal_path_context(binder.binding_context(), root);
 
         let bound = match binder.bind_case_pattern(
             context,
@@ -668,9 +670,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let Some(declaration) = block
             .block_items()
@@ -700,7 +702,8 @@ mod tests {
             panic!("assignment target must activate: {error:?}");
         }
 
-        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
+        let context =
+            crate::binding::test_support::internal_path_context(binder.binding_context(), root);
 
         let bound = match binder.bind_irrefutable_pattern(
             context,
@@ -753,9 +756,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -764,7 +767,9 @@ mod tests {
         };
 
         let root = binder.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
+
+        let context =
+            crate::binding::test_support::internal_path_context(binder.binding_context(), root);
 
         let bound = match binder.bind_case_pattern(
             context,
@@ -815,9 +820,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -826,7 +831,9 @@ mod tests {
         };
 
         let root = binder.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
+
+        let context =
+            crate::binding::test_support::internal_path_context(binder.binding_context(), root);
 
         let bound = match binder.bind_case_pattern(
             context,

@@ -911,10 +911,11 @@ mod tests {
             "helper",
         ));
 
-        let foreign_support =
-            semantics
-                .clone()
-                .with_templates(templates.clone(), declarations.clone(), entities.clone());
+        let foreign_support = semantics.clone().with_templates(
+            templates.clone(),
+            declarations.clone(),
+            entities.clone(),
+        );
 
         assert_eq!(
             encode_semantics(&foreign_support, &surface, limits),

@@ -22,10 +22,9 @@ use super::common::{
     resolve_symbol_key,
 };
 use super::{
-    ImportedAbiDependency, ImportedCallableContract, ImportedConstraint,
-    ImportedImplementation, ImportedRuntimeRequirement, ImportedSemantics,
-    ImportedSourceProvenance, ImportedTargetProperty, InterfaceSemanticInternError,
-    InterfaceSymbolResolver, InternState,
+    ImportedAbiDependency, ImportedCallableContract, ImportedConstraint, ImportedImplementation,
+    ImportedRuntimeRequirement, ImportedSemantics, ImportedSourceProvenance,
+    ImportedTargetProperty, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {

@@ -3,8 +3,7 @@ mod policy;
 mod provider;
 
 pub use plan::{
-    SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionUnit,
-    SymbolFactCompletionRequest,
+    SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionQuery, SymbolCompletionUnit,
 };
-pub use policy::{SymbolCompletionLevel, SymbolFactKind};
-pub use provider::{NeverCancelSymbolCompletion, SymbolFactForcer};
+pub use policy::{SymbolCompletionLevel, SymbolQueryKind};
+pub use provider::{NeverCancelSymbolCompletion, SymbolCompletionEvaluator};

@@ -8,10 +8,10 @@ use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiOperation, ProtectedFrameAbiVersions,
-    PlatformServiceRole, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability,
-    RuntimeContract, RuntimeContractBuildError, RuntimeIdentity, RuntimeRoleBinding,
-    RuntimeRoleImplementation,
+    BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiOperation,
+    ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId,
+    RuntimeCapability, RuntimeContract, RuntimeContractBuildError, RuntimeIdentity,
+    RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 
 const FORMAT: &str = "bray_native_runtime";
@@ -1090,17 +1090,13 @@ mod tests {
     fn runtime_catalogs_reject_duplicate_platform_service_overrides() {
         let metadata = metadata();
 
-        let components = metadata
-            .components()
-            .iter()
-            .cloned()
-            .map(|component| {
-                if component.purpose() == RuntimeArtifactPurpose::Product {
-                    component.with_platform_services([PlatformServiceRole::StandardOutputWrite])
-                } else {
-                    component
-                }
-            });
+        let components = metadata.components().iter().cloned().map(|component| {
+            if component.purpose() == RuntimeArtifactPurpose::Product {
+                component.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+            } else {
+                component
+            }
+        });
 
         assert_eq!(
             RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components),
@@ -1393,12 +1389,7 @@ mod tests {
             archive.extend_from_slice(&fixed_width_decimal(offset, 20));
         }
 
-        archive.extend_from_slice(&big_archive_member(
-            name,
-            contents,
-            member_table_offset,
-            0,
-        ));
+        archive.extend_from_slice(&big_archive_member(name, contents, member_table_offset, 0));
 
         archive.extend_from_slice(&big_archive_member(
             b"",
@@ -1410,12 +1401,7 @@ mod tests {
         archive
     }
 
-    fn big_archive_member(
-        name: &[u8],
-        contents: &[u8],
-        next: usize,
-        previous: usize,
-    ) -> Vec<u8> {
+    fn big_archive_member(name: &[u8], contents: &[u8], next: usize, previous: usize) -> Vec<u8> {
         let mut member = Vec::new();
 
         for (value, width) in [

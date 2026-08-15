@@ -70,9 +70,9 @@ impl NativeProductPlanningError {
     /// Returns structured diagnostics produced while deriving native product plans.
     pub const fn diagnostics(&self) -> Option<&bray_diagnostics::DiagnosticBag> {
         match self {
-            Self::Codegen(super::super::super::CodegenPreparationError::Diagnostics(diagnostics)) => {
-                Some(diagnostics)
-            }
+            Self::Codegen(super::super::super::CodegenPreparationError::Diagnostics(
+                diagnostics,
+            )) => Some(diagnostics),
             _ => None,
         }
     }
@@ -223,7 +223,9 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::InvalidUnit(_) => Kind::CodegenInvalidUnit,
         CodegenPreparationError::UnitMismatch(_) => Kind::CodegenUnitMismatch,
         CodegenPreparationError::InvalidHostMir(_) => Kind::CodegenInvalidHostMir,
-        CodegenPreparationError::InvalidGeneratedLifecycleMir(_) => Kind::CodegenInvalidLifecycleMir,
+        CodegenPreparationError::InvalidGeneratedLifecycleMir(_) => {
+            Kind::CodegenInvalidLifecycleMir
+        }
         CodegenPreparationError::InvalidMappings(_) => Kind::CodegenInvalidMappings,
         CodegenPreparationError::MissingRuntimeRole(_) => Kind::CodegenMissingRuntimeRole,
         CodegenPreparationError::OpenConstantTerm(_) => Kind::CodegenOpenConstantTerm,

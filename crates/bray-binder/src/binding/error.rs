@@ -1,4 +1,4 @@
-use crate::{BinderFactError, unit::BoundUnitConstructionError};
+use crate::{BindingQueryError, unit::BoundUnitConstructionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BindingError {
@@ -12,11 +12,11 @@ pub(crate) enum BindingError {
     Construction(BoundUnitConstructionError),
 }
 
-impl From<BinderFactError> for BindingError {
-    fn from(error: BinderFactError) -> Self {
+impl From<BindingQueryError> for BindingError {
+    fn from(error: BindingQueryError) -> Self {
         match error {
-            BinderFactError::Cancelled => Self::Cancelled,
-            BinderFactError::DependencyUnavailable => Self::DependencyUnavailable,
+            BindingQueryError::Cancelled => Self::Cancelled,
+            BindingQueryError::DependencyUnavailable => Self::DependencyUnavailable,
         }
     }
 }

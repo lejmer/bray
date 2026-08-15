@@ -17,9 +17,9 @@ mod type_expression;
 mod type_surface;
 
 pub use completion::{
-    NeverCancelSymbolCompletion, SymbolCompletionLevel, SymbolCompletionPlan,
-    SymbolCompletionPlanError, SymbolCompletionUnit, SymbolFactCompletionRequest, SymbolFactForcer,
-    SymbolFactKind,
+    NeverCancelSymbolCompletion, SymbolCompletionEvaluator, SymbolCompletionLevel,
+    SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionQuery, SymbolCompletionUnit,
+    SymbolQueryKind,
 };
 pub use conformance::{
     TraitImplementationConformance, TraitMemberFulfillmentId, TraitMemberRequirementId,
@@ -38,14 +38,14 @@ pub use contract::{
     ImplementationOverloadTemplateQuery, ImplementationParticipationQuery,
     ImplementationSelectionQuery, ImplementationSubjectQuery, ImplementedTraitApplicationQuery,
     InherentTypeMemberValueQuery, ModuleSurfaceQuery, PredicateDefinitionQuery,
-    PredicateSignatureTemplateQuery, SemanticFactContract, SemanticFactResult,
-    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldTypeQuery,
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    PredicateSignatureTemplateQuery, SemanticQueryContract, StructFieldDefaultQuery,
+    StructFieldDefaultTemplateQuery, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
     TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
     TraitImplementationConformanceQuery, TraitPredicateFulfillmentDefinitionQuery,
     TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
-    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldTypeQuery,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    UnionPayloadFieldTypeQuery,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,

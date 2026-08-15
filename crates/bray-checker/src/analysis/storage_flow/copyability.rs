@@ -6,7 +6,7 @@ use bray_symbols::{
 };
 
 use crate::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
     CheckerRequestContext, CheckerUnitView, SemanticUnitContext,
 };
 
@@ -72,8 +72,8 @@ where
                 diagnostics,
             ))
         }
-        Err(CheckerFactError::Cancelled) => CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
     }
@@ -121,7 +121,7 @@ where
         }
     }
 
-    pub(super) fn resolve(&mut self, ty: TypeId) -> CheckerFactResult<bool> {
+    pub(super) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool> {
         if let Some(copyable) = self.cache.get(&ty) {
             return Ok(*copyable);
         }
@@ -148,9 +148,9 @@ where
         (copyable, self.diagnostics)
     }
 
-    fn resolve_uncached(&mut self, ty: TypeId) -> CheckerFactResult<bool> {
+    fn resolve_uncached(&mut self, ty: TypeId) -> CheckerQueryResult<bool> {
         let data = self.context.semantic_values().type_data(ty).map_err(|_| {
-            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
 
         match data.as_ref() {
@@ -212,7 +212,7 @@ where
                             .semantic_values()
                             .generic_substitution_data(*substitution)
                             .map_err(|_| {
-                                CheckerFactError::Infrastructure(
+                                CheckerQueryError::Infrastructure(
                                     CheckerInfrastructureError::SemanticValueUnavailable,
                                 )
                             })?;

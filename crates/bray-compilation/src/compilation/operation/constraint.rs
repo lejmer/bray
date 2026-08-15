@@ -1,14 +1,14 @@
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use std::collections::BTreeSet;
 
 use bray_symbols::{
     AnySymbolId, CallableParameterData, CallableTypeData, CheckedConstraint, CheckedConstraintKind,
     GenericArgument, GenericConstraintsQuery, GenericOwnerId, GenericSubstitutionData,
-    SemanticValueStore, SymbolFactRequest, TraitApplicationData, TypeData, TypeId,
+    SemanticValueStore, SymbolQueryRequest, TraitApplicationData, TypeData, TypeId,
 };
 
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 pub(super) fn enclosing_generic_constraints(
@@ -21,10 +21,10 @@ pub(super) fn enclosing_generic_constraints(
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
             let constraints = binding_context
-                .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
                     generic_owner,
                 ))
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
             *diagnostics = diagnostics.merged(constraints.diagnostics());
 

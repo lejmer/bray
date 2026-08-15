@@ -11,8 +11,8 @@ use bray_symbols::CallableSignatureQuery;
 use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_dependency_contracts<C>(
@@ -22,7 +22,7 @@ pub(crate) fn check_dependency_contracts<C>(
     flow: &StorageFlow,
 ) -> CheckerOutcome<CheckedDependencyContracts>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;

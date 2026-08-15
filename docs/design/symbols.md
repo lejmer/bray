@@ -8,7 +8,8 @@ identities and typed symbol relationships to binding, checking, tooling, lowerin
 The compiler architecture overview is defined in `docs/design/compiler-architecture.md`. Declaration discovery is defined in
 `docs/design/declaration-discovery.md`. The compiler-known catalog is defined in
 `docs/design/compiler-known-catalog.md`. Compiled package interfaces are defined in
-`docs/design/compiled-package-interfaces.md`. This document is the implementation contract for symbols and symbol-owned lazy query results.
+`docs/design/compiled-package-interfaces.md`. This document is the implementation contract for symbols, their semantics, and the
+queries that produce them.
 
 ---
 
@@ -21,7 +22,7 @@ The symbol model should:
 - expose kind-specific children, members, parameters, and relationships,
 - make name lookup and binding operate on semantic identities instead of syntax strings,
 - support source, imported, compiler-known, compiler-provided, and synthesized symbols through the same typed contracts,
-- compute expensive symbol query results only when requested,
+- compute expensive symbol semantics only when requested,
 - support deterministic force-completion of one symbol or a symbol-owned subtree,
 - keep published semantic values immutable,
 - support concurrent queries without changing IDs, diagnostics, or ordering,
@@ -75,7 +76,7 @@ A symbol answers questions such as:
 - what semantically contains it,
 - where it was declared or synthesized,
 - which typed members or parameters it owns,
-- which semantic query results describe its declared surface.
+- which semantics describe its declared surface.
 
 A symbol is not a source string, syntax node, type value, storage location, or bound expression.
 
@@ -118,18 +119,18 @@ Keys must not include memory addresses, thread IDs, worker completion order, or 
 Public symbol APIs should normally use typed IDs. Symbol keys are infrastructure for deterministic construction, caches, imported
 interfaces, and incremental remapping.
 
-### Symbol Query Result
+### Symbol Semantics
 
-A symbol query result is immutable semantic information associated with a symbol.
+Symbol semantics are immutable information associated with a symbol.
 
-Query Results can be eager or lazy. Examples include members, generic parameters, a resolved declared type, a callable signature, generic
+Semantics can be eager or lazy. Examples include members, generic parameters, a resolved declared type, a callable signature, generic
 constraints, an implementation subject, a trait application, a constant value, or a decoded directive surface.
 
 ### Completion
 
-Completion is the act of requesting all query results promised by a defined symbol-completion boundary.
+Completion is the act of requesting all semantics promised by a defined symbol-completion boundary.
 
-Completion is a query fanout over ordinary lazy query result APIs. It is not a separate mutable compiler workflow.
+Completion is a fanout over ordinary lazy semantic queries. It is not a separate mutable compiler workflow.
 
 ---
 
@@ -150,14 +151,14 @@ It publishes:
 - typed symbol records or handles,
 - typed containment and member relationships,
 - lookup indexes for symbol-owned declaration spaces,
-- lazy symbol query APIs,
+- lazy symbol-semantic queries,
 - symbol-construction and symbol-completion diagnostics.
 
 Symbol construction does not consume executable bodies to create the global symbol identity graph.
 
-Binding resolves syntax references to symbols and computes binding-dependent symbol query results through compilation-owned queries. Checking
-owns type compatibility, ownership, borrowing, effects, contracts, constant-evaluation validity, and body correctness. A query result can be
-presented as a property of a symbol without requiring `bray-symbols` to compute that query result directly.
+Binding resolves syntax references to symbols and computes binding-dependent symbol semantics through compilation-owned queries. Checking
+owns type compatibility, ownership, borrowing, effects, contracts, constant-evaluation validity, and body correctness. A semantic value can be
+presented as a property of a symbol without requiring `bray-symbols` to compute that value directly.
 
 This separation prevents a crate dependency cycle:
 
@@ -168,8 +169,8 @@ bray-declarations -> bray-symbols <- bray-binder
                      bray-compilation queries
 ```
 
-`bray-symbols` owns symbol types and query result contracts. `bray-binder` and checker services can compute query results whose implementation
-requires binding or checking. `bray-compilation` coordinates and caches those query results.
+`bray-symbols` owns symbol types and semantic query contracts. `bray-binder` and checker services compute values whose implementation
+requires binding or checking. `bray-compilation` coordinates the queries and caches their results.
 
 ---
 
@@ -177,7 +178,7 @@ requires binding or checking. `bray-compilation` coordinates and caches those qu
 
 ### Eager Identity Skeleton
 
-The compilation constructs a cheap deterministic symbol identity skeleton before expensive symbol query results are demanded.
+The compilation constructs a cheap deterministic symbol identity skeleton before expensive symbol semantics are demanded.
 
 The skeleton establishes:
 
@@ -250,7 +251,7 @@ A standard-library declaration remains an ordinary source or imported symbol unl
 compiler-known.
 
 Origin does not create parallel symbol class hierarchies. A source function and an imported function should provide the same
-`FunctionSymbol` contract, with origin-specific backing data hidden behind symbol query result providers.
+`FunctionSymbol` contract, with origin-specific backing data hidden behind semantic query providers.
 
 Every symbol is assigned exactly one of these origins. Adding an origin requires one coordinated design change covering its stable
 construction key, provider ownership, snapshot and reuse behavior, compiled-interface encoding when it can cross a package
@@ -322,7 +323,7 @@ Private components can hold truly common identity data, such as:
 - source locations,
 - recovery state.
 
-Common composition must not absorb category-specific query results merely to reduce field repetition.
+Common composition must not absorb category-specific semantics merely to reduce field repetition.
 
 Macros can generate repetitive ID declarations, conversions, common accessors, visitors, and typed table plumbing. They must not
 generate or hide language policy.
@@ -344,8 +345,8 @@ Core APIs must not return `Vec<AnySymbolId>` when a semantic relationship has a 
 
 ### Context-Bound Views
 
-Many useful symbol properties require lazy compilation query results. A context-bound symbol view can pair a typed ID with read-only access
-to the compilation query result graph.
+Many useful symbol properties require lazy compilation queries. A context-bound symbol view can pair a typed ID with read-only access
+to the compilation query graph.
 
 Conceptually:
 
@@ -355,13 +356,13 @@ FunctionSymbolView<'compilation>
   queries: ReadOnlyCompilationSymbolQueries<'compilation>
 ```
 
-Calling `parameters()`, `return_type()`, or `contracts()` can request the corresponding cached query result without placing binder logic in
+Calling `parameters()`, `return_type()`, or `contracts()` can request the corresponding cached semantics without placing binder logic in
 `bray-symbols`.
 
 The exact Rust API can use views, query methods, or another ownership-safe shape. It must preserve these properties:
 
 - symbol methods appear kind-specific to callers,
-- query result computation remains owned by the correct compiler phase,
+- semantic computation remains owned by the correct compiler phase,
 - no mutable symbol object is exposed,
 - the crate dependency graph remains acyclic.
 
@@ -435,7 +436,7 @@ to exactly one compilation-local compiler-known environment symbol.
 Using and export declarations do not create symbols.
 
 Compiler-known trusted implementation capabilities use `TrustedCapabilitySymbol`. They occupy the ordinary lookup namespace so
-`uses(...)` can resolve them by name, but they are neither values nor predicates and cannot be invoked. Callable contract query results retain
+`uses(...)` can resolve them by name, but they are neither values nor predicates and cannot be invoked. Callable contracts retain
 exact `TrustedCapabilitySymbolId` values rather than type-erased symbol identities.
 
 ### Type Symbols And Members
@@ -470,7 +471,7 @@ An inherent implementation is a symbol even though its members become associated
 - `TraitScopeEnterRequirementSymbol`
 - `TraitScopeExitRequirementSymbol`
 
-Required and defaulted members use the same member-symbol identity. Required/defaulted state is a query result on the specific member kind.
+Required and defaulted members use the same member-symbol identity. Required/defaulted state belongs to the specific member kind.
 
 ### Implementation Fulfillment Symbols
 
@@ -539,7 +540,7 @@ provider is contained by the struct and references its field. A union payload pr
 references its payload field.
 
 Providers do not have source-level names, do not enter ordinary lookup, and do not appear in typed member collections. The owning
-parameter or field exposes the provider through its checked default query result. Any-symbol erasure can include providers for diagnostics,
+parameter or field exposes the provider through its checked default. Any-symbol erasure can include providers for diagnostics,
 debugging, interface serialization, and tooling that explicitly requests synthesized symbols.
 
 The provider body is the already checked declaration-owned default expression. It is not checked again as an ordinary callable body.
@@ -562,7 +563,7 @@ Body-local and contextual local symbols are created deterministically by binding
 snapshots. They use a separate typed local identity space rather than consuming compilation-wide declaration `SymbolId` values.
 They can still participate in erased symbol and diagnostic APIs.
 
-Lambdas receive anonymous callable symbols because they own callable parameters, result and contract query results, an execution scope, and
+Lambdas receive anonymous callable symbols because they own callable parameters, results, contracts, an execution scope, and
 a body. Their lack of a source-level name does not remove semantic identity.
 
 The contextual type `Self` is a semantic type value tied to a trait or implementation context, not a separately declared named type
@@ -584,7 +585,7 @@ semantic values or lowering identities, not declaration symbols.
 
 Compiler-known surfaces are supplied by the immutable descriptor catalog defined in
 `docs/design/compiler-known-catalog.md`. Stable catalog keys identify language-defined entries across compilations. Symbol
-construction maps those keys to compilation-local typed symbol IDs and exposes catalog-backed query results through the same kind-specific
+construction maps those keys to compilation-local typed symbol IDs and exposes catalog-backed semantics through the same kind-specific
 contracts used by source and imported symbols.
 
 Imported package interfaces reconstruct the same public symbol categories and relationships without requiring source syntax.
@@ -630,7 +631,7 @@ as though construction had not occurred.
 
 `bray-symbols` owns source type-expression templates, interned semantic types, constant values, open constant terms,
 substitutions, portable dependency-contract templates, and their interner APIs because they directly compose from typed symbol IDs
-and are returned by symbol query results. They remain separate semantic categories and do not become symbols merely because the symbol crate
+and are returned by symbol queries. They remain separate semantic categories and do not become symbols merely because the symbol crate
 owns their dependency-safe representation. The full contract is defined in `docs/design/binder.md`.
 
 ---
@@ -890,12 +891,12 @@ A callable symbol exposes the relationships meaningful to its exact kind:
 - trusted obligations,
 - optional executable body reference.
 
-Predicate symbols expose predicate parameters and predicate-context query results rather than pretending to be ordinary runtime functions.
+Predicate symbols expose predicate parameters and predicate context rather than pretending to be ordinary runtime functions.
 
 Callable contract symbols describe callable surfaces and do not own executable bodies.
 
 Body-bearing symbol views expose cheap body presence and lazy category-specific checked-body access according to
-`docs/design/binder.md`. Symbol completion records the body relationship but does not force that checked-body query result.
+`docs/design/binder.md`. Symbol completion records the body relationship but does not request that checked body.
 
 ---
 
@@ -960,7 +961,7 @@ Examples:
 - implementation fulfillment lookup by the trait member being fulfilled,
 - overload family arm lookup by stable arm order.
 
-Indexes are derived query results over stable typed child collections.
+Indexes are derived views over stable typed child collections.
 
 A context-specific lookup such as type lookup or value lookup first resolves the ordinary name and then validates the resolved
 entity's semantic category. Finding an entity of the wrong category must remain distinguishable from not finding the name. Typed
@@ -1034,7 +1035,7 @@ Construction must not recursively force an entire referenced module merely to es
 
 ### Imported Symbols
 
-Compiled package interfaces provide immutable declaration-surface query results sufficient to reconstruct public symbols and relationships.
+Compiled package interfaces provide immutable declaration-surface semantics sufficient to reconstruct public symbols and relationships.
 
 Imported symbols use deterministic identities within the consuming compilation and preserve stable external keys for interface and
 tooling references.
@@ -1044,33 +1045,33 @@ Import loading must not require executable dependency bodies.
 The complete artifact, stable-key, identity-skeleton, lazy-decoding, target-compatibility, and checked-template contracts are defined
 in `docs/design/compiled-package-interfaces.md`.
 
-`bray-symbols` owns imported identity-surface input values and imported query result keys, but it does not depend on the package-interface
+`bray-symbols` owns imported identity-surface input values and imported semantic keys, but it does not depend on the package-interface
 codec. `bray-package-interface` depends on symbol contracts and translates validated wire records into those inputs.
 
 ---
 
-## Lazy Query Results
+## Lazy Semantic Queries
 
 ### Logical Immutability
 
-A lazy symbol query result is computed at most once successfully for one compilation query result key and publishes an immutable value.
+A lazy symbol query is computed at most once successfully for one compilation query key and publishes an immutable value.
 
 Internal cache mutation is permitted only to transition from absent to a completed immutable result. It must not change an already
 published semantic answer.
 
 Repeated requests return the same semantic value and diagnostics.
 
-### Query Results
+### Diagnostic Ownership
 
-Every query result that can diagnose source owns its diagnostic bag.
+Every semantic query that can diagnose source owns its diagnostic bag.
 
-Lazy symbol query results use the shared `DiagnosticResult<T>` contract defined in
+Lazy symbol queries use the shared `DiagnosticResult<T>` contract defined in
 [Compiler diagnostics](compiler-diagnostics.md#diagnostic-results). Compilation owns lazy caching and publication around it. Symbol
 logic must not append diagnostics into one global mutable bag according to request timing.
 
-### Query Result Keys
+### Query Keys
 
-A symbol query result key includes the exact symbol identity and exact query result category.
+A symbol query key includes the exact symbol identity and exact query category.
 
 Examples:
 
@@ -1096,17 +1097,17 @@ Examples:
 - implementation coherence keys,
 - overload family arms.
 
-Query Result categories should be explicit enums or typed query functions. String keys are not acceptable.
+Query categories should be explicit enums or typed query functions. String keys are not acceptable.
 
-### Common Query Result Groups
+### Cohesive Query Groups
 
-The implementation can group related work when one computation naturally produces several inseparable query results. It should not compute
-unrelated expensive query results merely because they belong to the same symbol.
+The implementation can group related work when one computation naturally produces several inseparable values. It should not compute
+unrelated expensive semantics merely because they belong to the same symbol.
 
-For example, constructing ordered callable parameters and the parameter-name index can be one query result. Checking an executable function
-body is not part of that query result.
+For example, constructing ordered callable parameters and the parameter-name index can be one query. Checking an executable function
+body is not part of that query.
 
-### Binding-Dependent Query Results
+### Binding-Dependent Semantics
 
 Some symbol properties require name binding or checking:
 
@@ -1119,12 +1120,12 @@ Some symbol properties require name binding or checking:
 - checked predicate definitions,
 - decoded contract meanings.
 
-These remain symbol-facing query results but are computed by the compiler phase that owns the semantic operation. The compilation query graph
+These remain symbol-facing semantics but are computed by the compiler phase that owns the semantic operation. The compilation query graph
 bridges the symbol API to the binder or checker without introducing a crate cycle.
 
-### Declaration-Owned Expression Query Results
+### Declaration-Owned Expression Semantics
 
-Declaration-owned expressions are symbol-facing semantic query results even when their full checked representation belongs to binding and
+Declaration-owned expressions are symbol-facing semantics even when their full checked representation belongs to binding and
 checking. They include runtime defaults, constant definition templates, predicate definitions, constraints, and contract clauses.
 
 The completion boundary is based on semantic ownership rather than syntax shape:
@@ -1137,8 +1138,8 @@ The completion boundary is based on semantic ownership rather than syntax shape:
 | constant initializer        | checked constant definition template           | concrete constant-instance evaluation       |
 | trait constant default      | checked selected-value template                | evaluation after implementation selection   |
 | predicate body              | checked semantic predicate definition          | application or proof for concrete arguments |
-| constraints and contracts   | checked semantic predicate query results               | use during checking and inference           |
-| default trait callable body | body-presence query result only                        | ordinary executable-body checking           |
+| constraints and contracts   | checked semantic predicates                            | use during checking and inference           |
+| default trait callable body | body presence only                                     | ordinary executable-body checking           |
 
 #### Crate Ownership
 
@@ -1150,8 +1151,8 @@ The completion boundary is based on semantic ownership rather than syntax shape:
 - typed context-bound view methods,
 - completion requirements for each symbol kind.
 
-`bray-compilation` owns exact query result-key composition, thread-safe caches, dependency scheduling, cancellation, and publication of
-immutable query results. Typed domain key components remain owned by the lower representation that defines their meaning so those
+`bray-compilation` owns exact query-key composition, thread-safe caches, dependency scheduling, cancellation, and publication of
+immutable results. Typed domain key components remain owned by the lower representation that defines their meaning so those
 representations do not depend back on compilation.
 
 `bray-binder` and checker services bind and validate declaration-owned expressions. `bray-bound-tree` owns their full checked
@@ -1207,9 +1208,9 @@ impl UnionPayloadFieldSymbolView<'_> {
 The exact implementation can avoid `Arc` in the public signature when a borrowed immutable result has a sufficient lifetime. It must
 not return an untyped `CheckedDefault` that forces callers to inspect the owner kind.
 
-`default()` returns `None` exactly when `default_presence()` is `Absent` and must not create or request a default query result in that case.
+`default()` returns `None` exactly when `default_presence()` is `Absent` and must not request a checked default in that case.
 Both `Present` and `Recovered` return `Some(...)`. Recovered or semantically invalid defaults publish their diagnostics and an
-error-aware value through the same owner-specific query result contract.
+error-aware value through the same owner-specific query contract.
 
 Each checked result exposes its exact provider ID and an error-aware typed value. Conceptually:
 
@@ -1252,7 +1253,7 @@ erroneous default retains that provider identity but cannot be lowered or emitte
 Constant checking is split between a definition template and a concrete instance value.
 
 Context-bound constant, trait constant member, and trait constant fulfillment views expose kind-specific definition methods returning
-checked template query results. The constant evaluator accepts an internal constant-definition erasure only at the shared evaluation
+checked templates. The constant evaluator accepts an internal constant-definition erasure only at the shared evaluation
 boundary.
 
 Conceptually, a concrete value query uses:
@@ -1281,8 +1282,8 @@ A non-generic closed constant uses an empty substitution and no selected impleme
 that one concrete instance. Generic and trait-selected templates are checked at definition completion but produce concrete values
 only for requested instance keys.
 
-Definition diagnostics belong to the checked template query result. Substitution-, implementation-, or target-specific diagnostics belong
-to the concrete instance query result and are not published as diagnostics for unrelated instances.
+Definition diagnostics belong to the checked template. Substitution-, implementation-, or target-specific diagnostics belong
+to the concrete instance and are not published as diagnostics for unrelated instances.
 
 #### Predicate And Contract API
 
@@ -1301,7 +1302,7 @@ The public implementation can use separate ordinary-predicate and trait-predicat
 for either category. A defined state contains a checked semantic predicate summary, not one evaluated Boolean value.
 
 Callable and declaration views expose checked contract and constraint collections through their existing typed `contracts()` and
-`constraints()` query results. Predicate application and proof queries are separate query results keyed by the checked definition and exact semantic
+`constraints()` collections. Predicate application and proof queries are keyed by the checked definition and exact semantic
 arguments.
 
 #### Runtime Default Provider Surface
@@ -1328,10 +1329,10 @@ construction surfaces. Their typed parameter and provider categories follow the 
 contained beneath the compiler-known environment through ordinary typed owner relationships. They must not be forced into a source
 callable parameter ID.
 
-#### Query Result Dependencies And Cycles
+#### Query Dependencies And Cycles
 
-Declaration-owned expression queries depend on identity, generic parameters, declared types, and the minimum contract query results needed by
-that expression. They must use signature-only query results when resolving a recursive reference to the owning declaration rather than
+Declaration-owned expression queries depend on identity, generic parameters, declared types, and the minimum contracts needed by
+that expression. They must use signature-only queries when resolving a recursive reference to the owning declaration rather than
 forcing the owner's defaults again.
 
 Parameter defaults are checked in parameter declaration order and can depend only on the receiver and earlier parameters. Field and
@@ -1341,14 +1342,14 @@ Constant definition templates form a checked dependency graph. Concrete constant
 constant cycles produce structured diagnostics and error constant values. Predicate recursion and termination follow predicate
 checking rules rather than being treated as cache deadlocks.
 
-A declaration-owned query result can request a checked executable body when its semantics require execution. Constant evaluation can, for
-example, request a const callable body. The body remains a body-checker-owned query result and is not added to every symbol's declaration
+A declaration-owned query can request a checked executable body when its semantics require execution. Constant evaluation can, for
+example, request a const callable body. The body remains owned by the body checker and is not added to every symbol's declaration
 completion boundary.
 
 #### Diagnostics And Publication
 
-Each checked default, constant template, constant instance, predicate definition, and contract query result owns its diagnostic bag.
-Definition diagnostics are published once with the definition query result. A call or construction that encounters an error-aware default
+Each checked default, constant template, constant instance, predicate definition, and contract owns its diagnostic bag.
+Definition diagnostics are published once with the definition. A call or construction that encounters an error-aware default
 uses the error result without duplicating the original definition diagnostic.
 
 Successful publication caches the immutable semantic summary, provider relationship where applicable, and diagnostics together.
@@ -1377,7 +1378,7 @@ Identity completion does not bind types or build all members.
 
 #### Declaration-Surface Completion
 
-Declaration-surface completion guarantees all query results needed to describe and use the declared semantic surface, including the query results
+Declaration-surface completion guarantees all semantics needed to describe and use the declared surface, including the values
 applicable to that symbol kind:
 
 - typed child symbols,
@@ -1395,13 +1396,13 @@ applicable to that symbol kind:
 - checked predicate bodies and other non-executable contract expressions,
 - declaration-surface diagnostics.
 
-This level can invoke binder and checker query results through the compilation query graph.
+This level can invoke binder and checker queries through the compilation query graph.
 
 #### Body Completion
 
 Executable body binding and checking are not symbol completion.
 
-Body completion belongs to checked bound-body query results owned by binding and checker services.
+Body completion belongs to checked bound bodies owned by binding and checker services.
 
 This includes function, method, constructor, lifecycle, lambda, and defaulted executable trait-member bodies.
 
@@ -1436,14 +1437,14 @@ top-level compiler-known modules and ambient declarations for completion purpose
 ordinary typed semantic children. A complete catalog audit must prove that this traversal reaches every generated compiler-known
 declaration exactly once.
 
-Force completion is idempotent. It returns or exposes diagnostics through the same cached query results used by ordinary requests.
+Completion is idempotent. It returns or exposes diagnostics through the same cached values used by ordinary requests.
 
 Compilation-wide symbol diagnostics are obtained by forcing the compiler-known environment and selected package symbol roots to
-declaration-surface completion and deterministically merging the diagnostics of all requested symbol query results.
+declaration-surface completion and deterministically merging the diagnostics of all requested symbol semantics.
 
 ### Partial Completion
 
-Ordinary callers should request only the query result they need.
+Ordinary callers should request only the semantics they need.
 
 Examples:
 
@@ -1459,7 +1460,7 @@ No API should pretend a partial result satisfies a stronger completion contract.
 
 ## Cycles And Reentrancy
 
-Lazy symbol query results can form dependency cycles.
+Lazy symbol queries can form dependency cycles.
 
 Examples include:
 
@@ -1473,37 +1474,37 @@ Examples include:
 Plain nested one-time initialization is insufficient when a query can recursively request itself. It can deadlock, recurse forever,
 or publish an incomplete value.
 
-The query result engine must track:
+The query engine must track:
 
-- the current query result key,
+- the current query key,
 - its evaluation state,
 - the dependency stack for the current request,
-- cycle recovery policy for that query result category,
+- cycle recovery policy for that query category,
 - waiting relationships between workers.
 
 A same-request cycle must be detected before waiting.
 
-Cross-worker dependencies must not deadlock. The implementation must not hold a query result lock while recursively computing dependencies.
+Cross-worker dependencies must not deadlock. The implementation must not hold a query lock while recursively computing dependencies.
 
-Cycle policy is query result-specific:
+Cycle policy is query-specific:
 
 - legal recursive type references preserve the recursive symbol or type edge,
 - illegal constant cycles produce structured diagnostics and an error constant value,
-- invalid constraint cycles produce structured diagnostics and error query results,
+- invalid constraint cycles produce structured diagnostics and error-aware values,
 - module reference cycles remain legal when the language permits them,
 - compiler invariant cycles fail loudly rather than being reported as user errors.
 
-Canceled or aborted computations must not publish a query result as complete and must not leak diagnostics into completed results.
+Canceled or aborted computations must not publish a value as complete and must not leak diagnostics into completed results.
 
 ---
 
 ## Concurrency And Determinism
 
-Published symbol records, query result values, child collections, and indexes are immutable and shareable.
+Published symbol records, semantic values, child collections, and indexes are immutable and shareable.
 
 The symbol graph and public symbol views must be safe for concurrent read-only use.
 
-Independent symbol query results can be evaluated in parallel when their dependencies are available.
+Independent symbol queries can be evaluated in parallel when their dependencies are available.
 
 Observable behavior must not depend on worker scheduling:
 
@@ -1511,7 +1512,7 @@ Observable behavior must not depend on worker scheduling:
 - typed child lists use stable semantic or source order,
 - lookup candidate order is stable,
 - diagnostic IDs and ordering are stable,
-- force completion produces the same query results and diagnostics as requesting the same query results individually,
+- completion produces the same values and diagnostics as requesting the same queries individually,
 - serial and parallel execution produce equivalent published symbol graphs.
 
 Thread-safe caches are implementation state. They must not become hidden semantic state.
@@ -1533,9 +1534,9 @@ Examples include:
 - duplicate or inconsistent synthesized symbol identities,
 - malformed imported symbol surfaces,
 - invalid symbol directive targets or combinations when their meaning is symbol-owned,
-- symbol graph cycles that are illegal for the affected query result category.
+- symbol graph cycles that are illegal for the affected query category.
 
-Binding owns name and path resolution diagnostics, including unresolved or ambiguous references used by a symbol-facing query result.
+Binding owns name and path resolution diagnostics, including unresolved or ambiguous references used by symbol-facing semantics.
 Checker services own overload validity and selection, implementation coherence and fulfillment validity, type compatibility,
 ownership, borrowing, contracts, effects, constant evaluation, target availability, and body-validity diagnostics.
 
@@ -1553,14 +1554,14 @@ snapshot. Persisted or external output uses rendered names, stable keys, and sou
 
 ### Lazy Collection
 
-Each query result owns the diagnostics produced while computing it.
+Each semantic query owns the diagnostics produced while computing it.
 
-Compilation diagnostic queries request the required completion boundary and merge query result diagnostics deterministically.
+Compilation diagnostic queries request the required completion boundary and merge diagnostics deterministically.
 
-Repeated query result requests do not duplicate diagnostics.
+Repeated query requests do not duplicate diagnostics.
 
 Abandoned speculative computations do not publish semantic diagnostics. Diagnostics become observable only with a successfully
-published query result.
+published result.
 
 ---
 
@@ -1574,9 +1575,9 @@ A recovered symbol records:
 
 - its exact symbol kind when known,
 - its declarations and source locations,
-- which identity or surface query results are missing or erroneous,
+- which identity or surface semantics are missing or erroneous,
 - diagnostics already owned by earlier phases,
-- error query results needed to continue lookup and binding.
+- error-aware values needed to continue lookup and binding.
 
 Missing names do not become ordinary empty-string names.
 
@@ -1611,7 +1612,7 @@ Each independently checked semantic region owns an immutable `LocalSymbolSnapsho
 - a declaration-owned expression that introduces contextual lookup symbols.
 
 The binder constructs the local snapshot together with the region's checked bound representation. The compilation query publishes
-the bound representation, local snapshot, and diagnostic bag atomically as one immutable query result. Cancellation, failed
+the bound representation, local snapshot, and diagnostic bag atomically as one immutable publication. Cancellation, failed
 speculation, or abandoned work publishes none of them.
 
 This boundary allows bodies and declaration-owned expressions to be requested, cached, replaced, and checked in parallel without
@@ -1624,13 +1625,13 @@ mutating the compilation-wide symbol graph.
 Every region has a deterministic `LocalSymbolRegionKey` derived from:
 
 - the exact declared or synthesized semantic owner,
-- the bound query result category,
+- the bound semantic category,
 - the region's stable `SyntaxAnchor`,
 - a defined role or ordinal when one owner has multiple regions at the same anchor.
 
 A declared callable body uses its callable symbol and body anchor. An anonymous callable region uses the nearest declared or
 synthesized root plus the normalized path of lambda anchors leading to that lambda. A declaration-owned expression uses its owning
-symbol, exact query result category, and expression anchor.
+symbol, exact semantic category, and expression anchor.
 
 The lambda region owns the anonymous callable symbol, its parameter symbols, its contracts, and its body-local symbols. The enclosing
 bound lambda expression references that deterministic anonymous callable ID. The ID can therefore be derived before the lambda body
@@ -1808,7 +1809,7 @@ Examples include:
 
 Binding must not reconstruct symbol ownership or declaration groups by walking syntax.
 
-Symbol APIs should return typed query results and typed lookup results rather than loosely structured maps or strings.
+Symbol APIs should return typed semantics and typed lookup results rather than loosely structured maps or strings.
 
 The binder creates local symbols while constructing a checked semantic region. Those symbols remain owned by the region's immutable
 local snapshot and are published atomically with the checked bound representation.
@@ -1908,7 +1909,7 @@ Required coverage includes:
 - open and concrete generic substitutions remaining type-distinct,
 - dependency-contract templates using formal subjects and structural interface encoding,
 - dependency-contract templates containing no bound-unit storage, access, or borrow-capability IDs,
-- source, imported, and compiler-known query results sharing stable type and constant APIs,
+- source, imported, and compiler-known semantics sharing stable type and constant APIs,
 - exactly one compiler-known environment root and no compilation-root symbol,
 - package and compiler-known module owners remaining distinguishable through `ModuleOwnerId`,
 - ambient compiler-known lookup not changing source-module package containment,
@@ -1927,10 +1928,10 @@ Required coverage includes:
 - kind-specific default APIs retaining recovered and error-aware defaults,
 - invalid runtime defaults diagnosing even when every use supplies an explicit value,
 - parameter defaults accepting receiver and earlier-parameter dependencies while rejecting self and later-parameter dependencies,
-- force completion checking declaration-owned defaults, predicates, contracts, and closed constants,
-- force completion recording but not checking defaulted trait callable bodies,
+- completion checking declaration-owned defaults, predicates, contracts, and closed constants,
+- completion recording but not checking defaulted trait callable bodies,
 - generic constant definition templates producing separately cached concrete instance values,
-- substitution- and target-specific constant diagnostics remaining isolated to their exact instance query results,
+- substitution- and target-specific constant diagnostics remaining isolated to their exact instances,
 - imported runtime defaults remaining usable without dependency syntax rebinding,
 - local symbol IDs remaining separate from compilation-wide declaration `SymbolId` values,
 - deterministic local region and symbol keys under different body request and worker orders,
@@ -1945,17 +1946,17 @@ Required coverage includes:
 - overload family symbols retaining independent arm identities,
 - trait implementation fulfillments linking to exact trait members,
 - type definitions remaining distinct from constructed type IDs,
-- lazy query results not being computed before demand,
-- repeated requests returning equivalent cached query results without duplicate diagnostics,
-- force completion matching the union of ordinary query result requests,
-- force completion excluding executable body binding,
+- lazy semantics not being computed before demand,
+- repeated requests returning equivalent cached values without duplicate diagnostics,
+- completion matching the union of ordinary semantic requests,
+- completion excluding executable body binding,
 - legal recursive references completing without deadlock,
 - illegal constant and constraint cycles producing deterministic diagnostics,
 - malformed declarations producing error-aware symbols without panics,
-- cancellation not publishing partial query results,
+- cancellation not publishing partial values,
 - stable diagnostics under different worker schedules.
 
-Integration tests should verify that `Compilation` exposes symbol roots and diagnostics as lazy query results derived from declaration
+Integration tests should verify that `Compilation` exposes symbol roots and diagnostics through lazy queries derived from declaration
 tables, the compiler-known catalog, and compiled dependency interfaces.
 
 ---
@@ -1976,6 +1977,6 @@ Delivery follows this dependency order. Every completed step must use the final 
 8. Add binding-dependent signature, constraint, contract, implementation, and constant query APIs according to
    `docs/design/binder.md`.
 9. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.
-10. Add recursive force completion and deterministic symbol diagnostics.
+10. Add recursive completion and deterministic symbol diagnostics.
 
 Each step preserves lazy evaluation and does not add temporary eager APIs or duplicate semantic state.

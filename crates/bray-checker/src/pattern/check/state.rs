@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundPattern, BoundPatternEntryKind,
     BoundPatternId, BoundPatternKind, BoundPatternTarget, BoundStructuredExpressionKind,
-    BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, CheckedPatterns,
-    MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry, PatternProjection,
-    PatternRefutability, walk_bound_unit_view,
+    BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, CheckedPatterns, MatchCoverageEntry,
+    PatternBindingTypeEntry, PatternCheckEntry, PatternProjection, PatternRefutability,
+    walk_bound_unit_view,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag};
 use bray_symbols::{
@@ -18,8 +18,8 @@ use super::result::{
 };
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
-    CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
+    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -29,8 +29,8 @@ pub(crate) fn check_patterns<C>(
 ) -> CheckerOutcome<CheckedPatterns>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     let mut checker = match PatternChecker::new(request, expression_types, input) {
@@ -91,20 +91,20 @@ pub(super) struct PatternChildren {
 }
 
 pub(in crate::pattern) fn available_dependency<T>(
-    result: CheckerFactResult<T>,
+    result: CheckerQueryResult<T>,
 ) -> Result<Option<T>, CheckerInfrastructureError> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(CheckerFactError::Cancelled) => Ok(None),
-        Err(CheckerFactError::Infrastructure(error)) => Err(error),
+        Err(CheckerQueryError::Cancelled) => Ok(None),
+        Err(CheckerQueryError::Infrastructure(error)) => Err(error),
     }
 }
 
 pub(in crate::pattern) struct PatternChecker<'view, 'input, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(in crate::pattern) request: CheckerUnitView<'view, C>,
@@ -125,8 +125,8 @@ where
 impl<'view, 'input, C> PatternChecker<'view, 'input, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     fn new(

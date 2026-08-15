@@ -581,7 +581,8 @@ mod tests {
             .published_artifacts()
             .map(|artifact| match artifact.destination() {
                 PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
-                    published, ..
+                    published,
+                    ..
                 }) => published.clone(),
                 PlannedArtifactDestination::Publish(
                     OutputSink::Filesystem(_) | OutputSink::Memory { .. } | OutputSink::Stream(_),

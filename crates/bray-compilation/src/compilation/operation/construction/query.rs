@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
@@ -9,12 +9,12 @@ use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
 use super::super::model::OperationResolution;
 use super::super::query::construction_operands;
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
+use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 impl Compilation {
     pub(in crate::compilation::operation) fn resolve_construction_operation(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
@@ -49,9 +49,12 @@ impl Compilation {
                 variant.selector(),
                 diagnostics,
             )?,
-            BoundExpression::UnqualifiedVariant(variant) => {
-                self.unqualified_variant_candidate(binding_context, result_type, variant, diagnostics)?
-            }
+            BoundExpression::UnqualifiedVariant(variant) => self.unqualified_variant_candidate(
+                binding_context,
+                result_type,
+                variant,
+                diagnostics,
+            )?,
             BoundExpression::MemberAccess(_) => self.union_variant_construction_candidate(
                 binding_context,
                 unit,
@@ -119,7 +122,9 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
     ) -> Result<Option<TypeId>, FactQueryError> {
-        if let Some(result) = self.qualified_union_result_type(binding_context, unit, types, expression)? {
+        if let Some(result) =
+            self.qualified_union_result_type(binding_context, unit, types, expression)?
+        {
             return Ok(Some(result));
         }
 

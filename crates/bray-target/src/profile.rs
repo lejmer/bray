@@ -1,6 +1,6 @@
 use crate::{
-    TargetPropertyKind, TargetPropertyValue, TargetProperties, TargetIdentity, TargetMachineProperties,
-    TargetScalarKind,
+    TargetIdentity, TargetMachineProperties, TargetProperties, TargetPropertyKind,
+    TargetPropertyValue, TargetScalarKind,
 };
 
 /// The language-level identity and machine properties of one compilation target.
@@ -193,13 +193,13 @@ const fn maximum_usize(pointer_width_bits: u16) -> u64 {
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
-    use crate::test_support::{test_target_properties, test_target_machine, test_target_profile};
+    use crate::test_support::{test_target_machine, test_target_profile, test_target_properties};
     use crate::{
-        Endianness, ObjectFormat, TargetAbiSupport, TargetAbiScalars, TargetAddressSpaces,
-        TargetAlignmentLimits, TargetArchitecture, TargetAtomicSupport, TargetProperties,
-        TargetForeignAbiContract, TargetIdentity, TargetPlatformIdentity, TargetMachineProperties,
-        TargetOperationSupport, TargetProfile, TargetProfileBuildError, TargetScalarSupport,
-        TargetScalarKind,
+        Endianness, ObjectFormat, TargetAbiScalars, TargetAbiSupport, TargetAddressSpaces,
+        TargetAlignmentLimits, TargetArchitecture, TargetAtomicSupport, TargetForeignAbiContract,
+        TargetIdentity, TargetMachineProperties, TargetOperationSupport, TargetPlatformIdentity,
+        TargetProfile, TargetProfileBuildError, TargetProperties, TargetScalarKind,
+        TargetScalarSupport,
     };
 
     #[test]
@@ -221,7 +221,8 @@ mod tests {
             panic!("test target identity must be valid");
         };
 
-        let Some(platform_identity) = TargetPlatformIdentity::try_new("unknown", "linux", "gnu", "gnu")
+        let Some(platform_identity) =
+            TargetPlatformIdentity::try_new("unknown", "linux", "gnu", "gnu")
         else {
             panic!("test target platform identity must be valid");
         };
@@ -315,14 +316,8 @@ mod tests {
             Err(TargetProfileBuildError::ComplexScalarMissingComponent)
         );
 
-        let abi = TargetForeignAbiContract::new(
-            TargetAbiScalars::all(),
-            true,
-            true,
-            true,
-            true,
-            maximum,
-        );
+        let abi =
+            TargetForeignAbiContract::new(TargetAbiScalars::all(), true, true, true, true, maximum);
 
         let properties = properties_with(
             TargetScalarSupport::default(),

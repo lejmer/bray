@@ -1,5 +1,5 @@
 use crate::semantic::codec::common::SemanticDecodeContext;
-use crate::semantic::codec::decoding::{contract, declaration, bundle, surface, value};
+use crate::semantic::codec::decoding::{bundle, contract, declaration, surface, value};
 use crate::semantic::model::InterfaceSemanticRecordKind;
 use crate::{InterfaceSectionTag, InterfaceValidationError, ValidatedInterfaceSection};
 
@@ -54,7 +54,8 @@ impl<'bytes> SelectedTables<'bytes> {
                 | InterfaceSemanticRecordKind::GenericDeclaration
                 | InterfaceSemanticRecordKind::DeclaredType
         ) {
-            let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
+            let section =
+                bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
 
             Some(declaration::decode_declaration_tables(section, context)?)
         } else {

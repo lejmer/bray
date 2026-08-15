@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageIdentity,
-    StoragePlan, StorageProjection, StorageRelationship,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageIdentity, StoragePlan,
+    StorageProjection, StorageRelationship,
 };
 
 pub(super) fn storage_is_recovered(storage: &StoragePlan) -> bool {

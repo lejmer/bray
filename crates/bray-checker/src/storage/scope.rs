@@ -6,7 +6,9 @@ use bray_bound_tree::{
     StorageIdentityId, StoragePlan, walk_bound_unit_view,
 };
 
-use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 pub(crate) struct StorageScopeOwners {
     nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,
@@ -14,7 +16,7 @@ pub(crate) struct StorageScopeOwners {
 }
 
 impl StorageScopeOwners {
-    pub(crate) fn collect<C>(request: CheckerUnitView<'_, C>) -> Result<Self, CheckerFactError>
+    pub(crate) fn collect<C>(request: CheckerUnitView<'_, C>) -> Result<Self, CheckerQueryError>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -46,7 +48,7 @@ impl StorageScopeOwners {
         });
 
         if outcome != BoundWalkOutcome::Completed || !scopes.is_empty() {
-            return Err(CheckerFactError::Infrastructure(
+            return Err(CheckerQueryError::Infrastructure(
                 CheckerInfrastructureError::InvalidStorageFlow,
             ));
         }

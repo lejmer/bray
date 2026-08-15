@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
@@ -9,7 +9,7 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, DeclarationDirectivesQuery, DirectiveArgumentName, DirectiveKind,
-    DirectiveTemplate, ProductKind, ProductSemantics, ProductTestEntry, SymbolFactRequest,
+    DirectiveTemplate, ProductKind, ProductSemantics, ProductTestEntry, SymbolQueryRequest,
     TestExecutionConstraint,
 };
 
@@ -17,7 +17,7 @@ use super::dependency::validate_public_expression_dependencies;
 use super::entry::{ProductEntryKind, select_executable_entrypoint, validate_entry};
 use super::visibility::{symbol_is_publicly_reachable, validate_public_surface};
 use crate::compilation::Compilation;
-use crate::compilation::binder::binder_fact_error;
+use crate::compilation::binder::binding_query_error;
 use crate::compilation::diagnostics::{diagnostic_product_kind, labeled_source_diagnostic};
 use crate::compilation::directive::{
     bare_directive_argument_name, directive_source_text, first_directive,
@@ -34,9 +34,7 @@ fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
 
 impl Compilation {
     /// Returns semantic roots and public declarations for the selected product.
-    pub fn product_semantics(
-        &self,
-    ) -> Result<&DiagnosticResult<ProductSemantics>, FactQueryError> {
+    pub fn product_semantics(&self) -> Result<&DiagnosticResult<ProductSemantics>, FactQueryError> {
         self.product_semantics_with_cancellation(&self.state.cancellation)
     }
 
@@ -44,7 +42,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<ProductSemantics>, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ProductSemantics,
             &self.state.product_semantics,
             cancellation,
@@ -93,10 +91,10 @@ impl Compilation {
 
         for function in functions.iter().copied() {
             let directives = binder
-                .symbol_fact(SymbolFactRequest::<DeclarationDirectivesQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<DeclarationDirectivesQuery>::new(
                     function.into(),
                 ))
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
             diagnostics.add_range(directives.diagnostics().iter().cloned());
 
@@ -529,7 +527,12 @@ func main()
 
         let semantics = product_semantics(&compilation);
 
-        assert!(semantics.diagnostics().is_empty(), "{:?}", semantics.diagnostics());
+        assert!(
+            semantics.diagnostics().is_empty(),
+            "{:?}",
+            semantics.diagnostics()
+        );
+
         assert_eq!(semantics.value().test_entries().len(), 1);
 
         assert_eq!(

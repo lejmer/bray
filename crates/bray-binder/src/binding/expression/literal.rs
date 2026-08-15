@@ -5,7 +5,7 @@ use bray_syntax::{LiteralExpressionSyntax, SyntaxKind};
 
 use super::super::BindingResult;
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 
 impl ExpressionBinder {
@@ -15,7 +15,7 @@ impl ExpressionBinder {
         syntax: &LiteralExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let Some(token) = syntax.literal_token() else {
             return self.push_error(binder, Some(syntax));

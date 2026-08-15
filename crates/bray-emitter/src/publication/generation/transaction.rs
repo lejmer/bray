@@ -10,9 +10,9 @@ use bray_base::{
 use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
+use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
 use super::layout::{METADATA_DIRECTORY, STAGING_DIRECTORY, product_store_relative};
 use super::lock::ProductPublicationLock;
-use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
 use super::manifest::{
     GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
     ManifestProduct, permission_key,
@@ -137,13 +137,8 @@ pub(in crate::publication) fn publish_managed_generation(
         }
     };
 
-    let retention_warning = retain_recent_generations(
-        &layout,
-        identity,
-        preceding_generation,
-        first.planned,
-    )
-    .err();
+    let retention_warning =
+        retain_recent_generations(&layout, identity, preceding_generation, first.planned).err();
 
     let warning = reference_warning.or(retention_warning);
 
@@ -199,9 +194,8 @@ fn create_layout(
     root: &Path,
     planned: &crate::PlannedArtifact,
 ) -> Result<ManagedLayout, ArtifactPublicationFailure> {
-    let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
-        published, ..
-    }) = planned.destination()
+    let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { published, .. }) =
+        planned.destination()
     else {
         return Err(artifact_failure(
             planned,
@@ -216,9 +210,9 @@ fn create_layout(
         ));
     };
 
-    let relative_public_directory = public_directory.strip_prefix(root).map_err(|_| {
-        artifact_failure(planned, PublicationErrorKind::InvalidContribution)
-    })?;
+    let relative_public_directory = public_directory
+        .strip_prefix(root)
+        .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidContribution))?;
 
     require_directory(root, planned)?;
 
@@ -226,7 +220,9 @@ fn create_layout(
 
     let staging = create_managed_path(
         root,
-        Path::new(METADATA_DIRECTORY).join(STAGING_DIRECTORY).as_path(),
+        Path::new(METADATA_DIRECTORY)
+            .join(STAGING_DIRECTORY)
+            .as_path(),
         planned,
     )?;
 

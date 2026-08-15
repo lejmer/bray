@@ -4,8 +4,8 @@ use super::{
 };
 use crate::wire::WireEncoder;
 use crate::{
-    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface,
+    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError, InterfaceValidationLimits,
+    PackageInterfaceSurface,
 };
 
 /// Encodes one validated semantic record bundle into canonical interface sections.

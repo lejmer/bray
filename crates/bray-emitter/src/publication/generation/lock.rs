@@ -23,13 +23,10 @@ impl ProductPublicationLock {
         planned: &crate::PlannedArtifact,
     ) -> Result<Self, ArtifactPublicationFailure> {
         let file = open_lock_file(metadata)
-            .map_err(|error| {
-                artifact_failure(planned, PublicationErrorKind::Open(error.kind()))
-            })?;
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-        file.lock().map_err(|error| {
-            artifact_failure(planned, PublicationErrorKind::Open(error.kind()))
-        })?;
+        file.lock()
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
         Ok(Self { _file: file })
     }

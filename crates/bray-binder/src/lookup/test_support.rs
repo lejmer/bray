@@ -3,12 +3,12 @@ use bray_symbols::{ModuleOwnerId, ModuleSymbolId, SymbolOrigin};
 use bray_syntax::{PathSyntax, SyntaxKind, SyntaxToken};
 use bray_testing::{test_source_at, test_source_store};
 
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 
-pub(super) fn source_module<C: BinderFactContext + ?Sized>(
-    facts: &C,
+pub(super) fn source_module<C: BindingQueryContext + ?Sized>(
+    binding_context: &C,
 ) -> (ModuleSymbolId, ModuleOwnerId) {
-    let Some(module) = facts
+    let Some(module) = binding_context
         .symbols()
         .modules()
         .iter()

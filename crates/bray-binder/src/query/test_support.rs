@@ -15,15 +15,14 @@ use bray_symbols::{
     CallableSignatureQuery, CallableSignatureTemplate, CallableTrust, CallableTypeData,
     ConstantDeclaredTypeQuery, ConstantSymbolId, DependencyContractTemplateData,
     ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
-    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface, TypeData,
+    SemanticValueStore, SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeData,
     TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
 
-use super::{
-    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
-};
+use super::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
+use crate::ImportedPathRoot;
 
 pub(crate) struct TestSymbolSemantics {
     symbol: ConstantSymbolId,
@@ -31,24 +30,24 @@ pub(crate) struct TestSymbolSemantics {
     callable_signature: Arc<DiagnosticResult<CallableSignatureTemplate>>,
 }
 
-impl SymbolFactProvider<ConstantDeclaredTypeQuery> for TestSymbolSemantics {
-    fn symbol_fact(
+impl SymbolQueryProvider<ConstantDeclaredTypeQuery> for TestSymbolSemantics {
+    fn resolve_symbol_query(
         &self,
-        request: SymbolFactRequest<ConstantDeclaredTypeQuery>,
-    ) -> BinderFactResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
+        request: SymbolQueryRequest<ConstantDeclaredTypeQuery>,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
         if request.owner() != self.symbol {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         }
 
         Ok(Arc::clone(&self.result))
     }
 }
 
-impl SymbolFactProvider<CallableSignatureQuery> for TestSymbolSemantics {
-    fn symbol_fact(
+impl SymbolQueryProvider<CallableSignatureQuery> for TestSymbolSemantics {
+    fn resolve_symbol_query(
         &self,
-        _: SymbolFactRequest<CallableSignatureQuery>,
-    ) -> BinderFactResult<Arc<DiagnosticResult<CallableSignatureTemplate>>> {
+        _: SymbolQueryRequest<CallableSignatureQuery>,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<CallableSignatureTemplate>>> {
         Ok(Arc::clone(&self.callable_signature))
     }
 }
@@ -69,18 +68,18 @@ impl Cancellation for TestCancellation {
     }
 }
 
-pub(crate) struct TestContext<'facts> {
-    syntax: &'facts SyntaxTree,
-    declarations: &'facts DeclarationTable,
-    symbols: &'facts SymbolGraph,
-    imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
-    semantic_values: &'facts SemanticValueStore,
-    target: &'facts TargetProfile,
-    symbol_semantics: &'facts TestSymbolSemantics,
-    cancellation: &'facts TestCancellation,
+pub(crate) struct TestContext<'binding_context> {
+    syntax: &'binding_context SyntaxTree,
+    declarations: &'binding_context DeclarationTable,
+    symbols: &'binding_context SymbolGraph,
+    imported_symbols: Option<&'binding_context ImportedSymbolSkeleton>,
+    semantic_values: &'binding_context SemanticValueStore,
+    target: &'binding_context TargetProfile,
+    symbol_semantics: &'binding_context TestSymbolSemantics,
+    cancellation: &'binding_context TestCancellation,
 }
 
-impl BinderFactContext for TestContext<'_> {
+impl BindingQueryContext for TestContext<'_> {
     type SymbolSemantics = TestSymbolSemantics;
     type Cancellation = TestCancellation;
 
@@ -99,7 +98,7 @@ impl BinderFactContext for TestContext<'_> {
     fn imported_path_root(
         &self,
         components: &[&str],
-    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>> {
         let Some(symbols) = self.imported_symbols else {
             return Ok(None);
         };
@@ -124,7 +123,7 @@ impl BinderFactContext for TestContext<'_> {
             .and_then(|(package, _)| ImportedPathRoot::for_path(symbols, package.id(), components)))
     }
 
-    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
         Ok(self.imported_symbols)
     }
 
@@ -133,15 +132,15 @@ impl BinderFactContext for TestContext<'_> {
         _module: ModuleSymbolId,
         _name: &str,
         _access: crate::NameAccess,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
         Ok(MemberLookupResult::NotFound)
     }
 
     fn type_associated_surface(
         &self,
         _subject: NamedTypeSymbolId,
-    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
-        Err(BinderFactError::DependencyUnavailable)
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
+        Err(BindingQueryError::DependencyUnavailable)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -183,7 +182,7 @@ impl TestFixture {
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),
-            "binder-facts",
+            "binder-binding_context",
             SourceVersion::new(0),
             source_text,
         );

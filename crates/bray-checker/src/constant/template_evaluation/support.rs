@@ -7,7 +7,7 @@ use bray_symbols::{
 
 use super::super::diagnostic::ConstantDiagnostic;
 use super::super::operation::ConstantOperationError;
-use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext};
+use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
 
 pub(super) enum TemplateEvaluationFailure {
     Cancelled,
@@ -25,10 +25,12 @@ impl TemplateEvaluationFailure {
     }
 }
 
-pub(super) fn fact_failure(error: CheckerFactError) -> TemplateEvaluationFailure {
+pub(super) fn query_failure(error: CheckerQueryError) -> TemplateEvaluationFailure {
     match error {
-        CheckerFactError::Cancelled => TemplateEvaluationFailure::Cancelled,
-        CheckerFactError::Infrastructure(error) => TemplateEvaluationFailure::Infrastructure(error),
+        CheckerQueryError::Cancelled => TemplateEvaluationFailure::Cancelled,
+        CheckerQueryError::Infrastructure(error) => {
+            TemplateEvaluationFailure::Infrastructure(error)
+        }
     }
 }
 

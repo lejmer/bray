@@ -5,7 +5,8 @@ use bray_symbols::{ExternalSymbolKey, SymbolKind};
 use crate::semantic::model::{InterfaceSemantics, InterfaceSupportEntity};
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceValidationError, PackageInterfaceSurface, semantic::validation::surface::validate_index,
+    InterfaceValidationError, PackageInterfaceSurface,
+    semantic::validation::surface::validate_index,
 };
 
 use super::checked_index;
@@ -61,7 +62,9 @@ pub(super) fn validate_support_entities(
                         SymbolKind::UnnamedTraitImplementation
                         | SymbolKind::NamedTraitImplementation,
                         Some(application),
-                    ) => validate_index(application.to_index(), semantics.trait_applications.len())?,
+                    ) => {
+                        validate_index(application.to_index(), semantics.trait_applications.len())?
+                    }
                     _ => return Err(InterfaceValidationError::Malformed),
                 }
             }

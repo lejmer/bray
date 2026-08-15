@@ -87,7 +87,7 @@ mod tests {
     use super::{ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey};
 
     #[test]
-    fn constant_fact_values_are_send_and_sync() {
+    fn constant_values_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ConstantDefinition>();

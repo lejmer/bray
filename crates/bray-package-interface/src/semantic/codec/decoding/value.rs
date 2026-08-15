@@ -363,9 +363,9 @@ pub(super) fn decode_constant_term(
         2 => Ok(InterfaceConstantTerm::Parameter(read_symbol_reference(
             reader, context,
         )?)),
-        3 => Ok(InterfaceConstantTerm::TargetProperty(read_symbol_reference(
-            reader, context,
-        )?)),
+        3 => Ok(InterfaceConstantTerm::TargetProperty(
+            read_symbol_reference(reader, context)?,
+        )),
         4 => Ok(InterfaceConstantTerm::Unary {
             operation: decode_tag(read_u32(reader)?)?,
             operand: InterfaceConstantTermId::new(read_u32(reader)?),
@@ -517,7 +517,7 @@ mod tests {
         InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
         InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericSubstitution,
         InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
-        InterfaceSemantics, InterfaceSemanticInternError, InterfaceSourceProvenance,
+        InterfaceSemanticInternError, InterfaceSemantics, InterfaceSourceProvenance,
         InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetPropertyDependency,
         InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
         InterfaceValidationError, InterfaceValidationLimits,

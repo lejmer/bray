@@ -282,12 +282,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let initialized_field = self.aggregate_element(fields, 2)?;
 
-        let initialized_pointer = llvm(self.builder.build_struct_gep(
-            llvm_type,
-            buffer,
-            initialized_field,
-            name,
-        ))?;
+        let initialized_pointer =
+            llvm(
+                self.builder
+                    .build_struct_gep(llvm_type, buffer, initialized_field, name),
+            )?;
 
         llvm(self.builder.build_store(initialized_pointer, initialized))?;
 

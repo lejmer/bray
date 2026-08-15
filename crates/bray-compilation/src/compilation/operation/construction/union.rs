@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
     BoundUnqualifiedVariantExpression, ConstructionDefaultProvider, ConstructionInputId,
@@ -11,12 +11,12 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, MemberLookupResult, NamedTypeSymbolId, RuntimeDefaultPresence, SymbolFactRequest,
-    SymbolName, TypeData, TypeId, UnionPayloadFieldTypeQuery, UnionVariantSymbolId,
+    AnySymbolId, MemberLookupResult, NamedTypeSymbolId, RuntimeDefaultPresence, SymbolName,
+    SymbolQueryRequest, TypeData, TypeId, UnionPayloadFieldTypeQuery, UnionVariantSymbolId,
 };
 
 use super::super::super::Compilation;
-use super::super::super::binder::{CompilationBindingContext, binder_fact_error};
+use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 enum ContextualVariantTarget {
@@ -48,7 +48,13 @@ impl Compilation {
             return Ok(None);
         };
 
-        self.union_variant_candidate(binding_context, variant, result_type, substitution, diagnostics)
+        self.union_variant_candidate(
+            binding_context,
+            variant,
+            result_type,
+            substitution,
+            diagnostics,
+        )
     }
 
     pub(super) fn unqualified_variant_candidate(
@@ -58,15 +64,20 @@ impl Compilation {
         variant: &BoundUnqualifiedVariantExpression,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationCandidate>, FactQueryError> {
-        let target = self.contextual_variant_target(binding_context, result_type, variant.name())?;
+        let target =
+            self.contextual_variant_target(binding_context, result_type, variant.name())?;
 
         match target {
             ContextualVariantTarget::Found {
                 variant: target,
                 substitution,
-            } => {
-                self.union_variant_candidate(binding_context, target, result_type, substitution, diagnostics)
-            }
+            } => self.union_variant_candidate(
+                binding_context,
+                target,
+                result_type,
+                substitution,
+                diagnostics,
+            ),
             ContextualVariantTarget::ExpectedTypeIsNotUnion => {
                 diagnostics.add(unqualified_variant_diagnostic(
                     variant,
@@ -146,14 +157,20 @@ impl Compilation {
 
         let record = binding_context
             .union_variant(variant)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         if record.union() != *union {
             return Ok(None);
         }
 
-        self.union_variant_candidate(binding_context, variant, result_type, *substitution, diagnostics)
+        self.union_variant_candidate(
+            binding_context,
+            variant,
+            result_type,
+            *substitution,
+            diagnostics,
+        )
     }
 
     pub(super) fn unqualified_variant_reference<'unit>(
@@ -192,7 +209,7 @@ impl Compilation {
 
         let MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) = binding_context
             .lookup_member((*union).into(), name.as_str())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
         else {
             return Ok(ContextualVariantTarget::Missing);
         };
@@ -213,14 +230,16 @@ impl Compilation {
     ) -> Result<Option<OperationCandidate>, FactQueryError> {
         let record = binding_context
             .union_variant(variant)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let inputs = record
             .payload_fields()
             .iter()
             .copied()
-            .map(|field| self.union_payload_input(binding_context, field, substitution, diagnostics))
+            .map(|field| {
+                self.union_payload_input(binding_context, field, substitution, diagnostics)
+            })
             .collect::<Result<Option<Vec<_>>, _>>()?;
 
         let Some(inputs) = inputs else {
@@ -232,7 +251,7 @@ impl Compilation {
 
         let key = binding_context
             .symbol_key(variant.into())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // The candidate owns the shared key returned by the immutable symbol table.
@@ -258,12 +277,12 @@ impl Compilation {
     ) -> Result<Option<(ConstructionInputSurface, bool)>, FactQueryError> {
         let record = binding_context
             .union_payload_field(field)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(name) = binding_context
             .member_name(field.into())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .cloned()
         else {
             return Ok(None);
@@ -271,7 +290,7 @@ impl Compilation {
 
         let Some(ty) = self.resolve_member_type(
             binding_context,
-            SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field),
             substitution,
             diagnostics,
         )?

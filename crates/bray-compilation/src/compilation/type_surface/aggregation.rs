@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_declarations::DeclarationId;
 use bray_symbols::{
     AnySymbolId, InherentImplementationSymbol, MemberEntry, MemberValidity, MemberVisibility,
@@ -58,7 +58,12 @@ pub(super) fn collect_named_type_members(
                     .map(AnySymbolId::from),
             );
 
-            collect_constructors(binding_context, record.constructors(), &mut members, &mut lifecycle)?;
+            collect_constructors(
+                binding_context,
+                record.constructors(),
+                &mut members,
+                &mut lifecycle,
+            )?;
 
             collect_lifecycle(
                 record.finalizers(),
@@ -125,7 +130,12 @@ pub(super) fn collect_implementation_members(
             .map(AnySymbolId::from),
     );
 
-    collect_constructors(binding_context, record.constructors(), &mut members, &mut lifecycle)?;
+    collect_constructors(
+        binding_context,
+        record.constructors(),
+        &mut members,
+        &mut lifecycle,
+    )?;
 
     collect_lifecycle(
         record.finalizers(),
@@ -217,7 +227,7 @@ pub(super) fn member_entry(
 
     let imported = binding_context
         .imported_symbols()
-        .map_err(crate::compilation::binder::binder_fact_error)?;
+        .map_err(crate::compilation::binder::binding_query_error)?;
 
     let Some(imported) = imported else {
         return Ok(None);
@@ -244,10 +254,12 @@ pub(super) fn sort_symbols<I>(
 where
     I: Copy + Into<AnySymbolId>,
 {
-    sort_symbols_by(binding_context, symbols, |key| match key.source_declaration_id() {
-        Some(declaration) => MemberOrderKey::Source(declaration),
-        // Sorting owns stable Arc-backed keys beyond provider borrows.
-        None => MemberOrderKey::Stable(key.clone()),
+    sort_symbols_by(binding_context, symbols, |key| {
+        match key.source_declaration_id() {
+            Some(declaration) => MemberOrderKey::Source(declaration),
+            // Sorting owns stable Arc-backed keys beyond provider borrows.
+            None => MemberOrderKey::Stable(key.clone()),
+        }
     })
 }
 
@@ -272,7 +284,7 @@ where
 {
     let imported = binding_context
         .imported_symbols()
-        .map_err(crate::compilation::binder::binder_fact_error)?;
+        .map_err(crate::compilation::binder::binding_query_error)?;
 
     let mut keyed = symbols
         .into_iter()

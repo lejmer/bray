@@ -4,38 +4,38 @@ use bray_base::Cancellation;
 
 use crate::{AnySymbolId, RuntimeDefaultPresence, SymbolGraph};
 
-use super::policy::SYMBOL_FACT_KINDS;
-use super::{SymbolCompletionLevel, SymbolFactKind};
+use super::policy::SYMBOL_QUERY_KINDS;
+use super::{SymbolCompletionLevel, SymbolQueryKind};
 
-/// One erased symbol-fact request in a force-completion plan.
+/// One erased symbol query in a completion plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SymbolFactCompletionRequest {
+pub struct SymbolCompletionQuery {
     symbol: AnySymbolId,
-    kind: SymbolFactKind,
+    kind: SymbolQueryKind,
 }
 
-impl SymbolFactCompletionRequest {
+impl SymbolCompletionQuery {
     /// Creates an exact completion request.
-    pub const fn new(symbol: AnySymbolId, kind: SymbolFactKind) -> Self {
+    pub const fn new(symbol: AnySymbolId, kind: SymbolQueryKind) -> Self {
         Self { symbol, kind }
     }
 
-    /// Returns the symbol that owns the fact.
+    /// Returns the symbol that owns the query.
     pub const fn symbol(self) -> AnySymbolId {
         self.symbol
     }
 
-    /// Returns the requested fact category.
-    pub const fn kind(self) -> SymbolFactKind {
+    /// Returns the requested query category.
+    pub const fn kind(self) -> SymbolQueryKind {
         self.kind
     }
 }
 
-/// The applicable fact requests for one symbol in canonical fact order.
+/// The applicable queries for one symbol in stable category order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SymbolCompletionUnit {
     symbol: AnySymbolId,
-    facts: Box<[SymbolFactKind]>,
+    queries: Box<[SymbolQueryKind]>,
 }
 
 impl SymbolCompletionUnit {
@@ -44,9 +44,9 @@ impl SymbolCompletionUnit {
         self.symbol
     }
 
-    /// Returns applicable facts in canonical category order.
-    pub fn facts(&self) -> &[SymbolFactKind] {
-        &self.facts
+    /// Returns applicable queries in stable category order.
+    pub fn queries(&self) -> &[SymbolQueryKind] {
+        &self.queries
     }
 }
 
@@ -55,7 +55,7 @@ impl SymbolCompletionUnit {
 pub struct SymbolCompletionPlan {
     level: SymbolCompletionLevel,
     units: Box<[SymbolCompletionUnit]>,
-    requests: Box<[SymbolFactCompletionRequest]>,
+    requests: Box<[SymbolCompletionQuery]>,
 }
 
 impl SymbolCompletionPlan {
@@ -86,23 +86,23 @@ impl SymbolCompletionPlan {
                 continue;
             }
 
-            let facts = SYMBOL_FACT_KINDS
+            let queries = SYMBOL_QUERY_KINDS
                 .into_iter()
                 .filter(|kind| {
                     kind.is_required_for(level)
-                        && completion_fact_is_applicable(graph, symbol, *kind)
+                        && completion_query_is_applicable(graph, symbol, *kind)
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
 
             requests.extend(
-                facts
+                queries
                     .iter()
                     .copied()
-                    .map(|kind| SymbolFactCompletionRequest::new(symbol, kind)),
+                    .map(|kind| SymbolCompletionQuery::new(symbol, kind)),
             );
 
-            units.push(SymbolCompletionUnit { symbol, facts });
+            units.push(SymbolCompletionUnit { symbol, queries });
             pending.extend(graph.completion_children(symbol).iter().rev().copied());
         }
 
@@ -123,16 +123,16 @@ impl SymbolCompletionPlan {
         &self.units
     }
 
-    /// Returns every applicable fact request in deterministic completion order.
-    pub fn requests(&self) -> &[SymbolFactCompletionRequest] {
+    /// Returns every applicable query in deterministic completion order.
+    pub fn requests(&self) -> &[SymbolCompletionQuery] {
         &self.requests
     }
 }
 
-fn completion_fact_is_applicable(
+fn completion_query_is_applicable(
     graph: &SymbolGraph,
     symbol: AnySymbolId,
-    kind: SymbolFactKind,
+    kind: SymbolQueryKind,
 ) -> bool {
     if !kind.is_applicable_to(symbol) {
         return false;
@@ -140,24 +140,24 @@ fn completion_fact_is_applicable(
 
     match (kind, symbol) {
         (
-            SymbolFactKind::CallableParameterDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            SymbolQueryKind::CallableParameterDefault | SymbolQueryKind::UnevaluatedDefaultTemplate,
             AnySymbolId::CallableParameter(id),
         ) => graph.callable_parameter(id).is_some_and(|parameter| {
             parameter.default_presence() != RuntimeDefaultPresence::Absent
         }),
         (
-            SymbolFactKind::StructFieldDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            SymbolQueryKind::StructFieldDefault | SymbolQueryKind::UnevaluatedDefaultTemplate,
             AnySymbolId::StructField(id),
         ) => graph
             .struct_field(id)
             .is_some_and(|field| field.default_presence() != RuntimeDefaultPresence::Absent),
         (
-            SymbolFactKind::UnionPayloadFieldDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            SymbolQueryKind::UnionPayloadFieldDefault | SymbolQueryKind::UnevaluatedDefaultTemplate,
             AnySymbolId::UnionPayloadField(id),
         ) => graph
             .union_payload_field(id)
             .is_some_and(|field| field.default_presence() != RuntimeDefaultPresence::Absent),
-        (SymbolFactKind::PredicateDefinition, AnySymbolId::Predicate(id)) => graph
+        (SymbolQueryKind::PredicateDefinition, AnySymbolId::Predicate(id)) => graph
             .predicate(id)
             .is_some_and(|predicate| predicate.origin() != crate::SymbolOrigin::CompilerProvided),
         _ => true,
@@ -193,15 +193,15 @@ pub enum SymbolCompletionPlanError {
 
 #[cfg(test)]
 mod tests {
-    use super::{SymbolCompletionPlan, SymbolCompletionPlanError, SymbolFactCompletionRequest};
+    use super::{SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionQuery};
     use crate::test_support::declaration_table;
     use crate::{
         AnySymbolId, NeverCancelSymbolCompletion, PackageIdentity, SymbolCompletionLevel,
-        SymbolFactKind, SymbolGraph, SymbolId, SymbolKind,
+        SymbolGraph, SymbolId, SymbolKind, SymbolQueryKind,
     };
 
     #[test]
-    fn recursive_completion_uses_owned_preorder_and_applicable_facts() {
+    fn recursive_completion_uses_owned_preorder_and_applicable_queries() {
         let graph = graph(&["module app; func make<T, const N: Int>(first: T = 1, second: T) {}"]);
         let package = AnySymbolId::from(graph.packages()[0].id());
 
@@ -230,23 +230,23 @@ mod tests {
         let function = &plan.units()[2];
 
         assert_eq!(
-            function.facts(),
+            function.queries(),
             [
-                SymbolFactKind::Directives,
-                SymbolFactKind::GenericParameters,
-                SymbolFactKind::GenericDeclarationTemplate,
-                SymbolFactKind::CallableSignature,
-                SymbolFactKind::CallableContractTemplate,
+                SymbolQueryKind::Directives,
+                SymbolQueryKind::GenericParameters,
+                SymbolQueryKind::GenericDeclarationTemplate,
+                SymbolQueryKind::CallableSignature,
+                SymbolQueryKind::CallableContractTemplate,
             ]
         );
 
-        assert!(plan.units()[0].facts().is_empty());
-        assert!(plan.units()[6].facts().is_empty());
+        assert!(plan.units()[0].queries().is_empty());
+        assert!(plan.units()[6].queries().is_empty());
 
         let default_requests = plan
             .requests()
             .iter()
-            .filter(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
+            .filter(|request| request.kind() == SymbolQueryKind::UnevaluatedDefaultTemplate)
             .collect::<Vec<_>>();
 
         assert_eq!(default_requests.len(), 1);
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn identity_completion_traverses_without_forcing_facts() {
+    fn identity_completion_traverses_without_evaluating_queries() {
         let graph = graph(&["module app; func main() {}"]);
         let package = AnySymbolId::from(graph.packages()[0].id());
 
@@ -269,7 +269,7 @@ mod tests {
 
         assert_eq!(plan.units().len(), 3);
         assert!(plan.requests().is_empty());
-        assert!(plan.units().iter().all(|unit| unit.facts().is_empty()));
+        assert!(plan.units().iter().all(|unit| unit.queries().is_empty()));
     }
 
     #[test]
@@ -287,7 +287,7 @@ mod tests {
         assert!(
             plan.requests()
                 .iter()
-                .any(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
+                .any(|request| request.kind() == SymbolQueryKind::UnevaluatedDefaultTemplate)
         );
     }
 
@@ -304,7 +304,7 @@ mod tests {
         let default_requests = plan
             .requests()
             .iter()
-            .filter(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
+            .filter(|request| request.kind() == SymbolQueryKind::UnevaluatedDefaultTemplate)
             .collect::<Vec<_>>();
 
         assert_eq!(default_requests.len(), 2);
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(provided_predicates, 3);
 
         assert!(plan.requests().iter().all(|request| {
-            request.kind() != SymbolFactKind::PredicateDefinition
+            request.kind() != SymbolQueryKind::PredicateDefinition
                 || !matches!(request.symbol(), AnySymbolId::Predicate(_))
         }));
     }
@@ -384,7 +384,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<SymbolCompletionPlan>();
-        assert_send_sync::<SymbolFactCompletionRequest>();
+        assert_send_sync::<SymbolCompletionQuery>();
     }
 
     fn completion_plan(graph: &SymbolGraph, root: AnySymbolId) -> SymbolCompletionPlan {

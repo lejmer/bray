@@ -12,8 +12,8 @@ use sha2::{Digest as _, Sha256};
 use super::command::{parse_options_for_test, validate_output_parts};
 use super::comparison::compare;
 use super::corpus::{
-    CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS,
-    CALIBRATION_TARGET_NANOSECONDS, ExpectedSideEffects,
+    CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS, CALIBRATION_TARGET_NANOSECONDS,
+    ExpectedSideEffects,
 };
 use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBatching, PeerLanguage,
@@ -523,12 +523,12 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
 
     let peer = |language| {
         let path = std::path::Path::new(match language {
-                PeerLanguage::Rust => "rust",
-                PeerLanguage::Cpp => "cpp",
-            })
-            .join(crate::native_toolchain::executable_name("peer"))
-            .display()
-            .to_string();
+            PeerLanguage::Rust => "rust",
+            PeerLanguage::Cpp => "cpp",
+        })
+        .join(crate::native_toolchain::executable_name("peer"))
+        .display()
+        .to_string();
 
         PeerReport {
             toolchain: "peer compiler".to_owned(),
@@ -571,8 +571,8 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         (PeerLanguage::Rust, peer(PeerLanguage::Rust)),
         (PeerLanguage::Cpp, peer(PeerLanguage::Cpp)),
     ]
-        .into_iter()
-        .collect();
+    .into_iter()
+    .collect();
 
     PerformanceReport {
         schema_revision: SCHEMA_REVISION,

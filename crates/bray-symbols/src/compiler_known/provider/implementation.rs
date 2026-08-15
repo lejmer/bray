@@ -7,7 +7,7 @@ use bray_compiler_known::{
 };
 
 use super::super::{
-    CompilerKnownDeclarationSemantics, CompilerKnownSymbolBuildError, CompilerKnownSemanticKey,
+    CompilerKnownDeclarationSemantics, CompilerKnownSemanticKey, CompilerKnownSymbolBuildError,
     CompilerKnownSymbolRoleRegistry,
 };
 use super::lookup::{add_member_entry, build_member_indexes};
@@ -971,9 +971,11 @@ mod tests {
         let mut symbols = std::collections::BTreeSet::new();
 
         for &property in TargetPropertyKind::ALL {
-            let symbol = provider.target_property_symbol(property).unwrap_or_else(|| {
-                panic!("target property must have a compiler-known symbol: {property:?}")
-            });
+            let symbol = provider
+                .target_property_symbol(property)
+                .unwrap_or_else(|| {
+                    panic!("target property must have a compiler-known symbol: {property:?}")
+                });
 
             assert!(symbols.insert(symbol));
             assert_eq!(provider.symbol_target_property(symbol), Some(property));

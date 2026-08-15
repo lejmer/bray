@@ -950,7 +950,11 @@ fn memory_operation_parts(
             ("compare_address", vec![("pointee", pointee)])
         }
         CheckedMemoryOperationKind::Fence { compiler_only, .. } => (
-            if compiler_only { "compiler_fence" } else { "hardware_fence" },
+            if compiler_only {
+                "compiler_fence"
+            } else {
+                "hardware_fence"
+            },
             Vec::new(),
         ),
         CheckedMemoryOperationKind::CatastrophicAbort => ("catastrophic_abort", Vec::new()),
@@ -993,14 +997,10 @@ fn memory_operation_parts(
             ("atomic_exchange", vec![("value", value)])
         }
         CheckedMemoryOperationKind::AtomicCompareExchange {
-            value,
-            weak: false,
-            ..
+            value, weak: false, ..
         } => ("atomic_compare_exchange", vec![("value", value)]),
         CheckedMemoryOperationKind::AtomicCompareExchange {
-            value,
-            weak: true,
-            ..
+            value, weak: true, ..
         } => ("atomic_compare_exchange_weak", vec![("value", value)]),
         CheckedMemoryOperationKind::AtomicFetch { value, kind, .. } => {
             let name = match kind {

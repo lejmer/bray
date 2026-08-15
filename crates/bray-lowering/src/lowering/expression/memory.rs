@@ -68,7 +68,8 @@ impl Lowerer<'_> {
             if matches!(
                 kind,
                 CheckedMemoryOperationKind::InlineAssembly {
-                    labels: Some(_), ..
+                    labels: Some(_),
+                    ..
                 }
             ) && ordinal == 6
             {
@@ -85,10 +86,8 @@ impl Lowerer<'_> {
                 continue;
             };
 
-            let assembly_inputs = matches!(
-                kind,
-                CheckedMemoryOperationKind::InlineAssembly { .. }
-            ) && ordinal == 5;
+            let assembly_inputs =
+                matches!(kind, CheckedMemoryOperationKind::InlineAssembly { .. }) && ordinal == 5;
 
             let lowered = if assembly_inputs {
                 let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
@@ -184,8 +183,8 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingSemanticSelection(id));
             };
 
-            let labels = inline_assembly_labels
-                .ok_or(LoweringError::MissingSemanticSelection(id))?;
+            let labels =
+                inline_assembly_labels.ok_or(LoweringError::MissingSemanticSelection(id))?;
 
             let alternates = self.inline_assembly_alternates(id, &source, labels)?;
 
@@ -236,10 +235,7 @@ impl Lowerer<'_> {
             kind,
             bray_bound_tree::CheckedMemoryOperationKind::CatastrophicAbort
                 | bray_bound_tree::CheckedMemoryOperationKind::UnreachableTermination
-                | bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
-                    output: None,
-                    ..
-                }
+                | bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
         ) {
             self.builder.set_terminator(
                 current,
@@ -264,7 +260,8 @@ impl Lowerer<'_> {
         mut current: MirBlockId,
         contract: InlineAssemblyContract,
     ) -> Result<LoweredExpression, LoweringError> {
-        let Some(BoundExpression::Structured(tuple)) = self.input.unit().view().expression(expression)
+        let Some(BoundExpression::Structured(tuple)) =
+            self.input.unit().view().expression(expression)
         else {
             return Err(LoweringError::MissingSemanticSelection(expression));
         };
@@ -275,7 +272,12 @@ impl Lowerer<'_> {
 
         let mut runtime = contract
             .operands()
-            .filter_map(|operand| operand.runtime_input().zip(operand.input()).map(|pair| (pair, operand.ty())))
+            .filter_map(|operand| {
+                operand
+                    .runtime_input()
+                    .zip(operand.input())
+                    .map(|pair| (pair, operand.ty()))
+            })
             .collect::<Vec<_>>();
 
         runtime.sort_unstable_by_key(|((runtime, _), _)| *runtime);
@@ -324,7 +326,8 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         mut current: MirBlockId,
     ) -> Result<(MirBlockId, Vec<InlineAssemblyLabel>), LoweringError> {
-        let Some(BoundExpression::Structured(tuple)) = self.input.unit().view().expression(expression)
+        let Some(BoundExpression::Structured(tuple)) =
+            self.input.unit().view().expression(expression)
         else {
             return Err(LoweringError::MissingSemanticSelection(expression));
         };
@@ -422,7 +425,11 @@ impl Lowerer<'_> {
     ) -> Result<TypeId, LoweringError> {
         let mut runtime = contract
             .operands()
-            .filter_map(|operand| operand.runtime_input().map(|ordinal| (ordinal, operand.ty())))
+            .filter_map(|operand| {
+                operand
+                    .runtime_input()
+                    .map(|ordinal| (ordinal, operand.ty()))
+            })
             .collect::<Vec<_>>();
 
         runtime.sort_unstable_by_key(|(ordinal, _)| *ordinal);

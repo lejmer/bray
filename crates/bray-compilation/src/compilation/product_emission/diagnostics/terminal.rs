@@ -19,7 +19,8 @@ use super::common::{
 use super::model::ProductEmissionErrorKind;
 use crate::compilation::product::codegen_preparation_failure_kind;
 use crate::compilation::{
-    CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind, PackageInterfaceExportError,
+    CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind,
+    PackageInterfaceExportError,
 };
 use crate::fact::FactQueryError;
 

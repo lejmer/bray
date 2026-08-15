@@ -44,6 +44,7 @@ impl MirTargetContract {
     pub fn compatibility_digest(&self) -> [u8; 32] {
         let mut digest = StableDigestHasher::new();
 
+        // Persisted MIR identity retains the original v1 domain separator.
         digest.write(b"bray.mir-target-facts.v1");
         self.profile.hash(&mut digest);
         self.runtime_abi.hash(&mut digest);

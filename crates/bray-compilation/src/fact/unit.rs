@@ -14,13 +14,13 @@ use super::{
 use super::FactCellTestObserver;
 
 #[derive(Debug)]
-pub(crate) struct PublishedUnitFact<T> {
+pub(crate) struct PublishedUnitResult<T> {
     result: Arc<DiagnosticResult<T>>,
     #[cfg(test)]
     dependencies: Box<[BinderDependency]>,
 }
 
-impl<T> Hash for PublishedUnitFact<T>
+impl<T> Hash for PublishedUnitResult<T>
 where
     T: Hash,
 {
@@ -32,7 +32,7 @@ where
     }
 }
 
-impl<T> PublishedUnitFact<T> {
+impl<T> PublishedUnitResult<T> {
     pub(crate) const fn result(&self) -> &Arc<DiagnosticResult<T>> {
         &self.result
     }
@@ -44,11 +44,11 @@ impl<T> PublishedUnitFact<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct UnitFactCache<T> {
-    cells: FactCellMap<BoundUnitKey, Arc<PublishedUnitFact<T>>>,
+pub(crate) struct UnitQueryCache<T> {
+    cells: FactCellMap<BoundUnitKey, Arc<PublishedUnitResult<T>>>,
 }
 
-impl<T> UnitFactCache<T>
+impl<T> UnitQueryCache<T>
 where
     T: std::hash::Hash + Send + Sync,
 {
@@ -77,7 +77,7 @@ where
         unit_key: BoundUnitKey,
         compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError> {
         let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
 
         self.get_or_compute_with_priority(
@@ -102,7 +102,7 @@ where
         )
             -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError> {
         if semantic_key.bound_unit_key() != Some(&unit_key) {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -124,7 +124,7 @@ where
                 #[cfg(not(test))]
                 let (result, _) = computation;
 
-                Ok(Arc::new(PublishedUnitFact {
+                Ok(Arc::new(PublishedUnitResult {
                     result: Arc::new(result),
                     #[cfg(test)]
                     dependencies,
@@ -164,7 +164,7 @@ mod tests {
     use bray_binder::BinderDependency;
     use bray_diagnostics::DiagnosticResult;
 
-    use super::UnitFactCache;
+    use super::UnitQueryCache;
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
     use crate::test_support::callable_body_key;
 
@@ -172,7 +172,7 @@ mod tests {
     fn repeated_requests_publish_one_atomic_result() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = UnitFactCache::new();
+        let cache = UnitQueryCache::new();
         let computations = AtomicUsize::new(0);
 
         let key = callable_body_key(0);
@@ -196,10 +196,10 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_publishes_no_partial_fact() {
+    fn cancellation_publishes_no_partial_result() {
         let runtime = FactRuntime::default();
         let cancelled = CancellationToken::new();
-        let cache = UnitFactCache::new();
+        let cache = UnitQueryCache::new();
 
         let key = callable_body_key(1);
 
@@ -228,14 +228,14 @@ mod tests {
     }
 
     fn published(
-        cache: &UnitFactCache<u32>,
+        cache: &UnitQueryCache<u32>,
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
         key: bray_bound_tree::BoundUnitKey,
         compute: impl FnOnce()
             -> Result<(DiagnosticResult<u32>, Box<[BinderDependency]>), FactQueryError>
         + Send,
-    ) -> std::sync::Arc<super::PublishedUnitFact<u32>> {
+    ) -> std::sync::Arc<super::PublishedUnitResult<u32>> {
         match cache.get_or_compute(
             runtime,
             cancellation,
@@ -244,7 +244,7 @@ mod tests {
             compute,
         ) {
             Ok(value) => value,
-            Err(error) => panic!("unit fact must publish: {error:?}"),
+            Err(error) => panic!("unit query result must publish: {error:?}"),
         }
     }
 

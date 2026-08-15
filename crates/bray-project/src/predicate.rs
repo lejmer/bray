@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_diagnostics::DiagnosticTargetPredicateValueKind;
-use bray_target::{TargetPropertyKind, TargetPropertyValue, TargetProfile};
+use bray_target::{TargetProfile, TargetPropertyKind, TargetPropertyValue};
 
 /// The literal category accepted by one target predicate property.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

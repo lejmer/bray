@@ -6,7 +6,7 @@ use bray_source::SourceSpan;
 use bray_symbols::{MemberLookupResult, SymbolName};
 use bray_syntax::SyntaxToken;
 
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::lookup::{PathBindingContext, ResolvedName, lookup_unqualified_name};
 
@@ -28,7 +28,7 @@ pub(super) fn name_is_available<C>(
     token: &SyntaxToken,
 ) -> bool
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let Some(text) = token.text(source.text()) else {
         return false;
@@ -49,11 +49,11 @@ pub(super) fn name_text_is_available<C>(
     span: SourceSpan,
 ) -> bool
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let lookup = lookup_unqualified_name(
         binder.unit(),
-        binder.facts().symbols(),
+        binder.binding_context().symbols(),
         context.scope(),
         context.module(),
         text,
@@ -77,7 +77,7 @@ pub(super) fn report_name_already_defined<C>(
     span: SourceSpan,
     prior_spans: impl IntoIterator<Item = SourceSpan>,
 ) where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let mut diagnostic = Diagnostic::new(
         DiagnosticId::new(span.range().start().bytes()),
@@ -114,7 +114,7 @@ fn occupied_name_spans<C>(
     result: &MemberLookupResult<ResolvedName>,
 ) -> Vec<SourceSpan>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let candidates: &[ResolvedName] = match result {
         MemberLookupResult::Found(candidate) => std::slice::from_ref(candidate),
@@ -138,13 +138,14 @@ where
 
 fn resolved_name_span<C>(binder: &Binder<'_, C>, name: ResolvedName) -> Option<SourceSpan>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let anchor = match name {
         ResolvedName::Local(symbol) => binder.unit().local_symbol_syntax_anchor(symbol).ok()?,
-        ResolvedName::Surface(symbol) => {
-            binder.facts().symbols().declaration_syntax_anchor(symbol)?
-        }
+        ResolvedName::Surface(symbol) => binder
+            .binding_context()
+            .symbols()
+            .declaration_syntax_anchor(symbol)?,
     };
 
     Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))

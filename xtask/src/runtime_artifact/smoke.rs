@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bray_target::NativeTarget;
 use bray_runtime_interface::native_platform_service_role_symbol;
+use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
 
@@ -344,9 +344,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
             .cloned()
             .collect::<Vec<_>>();
 
-        if !missing.is_empty()
-            || !forbidden.is_empty()
-            || !undeclared_platform_services.is_empty()
+        if !missing.is_empty() || !forbidden.is_empty() || !undeclared_platform_services.is_empty()
         {
             return Err(CommandError::RuntimeComponentBoundary {
                 kind: component.kind,

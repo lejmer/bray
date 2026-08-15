@@ -5,8 +5,8 @@ use bray_runtime_interface::ExecutableHostContract;
 use bray_target::TargetIdentity;
 
 use crate::{
-    ArtifactKind, ArtifactRequirement, OutputSinkId, ProductIdentity, ProductKind,
-    ManagedArtifactPath, ReplacementPolicy,
+    ArtifactKind, ArtifactRequirement, ManagedArtifactPath, OutputSinkId, ProductIdentity,
+    ProductKind, ReplacementPolicy,
 };
 
 /// Canonical portable directory beneath a managed filesystem output root.
@@ -61,9 +61,10 @@ impl ManagedFilesystemDestination {
 
     /// Returns the stable public directory for the selected product's artifacts.
     pub fn directory(&self) -> PathBuf {
-        self.directory
-            .as_ref()
-            .map_or_else(|| self.root.clone(), |directory| self.root.join(directory.to_path_buf()))
+        self.directory.as_ref().map_or_else(
+            || self.root.clone(),
+            |directory| self.root.join(directory.to_path_buf()),
+        )
     }
 
     /// Returns the canonical root-relative public directory, when artifacts are namespaced.

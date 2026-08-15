@@ -143,8 +143,8 @@ impl Compilation {
             [],
         );
 
-        let native_entry =
-            BinarySymbolName::try_new("main").ok_or(NativeProductPlanningError::InvalidSymbolName)?;
+        let native_entry = BinarySymbolName::try_new("main")
+            .ok_or(NativeProductPlanningError::InvalidSymbolName)?;
 
         let mut entries = entries.into_iter();
 

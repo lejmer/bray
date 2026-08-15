@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
 use bray_checker::{
-    CheckedConstantTerms, CheckerFactError, CheckerRequestContext, CheckerUnitView,
+    CheckedConstantTerms, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
     ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator, closed_type_is_copyable,
     evaluate_generic_constraint_template, resolve_trait_application_template,
     resolve_type_expression_template, type_is_copyable_in_context,
@@ -16,9 +16,8 @@ use bray_symbols::{
     ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionQuery,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
     GenericSubstitutionData, GenericSubstitutionId, ImplementationCandidate,
-    ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SemanticFactResult,
-    SymbolFactRequest, TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate,
-    TypeId,
+    ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SymbolQueryRequest,
+    TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::Compilation;
@@ -32,7 +31,14 @@ impl Compilation {
     pub fn generic_constraint_satisfaction(
         &self,
         key: GenericConstraintObligationKey,
-    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <GenericConstraintSatisfactionQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         self.generic_constraint_satisfaction_with_cancellation(key, &self.state.cancellation)
     }
 
@@ -40,7 +46,14 @@ impl Compilation {
         &self,
         key: GenericConstraintObligationKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<GenericConstraintSatisfactionQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <GenericConstraintSatisfactionQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         let cell = self.state.generic_constraint_satisfaction.cell(key)?;
 
         let result = cell.get_or_compute(
@@ -60,7 +73,12 @@ impl Compilation {
         &self,
         key: GenericConstraintObligationKey,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<GenericConstraintSatisfactionQuery>, FactQueryError> {
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<
+            <GenericConstraintSatisfactionQuery as bray_symbols::SemanticQueryContract>::Value,
+        >,
+        FactQueryError,
+    > {
         let values = self.semantic_value_store()?;
 
         let substitution = values
@@ -74,10 +92,10 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let template = binding_context
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
                 key.owner(),
             ))
-            .map_err(super::binder::binder_fact_error)?;
+            .map_err(super::binder::binding_query_error)?;
 
         let mut outcome = ProofOutcome::Proven;
         let mut diagnostics = template.diagnostics().clone();
@@ -450,7 +468,7 @@ impl Compilation {
 
         let Some(address) = binding_context
             .imported_semantic_address(owner.symbol())
-            .map_err(super::binder::binder_fact_error)?
+            .map_err(super::binder::binding_query_error)?
         else {
             return Err(FactQueryError::InfrastructureFailure);
         };
@@ -461,7 +479,7 @@ impl Compilation {
             bray_bound_tree::CheckedTemplateKind::GenericConstraint,
             ordinal,
         )
-        .map_err(super::binder::binder_fact_error)?;
+        .map_err(super::binder::binding_query_error)?;
 
         let Some(template) = template_result.value() else {
             return Err(FactQueryError::InfrastructureFailure);
@@ -705,10 +723,10 @@ impl Compilation {
     }
 }
 
-fn checker_dependency_error(error: CheckerFactError) -> FactQueryError {
+fn checker_dependency_error(error: CheckerQueryError) -> FactQueryError {
     match error {
-        CheckerFactError::Cancelled => FactQueryError::Cancelled,
-        CheckerFactError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
+        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
+        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
     }
 }
 

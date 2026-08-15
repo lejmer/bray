@@ -11,7 +11,7 @@ use bray_symbols::{
 };
 
 use crate::lookup::ResolvedName;
-use crate::{BinderFactContext, BinderFactResult, SymbolFactProvider};
+use crate::{BindingQueryContext, BindingQueryResult, SymbolQueryProvider};
 
 use super::callable::{
     CallGenericContext, DeclarationCandidateOutcome, bind_declaration_candidate,
@@ -26,15 +26,15 @@ pub(super) fn bind_type_member_candidates<C>(
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BinderFactResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence>
 where
-    C: BinderFactContext,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
-        + SymbolFactProvider<CallableContractTemplateQuery>
-        + SymbolFactProvider<GenericDeclarationTemplateQuery>
-        + SymbolFactProvider<PredicateSignatureTemplateQuery>
-        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
-        + SymbolFactProvider<CallableOverloadTemplateQuery>,
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
+        + SymbolQueryProvider<CallableContractTemplateQuery>
+        + SymbolQueryProvider<GenericDeclarationTemplateQuery>
+        + SymbolQueryProvider<PredicateSignatureTemplateQuery>
+        + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
     let Some(subject) = type_member_subject(unit, callee) else {
         return Ok(CandidateAbsence::UnavailableDeclarationSemantics);
@@ -117,13 +117,13 @@ pub(super) fn bind_primary_constructor_candidates<C>(
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BinderFactResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence>
 where
-    C: BinderFactContext,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
-        + SymbolFactProvider<CallableContractTemplateQuery>
-        + SymbolFactProvider<GenericDeclarationTemplateQuery>
-        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>,
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
+        + SymbolQueryProvider<CallableContractTemplateQuery>
+        + SymbolQueryProvider<GenericDeclarationTemplateQuery>
+        + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>,
 {
     let surface = context.type_associated_surface(subject)?;
     let state = combine_recovery(state, !surface.diagnostics().is_empty());
@@ -160,15 +160,15 @@ fn bind_member_candidates<C>(
     inherited_generic: NamedTypeSymbolId,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BinderFactResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome>
 where
-    C: BinderFactContext,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>
-        + SymbolFactProvider<CallableContractTemplateQuery>
-        + SymbolFactProvider<GenericDeclarationTemplateQuery>
-        + SymbolFactProvider<PredicateSignatureTemplateQuery>
-        + SymbolFactProvider<CallableParameterDefaultTemplateQuery>
-        + SymbolFactProvider<CallableOverloadTemplateQuery>,
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
+        + SymbolQueryProvider<CallableContractTemplateQuery>
+        + SymbolQueryProvider<GenericDeclarationTemplateQuery>
+        + SymbolQueryProvider<PredicateSignatureTemplateQuery>
+        + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
     let mut outcome = DeclarationCandidateOutcome::Ignored;
 

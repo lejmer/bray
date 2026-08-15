@@ -2,14 +2,14 @@ use bray_bound_tree::BoundBlockId;
 use bray_symbols::{LocalScopeId, TypeId};
 
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::binding::BindingResult;
 use crate::lookup::PathBindingContext;
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(crate) fn bind_callable_body_block(
         &mut self,

@@ -24,7 +24,10 @@ pub fn executable_unit_kind(unit: &BoundUnit, target: &MirTargetContract) -> Mir
     }
 }
 
-fn protected_frame_identity(key: &BoundUnitKey, target: &MirTargetContract) -> ProtectedAsyncFrameId {
+fn protected_frame_identity(
+    key: &BoundUnitKey,
+    target: &MirTargetContract,
+) -> ProtectedAsyncFrameId {
     // This is the target-specific template identity. The concrete codegen instance
     // adds its specialization arguments and selected implementation witnesses.
     let mut hasher = StableDigestHasher::new();

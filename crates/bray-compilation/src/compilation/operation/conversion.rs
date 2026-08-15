@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::BoundExpression;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
@@ -6,7 +6,7 @@ use bray_symbols::TypeId;
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
 use super::super::unit::semantic_unit_context_for;
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
+use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 use super::model::{ConversionPlan, OperationResolution, TraitOperation};
 use super::query::expression_type;
@@ -14,7 +14,7 @@ use super::query::expression_type;
 impl Compilation {
     pub(super) fn resolve_conversion_operation(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,

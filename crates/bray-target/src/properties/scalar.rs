@@ -255,7 +255,7 @@ const fn nonzero(value: u64) -> NonZeroU64 {
 mod tests {
     use std::num::NonZeroU64;
 
-    use super::{TargetScalarSupport, TargetScalarKind};
+    use super::{TargetScalarKind, TargetScalarSupport};
 
     #[test]
     fn scalar_alignments_are_selected_target_properties() {

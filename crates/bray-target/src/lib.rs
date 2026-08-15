@@ -3,24 +3,17 @@
 #![forbid(unsafe_code)]
 
 mod control;
-mod properties;
 mod identity;
 mod layout;
 mod machine;
 mod native;
 mod output;
 mod profile;
+mod properties;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
-pub use properties::{
-    TargetAbiSupport, TargetAbiScalars, TargetAddressSpaces, TargetAlignmentLimits,
-    TargetAtomicSupport, TargetAtomicOperations, TargetAtomicRepresentation,
-    TargetAtomicRepresentationSupport, TargetCDataModel, TargetCScalarKind, TargetPropertyKind,
-    TargetPropertyValue, TargetProperties, TargetForeignAbiContract, TargetPlatformIdentity,
-    TargetOperationSupport, TargetScalarSupport, TargetScalarKind,
-};
 pub use control::{InlineAssemblyOptions, TargetControlSupport};
 pub use identity::TargetIdentity;
 pub use layout::{TargetLayoutContract, TargetValueLayout};
@@ -34,3 +27,10 @@ pub use output::{
     TargetOutputNameBuildError,
 };
 pub use profile::{TargetProfile, TargetProfileBuildError};
+pub use properties::{
+    TargetAbiScalars, TargetAbiSupport, TargetAddressSpaces, TargetAlignmentLimits,
+    TargetAtomicOperations, TargetAtomicRepresentation, TargetAtomicRepresentationSupport,
+    TargetAtomicSupport, TargetCDataModel, TargetCScalarKind, TargetForeignAbiContract,
+    TargetOperationSupport, TargetPlatformIdentity, TargetProperties, TargetPropertyKind,
+    TargetPropertyValue, TargetScalarKind, TargetScalarSupport,
+};

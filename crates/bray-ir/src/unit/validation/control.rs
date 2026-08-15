@@ -109,17 +109,19 @@ pub(super) fn validate_terminator(
             };
 
             let [parameter] = normal.parameters() else {
-                return Err(MirUnitBuildError::EdgeArgumentCountMismatch(assembly.normal()));
+                return Err(MirUnitBuildError::EdgeArgumentCountMismatch(
+                    assembly.normal(),
+                ));
             };
 
             let Some(parameter) = unit.value(*parameter) else {
                 return Err(MirUnitBuildError::MissingValue(*parameter));
             };
 
-            if normal.kind() != MirBlockKind::Ordinary
-                || parameter.ty() != assembly.output_type()
-            {
-                return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(assembly.normal()));
+            if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
+                return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(
+                    assembly.normal(),
+                ));
             }
         }
         MirTerminatorKind::Return(value) => {

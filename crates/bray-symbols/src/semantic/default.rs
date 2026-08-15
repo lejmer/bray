@@ -462,7 +462,7 @@ mod tests {
     };
 
     #[test]
-    fn owner_specific_default_facts_are_send_and_sync() {
+    fn owner_specific_defaults_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedCallableParameterDefault>();

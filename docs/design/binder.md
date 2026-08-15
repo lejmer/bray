@@ -667,7 +667,7 @@ One unit's semantic query result does not request the same query result for nest
 contract. Broad consumers such as package diagnostics traverse reachable nested-unit keys explicitly through typed query result accessors.
 Binder diagnostics remain owned by the bound-unit query result and checker diagnostics remain owned by the checker query result that produced them.
 
-Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
+Public compilation queries do not accept a caller-supplied `BindingQueryContext`. `Compilation` owns the package identity, syntax,
 declarations, symbol graph, semantic value store, selected target context, symbol-query result provider, cancellation token, and exact cache universe.
 It constructs a private `Binder` with the injected query result context and rejects unit keys whose owners do not belong to that symbol
 graph.

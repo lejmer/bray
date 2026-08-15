@@ -1,11 +1,11 @@
 use bray_symbols::InterfaceSymbolId;
 
-use super::super::{declaration as codec, bundle, template as template_codec};
+use super::super::{bundle, declaration as codec, template as template_codec};
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemanticRecord, InterfaceSemanticRecordKind,
-    InterfaceSemantics, InterfaceSymbolReference, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
+    InterfaceSectionTag, InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
+    InterfaceSymbolReference, InterfaceValidationError, InterfaceValidationLimits,
+    PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub(super) fn decode_callable_parameter_default(

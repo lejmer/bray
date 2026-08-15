@@ -3,9 +3,9 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-    BoundExpressionId, CheckedDependencyContracts, CheckedRefinements, Liveness,
-    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StoragePlan,
-    StorageRelationship, StorageSuspensionState,
+    BoundExpressionId, CheckedDependencyContracts, CheckedRefinements, Liveness, PatternPredicate,
+    Refinement, RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
+    StorageSuspensionState,
 };
 use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
 
@@ -343,7 +343,8 @@ fn refinement_guard_value(
     value: impl Fn(RefinementKind) -> Option<bool>,
 ) -> Option<bool> {
     refinements.iter().find_map(|refinement| {
-        refinement.dependencies()
+        refinement
+            .dependencies()
             .iter()
             .any(|dependency| {
                 storage.relationship(*dependency, access) != StorageRelationship::Disjoint

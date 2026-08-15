@@ -11,7 +11,7 @@ use bray_symbols::ConstantValueId;
 
 use super::Compilation;
 use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
+    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
 };
 
 type LoweredUnitComputation = (
@@ -47,7 +47,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<Option<LoweredUnit>>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<Option<LoweredUnit>>>, FactQueryError> {
         let priority = self
             .state
             .fact_runtime
@@ -62,8 +62,8 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Arc<PublishedUnitFact<Option<LoweredUnit>>>, FactQueryError> {
-        self.unit_fact_with_priority(
+    ) -> Result<Arc<PublishedUnitResult<Option<LoweredUnit>>>, FactQueryError> {
+        self.unit_query_with_priority(
             &self.state.lowered_units,
             CompilationFactKey::LoweredUnit(key.clone()),
             key.clone(),
@@ -688,7 +688,11 @@ mod tests {
             .lowered_unit(source_function_body_key(&compilation, "text"))
             .unwrap_or_else(|error| panic!("borrowed literal must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
 
         let values = compilation
             .semantic_value_store()
@@ -1776,7 +1780,11 @@ func both_bounds(pos values: Values) -> i32
             .lowered_unit(source_function_body_key(&compilation, "main"))
             .unwrap_or_else(|error| panic!("resource cleanup must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
 
         let cleanup_places = lowered_mir(&lowered)
             .operations()
@@ -2438,14 +2446,17 @@ impl I32Read = i32(Read)
 
         let mir = lowered_mir(&lowered);
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Return(Some(MirOperand::Copy(place)))
-                if matches!(
-                    place.projections().first().map(bray_ir::MirProjection::kind),
-                    Some(MirProjectionKind::Dereference)
-                )
-        )), "{mir:#?}");
+        assert!(
+            mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Return(Some(MirOperand::Copy(place)))
+                    if matches!(
+                        place.projections().first().map(bray_ir::MirProjection::kind),
+                        Some(MirProjectionKind::Dereference)
+                    )
+            )),
+            "{mir:#?}"
+        );
     }
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {

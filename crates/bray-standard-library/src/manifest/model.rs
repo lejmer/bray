@@ -370,7 +370,6 @@ impl StandardLibraryTargetArtifacts {
             StandardLibraryArtifactKind::PackageImplementation,
         )
     }
-
 }
 
 /// Complete immutable standard library bundle manifest.

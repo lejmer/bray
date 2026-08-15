@@ -300,16 +300,16 @@ impl InterfaceSemantics {
                     record: checked_record(index),
                 });
 
-        let callable_contracts = self
-            .callable_contracts
-            .iter()
-            .enumerate()
-            .map(|(index, record)| InterfaceSemanticRecord {
-                owner: record.owner.clone(),
-                kind: InterfaceSemanticRecordKind::CallableContracts,
-                section: crate::InterfaceSectionTag::Contracts,
-                record: checked_record(index),
-            });
+        let callable_contracts =
+            self.callable_contracts
+                .iter()
+                .enumerate()
+                .map(|(index, record)| InterfaceSemanticRecord {
+                    owner: record.owner.clone(),
+                    kind: InterfaceSemanticRecordKind::CallableContracts,
+                    section: crate::InterfaceSectionTag::Contracts,
+                    record: checked_record(index),
+                });
 
         let callable_signatures =
             self.callable_signatures
@@ -366,14 +366,16 @@ impl InterfaceSemantics {
                     record: checked_record(index),
                 });
 
-        let declared_types = self.declared_types.iter().enumerate().map(|(index, record)| {
-            InterfaceSemanticRecord {
+        let declared_types = self
+            .declared_types
+            .iter()
+            .enumerate()
+            .map(|(index, record)| InterfaceSemanticRecord {
                 owner: record.owner.clone(),
                 kind: InterfaceSemanticRecordKind::DeclaredType,
                 section: crate::InterfaceSectionTag::DeclarationSemantics,
                 record: checked_record(index),
-            }
-        });
+            });
 
         let declaration_templates =
             self.declaration_templates

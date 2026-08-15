@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundUnitKey, CheckedDependencyContracts, CheckedRefinements, Liveness,
-    StorageFlow, StoragePlan,
+    BoundUnitKey, CheckedDependencyContracts, CheckedRefinements, Liveness, StorageFlow,
+    StoragePlan,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, DefaultDependencyContractChecker,
@@ -15,15 +15,15 @@ use super::support::{
 };
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
     pub(in crate::compilation) fn storage_plan_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<StoragePlan>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<StoragePlan>>, FactQueryError> {
+        self.unit_query(
             &self.state.storage_plans,
             CompilationFactKey::StoragePlan(key.clone()),
             key.clone(),
@@ -75,8 +75,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<Liveness>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<Liveness>>, FactQueryError> {
+        self.unit_query(
             &self.state.liveness,
             CompilationFactKey::Liveness(key.clone()),
             key.clone(),
@@ -122,8 +122,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedRefinements>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedRefinements>>, FactQueryError> {
+        self.unit_query(
             &self.state.refinements,
             CompilationFactKey::Refinements(key.clone()),
             key.clone(),
@@ -160,7 +160,10 @@ impl Compilation {
                     &refinement_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(refinements, diagnostics), Box::new([])))
+                Ok((
+                    DiagnosticResult::new(refinements, diagnostics),
+                    Box::new([]),
+                ))
             },
         )
     }
@@ -169,8 +172,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<StorageFlow>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<StorageFlow>>, FactQueryError> {
+        self.unit_query(
             &self.state.storage_flow,
             CompilationFactKey::StorageFlow(key.clone()),
             key.clone(),
@@ -184,8 +187,7 @@ impl Compilation {
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
 
-                let refinements =
-                    self.refinements_with_cancellation(key.clone(), cancellation)?;
+                let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
 
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
 
@@ -223,7 +225,10 @@ impl Compilation {
                     &flow_diagnostics,
                 ]);
 
-                Ok((DiagnosticResult::new(storage_flow, diagnostics), Box::new([])))
+                Ok((
+                    DiagnosticResult::new(storage_flow, diagnostics),
+                    Box::new([]),
+                ))
             },
         )
     }
@@ -232,8 +237,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedDependencyContracts>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedDependencyContracts>>, FactQueryError> {
+        self.unit_query(
             &self.state.dependency_contracts,
             CompilationFactKey::DependencyContracts(key.clone()),
             key.clone(),

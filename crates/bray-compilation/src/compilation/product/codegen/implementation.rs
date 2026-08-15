@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
     CodegenPartitionPolicy, CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode,
@@ -25,7 +25,7 @@ use super::super::super::substitution::empty_substitution;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductPlanningError;
 use super::plan::NativeProductPlan;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductQueryKey};
 
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
@@ -71,7 +71,7 @@ impl Compilation {
         required_capabilities.sort_unstable();
         required_capabilities.dedup();
 
-        let key = NativeProductFactKey::new(
+        let key = NativeProductQueryKey::new(
             product.clone(),
             configuration,
             runtime.as_ref().map(|runtime| {
@@ -79,7 +79,7 @@ impl Compilation {
                     .components()
                     .iter()
                     .map(|component| {
-                        crate::fact::RuntimeComponentFactIdentity::new(
+                        crate::fact::RuntimeComponentQueryIdentity::new(
                             component.metadata().identity().clone(),
                             component.metadata().purpose(),
                             component.metadata().archive_digest(),
@@ -234,7 +234,9 @@ impl Compilation {
 
                     reachability
                 }
-                None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
+                None => {
+                    source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?
+                }
             };
 
             let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
@@ -684,12 +686,8 @@ impl Compilation {
 
         let semantic = self.product_semantics()?;
 
-        let roots = self.product_root_instances(
-            semantic.value(),
-            None,
-            &target,
-            &self.state.cancellation,
-        )?;
+        let roots =
+            self.product_root_instances(semantic.value(), None, &target, &self.state.cancellation)?;
 
         let reachability =
             self.codegen_reachability(roots, None, &target, &self.state.cancellation)?;
@@ -722,6 +720,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
+    use bray_bound_tree::BoundCallResult;
     use bray_codegen::{
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
@@ -730,7 +729,6 @@ mod tests {
         CodegenStatus, DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement,
         OptimizationLevel, partition_codegen_units,
     };
-    use bray_bound_tree::BoundCallResult;
     use bray_compiler_known::RepresentationRole;
     use bray_ir::{
         MirCallTarget, MirHelperReference, MirHostOperation, MirOperationKind, MirTerminatorKind,
@@ -766,9 +764,7 @@ mod tests {
         NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity,
         ProductKind, SymbolOrigin, TraitApplicationData, TypeData,
     };
-    use bray_target::{
-        NativeTarget, TargetAddressSpaces, TargetProperties, TargetProfile,
-    };
+    use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
 
     use super::NativeProductPlanningError;
@@ -1087,9 +1083,7 @@ mod tests {
 
         assert_eq!(
             selected,
-            BTreeSet::from([
-                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
-            ])
+            BTreeSet::from([bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,])
         );
     }
 
@@ -1181,9 +1175,7 @@ mod tests {
             filesystem_archive_bytes,
         )
         .map(|artifact| {
-            artifact.with_platform_services([
-                bray_runtime_interface::PlatformServiceRole::FileRead,
-            ])
+            artifact.with_platform_services([bray_runtime_interface::PlatformServiceRole::FileRead])
         })
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
@@ -1205,9 +1197,8 @@ mod tests {
             process_archive_bytes,
         )
         .map(|artifact| {
-            artifact.with_platform_services([
-                bray_runtime_interface::PlatformServiceRole::ChildSpawn,
-            ])
+            artifact
+                .with_platform_services([bray_runtime_interface::PlatformServiceRole::ChildSpawn])
         })
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
@@ -1295,9 +1286,11 @@ mod tests {
         let inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Executable,
-                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
-                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
-                )]),
+                &BTreeSet::from(
+                    [bray_runtime_interface::native_platform_service_role_symbol(
+                        bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                    )],
+                ),
                 &BTreeSet::new(),
             )
             .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
@@ -1362,9 +1355,11 @@ mod tests {
         let filesystem_inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Executable,
-                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
-                    bray_runtime_interface::PlatformServiceRole::FileRead,
-                )]),
+                &BTreeSet::from(
+                    [bray_runtime_interface::native_platform_service_role_symbol(
+                        bray_runtime_interface::PlatformServiceRole::FileRead,
+                    )],
+                ),
                 &BTreeSet::new(),
             )
             .unwrap_or_else(|error| panic!("filesystem inputs must resolve: {error:?}"));
@@ -1405,12 +1400,12 @@ mod tests {
         let overridden_inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Test,
-                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
-                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
-                )]),
-                &BTreeSet::from([
-                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
-                ]),
+                &BTreeSet::from(
+                    [bray_runtime_interface::native_platform_service_role_symbol(
+                        bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                    )],
+                ),
+                &BTreeSet::from([bray_runtime_interface::PlatformServiceRole::StandardOutputWrite]),
             )
             .unwrap_or_else(|error| panic!("overridden inputs must resolve: {error:?}"));
 
@@ -1694,16 +1689,13 @@ mod tests {
             .available_compiler_known_symbols()
             .representation_symbol::<bray_symbols::StructSymbolId>(RepresentationRole::Never)
             .and_then(|definition| {
-                compilation
-                    .semantic_value_store()
+                compilation.semantic_value_store().ok().and_then(|values| {
+                    crate::compilation::substitution::named_type(
+                        values,
+                        NamedTypeSymbolId::Struct(definition),
+                    )
                     .ok()
-                    .and_then(|values| {
-                        crate::compilation::substitution::named_type(
-                            values,
-                            NamedTypeSymbolId::Struct(definition),
-                        )
-                        .ok()
-                    })
+                })
             })
             .unwrap_or_else(|| panic!("never representation must resolve"));
 
@@ -1734,10 +1726,8 @@ mod tests {
 
     #[test]
     fn indirect_memory_assembly_emits_valid_native_units() {
-        let (backend, compilation) = codegen_compilation_for_product(
-            MEMORY_ASSEMBLY_SOURCE,
-            ProductKind::Library,
-        );
+        let (backend, compilation) =
+            codegen_compilation_for_product(MEMORY_ASSEMBLY_SOURCE, ProductKind::Library);
 
         let plan = compilation
             .native_product_plan(
@@ -1768,10 +1758,8 @@ mod tests {
 
     #[test]
     fn impure_diverging_assembly_survives_optimized_native_codegen() {
-        let (backend, compilation) = codegen_compilation_for_product(
-            DIVERGING_ASSEMBLY_SOURCE,
-            ProductKind::Library,
-        );
+        let (backend, compilation) =
+            codegen_compilation_for_product(DIVERGING_ASSEMBLY_SOURCE, ProductKind::Library);
 
         let plan = compilation
             .native_product_plan(
@@ -1845,8 +1833,7 @@ mod tests {
         source: &str,
         configuration: crate::BuildConfiguration,
     ) {
-        let (backend, compilation) =
-            codegen_compilation_for_product(source, ProductKind::Library);
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
 
         let plan = compilation
             .native_product_plan(test_product_identity(), configuration, None, [], None)
@@ -2708,7 +2695,8 @@ mod tests {
             Err(error) => error,
         };
 
-        let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) = error
+        let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) =
+            error
         else {
             panic!("missing imported template must preserve its diagnostics: {error:?}");
         };
@@ -3239,8 +3227,7 @@ mod tests {
         plan: &super::NativeProductPlan,
         kind: BackendArtifactKind,
     ) -> Vec<Vec<u8>> {
-        plan
-            .units()
+        plan.units()
             .iter()
             .zip(plan.mappings())
             .map(|(unit, mappings)| {

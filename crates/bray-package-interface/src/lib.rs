@@ -51,9 +51,9 @@ pub use implementation::{
     InterfacePreSpecializedMir, PackageImplementationArtifact,
     PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
-    PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
-    PackageImplementationTargetProperties, PreSpecializedMirDecodeError, decode_executable_template,
-    encode_executable_template, encode_pre_specialized_mir,
+    PackageImplementationTargetProperties, PackageImplementationTargetProperty,
+    PackageImplementationTargetPropertyValue, PreSpecializedMirDecodeError,
+    decode_executable_template, encode_executable_template, encode_pre_specialized_mir,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,
@@ -90,13 +90,13 @@ pub use semantic::{
     InterfaceImplementationInstanceId, InterfaceImplementationRecord,
     InterfaceImplementationReference, InterfacePredicateDefinition,
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceRuntimeRequirement,
-    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
-    InterfaceSemanticInternError, InterfaceSourceProvenance, InterfaceStorageMember,
-    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSupportImplementation,
-    InterfaceSymbolResolver, InterfaceTargetPropertyDependency, InterfaceTemplateReference,
-    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
-    InterfaceUnionTag, decode_semantics, encode_semantics,
+    InterfaceSemanticInternError, InterfaceSemanticRecord, InterfaceSemanticRecordKind,
+    InterfaceSemantics, InterfaceSourceProvenance, InterfaceStorageMember, InterfaceStorageShape,
+    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceSymbolResolver,
+    InterfaceTargetPropertyDependency, InterfaceTemplateReference, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
+    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
+    decode_semantics, encode_semantics,
 };
 pub use surface::{
     CompilerKnownSymbolReference, DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind,

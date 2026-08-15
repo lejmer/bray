@@ -24,10 +24,8 @@ pub(super) fn invocation(
             let (response_file, reference_path) =
                 response_file(plan, &arguments, encoding, current_directory)?;
 
-            let reference = response_file_reference(linker_visible_path(
-                &reference_path,
-                current_directory,
-            ));
+            let reference =
+                response_file_reference(linker_visible_path(&reference_path, current_directory));
 
             (vec![reference], vec![response_file])
         }

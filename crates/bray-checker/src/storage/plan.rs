@@ -10,12 +10,12 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSymbolId, PredicateDefinitionSymbolId,
-    ReceiverMode, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+    ReceiverMode, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
     resolve_type_expression_template,
 };
 
@@ -33,7 +33,7 @@ pub(crate) fn plan_storage<C>(
     selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<StoragePlan>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -64,8 +64,8 @@ where
         selections,
         match receiver_entry(request) {
             Ok(receiver) => receiver,
-            Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerFactError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
         },
@@ -124,11 +124,11 @@ impl From<CheckerInfrastructureError> for PlanError {
     }
 }
 
-impl From<CheckerFactError> for PlanError {
-    fn from(error: CheckerFactError) -> Self {
+impl From<CheckerQueryError> for PlanError {
+    fn from(error: CheckerQueryError) -> Self {
         match error {
-            CheckerFactError::Cancelled => Self::Cancelled,
-            CheckerFactError::Infrastructure(error) => Self::Infrastructure(error),
+            CheckerQueryError::Cancelled => Self::Cancelled,
+            CheckerQueryError::Infrastructure(error) => Self::Infrastructure(error),
         }
     }
 }
@@ -677,17 +677,17 @@ fn receiver_entry<C>(
         bray_symbols::ReceiverParameterSymbolId,
         Option<(BorrowKind, TypeId)>,
     )>,
-    CheckerFactError,
+    CheckerQueryError,
 >
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(callable) = request.containing_callable() else {
         return Ok(None);
     };
 
-    let signature =
-        request.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))?;
+    let signature = request
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))?;
 
     Ok(signature.value().receiver().map(|receiver| {
         let borrow = match receiver.mode() {

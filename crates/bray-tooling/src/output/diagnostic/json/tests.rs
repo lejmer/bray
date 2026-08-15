@@ -18,15 +18,14 @@ use bray_diagnostics::{
     DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem,
-    DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
-    DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates, DiagnosticSelectionKind,
-    DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections, DiagnosticSourceEdit,
-    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
-    DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
-    DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
-    DiagnosticTraitFulfillmentMismatch, DiagnosticType, DiagnosticTypeArgument,
-    DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+    DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
+    DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
+    DiagnosticSelectionRejections, DiagnosticSourceEdit, DiagnosticStorageAccess,
+    DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
+    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
+    DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
+    DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
 use bray_source::{SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
@@ -150,15 +149,9 @@ fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
         "invalid_component_dependency"
     );
 
-    assert_eq!(
-        argument["value"]["value"]["component"],
-        "runtime.scheduler"
-    );
+    assert_eq!(argument["value"]["value"]["component"], "runtime.scheduler");
 
-    assert_eq!(
-        argument["value"]["value"]["dependency"],
-        "runtime.reactor"
-    );
+    assert_eq!(argument["value"]["value"]["dependency"], "runtime.reactor");
 }
 
 #[test]
@@ -996,9 +989,7 @@ fn json_output_serializes_package_interface_diagnostic_args() {
     )
     .with_arg(DiagnosticArg::new(
         DiagnosticArgName::InterfaceLimit,
-        DiagnosticArgValue::InterfaceLimit(
-            DiagnosticInterfaceLimit::ImplementationEntryCount,
-        ),
+        DiagnosticArgValue::InterfaceLimit(DiagnosticInterfaceLimit::ImplementationEntryCount),
     ))
     .with_arg(DiagnosticArg::new(
         DiagnosticArgName::InterfaceSection,

@@ -73,8 +73,7 @@ pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_obser
 pub const MEMORY_OBSERVATION_BEGIN_SYMBOL: &str = "bray_runtime_memory_observation_begin_v1";
 
 /// Stable symbol starting the measured Bray-controlled execution interval.
-pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str =
-    "bray_runtime_performance_interval_begin_v1";
+pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str = "bray_runtime_performance_interval_begin_v1";
 
 /// Stable symbol ending and recording the Bray-controlled execution interval.
 pub const PERFORMANCE_INTERVAL_END_SYMBOL: &str = "bray_runtime_performance_interval_end_v1";

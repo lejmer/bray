@@ -1,14 +1,14 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget};
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    NamedTypeSymbolId, RuntimeDefaultPresence, StructFieldTypeQuery, SymbolFactRequest, TypeData,
+    NamedTypeSymbolId, RuntimeDefaultPresence, StructFieldTypeQuery, SymbolQueryRequest, TypeData,
     TypeId,
 };
 
 use super::super::super::Compilation;
-use super::super::super::binder::{CompilationBindingContext, binder_fact_error};
+use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -33,14 +33,16 @@ impl Compilation {
 
         let record = binding_context
             .structure(*structure)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let inputs = record
             .fields()
             .iter()
             .copied()
-            .map(|field| self.struct_field_input(binding_context, field, *substitution, diagnostics))
+            .map(|field| {
+                self.struct_field_input(binding_context, field, *substitution, diagnostics)
+            })
             .collect::<Result<Option<Vec<_>>, _>>()?;
 
         let Some(inputs) = inputs else {
@@ -52,7 +54,7 @@ impl Compilation {
 
         let key = binding_context
             .symbol_key((*structure).into())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // The candidate owns the shared key returned by the immutable symbol table.
@@ -78,12 +80,12 @@ impl Compilation {
     ) -> Result<Option<(ConstructionInputSurface, bool)>, FactQueryError> {
         let record = binding_context
             .struct_field(field)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(name) = binding_context
             .member_name(field.into())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .cloned()
         else {
             return Ok(None);
@@ -91,7 +93,7 @@ impl Compilation {
 
         let Some(ty) = self.resolve_member_type(
             binding_context,
-            SymbolFactRequest::<StructFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
             substitution,
             diagnostics,
         )?

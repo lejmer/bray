@@ -279,13 +279,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("bound inspection command must retain its source target");
         };
 
-        return run_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| {
-                render_bound_inspection(compilation, target, output_format)
-            },
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_bound_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }
@@ -295,13 +291,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("lowered inspection command must retain its source target");
         };
 
-        return run_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| {
-                render_lowered_inspection(compilation, target, output_format)
-            },
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_lowered_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }
@@ -311,11 +303,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("MIR inspection command must retain its source target");
         };
 
-        return run_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| render_mir_inspection(compilation, target, output_format),
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_mir_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }

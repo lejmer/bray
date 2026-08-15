@@ -1,6 +1,4 @@
-use bray_bound_tree::{
-    InlineAssemblyConstraint, InlineAssemblyOperand, InlineAssemblyOperandKind,
-};
+use bray_bound_tree::{InlineAssemblyConstraint, InlineAssemblyOperand, InlineAssemblyOperandKind};
 use bray_codegen::CodegenFailure;
 use bray_target::TargetControlSupport;
 
@@ -21,7 +19,10 @@ pub(super) fn assembly_constraints(
 ) -> Result<String, CodegenFailure> {
     let mut normalized = String::new();
 
-    for descriptor in descriptors.iter().filter(|operand| operand.output().is_some()) {
+    for descriptor in descriptors
+        .iter()
+        .filter(|operand| operand.output().is_some())
+    {
         let modifier = match descriptor.kind() {
             InlineAssemblyOperandKind::Output | InlineAssemblyOperandKind::EarlyInOut => "=&",
             InlineAssemblyOperandKind::LateOutput | InlineAssemblyOperandKind::InOut => "=",
@@ -38,19 +39,17 @@ pub(super) fn assembly_constraints(
         )?;
     }
 
-    for descriptor in descriptors.iter().filter(|operand| operand.input().is_some()) {
+    for descriptor in descriptors
+        .iter()
+        .filter(|operand| operand.input().is_some())
+    {
         if let Some(output) = descriptor.output() {
             append_constraint(&mut normalized, &output.to_string());
         } else {
             let constraint = operand_constraint(constraints, *descriptor)?;
             append_constraint(&mut normalized, "");
 
-            append_constraint_class(
-                &mut normalized,
-                control,
-                constraint,
-                descriptor.kind(),
-            )?;
+            append_constraint_class(&mut normalized, control, constraint, descriptor.kind())?;
         }
     }
 
@@ -64,9 +63,7 @@ pub(super) fn assembly_constraints(
     Ok(normalized)
 }
 
-pub(super) fn output_descriptors(
-    operands: &[InlineAssemblyOperand],
-) -> Vec<InlineAssemblyOperand> {
+pub(super) fn output_descriptors(operands: &[InlineAssemblyOperand]) -> Vec<InlineAssemblyOperand> {
     let mut outputs = operands
         .iter()
         .copied()
@@ -94,8 +91,7 @@ fn operand_constraint(
         .get(start..end)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    InlineAssemblyConstraint::try_parse(constraint)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    InlineAssemblyConstraint::try_parse(constraint).ok_or(CodegenFailure::GeneratedModuleInvariant)
 }
 
 fn append_constraint(constraints: &mut String, constraint: &str) {

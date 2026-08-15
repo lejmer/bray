@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundReferenceTarget, BoundUnresolvedReferenceKind,
-    BoundWalkControl, BoundWalkEvent, CheckedPatterns, SemanticSelection,
-    SemanticSelectionEntry, walk_bound_unit_view,
+    BoundWalkControl, BoundWalkEvent, CheckedPatterns, SemanticSelection, SemanticSelectionEntry,
+    walk_bound_unit_view,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticNameKind, SeverityKind,

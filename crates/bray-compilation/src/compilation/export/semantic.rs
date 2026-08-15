@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundReferenceTarget, BoundUnitKey, CheckedTemplateConstantUsage, CheckedTemplateKind,
     CheckedTemplateNodeId,
@@ -30,12 +30,11 @@ use bray_package_interface::{
     InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
     InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfaceNativeBoundary,
     InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
-    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceStorageMember,
-    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
-    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
-    PackageInterfaceSurface,
+    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
+    InterfaceSupportEntity, InterfaceSymbolReference, InterfaceTargetPropertyDependency,
+    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
+    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
+    InterfaceUnionTag, PackageInterfaceSurface,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
@@ -52,7 +51,7 @@ use bray_symbols::{
     InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionQuery,
     PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
-    StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
+    StructFieldDefaultValue, SymbolKeyData, SymbolKind, SymbolQueryRequest, TraitApplicationId,
     TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
@@ -451,7 +450,7 @@ fn export_callable_semantics(
     };
 
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
         .map_err(|_| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
@@ -463,7 +462,7 @@ fn export_callable_semantics(
         .push(export.callable_signature(symbol, signature.value())?);
 
     let contracts = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(callable))
+        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
         .map_err(|_| incomplete(symbol))?;
 
     if contracts.diagnostics().has_errors() {
@@ -475,7 +474,7 @@ fn export_callable_semantics(
         .push(export.callable_contract(symbol, contracts.value())?);
 
     let template = binder
-        .symbol_fact(SymbolFactRequest::<CallableContractTemplateQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
             callable,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -563,7 +562,7 @@ fn export_generic_semantics(
     };
 
     let generic = binder
-        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -577,7 +576,7 @@ fn export_generic_semantics(
         .push(export.generic_declaration(symbol, generic.value())?);
 
     let checked = binder
-        .symbol_fact(SymbolFactRequest::<GenericConstraintsQuery>::new(owner))
+        .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
         .map_err(|_| incomplete(symbol))?;
 
     if checked.diagnostics().has_errors() {
@@ -665,8 +664,8 @@ fn export_default_semantics(
     match symbol {
         AnySymbolId::CallableParameter(parameter) => {
             let default = binder
-                .symbol_fact(
-                    SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
                 )
                 .map_err(|_| incomplete(symbol))?;
 
@@ -1220,7 +1219,7 @@ fn generic_parameters(
     };
 
     let generic = binder
-        .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
         .map_err(|_| incomplete(symbol))?;
@@ -1286,7 +1285,7 @@ fn implementation_semantics(
         };
 
         let checked = binder
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
             .map_err(|_| incomplete(symbol))?;
@@ -2701,7 +2700,9 @@ fn export_constant_semantics(
 }
 
 const fn incomplete_type() -> PackageInterfaceExportError {
-    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(SymbolKind::TypeCallableMember)
+    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
+        SymbolKind::TypeCallableMember,
+    )
 }
 
 fn predicate_definition(
@@ -2711,7 +2712,9 @@ fn predicate_definition(
     let state = match symbol {
         AnySymbolId::Predicate(predicate) => {
             let semantics = binder
-                .symbol_fact(SymbolFactRequest::<PredicateDefinitionQuery>::new(predicate))
+                .resolve_symbol_query(SymbolQueryRequest::<PredicateDefinitionQuery>::new(
+                    predicate,
+                ))
                 .map_err(|_| incomplete(symbol))?;
 
             if semantics.diagnostics().has_errors() {
@@ -2722,8 +2725,8 @@ fn predicate_definition(
         }
         AnySymbolId::TraitPredicateMember(predicate) => {
             let semantics = binder
-                .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateMemberDefinitionQuery>::new(predicate),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitPredicateMemberDefinitionQuery>::new(predicate),
                 )
                 .map_err(|_| incomplete(symbol))?;
 
@@ -2735,8 +2738,8 @@ fn predicate_definition(
         }
         AnySymbolId::TraitPredicateFulfillment(predicate) => {
             let semantics = binder
-                .symbol_fact(
-                    SymbolFactRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(predicate),
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(predicate),
                 )
                 .map_err(|_| incomplete(symbol))?;
 

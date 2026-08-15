@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_package_interface::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     ExportedLookupKind, InterfaceDependency, InterfaceProductKind, PackageInterfaceExportBundle,
@@ -9,7 +9,7 @@ use bray_package_interface::{
 };
 use bray_symbols::{
     AnySymbolId, ExternalSymbolKey, ModulePathKey, ModuleSurfaceQuery, ModuleSymbolId, ProductKind,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin,
+    SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 
@@ -24,7 +24,7 @@ impl Compilation {
     ) -> Option<&Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError>> {
         self.state.package_interface_export.as_ref()?;
 
-        Some(self.fact(
+        Some(self.evaluate_query(
             CompilationFactKey::PackageInterfaceExportBundle,
             &self.state.package_interface_export_bundle,
             || {
@@ -307,9 +307,9 @@ fn select_owner_chain(
     selected: &mut BTreeSet<AnySymbolId>,
 ) -> Result<(), PackageInterfaceExportError> {
     while symbol != package {
-        let owner = graph
-            .containing_symbol(symbol)
-            .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
+        let owner = graph.containing_symbol(symbol).ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
+        )?;
 
         selected.insert(owner);
         symbol = owner;
@@ -451,16 +451,15 @@ fn export_symbol(
         .cloned()
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
 
-    let containing_symbol =
-        match graph
-            .runtime_default_subject(symbol)
-            .or_else(|| graph.containing_symbol(symbol))
-        {
-            Some(owner) => Some(keys.get(&owner).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
-            )?),
-            None => None,
-        };
+    let containing_symbol = match graph
+        .runtime_default_subject(symbol)
+        .or_else(|| graph.containing_symbol(symbol))
+    {
+        Some(owner) => Some(keys.get(&owner).cloned().ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
+        )?),
+        None => None,
+    };
 
     Ok(ExportSymbolInput::new(key, containing_symbol))
 }
@@ -634,7 +633,7 @@ impl Compilation {
 
         for (module, owner_key) in module_keys {
             let surface = semantics
-                .symbol_fact(SymbolFactRequest::<ModuleSurfaceQuery>::new(*module))
+                .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(*module))
                 .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
             if surface.diagnostics().has_errors() {
@@ -690,17 +689,16 @@ mod tests {
         encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
         RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName, TypeExpressionTemplate,
     };
+    use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_testing::test_source_inputs;
 
     use crate::test_support::{
-        package_version, source_function_body_key,
-        source_named_trait_callable_fulfillment_body_key,
+        package_version, source_function_body_key, source_named_trait_callable_fulfillment_body_key,
     };
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
@@ -975,8 +973,16 @@ mod tests {
                 .unwrap_or_else(|error| panic!("imported type semantics must resolve: {error:?}"))
                 .unwrap_or_else(|| panic!("imported symbol must carry a declared type"));
 
-            assert!(semantics.diagnostics().is_empty(), "{:?}", semantics.diagnostics());
-            assert!(matches!(semantics.value(), TypeExpressionTemplate::Resolved(_)));
+            assert!(
+                semantics.diagnostics().is_empty(),
+                "{:?}",
+                semantics.diagnostics()
+            );
+
+            assert!(matches!(
+                semantics.value(),
+                TypeExpressionTemplate::Resolved(_)
+            ));
         }
 
         let [parameter] = skeleton.callable_parameters() else {
@@ -1020,9 +1026,9 @@ mod tests {
             source_graph.diagnostics()
         );
 
-        let product = compilation
-            .product_semantics()
-            .unwrap_or_else(|error| panic!("standard memory product semantics must build: {error:?}"));
+        let product = compilation.product_semantics().unwrap_or_else(|error| {
+            panic!("standard memory product semantics must build: {error:?}")
+        });
 
         assert!(
             product.diagnostics().is_empty(),
@@ -1039,12 +1045,11 @@ mod tests {
             .symbol_graph()
             .unwrap_or_else(|error| panic!("standard memory symbol graph must build: {error:?}"));
 
-        let identity = super::build_identity_surface(
-            &compilation,
-            symbols,
-            product.value().public_symbols(),
-        )
-        .unwrap_or_else(|error| panic!("standard memory identity surface must build: {error:?}"));
+        let identity =
+            super::build_identity_surface(&compilation, symbols, product.value().public_symbols())
+                .unwrap_or_else(|error| {
+                    panic!("standard memory identity surface must build: {error:?}")
+                });
 
         let request = compilation
             .package_interface_export_request()
@@ -1086,14 +1091,18 @@ mod tests {
 
                 let operand_ty = template.nodes()[operand_index].ty();
 
-                let node_ty = semantics.types().iter().enumerate().find_map(|(index, ty)| {
-                    u32::try_from(index)
-                        .ok()
-                        .filter(|index| {
-                            bray_package_interface::InterfaceTypeId::new(*index) == node.ty()
-                        })
-                        .map(|_| ty)
-                });
+                let node_ty = semantics
+                    .types()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, ty)| {
+                        u32::try_from(index)
+                            .ok()
+                            .filter(|index| {
+                                bray_package_interface::InterfaceTypeId::new(*index) == node.ty()
+                            })
+                            .map(|_| ty)
+                    });
 
                 assert!(
                     matches!(
@@ -1334,18 +1343,21 @@ mod tests {
             .and_then(bray_lowering::LoweredUnit::mir)
             .unwrap_or_else(|| panic!("writer formatting adapter must produce MIR: {adapter:#?}"));
 
-        assert!(adapter.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            MirOperationKind::Borrow { place, .. }
-                if place
-                    .projections()
-                    .iter()
-                    .any(|projection| matches!(projection.kind(), MirProjectionKind::Field(_)))
-                    && matches!(
-                        place.projections().last().map(bray_ir::MirProjection::kind),
-                        Some(MirProjectionKind::Dereference)
-                    )
-        )), "generic writer field borrow must reach the destination value: {adapter:#?}");
+        assert!(
+            adapter.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Borrow { place, .. }
+                    if place
+                        .projections()
+                        .iter()
+                        .any(|projection| matches!(projection.kind(), MirProjectionKind::Field(_)))
+                        && matches!(
+                            place.projections().last().map(bray_ir::MirProjection::kind),
+                            Some(MirProjectionKind::Dereference)
+                        )
+            )),
+            "generic writer field borrow must reach the destination value: {adapter:#?}"
+        );
 
         let interface = export(&provider);
 
@@ -1594,11 +1606,18 @@ mod tests {
             .unwrap_or_else(|error| panic!("imported formatting adapter must lower: {error:?}"));
 
         assert!(streamed.value().is_some(), "{:#?}", streamed.diagnostics());
-        assert!(streamed.diagnostics().is_empty(), "{:#?}", streamed.diagnostics());
+
+        assert!(
+            streamed.diagnostics().is_empty(),
+            "{:#?}",
+            streamed.diagnostics()
+        );
 
         let imported_instances = consumer
             .imported_codegen_instance_count_for_test()
-            .unwrap_or_else(|error| panic!("imported formatting reachability must close: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("imported formatting reachability must close: {error:?}")
+            });
 
         assert!(imported_instances > 0);
     }
@@ -1721,10 +1740,7 @@ mod tests {
 
         let bundle = export(&compilation);
 
-        assert_eq!(
-            bundle.semantics().callable_parameter_defaults().len(),
-            1
-        );
+        assert_eq!(bundle.semantics().callable_parameter_defaults().len(), 1);
     }
 
     fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {

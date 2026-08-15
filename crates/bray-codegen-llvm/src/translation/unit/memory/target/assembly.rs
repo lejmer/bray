@@ -1,6 +1,4 @@
-use bray_bound_tree::{
-    InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind,
-};
+use bray_bound_tree::{InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind};
 use bray_codegen::{CodegenCallSite, CodegenFailure, CodegenTypeKind};
 use bray_ir::{
     MirBlockId, MirCallableReference, MirInlineAssemblyTerminator, MirMemoryOperation, MirOperand,
@@ -33,9 +31,7 @@ impl AssemblySite {
             Self::Operation(operation) => {
                 CodegenCallSite::InlineAssemblyOperation { operation, symbol }
             }
-            Self::Terminator(block) => {
-                CodegenCallSite::InlineAssemblyTerminator { block, symbol }
-            }
+            Self::Terminator(block) => CodegenCallSite::InlineAssemblyTerminator { block, symbol },
         }
     }
 }
@@ -137,7 +133,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let descriptors = contract.operands().collect::<Vec<_>>();
         let mut constraints = assembly_constraints(control, &constraint_text, &descriptors)?;
 
-        for clobber in clobbers.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+        for clobber in clobbers
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             if let Some(abi) = clobber.strip_prefix("abi:") {
                 let registers = control
                     .abi_clobbers(abi)
@@ -203,8 +203,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 continue;
             };
 
-            let parameter = u32::try_from(arguments.len())
-                .map_err(|_| CodegenFailure::ResourceExhausted)?;
+            let parameter =
+                u32::try_from(arguments.len()).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
             if descriptor.kind() == InlineAssemblyOperandKind::Memory {
                 let target = match self
@@ -233,7 +233,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let outputs = output_descriptors(&descriptors);
 
         let function_type = match outputs.as_slice() {
-            [] => self.types.context().void_type().fn_type(&parameter_types, false),
+            [] => self
+                .types
+                .context()
+                .void_type()
+                .fn_type(&parameter_types, false),
             [output] => self
                 .types
                 .map(output.ty())?
@@ -251,9 +255,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         };
 
-        let dialect = options
-            .intel_dialect()
-            .then_some(InlineAsmDialect::Intel);
+        let dialect = options.intel_dialect().then_some(InlineAsmDialect::Intel);
 
         let side_effects = output_type.is_none() || !options.pure();
 
@@ -379,8 +381,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let destination = self.aggregate_element(fields, ordinal)?;
 
-            let destination = usize::try_from(destination)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?;
+            let destination =
+                usize::try_from(destination).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
             result = insert_value(&self.builder, result, value, destination)?;
         }
@@ -406,12 +408,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             false,
         );
 
-        llvm(self.builder.build_indirect_call(
-            function_type,
-            assembly,
-            &[],
-            "target.control",
-        ))?;
+        llvm(
+            self.builder
+                .build_indirect_call(function_type, assembly, &[], "target.control"),
+        )?;
 
         Ok(())
     }
@@ -431,10 +431,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    pub(super) fn constant_string(
-        &self,
-        value: ConstantValueId,
-    ) -> Result<&str, CodegenFailure> {
+    pub(super) fn constant_string(&self, value: ConstantValueId) -> Result<&str, CodegenFailure> {
         let mapping = self
             .request
             .mappings()
@@ -597,11 +594,7 @@ mod tests {
         let control = TargetControlSupport::for_architecture(TargetArchitecture::X86_64);
 
         assert_eq!(
-            assembly_constraints(
-                control,
-                "+reg,+&reg,=&reg,=reg,reg,i,s,m,label",
-                &operands,
-            ),
+            assembly_constraints(control, "+reg,+&reg,=&reg,=reg,reg,i,s,m,label", &operands,),
             Ok(String::from("=r,=&r,=&r,=r,0,1,r,i,s,*m,!i"))
         );
 
@@ -798,6 +791,10 @@ mod tests {
         assert!(!entry_ir.contains("insertvalue"), "{ir}");
         assert!(fallthrough_ir.contains("insertvalue"), "{ir}");
         assert!(fallthrough_ir.contains("br label %normal"), "{ir}");
-        assert!(ir.contains("phi { i32 } [ %outputs, %fallthrough ]"), "{ir}");
+
+        assert!(
+            ir.contains("phi { i32 } [ %outputs, %fallthrough ]"),
+            "{ir}"
+        );
     }
 }

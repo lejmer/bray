@@ -1612,7 +1612,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 contract,
             } => self.inline_assembly_kind(inputs, output, labels, contract)?,
             Kind::AtomicInitialize { value } => self.atomic_value_kind(40, value)?,
-            Kind::AtomicLoad { value, order } => self.atomic_ordered_value_kind(41, value, order)?,
+            Kind::AtomicLoad { value, order } => {
+                self.atomic_ordered_value_kind(41, value, order)?
+            }
             Kind::AtomicStore { value, order } => {
                 self.atomic_ordered_value_kind(42, value, order)?;
             }

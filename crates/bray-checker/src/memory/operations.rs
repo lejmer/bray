@@ -12,15 +12,15 @@ use bray_diagnostics::{
 };
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableSignatureQuery, CallableTrust,
-    DeclarationDirectivesQuery, DirectiveKind, GenericArgument, SymbolFactRequest, TypeData,
+    DeclarationDirectivesQuery, DirectiveKind, GenericArgument, SymbolQueryRequest, TypeData,
     TypeExpressionTemplate,
 };
 
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_memory_operations<C>(
@@ -30,8 +30,8 @@ pub(crate) fn check_memory_operations<C>(
 ) -> CheckerOutcome<CheckedMemoryOperations>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<DeclarationDirectivesQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
     if request.is_cancelled() {
@@ -67,8 +67,8 @@ where
 
         let resolution = match request.implementation_hook(instance.definition().symbol()) {
             Ok(resolution) => resolution,
-            Err(crate::CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(crate::CheckerFactError::Infrastructure(error)) => {
+            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(crate::CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
         };
@@ -78,9 +78,9 @@ where
         };
 
         if !resolution.is_available() {
-            let Some(operation) = crate::memory_diagnostics::diagnostic_memory_operation(
-                resolution.hook(),
-            ) else {
+            let Some(operation) =
+                crate::memory_diagnostics::diagnostic_memory_operation(resolution.hook())
+            else {
                 continue;
             };
 
@@ -146,9 +146,9 @@ where
                 }
             }
             crate::target_control::TargetControlCheck::Invalid => {
-                let Some(operation) = crate::memory_diagnostics::diagnostic_memory_operation(
-                    resolution.hook(),
-                ) else {
+                let Some(operation) =
+                    crate::memory_diagnostics::diagnostic_memory_operation(resolution.hook())
+                else {
                     return CheckerOutcome::InfrastructureFailure(
                         CheckerInfrastructureError::InvalidSemanticSelectionInput,
                     );
@@ -243,8 +243,8 @@ fn callback_state_problem<C>(
 ) -> Result<Option<DiagnosticCallbackStateProblem>, CheckerOutcome<CheckedMemoryOperations>>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<CallableSignatureQuery>
-        + CheckerSemanticFactProvider<DeclarationDirectivesQuery>
+        + CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
     let [context] = arguments else {
@@ -257,14 +257,15 @@ where
         return Ok(Some(DiagnosticCallbackStateProblem::OutsideCallable));
     };
 
-    let signature =
-        match request.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable)) {
-            Ok(signature) => signature,
-            Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
-            Err(crate::CheckerFactError::Infrastructure(error)) => {
-                return Err(CheckerOutcome::InfrastructureFailure(error));
-            }
-        };
+    let signature = match request
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
+    {
+        Ok(signature) => signature,
+        Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => {
+            return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+    };
 
     let (abi, trust) = match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => (callable.abi(), callable.trust()),
@@ -302,12 +303,13 @@ where
         return Ok(Some(DiagnosticCallbackStateProblem::ReceiverPresent));
     }
 
-    let directives = match request.symbol_fact(SymbolFactRequest::<DeclarationDirectivesQuery>::new(
-        callable.into_any(),
-    )) {
+    let directives = match request.resolve_symbol_query(SymbolQueryRequest::<
+        DeclarationDirectivesQuery,
+    >::new(callable.into_any()))
+    {
         Ok(directives) => directives,
-        Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
-        Err(crate::CheckerFactError::Infrastructure(error)) => {
+        Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => {
             return Err(CheckerOutcome::InfrastructureFailure(error));
         }
     };
@@ -402,7 +404,7 @@ fn generic_arguments<C>(
     instance: CallableInstanceData,
 ) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let substitution = request
         .semantic_values()

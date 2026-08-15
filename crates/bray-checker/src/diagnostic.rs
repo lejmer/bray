@@ -268,12 +268,12 @@ fn external_symbol_module_path(key: &ExternalSymbolKey) -> Option<&bray_symbols:
 }
 
 fn available_diagnostic_value<T>(
-    result: crate::CheckerFactResult<T>,
+    result: crate::CheckerQueryResult<T>,
 ) -> Result<Option<T>, CheckerInfrastructureError> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(crate::CheckerFactError::Cancelled) => Ok(None),
-        Err(crate::CheckerFactError::Infrastructure(error)) => Err(error),
+        Err(crate::CheckerQueryError::Cancelled) => Ok(None),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => Err(error),
     }
 }
 

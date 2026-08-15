@@ -3,10 +3,10 @@
 use bray_bound_tree::{
     BoundBlockId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsync,
-    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
-    CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns, CheckedRefinements,
-    CheckedSemanticSelections, Liveness, RefinementKind, StorageAccessPlan,
-    StorageAccessPurpose, StorageFlow, StorageOperationDecision, StoragePlan,
+    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness,
+    RefinementKind, StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision,
+    StoragePlan,
 };
 use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{
@@ -883,12 +883,11 @@ mod tests {
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
-        BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior,
-        CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
-        CheckedLiteralValues, CheckedPatterns, CheckedRefinements,
-        CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability, StorageAccess,
-        StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlow,
+        BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
+        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
+        CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
+        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlow,
         StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
         StoragePlanBuilder,
     };
@@ -898,17 +897,14 @@ mod tests {
         test_bound_unit, test_constant_template_unit, test_mir_target, test_runtime_default_unit,
     };
 
-    use super::{LoweringInputKind, LoweringInput, LoweringInputError};
+    use super::{LoweringInput, LoweringInputError, LoweringInputKind};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
         let unit = test_bound_unit(4);
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let analysis = empty_expression_inputs(&unit);
 
@@ -921,7 +917,12 @@ mod tests {
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
         assert!(std::ptr::eq(input.expression_types(), &analysis.types));
         assert!(std::ptr::eq(input.patterns(), &analysis.patterns));
-        assert!(std::ptr::eq(input.semantic_selections(), &analysis.selections));
+
+        assert!(std::ptr::eq(
+            input.semantic_selections(),
+            &analysis.selections
+        ));
+
         assert!(std::ptr::eq(input.literal_values(), &analysis.literals));
         assert!(std::ptr::eq(input.storage_plan(), &analysis.storage));
         assert!(std::ptr::eq(input.liveness(), &analysis.liveness));
@@ -933,7 +934,11 @@ mod tests {
             &analysis.dependencies
         ));
 
-        assert!(std::ptr::eq(input.async_analysis(), &analysis.async_analysis));
+        assert!(std::ptr::eq(
+            input.async_analysis(),
+            &analysis.async_analysis
+        ));
+
         assert!(std::ptr::eq(input.body_behavior(), &analysis.behavior));
         assert!(std::ptr::eq(input.semantic_values(), &analysis.values));
 
@@ -947,11 +952,8 @@ mod tests {
     fn input_rejects_compile_time_only_units_before_runtime_input_validation() {
         let unit = test_constant_template_unit(5, push_unit_expression);
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let analysis = empty_expression_inputs(&unit);
 
@@ -1004,11 +1006,8 @@ mod tests {
         let local = empty_expression_inputs(&unit);
         let foreign = empty_expression_inputs(&foreign_unit);
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let foreign_types = ExpressionInputReferences {
             types: &foreign.types,
@@ -1043,11 +1042,8 @@ mod tests {
     fn input_rejects_literal_values_adapted_for_another_target_width() {
         let unit = test_bound_unit(8);
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let expected = test_mir_target().machine().pointer_width_bits();
 
@@ -1122,11 +1118,8 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("same-unit liveness must build: {error:?}"));
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let analysis = ExpressionInputReferences {
             liveness: &liveness,
@@ -1232,11 +1225,8 @@ mod tests {
 
         let analysis = empty_expression_inputs(&unit);
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         assert_input_error(
             lowering_input(&unit, &control_flow, (&analysis).into()),
@@ -1299,11 +1289,8 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("literal-free values must validate: {error:?}"));
 
-        let control_flow = CheckedControlFlow::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let (storage, storage_flow) = empty_storage_analysis(&unit);
 
@@ -1619,9 +1606,8 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness analysis must validate: {error:?}"));
 
-        let refinements =
-            CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-                .unwrap_or_else(|error| panic!("empty refinement analysis must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
+            .unwrap_or_else(|error| panic!("empty refinement analysis must validate: {error:?}"));
 
         let expressions = unit
             .tree()
@@ -1677,9 +1663,8 @@ mod tests {
     fn empty_storage_analysis(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlow) {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)
     }

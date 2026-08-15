@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallableTarget,
     BoundSourceAnchor, BoundUnitKey, CheckedBodyBehavior, TrustedCapabilityUse,
@@ -17,7 +17,7 @@ use bray_symbols::{
     CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
     StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolOrigin, TrustedCapabilitySymbolId, TypeData, TypeExpressionTemplate,
+    SymbolOrigin, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
     UnionPayloadFieldDefaultTemplateQuery,
 };
@@ -26,7 +26,7 @@ use super::binder::{CompilationBindingContext, bind_declared_trusted_capabilitie
 use super::checker::checker_result;
 use super::state::Compilation;
 use super::unit::semantic_unit_context_for;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 #[derive(Default)]
 struct BodyBehaviorBuilder {
@@ -137,8 +137,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedBodyBehavior>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedBodyBehavior>>, FactQueryError> {
+        self.unit_query(
             &self.state.checked_body_behaviors,
             CompilationFactKey::CheckedBodyBehavior(key.clone()),
             key.clone(),
@@ -156,8 +156,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<BodyBehaviorContributions>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<BodyBehaviorContributions>>, FactQueryError> {
+        self.unit_query(
             &self.state.body_behavior_contributions,
             CompilationFactKey::BodyBehaviorContributions(key.clone()),
             key.clone(),
@@ -165,7 +165,9 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let control = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-                let async_analysis = self.async_analysis_with_cancellation(key.clone(), cancellation)?;
+
+                let async_analysis =
+                    self.async_analysis_with_cancellation(key.clone(), cancellation)?;
 
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
@@ -236,7 +238,9 @@ impl Compilation {
 
             let callable = instance.definition().callable_symbol();
 
-            let imported_symbols = binding_context.imported_symbols().map_err(binder_fact_error)?;
+            let imported_symbols = binding_context
+                .imported_symbols()
+                .map_err(binding_query_error)?;
 
             let origin = symbols.callable_origin(callable).or_else(|| {
                 imported_symbols
@@ -263,7 +267,7 @@ impl Compilation {
                         &binding_context,
                         CallableSymbolId::Function(function),
                     )
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                     diagnostics = diagnostics.merged(declared.diagnostics());
                     is_recovered |= declared.diagnostics().has_errors();
@@ -283,8 +287,10 @@ impl Compilation {
                     | SymbolOrigin::Imported,
                 ) => {
                     let contract = binding_context
-                        .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(callable))
-                        .map_err(binder_fact_error)?;
+                        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                            callable,
+                        ))
+                        .map_err(binding_query_error)?;
 
                     diagnostics = diagnostics.merged(contract.diagnostics());
                     is_recovered |= contract.diagnostics().has_errors();
@@ -392,10 +398,10 @@ impl Compilation {
                 }
 
                 let contract = binding_context
-                    .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
                         instance.definition().callable_symbol(),
                     ))
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(contract.diagnostics());
 
@@ -439,16 +445,16 @@ impl Compilation {
             bray_bound_tree::ConstructionDefaultProvider::CallableParameter(provider) => {
                 let Some(AnySymbolId::CallableParameter(owner)) = binding_context
                     .runtime_default_subject(provider.into())
-                    .map_err(binder_fact_error)?
+                    .map_err(binding_query_error)?
                 else {
                     return Err(FactQueryError::InfrastructureFailure);
                 };
 
                 let template = binding_context
-                    .symbol_fact(
-                        SymbolFactRequest::<CallableParameterDefaultTemplateQuery>::new(owner),
+                    .resolve_symbol_query(
+                        SymbolQueryRequest::<CallableParameterDefaultTemplateQuery>::new(owner),
                     )
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(template.diagnostics());
 
@@ -457,10 +463,10 @@ impl Compilation {
                 }
 
                 let default = binding_context
-                    .symbol_fact(SymbolFactRequest::<CallableParameterDefaultQuery>::new(
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableParameterDefaultQuery>::new(
                         owner,
                     ))
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(default.diagnostics());
 
@@ -474,16 +480,16 @@ impl Compilation {
             bray_bound_tree::ConstructionDefaultProvider::StructField(provider) => {
                 let Some(AnySymbolId::StructField(owner)) = binding_context
                     .runtime_default_subject(provider.into())
-                    .map_err(binder_fact_error)?
+                    .map_err(binding_query_error)?
                 else {
                     return Err(FactQueryError::InfrastructureFailure);
                 };
 
                 let template = binding_context
-                    .symbol_fact(SymbolFactRequest::<StructFieldDefaultTemplateQuery>::new(
-                        owner,
-                    ))
-                    .map_err(binder_fact_error)?;
+                    .resolve_symbol_query(
+                        SymbolQueryRequest::<StructFieldDefaultTemplateQuery>::new(owner),
+                    )
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(template.diagnostics());
 
@@ -492,8 +498,8 @@ impl Compilation {
                 }
 
                 let default = binding_context
-                    .symbol_fact(SymbolFactRequest::<StructFieldDefaultQuery>::new(owner))
-                    .map_err(binder_fact_error)?;
+                    .resolve_symbol_query(SymbolQueryRequest::<StructFieldDefaultQuery>::new(owner))
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(default.diagnostics());
 
@@ -507,16 +513,16 @@ impl Compilation {
             bray_bound_tree::ConstructionDefaultProvider::UnionPayload(provider) => {
                 let Some(AnySymbolId::UnionPayloadField(owner)) = binding_context
                     .runtime_default_subject(provider.into())
-                    .map_err(binder_fact_error)?
+                    .map_err(binding_query_error)?
                 else {
                     return Err(FactQueryError::InfrastructureFailure);
                 };
 
                 let template = binding_context
-                    .symbol_fact(
-                        SymbolFactRequest::<UnionPayloadFieldDefaultTemplateQuery>::new(owner),
+                    .resolve_symbol_query(
+                        SymbolQueryRequest::<UnionPayloadFieldDefaultTemplateQuery>::new(owner),
                     )
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(template.diagnostics());
 
@@ -525,10 +531,10 @@ impl Compilation {
                 }
 
                 let default = binding_context
-                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultQuery>::new(
+                    .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldDefaultQuery>::new(
                         owner,
                     ))
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 *diagnostics = diagnostics.merged(default.diagnostics());
 
@@ -586,8 +592,10 @@ fn callable_execution(
     callable: CallableSymbolId,
 ) -> Result<CallableExecution, FactQueryError> {
     let signature = binding_context
-        .symbol_fact(SymbolFactRequest::<bray_symbols::CallableSignatureQuery>::new(callable))
-        .map_err(binder_fact_error)?;
+        .resolve_symbol_query(
+            SymbolQueryRequest::<bray_symbols::CallableSignatureQuery>::new(callable),
+        )
+        .map_err(binding_query_error)?;
 
     match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.execution()),
@@ -636,10 +644,10 @@ fn phase_behavior_for(
     }
 }
 
-const fn binder_fact_error(error: bray_binder::BinderFactError) -> FactQueryError {
+const fn binding_query_error(error: bray_binder::BindingQueryError) -> FactQueryError {
     match error {
-        bray_binder::BinderFactError::Cancelled => FactQueryError::Cancelled,
-        bray_binder::BinderFactError::DependencyUnavailable => {
+        bray_binder::BindingQueryError::Cancelled => FactQueryError::Cancelled,
+        bray_binder::BindingQueryError::DependencyUnavailable => {
             FactQueryError::InfrastructureFailure
         }
     }

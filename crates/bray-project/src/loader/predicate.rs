@@ -2,7 +2,7 @@ use std::path::Path;
 
 use bray_base::sorted_unique_shared_slice;
 use bray_diagnostics::DiagnosticProjectManifestField;
-use bray_target::{TargetPropertyKind, TargetIdentity};
+use bray_target::{TargetIdentity, TargetPropertyKind};
 
 use crate::manifest::{TargetPredicateManifest, TargetPredicateValueManifest};
 use crate::{

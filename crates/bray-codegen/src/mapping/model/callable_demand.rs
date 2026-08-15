@@ -85,9 +85,7 @@ pub fn demanded_callable_instances_for_mir(
     unit: &bray_ir::MirUnit,
 ) -> BTreeSet<DemandedCallableInstance> {
     unit.operations_with_ids()
-        .flat_map(|(operation, data)| {
-            operation_callable_instances(operation, data.kind())
-        })
+        .flat_map(|(operation, data)| operation_callable_instances(operation, data.kind()))
         .chain(unit.blocks_with_ids().flat_map(|(block, data)| {
             terminator_callable_instances(block, data.terminator().kind())
         }))
@@ -182,10 +180,7 @@ fn terminator_callable_instances(
             .copied()
             .enumerate()
             .map(|(symbol, reference)| DemandedCallableInstance {
-                site: CodegenCallSite::InlineAssemblyTerminator {
-                    block,
-                    symbol,
-                },
+                site: CodegenCallSite::InlineAssemblyTerminator { block, symbol },
                 reference,
                 trait_dispatch: None,
                 intrinsic: None,

@@ -4,7 +4,9 @@ use bray_base::{NonEmptySharedStr, shared_slice};
 use bray_runtime_interface::{
     PanicAbiIdentity, RuntimeAbiVersion, RuntimeIdentity, RuntimeRequirements,
 };
-use bray_target::{TargetPropertyKind, TargetPropertyValue, TargetIdentity, TargetMachineProperties};
+use bray_target::{
+    TargetIdentity, TargetMachineProperties, TargetPropertyKind, TargetPropertyValue,
+};
 
 use crate::{
     InterfaceContentHash, InterfaceDependency, InterfaceLanguageRevision, PackageInterfaceIdentity,
@@ -147,11 +149,16 @@ impl PackageImplementationTargetProperties {
     pub fn new(profile: &bray_target::TargetProfile) -> Self {
         let properties = TargetPropertyKind::ALL.iter().copied().map(|kind| {
             let value = match profile.property(kind) {
-                TargetPropertyValue::String(value) => PackageImplementationTargetPropertyValue::String(
-                    NonEmptySharedStr::try_new(value)
-                        .unwrap_or_else(|| unreachable!("validated target properties are nonempty")),
-                ),
-                TargetPropertyValue::Usize(value) => PackageImplementationTargetPropertyValue::Usize(value),
+                TargetPropertyValue::String(value) => {
+                    PackageImplementationTargetPropertyValue::String(
+                        NonEmptySharedStr::try_new(value).unwrap_or_else(|| {
+                            unreachable!("validated target properties are nonempty")
+                        }),
+                    )
+                }
+                TargetPropertyValue::Usize(value) => {
+                    PackageImplementationTargetPropertyValue::Usize(value)
+                }
                 TargetPropertyValue::Boolean(value) => {
                     PackageImplementationTargetPropertyValue::Boolean(value)
                 }
@@ -176,10 +183,13 @@ impl PackageImplementationTargetProperties {
         let properties = shared_slice(properties);
 
         if properties.len() != TargetPropertyKind::ALL.len()
-            || properties.iter().zip(TargetPropertyKind::ALL).any(|(property, kind)| {
-                property.kind() != *kind
-                    || !target_property_value_matches_kind(*kind, property.value())
-            })
+            || properties
+                .iter()
+                .zip(TargetPropertyKind::ALL)
+                .any(|(property, kind)| {
+                    property.kind() != *kind
+                        || !target_property_value_matches_kind(*kind, property.value())
+                })
             || !machine_properties_match(&identity, &machine, &properties)
         {
             return None;

@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget};
 use bray_checker::{
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
@@ -9,7 +9,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{ImplementationSelection, RuntimeDefaultPresence, SymbolName, TypeData, TypeId};
 
 use super::super::super::Compilation;
-use super::super::super::binder::{CompilationBindingContext, binder_fact_error};
+use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::selected_storage_callable;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -33,8 +33,14 @@ impl Compilation {
         let member_key = CompilerKnownDeclarationKey::try_new("StorageCreate")
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let selected =
-            selected_storage_callable(self, binding_context, *storage, *target, &member_key, cancellation)?;
+        let selected = selected_storage_callable(
+            self,
+            binding_context,
+            *storage,
+            *target,
+            &member_key,
+            cancellation,
+        )?;
 
         *diagnostics = diagnostics.merged(selected.diagnostics());
 
@@ -103,7 +109,7 @@ impl Compilation {
 
         let key = binding_context
             .symbol_key(implementation.definition().into_any())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // The candidate owns the shared key returned by the immutable symbol table.

@@ -6,7 +6,7 @@ use bray_symbols::{
 use crate::constant::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, ConstantCallRequest,
     ConstantCallResolution,
 };
 
@@ -39,8 +39,8 @@ where
             match resolver.is_constant_callable(callable) {
                 Ok(true) => {}
                 Ok(false) => return Err(EvaluationFailure::invalid_expression(expression)),
-                Err(CheckerFactError::Cancelled) => return Err(EvaluationFailure::Cancelled),
-                Err(CheckerFactError::Infrastructure(error)) => {
+                Err(CheckerQueryError::Cancelled) => return Err(EvaluationFailure::Cancelled),
+                Err(CheckerQueryError::Infrastructure(error)) => {
                     return Err(EvaluationFailure::Infrastructure(error));
                 }
             }
@@ -139,8 +139,8 @@ where
 
                 Err(EvaluationFailure::invalid_expression(expression))
             }
-            Err(CheckerFactError::Cancelled) => Err(EvaluationFailure::Cancelled),
-            Err(CheckerFactError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Cancelled) => Err(EvaluationFailure::Cancelled),
+            Err(CheckerQueryError::Infrastructure(error)) => {
                 Err(EvaluationFailure::Infrastructure(error))
             }
         }

@@ -1,11 +1,11 @@
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, BinderCheckpoint};
 
 use super::{BindingError, BindingResult};
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     /// Runs an atomic binding operation whose failed state is never published.
     pub(crate) fn bind_transaction<T>(

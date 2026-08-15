@@ -162,9 +162,7 @@ mod tests {
     };
     use bray_testing::test_bound_unit;
 
-    use super::{
-        MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameState, MirFrameStateId,
-    };
+    use super::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameState, MirFrameStateId};
     use crate::{MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind};
 
     #[test]

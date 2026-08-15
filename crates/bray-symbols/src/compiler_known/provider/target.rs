@@ -31,7 +31,10 @@ pub(super) fn build_target_properties(
         symbols.insert(symbol, property);
     }
 
-    Ok(TargetPropertySymbols { properties, symbols })
+    Ok(TargetPropertySymbols {
+        properties,
+        symbols,
+    })
 }
 
 const fn target_property_catalog_key(property: TargetPropertyKind) -> &'static str {

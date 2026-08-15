@@ -3,16 +3,16 @@ use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalSymbolRegionId, SymbolOrigin};
 use bray_syntax::{BlockExpressionSyntax, SourceSyntaxNode, SyntaxCast, SyntaxWalkRoot};
 
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::unit::BoundUnitLocalBuilder;
 
-pub(crate) fn binder_and_block<C>(facts: &C) -> (Binder<'_, C>, BlockExpressionSyntax)
+pub(crate) fn binder_and_block<C>(binding_context: &C) -> (Binder<'_, C>, BlockExpressionSyntax)
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let source_unit = match facts.syntax().source_units() {
+    let source_unit = match binding_context.syntax().source_units() {
         [source_unit] => source_unit,
         source_units => panic!("test must contain one source unit: {}", source_units.len()),
     };
@@ -26,19 +26,19 @@ where
     };
 
     (
-        binder_for_first_function(facts, &function),
+        binder_for_first_function(binding_context, &function),
         body.block_expression(),
     )
 }
 
-pub(crate) fn binder_for_first_function<'facts, C>(
-    facts: &'facts C,
+pub(crate) fn binder_for_first_function<'binding_context, C>(
+    binding_context: &'binding_context C,
     function: &bray_syntax::FunctionDeclarationSyntax,
-) -> Binder<'facts, C>
+) -> Binder<'binding_context, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let Some(symbol) = facts
+    let Some(symbol) = binding_context
         .symbols()
         .functions()
         .iter()
@@ -67,17 +67,17 @@ where
         Err(error) => panic!("test bound unit must build: {error:?}"),
     };
 
-    Binder::new(facts, unit)
+    Binder::new(binding_context, unit)
 }
 
 pub(crate) fn internal_path_context<C>(
-    facts: &C,
+    binding_context: &C,
     scope: bray_symbols::LocalScopeId,
 ) -> PathBindingContext
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let Some(module) = facts
+    let Some(module) = binding_context
         .symbols()
         .modules()
         .iter()

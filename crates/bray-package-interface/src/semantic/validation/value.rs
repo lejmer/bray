@@ -4,8 +4,8 @@ use crate::{
     InterfaceValidationLimits,
 };
 
-use super::surface::{validate_index, validate_symbol};
 use super::saturating_u64;
+use super::surface::{validate_index, validate_symbol};
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,

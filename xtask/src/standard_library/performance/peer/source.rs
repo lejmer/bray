@@ -24,7 +24,11 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "stream_output" => ("stream_output", "9"),
         "async_output" => ("async_output", "10"),
         "file_output" => ("file_output", "11"),
-        _ => return Err(format!("workload {workload} has no Rust and C++ peer sources")),
+        _ => {
+            return Err(format!(
+                "workload {workload} has no Rust and C++ peer sources"
+            ));
+        }
     };
 
     Ok([
@@ -73,9 +77,9 @@ pub(in crate::standard_library::performance) fn comparison_contract(
         "incremental_bytes" => Some(
             "successfully append 4096 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
         ),
-        "filesystem_metadata" => Some(
-            "read metadata successfully for the same existing path 256 times",
-        ),
+        "filesystem_metadata" => {
+            Some("read metadata successfully for the same existing path 256 times")
+        }
         "process_context" => Some("read the current process identity 1024 times"),
         "monotonic_clock" => Some("read a monotonic clock successfully 1024 times"),
         "borrowed_text" => Some(
@@ -110,7 +114,12 @@ mod tests {
     #[test]
     fn every_workload_has_a_contract_and_both_peer_sources() {
         for workload in super::super::super::corpus::WORKLOADS {
-            assert!(comparison_contract(workload.id).is_some(), "{}", workload.id);
+            assert!(
+                comparison_contract(workload.id).is_some(),
+                "{}",
+                workload.id
+            );
+
             assert!(sources(workload.id).is_ok(), "{}", workload.id);
         }
     }

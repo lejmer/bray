@@ -19,7 +19,7 @@ use bray_syntax::{ImplementationOverloadDeclarationSyntax, PathSyntax};
 
 use super::super::Compilation;
 use super::index::{ImplementationFamilyKey, ImplementationFamilySubject};
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::compilation::diagnostics::{source_diagnostic, symbol_diagnostic_identity};
 use crate::compilation::limits::try_count_comparison;
 use crate::compilation::overlap::{
@@ -32,7 +32,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticBag, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImplementationCoherence,
             &self.state.implementation_coherence,
             cancellation,
@@ -54,13 +54,20 @@ impl Compilation {
         let values = self.semantic_value_store()?;
         let symbols = self.symbol_graph()?;
         let binding_context = self.binding_context(cancellation)?;
-        let imported = binding_context.imported_symbols().map_err(binder_fact_error)?;
+
+        let imported = binding_context
+            .imported_symbols()
+            .map_err(binding_query_error)?;
 
         // The published coherence result owns its merged diagnostic bag.
         let mut diagnostics = participation.diagnostics().clone();
 
-        let families =
-            self.resolve_implementation_families(&binding_context, imported, index.value(), cancellation)?;
+        let families = self.resolve_implementation_families(
+            &binding_context,
+            imported,
+            index.value(),
+            cancellation,
+        )?;
 
         diagnostics.add_range(families.diagnostics.iter().cloned());
 
@@ -431,8 +438,12 @@ fn bind_family_header(
         diagnostics,
     )?;
 
-    let trait_definition =
-        bind_surface_path(binding_context, module, &declaration.trait_path(), diagnostics)?;
+    let trait_definition = bind_surface_path(
+        binding_context,
+        module,
+        &declaration.trait_path(),
+        diagnostics,
+    )?;
 
     let subject = match subject {
         Some(AnySymbolId::Struct(subject)) => {
@@ -609,7 +620,7 @@ fn bind_surface_path(
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let result = binding_context
         .bind_surface_path(module, path, NameAccess::Internal)
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(result.diagnostics().iter().cloned());
 

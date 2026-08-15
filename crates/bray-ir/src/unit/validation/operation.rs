@@ -563,11 +563,7 @@ mod tests {
             ),
             (CheckedMemoryOperationKind::CatastrophicAbort, 0, false),
             (CheckedMemoryOperationKind::DebuggerTrap, 0, false),
-            (
-                CheckedMemoryOperationKind::UnreachableTermination,
-                0,
-                false,
-            ),
+            (CheckedMemoryOperationKind::UnreachableTermination, 0, false),
             (CheckedMemoryOperationKind::SpinLoopHint, 0, false),
             (
                 CheckedMemoryOperationKind::TargetFeatureEnabled { feature: constant },

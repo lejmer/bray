@@ -10,11 +10,11 @@ use crate::{
 /// The result of attempting to prove one semantic predicate.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProofOutcome {
-    /// Available semantic facts establish the predicate.
+    /// Available semantic evidence establishes the predicate.
     Proven,
-    /// Available semantic facts establish that the predicate is false.
+    /// Available semantic evidence establishes that the predicate is false.
     Disproven,
-    /// Available semantic facts are insufficient to decide the predicate.
+    /// Available semantic evidence is insufficient to decide the predicate.
     Unknown,
     /// Earlier recovery prevents a sound proof.
     Recovered,
@@ -405,7 +405,7 @@ impl CallableContractSet {
         &self.static_constraints
     }
 
-    /// Returns facts published exclusively after normal completion.
+    /// Returns postconditions established exclusively after normal completion.
     pub fn normal_completion_postconditions(&self) -> &[CallableContractClause] {
         &self.normal_completion_postconditions
     }
@@ -446,7 +446,7 @@ impl PredicateDefinition {
     }
 }
 
-/// Marks an invalid predicate definition whose diagnostics belong to the fact result.
+/// Marks an invalid predicate definition whose diagnostics belong to the query result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ErrorPredicateDefinition;
 
@@ -459,7 +459,7 @@ pub enum PredicateDefinitionState<T> {
     Required,
     /// The trusted declaration intentionally hides its implementation.
     OpaqueTrusted,
-    /// Checking failed and diagnostics are retained by the fact result.
+    /// Checking failed and diagnostics are retained by the query result.
     Error(ErrorPredicateDefinition),
 }
 
@@ -505,7 +505,7 @@ mod tests {
     }
 
     #[test]
-    fn predicate_fact_values_are_send_and_sync() {
+    fn predicate_values_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CallableContractSet>();

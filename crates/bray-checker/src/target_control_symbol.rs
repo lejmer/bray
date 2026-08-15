@@ -4,12 +4,12 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableDefinitionId, CallableInstanceData, CallableSignatureQuery, GenericOwnerId,
-    GenericSubstitutionData, SymbolFactRequest, TypeData, TypeId,
+    GenericSubstitutionData, SymbolQueryRequest, TypeData, TypeId,
 };
 
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(super) fn callable_symbol<C>(
@@ -18,7 +18,7 @@ pub(super) fn callable_symbol<C>(
     expected: TypeId,
 ) -> Result<Option<InlineAssemblySymbol>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(BoundExpression::Name(name)) = request.view().expression(expression) else {
         return Ok(None);
@@ -57,16 +57,16 @@ where
     let open = intern_substitution(request, owner, &parameters, open_arguments)?;
 
     let template = request
-        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
             definition.callable_symbol(),
         ))
-        .map_err(fact_error)?;
+        .map_err(query_error)?;
 
     let mut diagnostics = DiagnosticBag::new();
 
     let crate::expression::TemplateResolution::Resolved(open_signature) =
         crate::expression::resolve_signature(request, template.value(), open, &mut diagnostics)
-            .map_err(fact_error)?
+            .map_err(query_error)?
     else {
         return Ok(None);
     };
@@ -76,7 +76,8 @@ where
         open_signature.callable_type(),
         expected,
         &parameters,
-    )? else {
+    )?
+    else {
         return Ok(None);
     };
 
@@ -89,7 +90,7 @@ where
             substitution,
             &mut diagnostics,
         )
-        .map_err(fact_error)?
+        .map_err(query_error)?
     else {
         return Ok(None);
     };
@@ -122,8 +123,9 @@ fn intern_substitution<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let substitution = GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    let substitution =
+        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
     request
         .semantic_values()
@@ -131,9 +133,9 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }
 
-fn fact_error(error: CheckerFactError) -> CheckerInfrastructureError {
+fn query_error(error: CheckerQueryError) -> CheckerInfrastructureError {
     match error {
-        CheckerFactError::Cancelled => CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        CheckerFactError::Infrastructure(error) => error,
+        CheckerQueryError::Cancelled => CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        CheckerQueryError::Infrastructure(error) => error,
     }
 }

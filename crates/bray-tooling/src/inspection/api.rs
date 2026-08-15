@@ -217,7 +217,7 @@ const fn symbol_inspection_failure(
         SymbolInspectionRenderError::SourceIndex => DiagnosticSymbolInspectionFailure::SourceIndex,
         SymbolInspectionRenderError::Symbol => DiagnosticSymbolInspectionFailure::Symbol,
         SymbolInspectionRenderError::SymbolCycle => DiagnosticSymbolInspectionFailure::SymbolCycle,
-        SymbolInspectionRenderError::SymbolFact => DiagnosticSymbolInspectionFailure::SymbolState,
+        SymbolInspectionRenderError::SymbolState => DiagnosticSymbolInspectionFailure::SymbolState,
         SymbolInspectionRenderError::Type => DiagnosticSymbolInspectionFailure::Type,
         SymbolInspectionRenderError::UnsupportedRelationship => {
             DiagnosticSymbolInspectionFailure::UnsupportedRelationship
@@ -236,7 +236,7 @@ const fn bound_inspection_failure(
         BoundInspectionRenderError::SourceIndex => DiagnosticBoundInspectionFailure::SourceIndex,
         BoundInspectionRenderError::StorageState => DiagnosticBoundInspectionFailure::StorageState,
         BoundInspectionRenderError::Symbol => DiagnosticBoundInspectionFailure::Symbol,
-        BoundInspectionRenderError::SymbolFact => DiagnosticBoundInspectionFailure::SymbolState,
+        BoundInspectionRenderError::SymbolState => DiagnosticBoundInspectionFailure::SymbolState,
         BoundInspectionRenderError::Type => DiagnosticBoundInspectionFailure::Type,
         BoundInspectionRenderError::TypeState => DiagnosticBoundInspectionFailure::TypeState,
         BoundInspectionRenderError::SelectionState => {
@@ -256,7 +256,9 @@ const fn lowered_inspection_failure(
         }
         LoweredInspectionRenderError::Model => DiagnosticLoweredInspectionFailure::Model,
         LoweredInspectionRenderError::Source => DiagnosticLoweredInspectionFailure::Source,
-        LoweredInspectionRenderError::SymbolFact => DiagnosticLoweredInspectionFailure::SymbolState,
+        LoweredInspectionRenderError::SymbolState => {
+            DiagnosticLoweredInspectionFailure::SymbolState
+        }
         LoweredInspectionRenderError::UnitState => DiagnosticLoweredInspectionFailure::UnitState,
     }
 }

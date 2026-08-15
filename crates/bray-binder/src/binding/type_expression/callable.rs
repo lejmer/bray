@@ -14,14 +14,14 @@ use bray_syntax::{
 
 use super::contract::CallableTypeQualifiers;
 use super::core::{TypeExpressionBinder, token_text};
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BindingQueryError, BindingQueryResult};
 
 impl TypeExpressionBinder<'_> {
     /// Binds the callable type owned by one anonymous callable semantic unit.
     pub fn bind_anonymous_callable_type(
         mut self,
         syntax: &LambdaExpressionSyntax,
-    ) -> BinderFactResult<DiagnosticResult<TypeExpressionTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>> {
         self.check_cancellation()?;
 
         let result = syntax
@@ -49,7 +49,7 @@ impl TypeExpressionBinder<'_> {
         parameter_list: &ParameterListSyntax,
         result_type: Option<&TypeExpressionSyntax>,
         qualifiers: DiagnosticResult<CallableTypeQualifiers>,
-    ) -> BinderFactResult<DiagnosticResult<CallableSignatureTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<CallableSignatureTemplate>> {
         self.check_cancellation()?;
 
         let (qualifiers, diagnostics) = qualifiers.into_parts();
@@ -75,7 +75,7 @@ impl TypeExpressionBinder<'_> {
             || !receiver_matches_owner
             || receiver.is_some() != qualifiers.receiver_mode.is_some()
         {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         }
 
         let mut signature_parameters = Vec::with_capacity(parameters.len());
@@ -100,7 +100,7 @@ impl TypeExpressionBinder<'_> {
                 Some(ReceiverParameterSignature::new(parameter, ty, mode))
             }
             (None, None, _) => None,
-            _ => return Err(BinderFactError::DependencyUnavailable),
+            _ => return Err(BindingQueryError::DependencyUnavailable),
         };
 
         let dependency_contract = self.empty_dependency_contract()?;
@@ -139,7 +139,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_callable_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let parameters = syntax.parameter_lists().next();
         let modifiers = syntax.callable_modifiers().next();
         let directives = syntax.callable_directives().next();
@@ -163,7 +163,7 @@ impl TypeExpressionBinder<'_> {
         result: Option<&TypeExpressionSyntax>,
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let parameters = parameters
             .into_iter()
             .flat_map(ParameterListSyntax::parameters)
@@ -214,7 +214,7 @@ impl TypeExpressionBinder<'_> {
         trust: CallableTrust,
         abi: bray_symbols::CallableAbi,
         dependencies: CallableDependencyContracts,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let parameters_are_resolved = parameters
             .iter()
             .all(|parameter| parameter.ty().resolved_type().is_some());
@@ -229,7 +229,7 @@ impl TypeExpressionBinder<'_> {
 
                     Ok(CallableParameterData::new(name, position, mode, ty))
                 })
-                .collect::<BinderFactResult<Vec<_>>>()?;
+                .collect::<BindingQueryResult<Vec<_>>>()?;
 
             let result = self.require_resolved_type(&result)?;
 
@@ -254,10 +254,10 @@ impl TypeExpressionBinder<'_> {
     fn bind_callable_parameter(
         &mut self,
         syntax: &ParameterSyntax,
-    ) -> BinderFactResult<CallableParameterTypeTemplate> {
+    ) -> BindingQueryResult<CallableParameterTypeTemplate> {
         let name = token_text(syntax.source(), &syntax.identifier_token())
             .and_then(CallableParameterName::try_new)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let modifiers = syntax.parameter_modifiers();
 
@@ -280,9 +280,9 @@ impl TypeExpressionBinder<'_> {
 
     fn empty_dependency_contract(
         &self,
-    ) -> BinderFactResult<bray_symbols::DependencyContractTemplateId> {
+    ) -> BindingQueryResult<bray_symbols::DependencyContractTemplateId> {
         self.semantic_values
             .empty_dependency_contract_template()
-            .map_err(|_| BinderFactError::DependencyUnavailable)
+            .map_err(|_| BindingQueryError::DependencyUnavailable)
     }
 }

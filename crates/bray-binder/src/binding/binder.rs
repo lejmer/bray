@@ -3,14 +3,14 @@ use bray_declarations::SyntaxAnchor;
 use bray_syntax::SourceSyntaxNode;
 
 use super::{BindingError, BindingResult};
-use crate::{BinderFactContext, binder::Binder};
+use crate::{BindingQueryContext, binder::Binder};
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(super) fn check_cancellation(&self) -> BindingResult<()> {
-        if self.facts().is_cancelled() {
+        if self.binding_context().is_cancelled() {
             return Err(BindingError::Cancelled);
         }
 

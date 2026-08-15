@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsQuery, CallableSignatureQuery, CallableSymbolId, DirectiveKind,
-    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolFactRequest,
-    SymbolOrigin,
+    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolOrigin,
+    SymbolQueryRequest,
 };
 use bray_syntax::{FunctionDeclarationSyntax, SyntaxKind};
 
@@ -19,7 +19,7 @@ use super::directive::{
 use super::platform::platform_service_role;
 use super::validation::validate_platform_service_surface;
 use super::validation::{callable_surface, validate_callable_surface};
-use crate::compilation::binder::binder_fact_error;
+use crate::compilation::binder::binding_query_error;
 use crate::compilation::directive::first_directive;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -39,7 +39,7 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<Option<ForeignCallableContract>>>, FactQueryError> {
         let cell = self.state.foreign_callable_contracts.cell(function)?;
 
-        let result = self.query_fact_with_cancellation(
+        let result = self.query_with_cancellation(
             CompilationFactKey::ForeignCallableContract(function),
             &cell,
             cancellation,
@@ -54,7 +54,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticBag, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ForeignCallableValidation,
             &self.state.foreign_callable_validation,
             cancellation,
@@ -73,7 +73,7 @@ impl Compilation {
 
         let record = binding_context
             .function(function)
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         if record.origin() != SymbolOrigin::Source {
@@ -89,10 +89,10 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let signature = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 CallableSymbolId::from(function),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         let mut diagnostics = signature.diagnostics().clone();
 
@@ -178,10 +178,10 @@ impl Compilation {
 
         if abi != CallableAbi::Bray && direction == ForeignCallableDirection::Import {
             let contracts = binding_context
-                .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
                     function.into(),
                 ))
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
             diagnostics.add_range(contracts.diagnostics().iter().cloned());
 

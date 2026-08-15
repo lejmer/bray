@@ -30,8 +30,8 @@ use crate::analysis::{
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 #[expect(
@@ -49,7 +49,7 @@ pub(crate) fn check_async_analysis<C>(
     flow: &StorageFlow,
 ) -> CheckerOutcome<CheckedAsync>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -77,8 +77,8 @@ where
 
     let execution = match containing_execution(request) {
         Ok(execution) => execution,
-        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
     };
@@ -255,8 +255,8 @@ where
 
     let (scope_exits, cleanup_diagnostics) = match scope_exit_plans(request, storage, flow) {
         Ok(plans) => plans,
-        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
     };
@@ -358,9 +358,9 @@ where
 
 fn containing_execution<C>(
     request: CheckerUnitView<'_, C>,
-) -> Result<Option<CallableExecution>, CheckerFactError>
+) -> Result<Option<CallableExecution>, CheckerQueryError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let execution = match request.unit().root() {
         BoundUnitRoot::CallableBody { execution, .. }
@@ -1212,16 +1212,14 @@ mod tests {
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty test liveness must validate: {error:?}"));
 
-        let refinements =
-            CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
-                .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
+            .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
 
         let suspension = include_suspension_state
             .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
 
-        let flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
-                .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+        let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
+            .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         check_async_analysis(
             request,

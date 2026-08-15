@@ -259,10 +259,7 @@ mod tests {
                         DiagnosticInterfaceLimit::ImplementationEntryCount,
                     ),
                 ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::ActualCount,
-                    DiagnosticArgValue::Count(2),
-                ),
+                DiagnosticArg::new(DiagnosticArgName::ActualCount, DiagnosticArgValue::Count(2),),
                 DiagnosticArg::maximum_count(1),
             ]
         );

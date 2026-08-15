@@ -44,11 +44,8 @@ impl LinkStaging {
             .first()
             .ok_or(LinkStagingError::MissingArtifacts)?;
 
-        let transaction = transaction_directory(
-            plan,
-            transaction_owner,
-            managed_staging.as_deref(),
-        )?;
+        let transaction =
+            transaction_directory(plan, transaction_owner, managed_staging.as_deref())?;
 
         let mut inputs = Vec::new();
 
@@ -425,12 +422,11 @@ fn create_private_directory(
     match std::fs::create_dir(path) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let metadata = std::fs::symlink_metadata(path).map_err(|error| {
-                LinkStagingError::Create {
+            let metadata =
+                std::fs::symlink_metadata(path).map_err(|error| LinkStagingError::Create {
                     artifact: artifact.clone(),
                     kind: error.kind(),
-                }
-            })?;
+                })?;
 
             if !metadata.file_type().is_dir() {
                 return Err(LinkStagingError::Create {

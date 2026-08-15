@@ -19,7 +19,8 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantSymbolId, ConstantValueData, ConstantValueId,
     ConstantValueKind, DirectiveArgumentTemplate, DirectiveKind, DirectiveSurface,
     DirectiveTemplate, IntegerConstant, IntegerSign, ModuleContributionGate, ModuleSymbol,
-    NamedTypeSymbolId, ProductKind, StructSymbolId, SymbolProvider, TargetPropertyDependency, TypeId,
+    NamedTypeSymbolId, ProductKind, StructSymbolId, SymbolProvider, TargetPropertyDependency,
+    TypeId,
 };
 use bray_target::{TargetPropertyKind, TargetPropertyValue};
 
@@ -141,7 +142,7 @@ impl Compilation {
         let context = self.discovery_binding_context(cancellation)?;
 
         let directives = bind_module_part_directives_for_selection(&context, module.id(), part)
-            .map_err(super::binder::binder_fact_error)?;
+            .map_err(super::binder::binding_query_error)?;
 
         let (directives, mut diagnostics) = directives.into_parts();
 
@@ -288,7 +289,13 @@ impl Compilation {
     fn target_gate_reference(
         &self,
         target: BoundReferenceTarget,
-    ) -> Result<(ConstantReferenceResolution, Option<TargetPropertyDependency>), FactQueryError> {
+    ) -> Result<
+        (
+            ConstantReferenceResolution,
+            Option<TargetPropertyDependency>,
+        ),
+        FactQueryError,
+    > {
         let BoundReferenceTarget::Surface(AnySymbolId::Constant(symbol)) = target else {
             return Ok((ConstantReferenceResolution::Invalid, None));
         };
@@ -342,7 +349,9 @@ impl Compilation {
 
         let value = match property_value {
             TargetPropertyValue::String(value) => ConstantValueKind::String(Arc::from(value)),
-            TargetPropertyValue::Usize(value) => ConstantValueKind::Integer(unsigned_integer(value)),
+            TargetPropertyValue::Usize(value) => {
+                ConstantValueKind::Integer(unsigned_integer(value))
+            }
             TargetPropertyValue::Boolean(value) => ConstantValueKind::Boolean(value),
         };
 
@@ -664,7 +673,9 @@ mod tests {
 
         let value = compilation
             .constant_instance(instance)
-            .unwrap_or_else(|error| panic!("target property instance must be available: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("target property instance must be available: {error:?}")
+            });
 
         assert!(value.diagnostics().is_empty());
 

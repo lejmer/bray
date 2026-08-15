@@ -20,18 +20,12 @@ pub(super) fn system_arguments_for(
         SystemLinkerFamily::Gnu | SystemLinkerFamily::Microsoft | SystemLinkerFamily::Apple => {
             arguments_for_with_directory(plan, family.flavor(), current_directory)
         }
-        SystemLinkerFamily::GnuCompiler => {
-            gnu_compiler_arguments(plan, false, current_directory)
-        }
-        SystemLinkerFamily::WslGnuCompiler => {
-            gnu_compiler_arguments(plan, true, current_directory)
-        }
+        SystemLinkerFamily::GnuCompiler => gnu_compiler_arguments(plan, false, current_directory),
+        SystemLinkerFamily::WslGnuCompiler => gnu_compiler_arguments(plan, true, current_directory),
         SystemLinkerFamily::MicrosoftCompiler => {
             microsoft_compiler_arguments(plan, current_directory)
         }
-        SystemLinkerFamily::AppleCompiler => {
-            apple_compiler_arguments(plan, current_directory)
-        }
+        SystemLinkerFamily::AppleCompiler => apple_compiler_arguments(plan, current_directory),
     }
 }
 
@@ -805,7 +799,7 @@ mod tests {
             .unwrap_or_else(|| panic!("COFF debug arguments must request linked debug data"));
 
         assert_eq!(
-            &arguments[debug.. debug + 4],
+            &arguments[debug..debug + 4],
             [
                 OsString::from("/debug"),
                 OsString::from("/pdb:staging/application.pdb"),
@@ -824,11 +818,11 @@ mod tests {
         assert!(stable_arguments.contains(&OsString::from("application.dll")));
         assert!(stable_arguments.contains(&OsString::from("/pdb:application.pdb")));
 
-        assert!(!stable_arguments.iter().any(|argument| {
-            argument
-                .to_string_lossy()
-                .contains("staging/application")
-        }));
+        assert!(
+            !stable_arguments
+                .iter()
+                .any(|argument| { argument.to_string_lossy().contains("staging/application") })
+        );
     }
 
     #[test]
@@ -986,10 +980,7 @@ mod tests {
         let driver = LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "lld", "1", "20")
             .unwrap_or_else(|| panic!("test linker identity must be valid"));
 
-        let debug = if matches!(
-            companion,
-            Some((_, LinkedArtifactKind::DebugCompanion))
-        ) {
+        let debug = if matches!(companion, Some((_, LinkedArtifactKind::DebugCompanion))) {
             DebugLinkPolicy::Companion
         } else {
             DebugLinkPolicy::None

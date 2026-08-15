@@ -44,8 +44,9 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         Some("os-constants") => crate::standard_library::os_constants::run(arguments)
             .map(|()| PathBuf::new())
             .map_err(BuildError::OsConstants),
-        Some("performance") => crate::standard_library::performance::run(arguments)
-            .map(|()| PathBuf::new()),
+        Some("performance") => {
+            crate::standard_library::performance::run(arguments).map(|()| PathBuf::new())
+        }
         Some("test") => native_test(arguments).map(|()| PathBuf::new()),
         Some("verify") => verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
@@ -89,7 +90,10 @@ fn native_profile_output(
     profile_output
         .map(|path| {
             std::path::absolute(&path).map_err(|error| {
-                BuildError::conformance("native profile", format!("could not resolve output: {error}"))
+                BuildError::conformance(
+                    "native profile",
+                    format!("could not resolve output: {error}"),
+                )
             })
         })
         .transpose()
@@ -468,11 +472,17 @@ fn build_platform_archives(
             crate::native_archive::build_no_std_rust_static_library
         };
 
-        let built = build(root, native, "bray-platform-abi", "release", &[partition.feature])
+        let built = build(
+            root,
+            native,
+            "bray-platform-abi",
+            "release",
+            &[partition.feature],
+        )
         .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 
-        let bytes = fs::read(built.archive())
-            .map_err(|error| BuildError::read(built.archive(), error))?;
+        let bytes =
+            fs::read(built.archive()).map_err(|error| BuildError::read(built.archive(), error))?;
 
         archives.push(BuiltPlatformArchive {
             name: partition.name,
@@ -491,10 +501,7 @@ fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildEr
         .ok_or(BuildError::InvalidIdentity)
 }
 
-fn platform_abi_archive_name(
-    target: NativeTarget,
-    partition: &str,
-) -> Result<String, BuildError> {
+fn platform_abi_archive_name(target: NativeTarget, partition: &str) -> Result<String, BuildError> {
     TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
         .file_name(partition)
         .ok_or(BuildError::InvalidIdentity)
@@ -656,11 +663,7 @@ pub(in crate::standard_library) fn standard_library_source_request(
     let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
         .map_err(|error| BuildError::Source(format!("{error:?}")))?;
 
-    let options = CompilationOptions::new(
-        worker_budget,
-        ProductKind::Library,
-        selected.clone(),
-    );
+    let options = CompilationOptions::new(worker_budget, ProductKind::Library, selected.clone());
 
     Ok(
         CompilationRequest::with_options(product.identity().package().clone(), sources, options)
@@ -826,7 +829,8 @@ mod tests {
 
     #[test]
     fn native_test_profile_output_is_explicit_and_absolute() {
-        let mut arguments = ["--profile-output".to_owned(), "profiles/native".to_owned()].into_iter();
+        let mut arguments =
+            ["--profile-output".to_owned(), "profiles/native".to_owned()].into_iter();
 
         let output = native_profile_output(&mut arguments)
             .unwrap_or_else(|error| panic!("native profile output must parse: {error}"))
@@ -867,7 +871,7 @@ mod tests {
                 NativeTarget::X86_64WindowsMsvc,
                 "bray_platform_standard_streams",
             )
-                .unwrap_or_else(|error| panic!("Windows platform archive must be valid: {error}")),
+            .unwrap_or_else(|error| panic!("Windows platform archive must be valid: {error}")),
             "bray_platform_standard_streams.lib"
         );
 

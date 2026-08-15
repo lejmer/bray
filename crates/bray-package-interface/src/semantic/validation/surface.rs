@@ -59,13 +59,9 @@ impl InterfaceSemantics {
                 .windows(2)
                 .all(|pair| pair[0].implementation < pair[1].implementation)
             || !is_strictly_sorted(&self.coherence)
-            || !self
-                .target_dependencies
-                .windows(2)
-                .all(|pair| {
-                    (&pair[0].owner, &pair[0].property)
-                        < (&pair[1].owner, &pair[1].property)
-                })
+            || !self.target_dependencies.windows(2).all(|pair| {
+                (&pair[0].owner, &pair[0].property) < (&pair[1].owner, &pair[1].property)
+            })
             || !self
                 .abi_dependencies
                 .windows(2)

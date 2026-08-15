@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, PredicateClauseBindingContext,
-    SymbolFactProvider, bind_predicate_clause, bind_trusted_capability_clause,
+    BindingQueryContext, BindingQueryError, BindingQueryResult, PredicateClauseBindingContext,
+    SymbolQueryProvider, bind_predicate_clause, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -16,7 +16,7 @@ use bray_symbols::{
     CallableContractsQuery, CallableExecution, CallablePhaseBehavior, CallableSignatureQuery,
     CallableSymbolId, CallableTrust, CheckedConstraint, CurrentRunCancellation,
     DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsQuery,
-    GenericDeclarationTemplateQuery, GenericOwnerId, SymbolFactRequest, SymbolFactResult,
+    GenericDeclarationTemplateQuery, GenericOwnerId, SymbolQueryRequest,
     TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
@@ -24,39 +24,47 @@ use bray_syntax::{
     UsesClauseSyntax, WithClauseSyntax, syntax_node_view, walk_direct_child_nodes,
 };
 
-use super::binding::CompilationSymbolFactBinding;
+use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::checked_source_predicate_sequence;
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::diagnostics::source_diagnostic;
-use crate::fact::SymbolFactCache;
+use crate::fact::SymbolQueryCache;
 
-impl CompilationSymbolFactBinding<GenericConstraintsQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<GenericConstraintsQuery> {
+impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<GenericConstraintsQuery> {
         &self.generic_constraints
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<GenericConstraintsQuery>,
-    ) -> BinderFactResult<SymbolFactResult<GenericConstraintsQuery>> {
+        request: SymbolQueryRequest<GenericConstraintsQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         bind_generic_constraints(context, request.symbol())
     }
 }
 
-impl CompilationSymbolFactBinding<CallableContractsQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<CallableContractsQuery> {
+impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<CallableContractsQuery> {
         &self.callable_contracts
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<CallableContractsQuery>,
-    ) -> BinderFactResult<SymbolFactResult<CallableContractsQuery>> {
+        request: SymbolQueryRequest<CallableContractsQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         bind_callable_contracts(context, request.owner())
     }
 }
@@ -64,13 +72,17 @@ impl CompilationSymbolFactBinding<CallableContractsQuery> for CompilationSymbolS
 fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<SymbolFactResult<GenericConstraintsQuery>> {
+) -> BindingQueryResult<
+    bray_diagnostics::DiagnosticResult<
+        <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
+    >,
+> {
     let generic_owner =
-        GenericOwnerId::try_new(owner).ok_or(BinderFactError::DependencyUnavailable)?;
+        GenericOwnerId::try_new(owner).ok_or(BindingQueryError::DependencyUnavailable)?;
 
-    let template = context.symbol_fact(
-        SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(generic_owner),
-    )?;
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        GenericDeclarationTemplateQuery,
+    >::new(generic_owner))?;
 
     // The published constraint query owns the Arc-backed template diagnostics independently.
     let template_diagnostics = template.diagnostics().clone();
@@ -83,9 +95,9 @@ fn bind_generic_constraints(
             .map(|constraint| {
                 constraint
                     .resolved()
-                    .ok_or(BinderFactError::DependencyUnavailable)
+                    .ok_or(BindingQueryError::DependencyUnavailable)
             })
-            .collect::<BinderFactResult<Vec<_>>>()?;
+            .collect::<BindingQueryResult<Vec<_>>>()?;
 
         return publish_catalog_result(
             GenericConstraintSet::new(constraints),
@@ -106,7 +118,7 @@ fn bind_generic_constraints(
                 .value()
                 .constraints()
                 .get(constraints.len())
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             let constraint = match source {
                 bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
@@ -129,13 +141,13 @@ fn bind_generic_constraints(
                     diagnostics = diagnostics.merged(&clause_diagnostics);
 
                     let [predicate] = predicates.as_ref() else {
-                        return Err(BinderFactError::DependencyUnavailable);
+                        return Err(BindingQueryError::DependencyUnavailable);
                     };
 
                     CheckedConstraint::new(ordinal, *predicate)
                 }
                 bray_symbols::GenericConstraintTemplate::Resolved(_) => {
-                    return Err(BinderFactError::DependencyUnavailable);
+                    return Err(BindingQueryError::DependencyUnavailable);
                 }
             };
 
@@ -149,7 +161,11 @@ fn bind_generic_constraints(
 fn bind_callable_contracts(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
-) -> BinderFactResult<SymbolFactResult<CallableContractsQuery>> {
+) -> BindingQueryResult<
+    bray_diagnostics::DiagnosticResult<
+        <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
+    >,
+> {
     if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         return super::imported::imported_callable_contracts(context, address);
     }
@@ -200,9 +216,10 @@ fn bind_callable_contracts(
     let dependency = context
         .semantic_values
         .empty_dependency_contract_template()
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-    let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(owner))?;
+    let signature =
+        context.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
 
     let (execution, trust) = match signature.value().callable_type() {
         bray_symbols::TypeExpressionTemplate::Callable(callable) => {
@@ -212,18 +229,18 @@ fn bind_callable_contracts(
             let data = context
                 .semantic_values
                 .type_data(*ty)
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
             match &*data {
                 TypeData::Callable(callable) => (callable.execution(), callable.trust()),
-                _ => return Err(BinderFactError::DependencyUnavailable),
+                _ => return Err(BindingQueryError::DependencyUnavailable),
             }
         }
-        _ => return Err(BinderFactError::DependencyUnavailable),
+        _ => return Err(BindingQueryError::DependencyUnavailable),
     };
 
     let definition = bray_symbols::CallableDefinitionId::try_new(owner.into_any())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let body_key = context
         .compilation()
@@ -283,7 +300,7 @@ fn bind_callable_contracts(
 pub(in crate::compilation) fn bind_declared_trusted_capabilities(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
-) -> BinderFactResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
+) -> BindingQueryResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let clauses = with_declaration_root(context, owner.into_any(), |root| {
         Ok(direct_contract_clauses(root))
     })?;
@@ -304,7 +321,7 @@ fn bind_trusted_capability_clauses(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
     clauses: impl IntoIterator<Item = UsesClauseSyntax>,
-) -> BinderFactResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
+) -> BindingQueryResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let mut capabilities = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -416,7 +433,7 @@ fn validate_trusted_capabilities(
     used: Option<&[bray_bound_tree::TrustedCapabilityUse]>,
     is_recovered: bool,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<()> {
+) -> BindingQueryResult<()> {
     let has_body = used.is_some();
     let mut declared_by_capability = BTreeMap::<_, BTreeSet<_>>::new();
 
@@ -448,7 +465,7 @@ fn validate_trusted_capabilities(
         let anchor = context
             .symbols
             .declaration_syntax_anchor(owner.into_any())
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         for capability in declared.union(&used) {
             diagnostics.add(trusted_capability_diagnostic(
@@ -474,7 +491,7 @@ fn validate_trusted_capabilities(
     let anchor = context
         .symbols
         .declaration_syntax_anchor(owner.into_any())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
@@ -515,11 +532,11 @@ fn trusted_capability_diagnostic(
     fallback: bray_declarations::SyntaxAnchor,
     kind: DiagnosticKind,
     capability: TrustedCapabilitySymbolId,
-) -> BinderFactResult<bray_diagnostics::Diagnostic> {
+) -> BindingQueryResult<bray_diagnostics::Diagnostic> {
     let name = context
         .symbols
         .member_name(capability.into())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let origins = origins.into_iter().collect::<BTreeSet<_>>();
     let anchor = origins.first().copied().unwrap_or(fallback);
@@ -573,7 +590,7 @@ fn bind_callable_predicates(
     kind: CallableContractClauseKind,
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<()> {
+) -> BindingQueryResult<()> {
     let expressions = expressions.into_iter().collect::<Vec<_>>();
 
     if context.symbols.symbol_origin(owner) != Some(bray_symbols::SymbolOrigin::Source) {
@@ -604,7 +621,7 @@ fn bind_callable_predicates(
         .symbols
         .symbol_key(owner)
         .cloned()
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let source = context
         .compilation()
@@ -612,12 +629,12 @@ fn bind_callable_predicates(
         .map_err(super::binding::binder_error)?;
 
     let key = bray_bound_tree::BoundUnitKey::contract_clause(owner_key, source)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let checked = checked_source_predicate_sequence(context, key)?;
 
     if checked.dependency_contracts.len() != expression_count {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     }
 
     *diagnostics = diagnostics.merged(&checked.diagnostics);
@@ -639,9 +656,9 @@ fn resolve_trait_satisfaction_constraint(
     context: &CompilationBindingContext<'_>,
     constraint: &bray_symbols::GenericConstraintTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<CheckedConstraint> {
+) -> BindingQueryResult<CheckedConstraint> {
     let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let (subject, application) =
@@ -658,9 +675,9 @@ fn resolve_type_equality_constraint(
     context: &CompilationBindingContext<'_>,
     constraint: &bray_symbols::GenericConstraintTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<CheckedConstraint> {
+) -> BindingQueryResult<CheckedConstraint> {
     let Some((left, right)) = constraint.type_equality_templates() else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let left = resolve_type_template(context, left, diagnostics)?;
@@ -677,7 +694,7 @@ fn resolve_type_template(
     context: &CompilationBindingContext<'_>,
     template: &bray_symbols::TypeExpressionTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<bray_symbols::TypeId> {
+) -> BindingQueryResult<bray_symbols::TypeId> {
     let mut terms = BTreeMap::new();
 
     for occurrence in template.constant_expressions() {
@@ -691,11 +708,11 @@ fn resolve_type_template(
     }
 
     let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
 fn resolve_trait_satisfaction_templates(
@@ -703,7 +720,7 @@ fn resolve_trait_satisfaction_templates(
     subject: &bray_symbols::TypeExpressionTemplate,
     application: &bray_symbols::TraitApplicationTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
+) -> BindingQueryResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
     let mut terms = BTreeMap::new();
 
     for occurrence in subject
@@ -721,23 +738,23 @@ fn resolve_trait_satisfaction_templates(
     }
 
     let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     let subject = bray_checker::resolve_type_expression_template(
         context.semantic_values,
         subject,
         &constants,
     )
-    .map_err(|_| BinderFactError::DependencyUnavailable)?
-    .ok_or(BinderFactError::DependencyUnavailable)?;
+    .map_err(|_| BindingQueryError::DependencyUnavailable)?
+    .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let application = bray_checker::resolve_trait_application_template(
         context.semantic_values,
         application,
         &constants,
     )
-    .map_err(|_| BinderFactError::DependencyUnavailable)?
-    .ok_or(BinderFactError::DependencyUnavailable)?;
+    .map_err(|_| BindingQueryError::DependencyUnavailable)?
+    .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     Ok((subject, application))
 }
@@ -748,7 +765,7 @@ fn bind_callable_static_constraints(
     expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
-) -> BinderFactResult<()> {
+) -> BindingQueryResult<()> {
     for expression in expressions {
         let ordinal = symbol_ordinal(predicates.len())?;
 
@@ -785,7 +802,7 @@ fn bind_callable_static_constraints(
             *diagnostics = diagnostics.merged(&expression_diagnostics);
 
             let [predicate] = checked.as_ref() else {
-                return Err(BinderFactError::DependencyUnavailable);
+                return Err(BindingQueryError::DependencyUnavailable);
             };
 
             CallableContractClause::new(ordinal, CallableContractClauseKind::Static, *predicate)
@@ -853,7 +870,7 @@ fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax
 fn publish_catalog_result<T>(
     value: T,
     diagnostics: DiagnosticBag,
-) -> BinderFactResult<DiagnosticResult<T>> {
+) -> BindingQueryResult<DiagnosticResult<T>> {
     Ok(DiagnosticResult::new(value, diagnostics))
 }
 
@@ -862,7 +879,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
-    use bray_binder::SymbolFactProvider;
+    use bray_binder::SymbolQueryProvider;
     use bray_bound_tree::SemanticSelection;
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
@@ -870,8 +887,7 @@ mod tests {
     };
     use bray_symbols::{
         CallableContractTemplate, CallableContractsQuery, CallableSymbolId,
-        DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolFactRequest,
-        SymbolFactResult,
+        DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolQueryRequest,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -1199,15 +1215,19 @@ mod tests {
     fn callable_contracts(
         compilation: &Compilation,
         name: &str,
-    ) -> Arc<SymbolFactResult<CallableContractsQuery>> {
+    ) -> Arc<
+        bray_diagnostics::DiagnosticResult<
+            <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         let function = source_function(compilation, name);
 
-        let facts = compilation
+        let binding_context = compilation
             .binding_context(&compilation.state.cancellation)
             .unwrap_or_else(|error| panic!("binder queries must be available: {error:?}"));
 
-        facts
-            .symbol_fact(SymbolFactRequest::<CallableContractsQuery>::new(
+        binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
                 CallableSymbolId::from(function),
             ))
             .unwrap_or_else(|error| panic!("callable contracts must publish: {error:?}"))

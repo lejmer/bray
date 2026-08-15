@@ -8,8 +8,8 @@ use crate::semantic::model::{
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemantics,
-    InterfaceType, InterfaceTypeId,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemantics, InterfaceType,
+    InterfaceTypeId,
 };
 
 pub(super) fn remap_selected_records(

@@ -3,9 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     BorrowKind, ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation,
-    CurrentRunCancellation,
-    DependencyContractTemplateId, GenericSubstitutionId, LifecycleObligationKind, SymbolKey,
-    SymbolKind, SymbolOrdinal, TypeId,
+    CurrentRunCancellation, DependencyContractTemplateId, GenericSubstitutionId,
+    LifecycleObligationKind, SymbolKey, SymbolKind, SymbolOrdinal, TypeId,
 };
 
 use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};

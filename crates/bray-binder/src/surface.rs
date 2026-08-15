@@ -13,7 +13,7 @@ use crate::binding::{
 };
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::unit::BoundUnitLocalBuilder;
-use crate::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
 
 /// The declaration-surface role of one predicate-bearing clause.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,19 +56,19 @@ impl BoundTrustedCapability {
 
 /// Binds one declaration-surface predicate clause through the ordinary expression binder.
 pub fn bind_predicate_clause<C>(
-    facts: &C,
+    binding_context: &C,
     owner: AnySymbolId,
     clause: SyntaxNodeView<'_>,
     expressions: impl IntoIterator<Item = ExpressionSyntax>,
     context: PredicateClauseBindingContext,
-) -> BinderFactResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>>
+) -> BindingQueryResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let has_result = match context {
         PredicateClauseBindingContext::CallableContract(CallableContractClauseKind::Ensures) => {
-            callable_normal_completion_has_value(facts, owner)?
+            callable_normal_completion_has_value(binding_context, owner)?
         }
         PredicateClauseBindingContext::GenericConstraint
         | PredicateClauseBindingContext::CallableContract(
@@ -79,7 +79,7 @@ where
     let syntax_anchor = SyntaxAnchor::from_node(&clause);
 
     bind_surface(
-        facts,
+        binding_context,
         owner,
         clause,
         match context {
@@ -97,7 +97,7 @@ where
                 }
             };
 
-            let error_type = facts
+            let error_type = binding_context
                 .semantic_values()
                 .intern_type(bray_symbols::TypeData::Error)
                 .map_err(|_| BindingError::IdentityCapacityExceeded)?;
@@ -105,7 +105,7 @@ where
             let mut expression_binder = ExpressionBinder::new(path, error_type);
             let mut predicates = Vec::new();
 
-            let dependency = facts
+            let dependency = binding_context
                 .semantic_values()
                 .empty_dependency_contract_template()
                 .map_err(|_| BindingError::IdentityCapacityExceeded)?;
@@ -123,16 +123,16 @@ where
 
 /// Resolves one callable `uses(...)` clause through ordinary symbol lookup.
 pub fn bind_trusted_capability_clause<C>(
-    facts: &C,
+    binding_context: &C,
     owner: AnySymbolId,
     clause: &UsesClauseSyntax,
-) -> BinderFactResult<DiagnosticResult<Box<[BoundTrustedCapability]>>>
+) -> BindingQueryResult<DiagnosticResult<Box<[BoundTrustedCapability]>>>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     bind_surface(
-        facts,
+        binding_context,
         owner,
         syntax_node_view(clause),
         SurfaceUnitKind::ContractClause,
@@ -158,24 +158,24 @@ where
 }
 
 fn bind_surface<C, T>(
-    facts: &C,
+    binding_context: &C,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
     unit_kind: SurfaceUnitKind,
     bind: impl FnOnce(&mut Binder<'_, C>, PathBindingContext) -> Result<T, BindingError>,
-) -> BinderFactResult<DiagnosticResult<T>>
+) -> BindingQueryResult<DiagnosticResult<T>>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
-    if facts.is_cancelled() {
-        return Err(BinderFactError::Cancelled);
+    if binding_context.is_cancelled() {
+        return Err(BindingQueryError::Cancelled);
     }
 
-    let symbols = facts.symbols();
+    let symbols = binding_context.symbols();
 
     let Some(owner_key) = symbols.symbol_key(owner) else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let source =
@@ -188,22 +188,22 @@ where
         SurfaceUnitKind::Constraint => BoundUnitKey::constraint(owner_key, source),
         SurfaceUnitKind::ContractClause => BoundUnitKey::contract_clause(owner_key, source),
     }
-    .ok_or(BinderFactError::DependencyUnavailable)?;
+    .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let unit = BoundUnitId::new(0);
     let region = LocalSymbolRegionId::new(unit.raw());
 
     let builder = BoundUnitLocalBuilder::new(unit, key, region, syntax.full_range().start())
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-    let mut binder = Binder::new(facts, builder);
+    let mut binder = Binder::new(binding_context, builder);
     let scope = binder.unit().root_scope();
 
     if matches!(unit_kind, SurfaceUnitKind::ContractClause)
         && let Some(callable) = CallableSymbolId::try_from_any(owner)
     {
         crate::entry::push_callable_inputs_for(&mut binder, scope, callable)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
     }
 
     let path = match symbols.containing_module(owner) {
@@ -221,22 +221,22 @@ where
 
     let output = binder
         .finish()
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     let (_, diagnostics, _) = output.into_parts();
 
     Ok(DiagnosticResult::new(value, diagnostics))
 }
 
-const fn binding_error(error: BindingError) -> BinderFactError {
+const fn binding_error(error: BindingError) -> BindingQueryError {
     match error {
-        BindingError::Cancelled => BinderFactError::Cancelled,
+        BindingError::Cancelled => BindingQueryError::Cancelled,
         BindingError::DependencyUnavailable
         | BindingError::Construction(_)
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
-        | BindingError::UnsupportedSyntax => BinderFactError::DependencyUnavailable,
+        | BindingError::UnsupportedSyntax => BindingQueryError::DependencyUnavailable,
     }
 }

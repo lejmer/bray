@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_platform::WallClockTimestamp;
 use bray_platform_abi_support::{
-    MemoryRegion, destination_slice, disjoint, native_platform_export, platform_io_error,
-    publish_transfer_count, source_slice, startup_working_directory, validate_transfer,
-    PROCESS_HANDLE_TAG,
+    MemoryRegion, PROCESS_HANDLE_TAG, destination_slice, disjoint, native_platform_export,
+    platform_io_error, publish_transfer_count, source_slice, startup_working_directory,
+    validate_transfer,
 };
 use bray_runtime_abi::{
     NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
@@ -176,11 +176,7 @@ fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
     })
 }
 
-fn seek_file(
-    id: u64,
-    offset_bits: u64,
-    origin: u32,
-) -> Result<u64, NativePlatformStatus> {
+fn seek_file(id: u64, offset_bits: u64, origin: u32) -> Result<u64, NativePlatformStatus> {
     let position = match origin {
         0 => SeekFrom::Start(offset_bits),
         1 => SeekFrom::Current(i64::from_ne_bytes(offset_bits.to_ne_bytes())),
@@ -795,11 +791,11 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
     use bray_runtime_abi::{
         NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
         NativePlatformStatus,
     };
-    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
     use bray_testing::unique_temporary_directory;
 
     use super::{

@@ -211,9 +211,7 @@ impl Liveness {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, LivenessBuildError,
-    };
+    use super::{LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, LivenessBuildError};
     use crate::test_support::semantic_values;
     use crate::{
         BorrowCapabilityId, BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId,
@@ -246,7 +244,12 @@ mod tests {
 
         assert_eq!(liveness.last_uses(), &[last_use]);
         assert_eq!(liveness.live_across_scopes(), &[live_across_scope]);
-        assert_eq!(liveness.live_across_suspensions(), &[live_across_suspension]);
+
+        assert_eq!(
+            liveness.live_across_suspensions(),
+            &[live_across_suspension]
+        );
+
         assert!(liveness.is_last_use(expression.into(), subject));
         assert!(liveness.is_live_across_scope(scope, subject));
         assert!(liveness.is_live_across_suspension(expression, subject));

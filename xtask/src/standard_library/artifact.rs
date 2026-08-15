@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use bray_emitter::{
-    ArtifactKind, ManagedFilesystemDestination, resolve_published_artifact,
-};
+use bray_emitter::{ArtifactKind, ManagedFilesystemDestination, resolve_published_artifact};
 use bray_symbols::ProductIdentity;
 
 use super::command::BuildError;

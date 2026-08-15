@@ -1,38 +1,39 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactResult, SymbolFactProvider};
+use bray_binder::{BindingQueryResult, SymbolQueryProvider};
 use bray_symbols::{
     CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
     CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableSignatureQuery, ConstantDeclaredTypeQuery,
     ConstantDefinitionQuery, DeclarationDirectivesQuery, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, ImplementationCoherenceQuery,
-    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery, ImplementationSubjectQuery,
-    ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, ModuleSurfaceQuery,
-    PredicateDefinitionQuery, PredicateSignatureTemplateQuery, StructFieldDefaultQuery,
-    StructFieldDefaultTemplateQuery, StructFieldTypeQuery, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeQuery,
+    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
+    ImplementationSubjectQuery, ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery,
+    ModuleSurfaceQuery, PredicateDefinitionQuery, PredicateSignatureTemplateQuery,
+    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldTypeQuery,
+    SymbolQueryContract, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
     TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
     TraitConstantMemberDefinitionQuery, TraitPredicateFulfillmentDefinitionQuery,
     TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
-    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldTypeQuery,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    UnionPayloadFieldTypeQuery,
 };
 
-use super::super::binder_fact_error;
+use super::super::binding_query_error;
 use super::super::context::CompilationBindingContext;
-use super::binding::{CompilationSymbolFactBinding, binder_error};
-use crate::fact::{CompilationFactKey, SymbolFactCache};
+use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
+use crate::fact::{CompilationFactKey, SymbolQueryCache};
 
 macro_rules! define_compilation_symbol_semantics {
     ($($field:ident: $contract:ty),+ $(,)?) => {
         pub(in crate::compilation) struct CompilationSymbolSemantics {
-            $(pub(super) $field: SymbolFactCache<$contract>,)+
+            $(pub(super) $field: SymbolQueryCache<$contract>,)+
         }
 
         impl CompilationSymbolSemantics {
             pub(in crate::compilation) fn new() -> Self {
                 Self {
-                    $($field: SymbolFactCache::new(),)+
+                    $($field: SymbolQueryCache::new(),)+
                 }
             }
 
@@ -86,15 +87,17 @@ define_compilation_symbol_semantics! {
     implementation_overload_templates: ImplementationOverloadTemplateQuery,
 }
 
-impl<C> SymbolFactProvider<C> for CompilationBindingContext<'_>
+impl<C> SymbolQueryProvider<C> for CompilationBindingContext<'_>
 where
-    C: SymbolFactContract,
-    CompilationSymbolSemantics: CompilationSymbolFactBinding<C>,
+    C: SymbolQueryContract,
+    CompilationSymbolSemantics: CompilationSymbolQueryEvaluator<C>,
 {
-    fn symbol_fact(
+    fn resolve_symbol_query(
         &self,
-        request: SymbolFactRequest<C>,
-    ) -> BinderFactResult<Arc<SymbolFactResult<C>>> {
+        request: SymbolQueryRequest<C>,
+    ) -> BindingQueryResult<
+        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+    > {
         let semantics = self.symbol_semantics;
         let cache = semantics.cache();
 
@@ -103,7 +106,7 @@ where
                 &self.compilation.state.fact_runtime,
                 self.cancellation,
                 request,
-                || semantics.bind(self, request).map_err(binder_fact_error),
+                || semantics.bind(self, request).map_err(binding_query_error),
             )
             .map_err(binder_error)
     }

@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCoherenceQuery,
     ImplementationSymbolId, InherentImplementationSymbol, InherentImplementationSymbolId,
-    NamedTypeSymbolId, StructSymbol, SymbolFactRequest, TargetPropertyDependency,
+    NamedTypeSymbolId, StructSymbol, SymbolQueryRequest, TargetPropertyDependency,
     TypeAssociatedImplementation, TypeAssociatedSurface, UnionSymbol,
 };
 
@@ -62,12 +62,13 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let generic = binding_context
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
                 generic_owner,
             ))
-            .map_err(binder::binder_fact_error)?;
+            .map_err(binder::binding_query_error)?;
 
-        let (direct_members, direct_lifecycle) = collect_named_type_members(&binding_context, record)?;
+        let (direct_members, direct_lifecycle) =
+            collect_named_type_members(&binding_context, record)?;
 
         let implementation_ids = self
             .type_associated_implementation_index(cancellation)?
@@ -89,10 +90,10 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let implementation_generic = binding_context
-                .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
                     generic_owner,
                 ))
-                .map_err(binder::binder_fact_error)?;
+                .map_err(binder::binding_query_error)?;
 
             diagnostics.add_range(implementation_generic.diagnostics().iter().cloned());
 
@@ -103,7 +104,8 @@ impl Compilation {
 
             let record = inherent_implementation_record(&binding_context, implementation)?;
 
-            let (members, lifecycle_members) = collect_implementation_members(&binding_context, record)?;
+            let (members, lifecycle_members) =
+                collect_implementation_members(&binding_context, record)?;
 
             // The surface independently retains this immutable generic template publication.
             implementations.push(TypeAssociatedImplementation::new(
@@ -146,7 +148,7 @@ fn named_type_record<'binding_context>(
 ) -> Result<NamedTypeRecord<'binding_context>, FactQueryError> {
     let imported = binding_context
         .imported_symbols()
-        .map_err(binder::binder_fact_error)?;
+        .map_err(binder::binding_query_error)?;
 
     match subject {
         NamedTypeSymbolId::Struct(id) => binding_context
@@ -167,13 +169,16 @@ fn inherent_implementation_record<'binding_context>(
     binding_context: &'binding_context CompilationBindingContext<'_>,
     implementation: InherentImplementationSymbolId,
 ) -> Result<&'binding_context InherentImplementationSymbol, FactQueryError> {
-    if let Some(record) = binding_context.symbols().inherent_implementation(implementation) {
+    if let Some(record) = binding_context
+        .symbols()
+        .inherent_implementation(implementation)
+    {
         return Ok(record);
     }
 
     binding_context
         .imported_symbols()
-        .map_err(binder::binder_fact_error)?
+        .map_err(binder::binding_query_error)?
         .and_then(|symbols| symbols.inherent_implementation(implementation))
         .ok_or(FactQueryError::InfrastructureFailure)
 }
@@ -188,10 +193,10 @@ fn implementation_metadata(
 ) -> Result<(Vec<TargetPropertyDependency>, DiagnosticBag), FactQueryError> {
     if let Some(address) = binding_context
         .imported_semantic_address(implementation.into())
-        .map_err(binder::binder_fact_error)?
+        .map_err(binder::binding_query_error)?
     {
-        let imported =
-            binder::imported_implementation(binding_context, address).map_err(binder::binder_fact_error)?;
+        let imported = binder::imported_implementation(binding_context, address)
+            .map_err(binder::binding_query_error)?;
 
         // The contribution retains imported diagnostics beyond the exact query result.
         return Ok((
@@ -201,10 +206,10 @@ fn implementation_metadata(
     }
 
     let coherence = binding_context
-        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
             ImplementationSymbolId::from(implementation),
         ))
-        .map_err(binder::binder_fact_error)?;
+        .map_err(binder::binding_query_error)?;
 
     let source_graph = binding_context.compilation().product_source_graph()?;
 

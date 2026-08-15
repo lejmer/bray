@@ -75,12 +75,8 @@ impl RefinementUniverse {
                 continue;
             };
 
-            let refinements = universe.refinements(
-                refinement,
-                request.view(),
-                patterns,
-                &direct_dependencies,
-            );
+            let refinements =
+                universe.refinements(refinement, request.view(), patterns, &direct_dependencies);
 
             let indexes = refinements
                 .into_iter()
@@ -213,7 +209,11 @@ impl RefinementUniverse {
             .filter_map(|index| self.refinements.get(index).cloned())
     }
 
-    pub(super) fn insert_refinement(&self, set: &mut RefinementSet, refinement: AnalysisRefinement) {
+    pub(super) fn insert_refinement(
+        &self,
+        set: &mut RefinementSet,
+        refinement: AnalysisRefinement,
+    ) {
         let Some(indexes) = self.edge_refinements.get(&refinement) else {
             return;
         };

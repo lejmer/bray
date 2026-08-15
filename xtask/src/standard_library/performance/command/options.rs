@@ -80,17 +80,31 @@ impl Options {
     }
 }
 
-fn path(arguments: &mut impl Iterator<Item = String>, option: &'static str) -> Result<PathBuf, String> {
+fn path(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<PathBuf, String> {
     value(arguments, option).map(PathBuf::from)
 }
 
-fn value(arguments: &mut impl Iterator<Item = String>, option: &'static str) -> Result<String, String> {
-    arguments.next().ok_or_else(|| format!("missing value for {option}"))
+fn value(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<String, String> {
+    arguments
+        .next()
+        .ok_or_else(|| format!("missing value for {option}"))
 }
 
-fn count(arguments: &mut impl Iterator<Item = String>, option: &'static str) -> Result<u32, String> {
+fn count(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<u32, String> {
     let value = value(arguments, option)?;
-    let count = value.parse().map_err(|_| format!("invalid count for {option}: {value}"))?;
+
+    let count = value
+        .parse()
+        .map_err(|_| format!("invalid count for {option}: {value}"))?;
 
     if count == 0 {
         return Err(format!("{option} must be positive"));

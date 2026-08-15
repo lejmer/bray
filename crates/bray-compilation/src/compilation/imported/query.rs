@@ -28,7 +28,9 @@ use super::diagnostic::{
     validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
+};
 use crate::request::DependencyInterfaceInput;
 
 impl super::super::Compilation {
@@ -88,7 +90,7 @@ impl super::super::Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImportedSymbolSkeleton,
             &self.state.imported_symbol_skeleton,
             cancellation,
@@ -109,7 +111,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImportedSemanticGraph(interface),
             cache,
             cancellation,
@@ -141,7 +143,7 @@ impl super::super::Compilation {
 
     /// Returns diagnostics owned by all selected compiled dependency interfaces.
     pub fn imported_diagnostics(&self) -> &DiagnosticBag {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::ImportedDiagnostics,
             &self.state.imported_diagnostics,
             || self.compute_imported_diagnostics(),
@@ -191,7 +193,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::DependencyInterface(interface),
             cache,
             cancellation,
@@ -236,15 +238,17 @@ impl super::super::Compilation {
                 ));
             };
 
-            let Some(fact) =
+            let Some(interface_result) =
                 self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
             else {
                 return Err(FactQueryError::InfrastructureFailure);
             };
 
-            diagnostics.push(fact.result().diagnostics());
+            diagnostics.push(interface_result.result().diagnostics());
 
-            let (Some(validated), Some(surface)) = (fact.validated(), fact.surface()) else {
+            let (Some(validated), Some(surface)) =
+                (interface_result.validated(), interface_result.surface())
+            else {
                 continue;
             };
 
@@ -474,7 +478,9 @@ impl super::super::Compilation {
         cancellation.check()?;
 
         match decoded.intern(semantic_values, &resolver) {
-            Ok(semantics) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(semantics)))),
+            Ok(semantics) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
+                semantics,
+            )))),
             Err(error) => Ok(DiagnosticResult::new(
                 None,
                 semantic_content_diagnostics(error, input),
@@ -1335,7 +1341,7 @@ mod tests {
     use bray_package_interface::{
         DependencyInterfaceId, ImportedSemanticRecord, ImportedSymbolConstructionError,
         InterfaceContentHash, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
-        InterfaceProductIdentity, InterfaceSemanticRecordKind, InterfaceSemanticInternError,
+        InterfaceProductIdentity, InterfaceSemanticInternError, InterfaceSemanticRecordKind,
         InterfaceSymbolReference, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
     };
@@ -1905,19 +1911,15 @@ mod tests {
         );
 
         let results = std::thread::scope(|scope| {
-            let first =
-                scope.spawn(|| compilation.imported_semantics(implementation_key));
+            let first = scope.spawn(|| compilation.imported_semantics(implementation_key));
 
-            let second =
-                scope.spawn(|| compilation.imported_semantics(implementation_key));
+            let second = scope.spawn(|| compilation.imported_semantics(implementation_key));
 
             [first, second].map(|thread| {
                 thread
                     .join()
                     .unwrap_or_else(|_| panic!("implementation query thread must not panic"))
-                    .unwrap_or_else(|error| {
-                        panic!("implementation query must complete: {error:?}")
-                    })
+                    .unwrap_or_else(|error| panic!("implementation query must complete: {error:?}"))
             })
         });
 

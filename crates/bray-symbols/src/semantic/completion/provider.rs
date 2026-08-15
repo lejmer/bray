@@ -1,7 +1,7 @@
 use bray_base::Cancellation;
 use bray_diagnostics::DiagnosticBag;
 
-use super::SymbolFactCompletionRequest;
+use super::SymbolCompletionQuery;
 
 /// A cancellation source that never cancels completion planning.
 #[derive(Clone, Copy, Debug, Default)]
@@ -13,27 +13,27 @@ impl Cancellation for NeverCancelSymbolCompletion {
     }
 }
 
-/// Computes or retrieves one symbol fact and returns its owned diagnostics.
+/// Evaluates one symbol query and returns its owned diagnostics.
 ///
-/// Legal semantic recursion should resolve through the provider's ordinary typed facts. An
-/// invalid dependency cycle is an outer provider error unless that fact category deliberately
+/// Legal semantic recursion should resolve through ordinary typed queries. An invalid dependency
+/// cycle is an outer evaluator error unless that query category deliberately
 /// recovers by publishing an error-aware value and diagnostics.
-pub trait SymbolFactForcer: Sync {
-    /// The provider-specific outer query failure.
+pub trait SymbolCompletionEvaluator: Sync {
+    /// The evaluator-specific outer query failure.
     type Error: Send;
 
-    /// Forces one exact fact without pre-rendering or globally publishing diagnostics.
-    fn force(&self, request: SymbolFactCompletionRequest) -> Result<DiagnosticBag, Self::Error>;
+    /// Evaluates one exact query without pre-rendering or globally publishing diagnostics.
+    fn evaluate(&self, request: SymbolCompletionQuery) -> Result<DiagnosticBag, Self::Error>;
 }
 
-impl<F, E> SymbolFactForcer for F
+impl<F, E> SymbolCompletionEvaluator for F
 where
-    F: Fn(SymbolFactCompletionRequest) -> Result<DiagnosticBag, E> + Sync,
+    F: Fn(SymbolCompletionQuery) -> Result<DiagnosticBag, E> + Sync,
     E: Send,
 {
     type Error = E;
 
-    fn force(&self, request: SymbolFactCompletionRequest) -> Result<DiagnosticBag, Self::Error> {
+    fn evaluate(&self, request: SymbolCompletionQuery) -> Result<DiagnosticBag, Self::Error> {
         self(request)
     }
 }
@@ -43,10 +43,8 @@ mod tests {
     use bray_base::Cancellation;
     use bray_diagnostics::DiagnosticBag;
 
-    use super::{NeverCancelSymbolCompletion, SymbolFactForcer};
-    use crate::{
-        AnySymbolId, FunctionSymbolId, SymbolFactCompletionRequest, SymbolFactKind, SymbolId,
-    };
+    use super::{NeverCancelSymbolCompletion, SymbolCompletionEvaluator};
+    use crate::{AnySymbolId, FunctionSymbolId, SymbolCompletionQuery, SymbolId, SymbolQueryKind};
 
     #[test]
     fn never_cancel_source_remains_active() {
@@ -54,23 +52,23 @@ mod tests {
     }
 
     #[test]
-    fn closures_adapt_typed_fact_forcing() {
+    fn closures_adapt_typed_query_evaluation() {
         let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
-        let request = SymbolFactCompletionRequest::new(symbol, SymbolFactKind::CallableSignature);
+        let request = SymbolCompletionQuery::new(symbol, SymbolQueryKind::CallableSignature);
 
-        let forcer = |requested| -> Result<DiagnosticBag, ()> {
+        let evaluator = |requested| -> Result<DiagnosticBag, ()> {
             assert_eq!(requested, request);
 
             Ok(DiagnosticBag::new())
         };
 
-        let result = forcer.force(request);
+        let result = evaluator.evaluate(request);
 
         assert!(matches!(result, Ok(diagnostics) if diagnostics.is_empty()));
     }
 
     #[test]
-    fn provider_contracts_are_send_and_sync() {
+    fn completion_helpers_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<NeverCancelSymbolCompletion>();

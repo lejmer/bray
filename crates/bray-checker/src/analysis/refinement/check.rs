@@ -114,9 +114,7 @@ where
 
     let refinements =
         CheckedRefinements::try_new(request.view().unit(), request.view().kind(), [], true)
-            .unwrap_or_else(|error| {
-                panic!("empty recovery refinements must be valid: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("empty recovery refinements must be valid: {error:?}"));
 
     CheckerOutcome::complete(refinements, DiagnosticBag::single(diagnostic))
 }

@@ -12,8 +12,8 @@ use bray_symbols::{CallableSignatureQuery, TypeData};
 use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
@@ -32,16 +32,14 @@ pub(crate) fn analyze_storage_liveness<C>(
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<Liveness>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
         || storage.unit() != request.unit().unit()
         || storage.kind() != request.unit().key().kind()
     {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidLiveness,
-        );
+        return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLiveness);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, selections) {
@@ -115,7 +113,7 @@ impl OperationEffects {
         memory: &CheckedMemoryOperations,
     ) -> Result<Self, CheckerInfrastructureError>
     where
-        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
@@ -270,7 +268,7 @@ impl OperationEffects {
         storage: &StoragePlan,
     ) -> Result<(), CheckerInfrastructureError>
     where
-        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
         for entry in selections.entries() {
             let SemanticSelection::Call(call) = entry.selection() else {

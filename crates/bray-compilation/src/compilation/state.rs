@@ -1,4 +1,4 @@
-// rust-style: allow(module-too-large, reason = "the compilation state keeps the complete lazy fact inventory and its construction auditable together")
+// rust-style: allow(module-too-large, reason = "the compilation state keeps the complete demand-driven query inventory and its construction auditable together")
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -7,10 +7,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
     BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedAsync, CheckedBodyBehavior,
-    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, SelectedIterationSource,
-    StorageFlow, StoragePlan,
+    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, Liveness, SelectedIterationSource, StorageFlow, StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_codegen::{CodegenConfiguration, CodegenOutcome};
@@ -32,16 +31,16 @@ use bray_symbols::{
     GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
     ImplementationSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
-    PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticFactResult,
-    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
-    TraitImplementationConformanceQuery, TypeAssociatedSurface, TypeId,
+    PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
+    SemanticValueStoreCreateError, SymbolGraph, TraitImplementationConformanceQuery,
+    TypeAssociatedSurface, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
     BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey,
-    ConstantInstanceFactKey, FactCell, FactCellMap, FactQueryError, FactRuntime,
-    ImportedSemanticRecordKey, PublishedUnitFact, UnitFactCache,
+    ConstantInstanceQueryKey, FactCell, FactCellMap, FactQueryError, FactRuntime,
+    ImportedSemanticRecordKey, PublishedUnitResult, UnitQueryCache,
 };
 use crate::request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
@@ -63,7 +62,7 @@ pub(super) type CheckedExpressionSemantics = (
     CheckedLiteralValues,
 );
 
-/// Durable immutable compilation context and demand-driven fact entrypoint.
+/// Durable immutable compilation context and demand-driven query entrypoint.
 #[derive(Clone)]
 pub struct Compilation {
     pub(super) state: Arc<CompilationState>,
@@ -73,8 +72,7 @@ pub(super) struct CompilationState {
     pub(super) package_identity: PackageIdentity,
     pub(super) package_source_authority: crate::PackageSourceAuthority,
     pub(super) standard_library: Option<bray_standard_library::StandardLibraryResolver>,
-    pub(super) standard_library_providers:
-        Option<bray_standard_library::StandardLibraryResolver>,
+    pub(super) standard_library_providers: Option<bray_standard_library::StandardLibraryResolver>,
     pub(super) options: CompilationOptions,
     pub(super) sources: SourceStore,
     pub(super) source_diagnostics: DiagnosticBag,
@@ -116,8 +114,10 @@ pub(super) struct CompilationState {
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
     pub(super) imported_semantic_graphs:
         Vec<FactCell<DiagnosticResult<Option<Arc<ImportedSemantics>>>>>,
-    pub(super) imported_semantics:
-        FactCellMap<ImportedSemanticRecordKey, Arc<DiagnosticResult<Arc<[ImportedSemanticRecord]>>>>,
+    pub(super) imported_semantics: FactCellMap<
+        ImportedSemanticRecordKey,
+        Arc<DiagnosticResult<Arc<[ImportedSemanticRecord]>>>,
+    >,
     pub(super) imported_constant_callable_bodies: FactCellMap<
         ImportedSemanticAddress,
         Arc<DiagnosticResult<Option<Arc<bray_bound_tree::CheckedTemplate>>>>,
@@ -129,7 +129,11 @@ pub(super) struct CompilationState {
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) implementation_participation: FactCellMap<
         ImplementationCoherenceDomainKey,
-        Arc<SemanticFactResult<ImplementationParticipationQuery>>,
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <ImplementationParticipationQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
     >,
     pub(super) implementation_coherence: FactCell<DiagnosticBag>,
     pub(super) callable_overload_validation: FactCell<DiagnosticBag>,
@@ -152,47 +156,51 @@ pub(super) struct CompilationState {
     >,
     pub(super) trait_implementation_conformance: FactCellMap<
         ImplementationSymbolId,
-        Arc<SemanticFactResult<TraitImplementationConformanceQuery>>,
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
     >,
     pub(super) generic_constraint_satisfaction:
         FactCellMap<GenericConstraintObligationKey, Arc<DiagnosticResult<ProofOutcome>>>,
     pub(super) implementation_selections:
         FactCellMap<ImplementationRequirementKey, Arc<DiagnosticResult<ImplementationSelection>>>,
     pub(super) iteration_sources: FactCellMap<
-        crate::fact::IterationSourceFactKey,
+        crate::fact::IterationSourceQueryKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
     pub(super) operation_selections: FactCellMap<
-        crate::fact::OperationSelectionFactKey,
+        crate::fact::OperationSelectionQueryKey,
         Arc<DiagnosticResult<Option<super::operation::OperationResolution>>>,
     >,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) symbol_semantics: CompilationSymbolSemantics,
     pub(super) discovery_symbol_semantics: CompilationSymbolSemantics,
-    pub(super) bound_units: UnitFactCache<BoundUnit>,
-    pub(super) declared_value_type_templates: UnitFactCache<DeclaredValueTypeTemplates>,
-    pub(super) checked_control_flow: UnitFactCache<CheckedControlFlow>,
-    pub(super) provisional_expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
-    pub(super) expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
-    pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
-    pub(super) checked_literal_values: UnitFactCache<CheckedLiteralValues>,
-    pub(super) checked_patterns: UnitFactCache<CheckedPatterns>,
-    pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
-    pub(super) storage_plans: UnitFactCache<StoragePlan>,
-    pub(super) liveness: UnitFactCache<Liveness>,
-    pub(super) refinements: UnitFactCache<CheckedRefinements>,
-    pub(super) storage_flow: UnitFactCache<StorageFlow>,
-    pub(super) dependency_contracts: UnitFactCache<CheckedDependencyContracts>,
-    pub(super) memory_operations: UnitFactCache<CheckedMemoryOperations>,
-    pub(super) async_analysis: UnitFactCache<CheckedAsync>,
-    pub(super) body_behavior_contributions: UnitFactCache<BodyBehaviorContributions>,
-    pub(super) checked_body_behaviors: UnitFactCache<CheckedBodyBehavior>,
-    pub(super) lowered_units: UnitFactCache<Option<bray_lowering::LoweredUnit>>,
+    pub(super) bound_units: UnitQueryCache<BoundUnit>,
+    pub(super) declared_value_type_templates: UnitQueryCache<DeclaredValueTypeTemplates>,
+    pub(super) checked_control_flow: UnitQueryCache<CheckedControlFlow>,
+    pub(super) provisional_expression_semantics: UnitQueryCache<CheckedExpressionSemantics>,
+    pub(super) expression_semantics: UnitQueryCache<CheckedExpressionSemantics>,
+    pub(super) checked_expression_types: UnitQueryCache<CheckedExpressionTypes>,
+    pub(super) checked_literal_values: UnitQueryCache<CheckedLiteralValues>,
+    pub(super) checked_patterns: UnitQueryCache<CheckedPatterns>,
+    pub(super) checked_semantic_selections: UnitQueryCache<CheckedSemanticSelections>,
+    pub(super) storage_plans: UnitQueryCache<StoragePlan>,
+    pub(super) liveness: UnitQueryCache<Liveness>,
+    pub(super) refinements: UnitQueryCache<CheckedRefinements>,
+    pub(super) storage_flow: UnitQueryCache<StorageFlow>,
+    pub(super) dependency_contracts: UnitQueryCache<CheckedDependencyContracts>,
+    pub(super) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
+    pub(super) async_analysis: UnitQueryCache<CheckedAsync>,
+    pub(super) body_behavior_contributions: UnitQueryCache<BodyBehaviorContributions>,
+    pub(super) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
+    pub(super) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
     pub(super) codegen: Option<CodegenConfiguration>,
     pub(super) codegen_artifacts:
-        FactCellMap<crate::fact::CodegenArtifactFactKey, Arc<CodegenOutcome>>,
+        FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,
     pub(super) native_products: FactCellMap<
-        crate::fact::NativeProductFactKey,
+        crate::fact::NativeProductQueryKey,
         Result<Arc<super::NativeProductPlan>, Arc<super::NativeProductPlanningError>>,
     >,
     pub(super) constant_template_keys:
@@ -202,15 +210,15 @@ pub(super) struct CompilationState {
     pub(super) predicate_definition_keys: FactCell<
         Result<BTreeMap<bray_symbols::PredicateDefinitionSymbolId, BoundUnitKey>, FactQueryError>,
     >,
-    pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
+    pub(super) symbolic_constant_terms: UnitQueryCache<ConstantTermId>,
     pub(super) embedded_constant_expectations:
         Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,
     pub(super) constant_instances: FactCellMap<
-        ConstantInstanceFactKey,
+        ConstantInstanceQueryKey,
         Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>,
     >,
     pub(super) constant_calls: FactCellMap<
-        crate::fact::ConstantCallFactKey,
+        crate::fact::ConstantCallQueryKey,
         Arc<DiagnosticResult<Option<bray_checker::EvaluatedConstantCall>>>,
     >,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
@@ -220,7 +228,7 @@ pub(super) struct CompilationState {
 }
 
 impl Compilation {
-    /// Loads source inputs into durable compilation state without requesting derived facts.
+    /// Loads source inputs into durable compilation state without requesting derived results.
     pub fn load(request: CompilationRequest) -> Result<Self, CompilationLoadError> {
         Self::load_inner(request, None)
     }
@@ -289,15 +297,15 @@ impl Compilation {
             .as_deref()
             .map(|profile| profile.start(crate::profile::ProfileOperation::CompilationLoad, None));
 
-        let standard_library = standard_library_root
-            .map(bray_standard_library::StandardLibraryResolver::new);
+        let standard_library =
+            standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
 
-        let standard_library_providers = standard_library_provider_root
-            .map(bray_standard_library::StandardLibraryResolver::new);
+        let standard_library_providers =
+            standard_library_provider_root.map(bray_standard_library::StandardLibraryResolver::new);
 
         if let Some(resolver) = standard_library.as_ref() {
             // The synthetic dependency and native selection share one immutable resolver cache.
-            // SelectedTarget is small immutable request data retained by both compilation facts.
+            // SelectedTarget is small immutable request data retained by both compilation queries.
             dependency_interfaces.push(DependencyInterfaceInput::for_standard_library(
                 resolver.clone(),
                 options.selected_target().clone(),
@@ -308,11 +316,8 @@ impl Compilation {
             (left.package(), left.product()).cmp(&(right.package(), right.product()))
         });
 
-        let (sources, diagnostics) = load_source_inputs(
-            &package_identity,
-            package_source_authority,
-            source_inputs,
-        )?;
+        let (sources, diagnostics) =
+            load_source_inputs(&package_identity, package_source_authority, source_inputs)?;
 
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
@@ -363,10 +368,10 @@ impl Compilation {
                 platform_services: platform_services.into_boxed_slice(),
                 fact_runtime,
                 cancellation: CancellationToken::new(),
-                source_unit_syntax: empty_fact_caches(source_count),
+                source_unit_syntax: empty_query_caches(source_count),
                 syntax_tree_result: FactCell::new(),
-                declaration_chunks: empty_fact_caches(source_count),
-                source_reference_indexes: empty_fact_caches(source_count),
+                declaration_chunks: empty_query_caches(source_count),
+                source_reference_indexes: empty_query_caches(source_count),
                 declaration_table_result: FactCell::new(),
                 product_source_graph: FactCell::new(),
                 product_semantics: FactCell::new(),
@@ -380,10 +385,10 @@ impl Compilation {
                 discovery_symbol_graph: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: OnceLock::new(),
-                loaded_dependency_interfaces: empty_fact_caches(dependency_count),
-                loaded_dependency_implementations: empty_fact_caches(dependency_count),
+                loaded_dependency_interfaces: empty_query_caches(dependency_count),
+                loaded_dependency_implementations: empty_query_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
-                imported_semantic_graphs: empty_fact_caches(dependency_count),
+                imported_semantic_graphs: empty_query_caches(dependency_count),
                 imported_semantics: FactCellMap::new(),
                 imported_constant_callable_bodies: FactCellMap::new(),
                 imported_executable_templates: FactCellMap::new(),
@@ -407,32 +412,32 @@ impl Compilation {
                 semantic_diagnostics: FactCell::new(),
                 symbol_semantics: CompilationSymbolSemantics::new(),
                 discovery_symbol_semantics: CompilationSymbolSemantics::new(),
-                bound_units: UnitFactCache::new(),
-                declared_value_type_templates: UnitFactCache::new(),
-                checked_control_flow: UnitFactCache::new(),
-                provisional_expression_semantics: UnitFactCache::new(),
-                expression_semantics: UnitFactCache::new(),
-                checked_expression_types: UnitFactCache::new(),
-                checked_literal_values: UnitFactCache::new(),
-                checked_patterns: UnitFactCache::new(),
-                checked_semantic_selections: UnitFactCache::new(),
-                storage_plans: UnitFactCache::new(),
-                liveness: UnitFactCache::new(),
-                refinements: UnitFactCache::new(),
-                storage_flow: UnitFactCache::new(),
-                dependency_contracts: UnitFactCache::new(),
-                memory_operations: UnitFactCache::new(),
-                async_analysis: UnitFactCache::new(),
-                body_behavior_contributions: UnitFactCache::new(),
-                checked_body_behaviors: UnitFactCache::new(),
-                lowered_units: UnitFactCache::new(),
+                bound_units: UnitQueryCache::new(),
+                declared_value_type_templates: UnitQueryCache::new(),
+                checked_control_flow: UnitQueryCache::new(),
+                provisional_expression_semantics: UnitQueryCache::new(),
+                expression_semantics: UnitQueryCache::new(),
+                checked_expression_types: UnitQueryCache::new(),
+                checked_literal_values: UnitQueryCache::new(),
+                checked_patterns: UnitQueryCache::new(),
+                checked_semantic_selections: UnitQueryCache::new(),
+                storage_plans: UnitQueryCache::new(),
+                liveness: UnitQueryCache::new(),
+                refinements: UnitQueryCache::new(),
+                storage_flow: UnitQueryCache::new(),
+                dependency_contracts: UnitQueryCache::new(),
+                memory_operations: UnitQueryCache::new(),
+                async_analysis: UnitQueryCache::new(),
+                body_behavior_contributions: UnitQueryCache::new(),
+                checked_body_behaviors: UnitQueryCache::new(),
+                lowered_units: UnitQueryCache::new(),
                 codegen,
                 codegen_artifacts: FactCellMap::new(),
                 native_products: FactCellMap::new(),
                 constant_template_keys: FactCell::new(),
                 callable_body_keys: FactCell::new(),
                 predicate_definition_keys: FactCell::new(),
-                symbolic_constant_terms: UnitFactCache::new(),
+                symbolic_constant_terms: UnitQueryCache::new(),
                 embedded_constant_expectations: Mutex::new(BTreeMap::new()),
                 constant_instances: FactCellMap::new(),
                 constant_calls: FactCellMap::new(),
@@ -442,7 +447,7 @@ impl Compilation {
         })
     }
 
-    /// Loads one source package with default options without requesting derived facts.
+    /// Loads one source package with default options without requesting derived results.
     pub fn load_sources(
         package_identity: PackageIdentity,
         sources: Vec<SourceInput>,
@@ -481,7 +486,7 @@ impl Compilation {
 
     /// Returns the selected target and its available compiler-known declarations.
     pub fn selected_target(&self) -> &crate::SelectedTargetContext {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::SelectedTarget,
             &self.state.selected_target,
             || {
@@ -491,7 +496,7 @@ impl Compilation {
                     Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
                 };
 
-                // The published fact retains its target independently of request options.
+                // The published result retains its target independently of request options.
                 let target = self.requested_target().clone();
                 let available = provider.available_symbols(|rule| target.supports(rule));
 
@@ -524,13 +529,13 @@ impl Compilation {
         self.state.sources.get(source_id)?;
         let cache = self.state.source_unit_syntax.get(source_id.to_index()?)?;
 
-        Some(self.fact(
+        Some(self.evaluate_query(
             CompilationFactKey::SourceUnitSyntax(source_id),
             cache,
             || {
                 let snapshot = self
                     .source(source_id)
-                    .unwrap_or_else(|| panic!("source fact cache should match source store"));
+                    .unwrap_or_else(|| panic!("source query cache should match source store"));
 
                 let result = parse_source_unit(snapshot);
 
@@ -555,7 +560,7 @@ impl Compilation {
 
     /// Returns the syntax tree result for all loaded source units.
     pub fn syntax_tree_result(&self) -> &SyntaxTreeResult {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::SyntaxTree,
             &self.state.syntax_tree_result,
             || {
@@ -565,12 +570,12 @@ impl Compilation {
                     .map(SourceSnapshot::source_id)
                     .collect::<Vec<_>>();
 
-                let source_units = self.map_facts(source_ids.len(), |index| {
-                    // Source stores and fact caches share the loaded source count.
+                let source_units = self.map_queries(source_ids.len(), |index| {
+                    // Source stores and query caches share the loaded source count.
                     // The whole-source syntax result owns the composed source units.
                     match self.source_unit_syntax(source_ids[index]) {
                         Some(result) => result.clone(),
-                        None => panic!("source unit fact cache should match source store"),
+                        None => panic!("source unit query cache should match source store"),
                     }
                 });
 
@@ -588,7 +593,7 @@ impl Compilation {
     pub fn declaration_chunk(&self, source_id: SourceId) -> Option<&DeclarationChunkResult> {
         let cache = self.state.declaration_chunks.get(source_id.to_index()?)?;
 
-        Some(self.fact(
+        Some(self.evaluate_query(
             CompilationFactKey::DeclarationChunk(source_id),
             cache,
             || {
@@ -603,7 +608,7 @@ impl Compilation {
 
     /// Returns the merged declaration-discovery result for this compilation.
     pub fn declaration_table_result(&self) -> &DeclarationTableResult {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::DeclarationTable,
             &self.state.declaration_table_result,
             || {
@@ -613,7 +618,7 @@ impl Compilation {
                     .map(SourceSnapshot::source_id)
                     .collect::<Vec<_>>();
 
-                let chunks = self.map_facts(source_ids.len(), |index| {
+                let chunks = self.map_queries(source_ids.len(), |index| {
                     match self.declaration_chunk(source_ids[index]) {
                         // The merge owns its input chunks after scheduled work completes.
                         Some(chunk) => chunk.clone(),
@@ -635,7 +640,7 @@ impl Compilation {
         )
     }
 
-    pub(super) fn map_facts<T>(
+    pub(super) fn map_queries<T>(
         &self,
         len: usize,
         operation: impl Fn(usize) -> T + Send + Sync,
@@ -646,13 +651,13 @@ impl Compilation {
         match self.state.fact_runtime.map_indexed(len, operation) {
             Ok(values) => values,
             Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable scheduled facts were unexpectedly cancelled")
+                panic!("uncancellable scheduled queries were unexpectedly cancelled")
             }
             Err(FactQueryError::Cycle(cycle)) => {
-                panic!("scheduled fact dependencies formed a cycle: {cycle:?}")
+                panic!("scheduled query dependencies formed a cycle: {cycle:?}")
             }
             Err(FactQueryError::InfrastructureFailure) => {
-                panic!("scheduled fact infrastructure failed")
+                panic!("scheduled query infrastructure failed")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("scheduled semantic unit context failed: {error:?}")
@@ -675,7 +680,7 @@ impl Compilation {
 
     /// Returns the compilation-wide symbol graph.
     pub fn symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::SymbolGraph,
             &self.state.symbol_graph,
             || {
@@ -696,7 +701,7 @@ impl Compilation {
     }
 
     pub(super) fn discovery_symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::DiscoverySymbolGraph,
             &self.state.discovery_symbol_graph,
             || {
@@ -725,7 +730,7 @@ impl Compilation {
     }
 
     fn compiler_known_provider(&self) -> Result<&Arc<CompilerKnownSymbolProvider>, FactQueryError> {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::CompilerKnownSymbols,
             &self.state.compiler_known_symbols,
             || CompilerKnownSymbolProvider::build().map(Arc::new),
@@ -776,7 +781,7 @@ impl Compilation {
         self.state.sources.is_empty()
     }
 
-    pub(super) fn fact<'a, T>(
+    pub(super) fn evaluate_query<'a, T>(
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
@@ -793,13 +798,13 @@ impl Compilation {
         ) {
             Ok(value) => value,
             Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable compilation fact was unexpectedly cancelled")
+                panic!("uncancellable compilation query was unexpectedly cancelled")
             }
             Err(FactQueryError::Cycle(cycle)) => {
-                panic!("acyclic compilation fact dependency formed a cycle: {cycle:?}")
+                panic!("acyclic compilation query dependency formed a cycle: {cycle:?}")
             }
             Err(FactQueryError::InfrastructureFailure) => {
-                panic!("compilation fact infrastructure failed")
+                panic!("compilation query infrastructure failed")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
@@ -810,7 +815,7 @@ impl Compilation {
         }
     }
 
-    pub(super) fn query_fact_with_cancellation<'a, T>(
+    pub(super) fn query_with_cancellation<'a, T>(
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
@@ -835,9 +840,9 @@ impl Compilation {
         )
     }
 
-    pub(super) fn unit_fact<T>(
+    pub(super) fn unit_query<T>(
         &self,
-        cache: &UnitFactCache<T>,
+        cache: &UnitQueryCache<T>,
         semantic_key: CompilationFactKey,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -846,7 +851,7 @@ impl Compilation {
         )
             -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError>
     where
         T: std::hash::Hash + Send + Sync,
     {
@@ -856,12 +861,12 @@ impl Compilation {
             .current_priority()?
             .unwrap_or(crate::QueryPriority::Normal);
 
-        self.unit_fact_with_priority(cache, semantic_key, key, cancellation, priority, compute)
+        self.unit_query_with_priority(cache, semantic_key, key, cancellation, priority, compute)
     }
 
-    pub(super) fn unit_fact_with_priority<T>(
+    pub(super) fn unit_query_with_priority<T>(
         &self,
-        cache: &UnitFactCache<T>,
+        cache: &UnitQueryCache<T>,
         semantic_key: CompilationFactKey,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -871,7 +876,7 @@ impl Compilation {
         )
             -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>
         + Send,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError>
     where
         T: std::hash::Hash + Send + Sync,
     {
@@ -955,7 +960,7 @@ impl fmt::Debug for Compilation {
     }
 }
 
-fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
+fn empty_query_caches<T>(len: usize) -> Vec<FactCell<T>> {
     (0..len).map(|_| FactCell::new()).collect()
 }
 

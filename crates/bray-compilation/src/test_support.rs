@@ -373,8 +373,7 @@ pub(crate) fn source_named_trait_callable_fulfillment_body_key(
         .iter()
         .find(|member| {
             member.origin() == SymbolOrigin::Source
-                && symbols.containing_symbol(member.id().into())
-                    == Some(implementation.id().into())
+                && symbols.containing_symbol(member.id().into()) == Some(implementation.id().into())
                 && symbols
                     .member_name(member.id().into())
                     .is_some_and(|name| name.as_str() == member_name)

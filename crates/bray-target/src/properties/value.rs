@@ -1,8 +1,6 @@
 use crate::{Endianness, TargetProfile};
 
-use super::{
-    TargetAtomicRepresentation, TargetCScalarKind, TargetPropertyKind, TargetScalarKind,
-};
+use super::{TargetAtomicRepresentation, TargetCScalarKind, TargetPropertyKind, TargetScalarKind};
 
 /// The typed value of one language-defined target property.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -37,7 +35,9 @@ impl<'profile> TargetPropertyValue<'profile> {
             }
             TargetPropertyKind::IdentityVendor => Self::String(properties.identity().vendor()),
             TargetPropertyKind::IdentitySystem => Self::String(properties.identity().system()),
-            TargetPropertyKind::IdentityEnvironment => Self::String(properties.identity().environment()),
+            TargetPropertyKind::IdentityEnvironment => {
+                Self::String(properties.identity().environment())
+            }
             TargetPropertyKind::IdentityAbi => Self::String(properties.identity().abi()),
             TargetPropertyKind::PointerBits => {
                 Self::Usize(u64::from(profile.machine().pointer_width_bits().get()))
@@ -84,9 +84,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicU8AlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::U8).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicU8AlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U8).always_lock_free())
+            }
             TargetPropertyKind::AtomicU8WaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::U8).wait_notify())
             }
@@ -98,9 +98,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicU16AlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::U16).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicU16AlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U16).always_lock_free())
+            }
             TargetPropertyKind::AtomicU16WaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::U16).wait_notify())
             }
@@ -112,9 +112,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicU32AlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::U32).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicU32AlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U32).always_lock_free())
+            }
             TargetPropertyKind::AtomicU32WaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::U32).wait_notify())
             }
@@ -126,9 +126,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicU64AlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::U64).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicU64AlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U64).always_lock_free())
+            }
             TargetPropertyKind::AtomicU64WaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::U64).wait_notify())
             }
@@ -140,9 +140,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicU128AlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::U128).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicU128AlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::U128).always_lock_free())
+            }
             TargetPropertyKind::AtomicU128WaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::U128).wait_notify())
             }
@@ -154,9 +154,9 @@ impl<'profile> TargetPropertyValue<'profile> {
                     .required_alignment()
                     .get(),
             ),
-            TargetPropertyKind::AtomicPointerAlwaysLockFree => Self::Boolean(
-                atomic(TargetAtomicRepresentation::Pointer).always_lock_free(),
-            ),
+            TargetPropertyKind::AtomicPointerAlwaysLockFree => {
+                Self::Boolean(atomic(TargetAtomicRepresentation::Pointer).always_lock_free())
+            }
             TargetPropertyKind::AtomicPointerWaitNotify => {
                 Self::Boolean(atomic(TargetAtomicRepresentation::Pointer).wait_notify())
             }
@@ -177,21 +177,29 @@ impl<'profile> TargetPropertyValue<'profile> {
             TargetPropertyKind::CLongLong => c_scalar(TargetCScalarKind::LongLong),
             TargetPropertyKind::CUnsignedLongLong => c_scalar(TargetCScalarKind::UnsignedLongLong),
             TargetPropertyKind::CSize => c_scalar(TargetCScalarKind::Size),
-            TargetPropertyKind::CPointerDifference => c_scalar(TargetCScalarKind::PointerDifference),
+            TargetPropertyKind::CPointerDifference => {
+                c_scalar(TargetCScalarKind::PointerDifference)
+            }
             TargetPropertyKind::CWideChar => c_scalar(TargetCScalarKind::WideChar),
             TargetPropertyKind::CBool => c_scalar(TargetCScalarKind::Bool),
             TargetPropertyKind::CFloat => c_scalar(TargetCScalarKind::Float),
             TargetPropertyKind::CDouble => c_scalar(TargetCScalarKind::Double),
             TargetPropertyKind::CLongDouble => c_scalar(TargetCScalarKind::LongDouble),
-            TargetPropertyKind::AddressSpaceHost => Self::Boolean(properties.address_spaces().host()),
-            TargetPropertyKind::AddressSpaceDevice => Self::Boolean(properties.address_spaces().device()),
+            TargetPropertyKind::AddressSpaceHost => {
+                Self::Boolean(properties.address_spaces().host())
+            }
+            TargetPropertyKind::AddressSpaceDevice => {
+                Self::Boolean(properties.address_spaces().device())
+            }
             TargetPropertyKind::AlignmentMaxStorage => {
                 Self::Usize(properties.alignments().max_storage().get())
             }
             TargetPropertyKind::AlignmentMaxAllocation => {
                 Self::Usize(properties.alignments().max_allocation().get())
             }
-            TargetPropertyKind::PlatformDynamicLoading => Self::Boolean(properties.dynamic_loading()),
+            TargetPropertyKind::PlatformDynamicLoading => {
+                Self::Boolean(properties.dynamic_loading())
+            }
         }
     }
 }

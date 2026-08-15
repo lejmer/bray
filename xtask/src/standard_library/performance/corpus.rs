@@ -862,7 +862,12 @@ mod tests {
         let workload = workload("format_writer");
         let storage = storage("format_writer");
 
-        assert!(workload.source.contains("std.io.FormattingSink<ValidatingWriter>"));
+        assert!(
+            workload
+                .source
+                .contains("std.io.FormattingSink<ValidatingWriter>")
+        );
+
         assert!(workload.source.contains("std.format.write_to<"));
         assert!(workload.source.contains("source[index] != 52"));
         assert_eq!(storage.allocation_count, 0);

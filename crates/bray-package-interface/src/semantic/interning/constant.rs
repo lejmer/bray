@@ -156,9 +156,9 @@ impl InternState {
             InterfaceConstantTerm::Parameter(parameter) => Some(ConstantTermData::Parameter(
                 resolve_exact(symbols, parameter)?,
             )),
-            InterfaceConstantTerm::TargetProperty(record) => {
-                Some(ConstantTermData::TargetProperty(resolve_exact(symbols, record)?))
-            }
+            InterfaceConstantTerm::TargetProperty(record) => Some(
+                ConstantTermData::TargetProperty(resolve_exact(symbols, record)?),
+            ),
             InterfaceConstantTerm::Unary { operation, operand } => self
                 .constant_term_id(*operand)
                 .map(|operand| ConstantTermData::Unary {

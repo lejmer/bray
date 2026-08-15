@@ -29,11 +29,7 @@ const OUTCOME_CASES: [OutcomeCase; 6] = [
         "explicit_failure",
         OutcomeExpectation::Explicit,
     ),
-    OutcomeCase::new(
-        "panic-failure",
-        "panic_failure",
-        OutcomeExpectation::Panic,
-    ),
+    OutcomeCase::new("panic-failure", "panic_failure", OutcomeExpectation::Panic),
     OutcomeCase::new(
         "recoverable-error",
         "recoverable_error",
@@ -115,25 +111,20 @@ fn audit_api(
     profile_output: Option<&Path>,
 ) -> Result<(), BuildError> {
     let request = test_batch_request([
-        test_batch_plan("startup-byte-buffer", ["byte_buffer_mutation"], 1, Some(1000))?,
+        test_batch_plan(
+            "startup-byte-buffer",
+            ["byte_buffer_mutation"],
+            1,
+            Some(1000),
+        )?,
         test_batch_plan(
             "startup-output-lock",
             ["repeated_standard_output_locks_are_released"],
             1,
             Some(1000),
         )?,
-        test_batch_plan(
-            "api-sequential",
-            std::iter::empty::<&str>(),
-            1,
-            Some(1000),
-        )?,
-        test_batch_plan(
-            "api-parallel",
-            std::iter::empty::<&str>(),
-            2,
-            Some(1000),
-        )?,
+        test_batch_plan("api-sequential", std::iter::empty::<&str>(), 1, Some(1000))?,
+        test_batch_plan("api-parallel", std::iter::empty::<&str>(), 2, Some(1000))?,
         test_batch_plan("api-filtered", ["standard_output"], 2, Some(1000))?,
     ])?;
 
@@ -272,10 +263,7 @@ fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
     test_batch_request(plans)
 }
 
-fn audit_outcome(
-    report: &NativeTestReport,
-    case: OutcomeCase,
-) -> Result<(), BuildError> {
+fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
     require_selection(report, 6, 1, 5)?;
 
@@ -521,9 +509,7 @@ fn test_batch_plan(
 ) -> Result<TestBatchPlan, BuildError> {
     TestBatchPlan::try_new(
         identity,
-        filters
-            .into_iter()
-            .map(|filter| filter.as_ref().to_owned()),
+        filters.into_iter().map(|filter| filter.as_ref().to_owned()),
         maximum_concurrency,
         timeout_milliseconds,
     )
@@ -578,7 +564,8 @@ fn run_test_batch(
             .arg(profile_output.join(profile_identity));
     }
 
-    command.args([
+    command
+        .args([
             "--format",
             "json",
             "test",
@@ -611,15 +598,16 @@ fn parse_batch_report(
     output: &Output,
     request: &TestBatchRequest,
 ) -> Result<NativeTestBatchReport, BuildError> {
-    let report = serde_json::from_slice::<NativeTestBatchReport>(&output.stdout).map_err(|error| {
-        BuildError::conformance(
-            operation,
-            format!(
-                "could not decode JSON report: {error}. {}",
-                crate::command::failure(operation, output)
-            ),
-        )
-    })?;
+    let report =
+        serde_json::from_slice::<NativeTestBatchReport>(&output.stdout).map_err(|error| {
+            BuildError::conformance(
+                operation,
+                format!(
+                    "could not decode JSON report: {error}. {}",
+                    crate::command::failure(operation, output)
+                ),
+            )
+        })?;
 
     report.validate(request)?;
 
@@ -641,9 +629,7 @@ fn product_catalog(
 ) -> Result<PathBuf, BuildError> {
     let destination = native_product_destination(workspace, target)?;
 
-    Ok(destination
-        .directory()
-        .join(format!("{product}.braytests")))
+    Ok(destination.directory().join(format!("{product}.braytests")))
 }
 
 fn native_product_destination(
@@ -1051,10 +1037,13 @@ mod tests {
 
     #[test]
     fn batch_report_rejects_a_child_report_with_an_unknown_format() {
-        let request = super::test_batch_request([
-            super::test_batch_plan("plan", std::iter::empty::<&str>(), 1, None)
-                .unwrap_or_else(|error| panic!("plan must build: {error:?}")),
-        ])
+        let request = super::test_batch_request([super::test_batch_plan(
+            "plan",
+            std::iter::empty::<&str>(),
+            1,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("plan must build: {error:?}"))])
         .unwrap_or_else(|error| panic!("batch request must build: {error:?}"));
 
         let report = serde_json::from_value::<super::NativeTestBatchReport>(serde_json::json!({

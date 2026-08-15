@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::StableDigestHasher;
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenDefinitionVisibility,
@@ -40,7 +40,7 @@ use bray_symbols::{
     ImplementationCoherenceQuery, ImplementationSymbolId, NamedTypeSymbolId, PackageIdentity,
     ReceiverMode, ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
     SemanticValueStore, StructFieldDefaultQuery, StructFieldDefaultValue, StructSymbolId,
-    SymbolFactRequest, SymbolKey, SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId,
     UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery, UnionPayloadFieldTypeQuery,
 };
 use bray_target::{
@@ -537,18 +537,22 @@ impl Compilation {
 
         let key = binding_context
             .symbol_key(provider)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
             .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
 
         if !matches!(key.data(), SymbolKeyData::External(_)) {
-            return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+            return Err(CodegenPreparationError::MissingHelperInstance(
+                reference.clone(),
+            ));
         }
 
         let Some(address) = binding_context
             .imported_semantic_address(provider)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
         else {
-            return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+            return Err(CodegenPreparationError::MissingHelperInstance(
+                reference.clone(),
+            ));
         };
 
         let template = self.imported_executable_template_with_cancellation(
@@ -625,7 +629,9 @@ impl Compilation {
     ) -> Result<CodegenSymbolKey, CodegenPreparationError> {
         let MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }) = operation
         else {
-            return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+            return Err(CodegenPreparationError::MissingHelperInstance(
+                reference.clone(),
+            ));
         };
 
         match initializer {
@@ -799,7 +805,9 @@ impl Compilation {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+                return Err(CodegenPreparationError::MissingHelperInstance(
+                    reference.clone(),
+                ));
             }
         }
 
@@ -908,7 +916,9 @@ impl Compilation {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+                return Err(CodegenPreparationError::MissingHelperInstance(
+                    reference.clone(),
+                ));
             }
         }
 
@@ -1090,7 +1100,7 @@ impl Compilation {
 
         let union = binding_context
             .union(union)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let mut current = block;
@@ -1098,7 +1108,7 @@ impl Compilation {
         for variant in union.variants() {
             let variant_record = binding_context
                 .union_variant(*variant)
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let matched = builder
@@ -1127,8 +1137,10 @@ impl Compilation {
                 .iter()
                 .map(|field| {
                     let template = binding_context
-                        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(*field))
-                        .map_err(super::super::binder::binder_fact_error)?;
+                        .resolve_symbol_query(
+                            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(*field),
+                        )
+                        .map_err(super::super::binder::binding_query_error)?;
 
                     let ty =
                         self.resolve_codegen_type(template.value(), substitution, cancellation)?;
@@ -1645,7 +1657,9 @@ impl Compilation {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(reference.clone()));
+                return Err(CodegenPreparationError::MissingHelperInstance(
+                    reference.clone(),
+                ));
             }
         }
 
@@ -1773,10 +1787,10 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let signature = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 callable.definition().callable_symbol(),
             ))
-            .map_err(super::super::binder::binder_fact_error)?;
+            .map_err(super::super::binder::binding_query_error)?;
 
         let constants = self.checked_constant_terms_for_templates_with_cancellation(
             [
@@ -1855,7 +1869,7 @@ impl Compilation {
 
                 let structure = binding_context
                     .structure(*structure)
-                    .map_err(super::super::binder::binder_fact_error)?
+                    .map_err(super::super::binder::binding_query_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 structure
@@ -1863,10 +1877,10 @@ impl Compilation {
                     .iter()
                     .map(|field| {
                         let template = binding_context
-                            .symbol_fact(
-                                SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(*field),
-                            )
-                            .map_err(super::super::binder::binder_fact_error)?;
+                            .resolve_symbol_query(SymbolQueryRequest::<
+                                bray_symbols::StructFieldTypeQuery,
+                            >::new(*field))
+                            .map_err(super::super::binder::binding_query_error)?;
 
                         let ty = self.resolve_codegen_type(
                             template.value(),
@@ -2026,7 +2040,9 @@ impl Compilation {
                     bray_runtime_interface::native_runtime_role_symbol(reference.role())
                         .and_then(BinarySymbolName::try_new)
                 })
-                .ok_or(CodegenPreparationError::MissingRuntimeRole(reference.role()))?;
+                .ok_or(CodegenPreparationError::MissingRuntimeRole(
+                    reference.role(),
+                ))?;
 
             let signature = self.codegen_runtime_signature(reference.role())?;
 
@@ -2165,7 +2181,7 @@ impl Compilation {
 
         let key = binding_context
             .symbol_key(symbol)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // Compatibility metadata owns package identity beyond the binder-binding_context borrow.
@@ -2280,7 +2296,7 @@ impl Compilation {
                 Ok(binding_context
                     .runtime_default_subject(provider)
                     .map(|subject| subject.map(|_| provider))
-                    .map_err(super::super::binder::binder_fact_error)?)
+                    .map_err(super::super::binder::binding_query_error)?)
             }
             MirUnitKey::ExternalRuntimeDefault(provider) => Ok(Some(*provider)),
             MirUnitKey::Bound(_)
@@ -2297,7 +2313,7 @@ impl Compilation {
     ) -> Result<SymbolKey, CodegenPreparationError> {
         let definition = binding_context
             .symbol_key(symbol)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         match definition.data() {
@@ -2575,12 +2591,13 @@ impl Compilation {
         let ty = self.substitute_codegen_type(ty, substitution, cancellation)?;
         let binding_context = self.binding_context(cancellation)?;
 
-        let checker = CompilationCheckerContext::new(binding_context).with_implementation_witnesses(
-            instance
-                .into_iter()
-                .flat_map(ConcreteCodegenInstance::implementation_witnesses)
-                .copied(),
-        );
+        let checker = CompilationCheckerContext::new(binding_context)
+            .with_implementation_witnesses(
+                instance
+                    .into_iter()
+                    .flat_map(ConcreteCodegenInstance::implementation_witnesses)
+                    .copied(),
+            );
 
         let mut diagnostics = DiagnosticBag::new();
 
@@ -2926,16 +2943,15 @@ impl Compilation {
         let role = super::super::foreign::compiler_known_representation(self, definition);
 
         if let Some(role) = role
-            && let Some(mapping) =
-                self.codegen_compiler_known_type(
-                    ty,
-                    role,
-                    substitution,
-                    target,
-                    cancellation,
-                    mappings,
-                    pending,
-                )?
+            && let Some(mapping) = self.codegen_compiler_known_type(
+                ty,
+                role,
+                substitution,
+                target,
+                cancellation,
+                mappings,
+                pending,
+            )?
         {
             return Ok(mapping);
         }
@@ -3028,7 +3044,10 @@ impl Compilation {
             )));
         }
 
-        if matches!(role, RepresentationRole::RawPointer | RepresentationRole::DevicePointer) {
+        if matches!(
+            role,
+            RepresentationRole::RawPointer | RepresentationRole::DevicePointer
+        ) {
             let substitution = self
                 .semantic_value_store()?
                 .generic_substitution_data(substitution)
@@ -3296,7 +3315,8 @@ impl Compilation {
                     .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
             }
 
-            let size = align_to(offset, alignment).ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+            let size =
+                align_to(offset, alignment).ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
 
             payload_alignment = payload_alignment.max(alignment);
             payload_size = payload_size.max(size);
@@ -3596,8 +3616,8 @@ impl Compilation {
 
             alignment = alignment.max(field_alignment);
 
-            offset =
-                align_to(offset, field_alignment).ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+            offset = align_to(offset, field_alignment)
+                .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
 
             layouts.push(CodegenFieldLayout::new(reference, field, offset));
 
@@ -3612,7 +3632,8 @@ impl Compilation {
 
         ensure_target_alignment(ty, alignment, target)?;
 
-        let size = align_to(offset, alignment).ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+        let size =
+            align_to(offset, alignment).ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
 
         Ok(CodegenTypeMapping::new(
             ty,
@@ -3917,10 +3938,10 @@ impl Compilation {
             .transpose()?;
 
         let template = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 definition.callable_symbol(),
             ))
-            .map_err(super::super::binder::binder_fact_error)?;
+            .map_err(super::super::binder::binding_query_error)?;
 
         let constants = self.checked_constant_terms_for_templates_with_cancellation(
             [template.value().callable_type(), template.value().result()],
@@ -4087,16 +4108,16 @@ impl Compilation {
 
         let owner = binding_context
             .runtime_default_subject(provider)
-            .map_err(super::super::binder::binder_fact_error)?
+            .map_err(super::super::binder::binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let (inputs, result) = match owner {
             AnySymbolId::CallableParameter(owner) => {
                 let checked = binding_context
-                    .symbol_fact(SymbolFactRequest::<CallableParameterDefaultQuery>::new(
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableParameterDefaultQuery>::new(
                         owner,
                     ))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -4106,8 +4127,8 @@ impl Compilation {
             }
             AnySymbolId::StructField(owner) => {
                 let checked = binding_context
-                    .symbol_fact(SymbolFactRequest::<StructFieldDefaultQuery>::new(owner))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                    .resolve_symbol_query(SymbolQueryRequest::<StructFieldDefaultQuery>::new(owner))
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let StructFieldDefaultValue::Valid(surface) = checked.value().value() else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -4117,10 +4138,10 @@ impl Compilation {
             }
             AnySymbolId::UnionPayloadField(owner) => {
                 let checked = binding_context
-                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultQuery>::new(
+                    .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldDefaultQuery>::new(
                         owner,
                     ))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -4173,7 +4194,7 @@ impl Compilation {
             RuntimeDefaultProviderInput::Receiver(parameter) => {
                 let owner = binding_context
                     .receiver_parameter(parameter)
-                    .map_err(super::super::binder::binder_fact_error)?
+                    .map_err(super::super::binder::binding_query_error)?
                     .map(bray_symbols::ReceiverParameterSymbol::owner)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -4182,7 +4203,7 @@ impl Compilation {
             RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
                 let owner = binding_context
                     .callable_parameter(parameter)
-                    .map_err(super::super::binder::binder_fact_error)?
+                    .map_err(super::super::binder::binding_query_error)?
                     .map(bray_symbols::CallableParameterSymbol::owner)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -4191,8 +4212,8 @@ impl Compilation {
         };
 
         let template = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(owner))
-            .map_err(super::super::binder::binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))
+            .map_err(super::super::binder::binding_query_error)?;
 
         let substitution = instance
             .substitution()
@@ -4225,7 +4246,8 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                receiver_codegen_type(values, ty, receiver.mode()).map_err(CodegenPreparationError::from)
+                receiver_codegen_type(values, ty, receiver.mode())
+                    .map_err(CodegenPreparationError::from)
             })
             .transpose()?;
 
@@ -4436,9 +4458,7 @@ fn atomic_storage_is_padding_free(
             end == layout.size()
         }
         CodegenTypeKind::Array { element, length } => {
-            let Some(element_layout) = mappings
-                .get(element)
-                .and_then(CodegenTypeMapping::layout)
+            let Some(element_layout) = mappings.get(element).and_then(CodegenTypeMapping::layout)
             else {
                 return false;
             };
@@ -4489,8 +4509,8 @@ fn atomic_representation_for_type(
         return Ok(Some(representation));
     }
 
-    let representation = compilation
-        .declared_type_representation_with_cancellation(*definition, cancellation)?;
+    let representation =
+        compilation.declared_type_representation_with_cancellation(*definition, cancellation)?;
 
     let representation = representation.value();
 
@@ -4531,7 +4551,9 @@ fn source_backed_symbol_key(key: &SymbolKey) -> bool {
     }
 }
 
-fn codegen_source_file(source: &SourceSnapshot) -> Result<CodegenSourceFile, CodegenPreparationError> {
+fn codegen_source_file(
+    source: &SourceSnapshot,
+) -> Result<CodegenSourceFile, CodegenPreparationError> {
     let origin = source.origin();
 
     let path = origin
@@ -4576,11 +4598,11 @@ fn implementation_subject(
     implementation: ImplementationSymbolId,
 ) -> Result<TypeId, FactQueryError> {
     binding_context
-        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
             implementation,
         ))
         .map(|coherence| coherence.value().subject())
-        .map_err(super::super::binder::binder_fact_error)
+        .map_err(super::super::binder::binding_query_error)
 }
 
 fn signature_types(signature: &CodegenCallableSignature) -> impl Iterator<Item = TypeId> + '_ {
@@ -4632,7 +4654,8 @@ fn native_boundary_mapping(
     symbol: &str,
     direction: ForeignCallableDirection,
 ) -> Result<(BinarySymbolName, CodegenLinkage), CodegenPreparationError> {
-    let name = BinarySymbolName::try_new(symbol).ok_or(CodegenPreparationError::InvalidSymbolName)?;
+    let name =
+        BinarySymbolName::try_new(symbol).ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
     let linkage = match direction {
         ForeignCallableDirection::Import => CodegenLinkage::Import,
@@ -4663,7 +4686,14 @@ fn scalar_mapping(
             ty,
             [(None, component), (None, component)],
             TargetLayoutContract::Default,
-            Some(target.profile().properties().scalars().alignment(scalar).get()),
+            Some(
+                target
+                    .profile()
+                    .properties()
+                    .scalars()
+                    .alignment(scalar)
+                    .get(),
+            ),
             None,
             target,
             cancellation,
@@ -5146,10 +5176,10 @@ fn binary_symbol_name(
     BinarySymbolName::try_new(name).ok_or(CodegenPreparationError::InvalidSymbolName)
 }
 
-fn codegen_checker_error(error: bray_checker::CheckerFactError) -> CodegenPreparationError {
+fn codegen_checker_error(error: bray_checker::CheckerQueryError) -> CodegenPreparationError {
     match error {
-        bray_checker::CheckerFactError::Cancelled => FactQueryError::Cancelled.into(),
-        bray_checker::CheckerFactError::Infrastructure(error) => {
+        bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled.into(),
+        bray_checker::CheckerQueryError::Infrastructure(error) => {
             FactQueryError::CheckerInfrastructure(error).into()
         }
     }
@@ -6058,8 +6088,9 @@ mod tests {
             .unwrap_or_else(|error| panic!("never representation must resolve: {error:?}"));
 
         assert!(
-            is_void_result(&compilation, never)
-                .unwrap_or_else(|error| panic!("void result classification must resolve: {error:?}"))
+            is_void_result(&compilation, never).unwrap_or_else(|error| panic!(
+                "void result classification must resolve: {error:?}"
+            ))
         );
     }
 

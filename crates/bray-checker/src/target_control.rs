@@ -14,12 +14,12 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableExecution, ConstantValueId, ConstantValueKind, TypeData, TypeId};
 use bray_target::{InlineAssemblyOptions, TargetControlSupport};
 
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView,
-};
 use crate::target_control_contract::{
     clobbers_valid, feature_name_valid, parse_constraint, separated_values,
+};
+use crate::{
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) enum TargetControlCheck {
@@ -94,9 +94,9 @@ where
                 address_space,
             }
         }
-        ImplementationHook::PointerExposeAddress => CheckedMemoryOperationKind::ExposeAddress {
-            pointee: one()?,
-        },
+        ImplementationHook::PointerExposeAddress => {
+            CheckedMemoryOperationKind::ExposeAddress { pointee: one()? }
+        }
         ImplementationHook::PointerFromExposedAddress => {
             CheckedMemoryOperationKind::FromExposedAddress { pointee: one()? }
         }
@@ -148,7 +148,7 @@ pub(crate) fn check_contract<C>(
 ) -> Result<TargetControlCheck, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
     let control = TargetControlSupport::for_profile(request.selected_target());
@@ -164,9 +164,11 @@ where
             };
 
             Ok(match literal_string(request, literals, *feature)? {
-                Some((feature, _)) => TargetControlCheck::Valid(
-                    CheckedMemoryOperationKind::TargetFeatureEnabled { feature },
-                ),
+                Some((feature, _)) => {
+                    TargetControlCheck::Valid(CheckedMemoryOperationKind::TargetFeatureEnabled {
+                        feature,
+                    })
+                }
                 None => TargetControlCheck::Invalid,
             })
         }
@@ -179,57 +181,62 @@ where
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             };
 
-            Ok(match literal_memory_order(request, literals, selections, *order)? {
-                Some(order) if order.valid_for_fence() => {
-                    TargetControlCheck::Valid(CheckedMemoryOperationKind::Fence {
-                        compiler_only: hook == ImplementationHook::CompilerFence,
-                        order,
-                    })
-                }
-                _ => TargetControlCheck::Invalid,
-            })
+            Ok(
+                match literal_memory_order(request, literals, selections, *order)? {
+                    Some(order) if order.valid_for_fence() => {
+                        TargetControlCheck::Valid(CheckedMemoryOperationKind::Fence {
+                            compiler_only: hook == ImplementationHook::CompilerFence,
+                            order,
+                        })
+                    }
+                    _ => TargetControlCheck::Invalid,
+                },
+            )
         }
         ImplementationHook::InlineAssembly
         | ImplementationHook::DivergingInlineAssembly
         | ImplementationHook::BranchingInlineAssembly => {
             let (inputs, output, labels, continuation) = match (hook, types) {
-                (ImplementationHook::InlineAssembly, [inputs, output]) => {
-                    (*inputs, Some(*output), None, AssemblyContinuation::Continuing)
-                }
+                (ImplementationHook::InlineAssembly, [inputs, output]) => (
+                    *inputs,
+                    Some(*output),
+                    None,
+                    AssemblyContinuation::Continuing,
+                ),
                 (ImplementationHook::DivergingInlineAssembly, [inputs]) => {
                     (*inputs, None, None, AssemblyContinuation::Diverging)
                 }
-                (ImplementationHook::BranchingInlineAssembly, [inputs, output, labels]) => {
-                    (
-                        *inputs,
-                        Some(*output),
-                        Some(*labels),
-                        AssemblyContinuation::Branching,
-                    )
-                }
+                (ImplementationHook::BranchingInlineAssembly, [inputs, output, labels]) => (
+                    *inputs,
+                    Some(*output),
+                    Some(*labels),
+                    AssemblyContinuation::Branching,
+                ),
                 _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
             };
 
-            Ok(match assembly_contract(
-                request,
-                arguments,
-                literals,
-                control,
-                inputs,
-                output,
-                labels,
-                continuation,
-            )? {
-                Some(contract) => TargetControlCheck::Valid(
-                    CheckedMemoryOperationKind::InlineAssembly {
-                        inputs,
-                        output,
-                        labels,
-                        contract,
-                    },
-                ),
-                None => TargetControlCheck::Invalid,
-            })
+            Ok(
+                match assembly_contract(
+                    request,
+                    arguments,
+                    literals,
+                    control,
+                    inputs,
+                    output,
+                    labels,
+                    continuation,
+                )? {
+                    Some(contract) => {
+                        TargetControlCheck::Valid(CheckedMemoryOperationKind::InlineAssembly {
+                            inputs,
+                            output,
+                            labels,
+                            contract,
+                        })
+                    }
+                    None => TargetControlCheck::Invalid,
+                },
+            )
         }
         _ => Ok(TargetControlCheck::NotApplicable),
     }
@@ -247,25 +254,34 @@ fn assembly_contract<C>(
 ) -> Result<Option<InlineAssemblyContract>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
     let (template, constraints, clobbers, features, options, inputs) = match arguments {
-        [template, constraints, clobbers, features, options, inputs] if labels_type.is_none() => {
-            (*template, *constraints, *clobbers, *features, *options, *inputs)
-        }
-        [template, constraints, clobbers, features, options, inputs, _]
-            if labels_type.is_some() =>
-        {
-            (
-                *template,
-                *constraints,
-                *clobbers,
-                *features,
-                *options,
-                *inputs,
-            )
-        }
+        [template, constraints, clobbers, features, options, inputs] if labels_type.is_none() => (
+            *template,
+            *constraints,
+            *clobbers,
+            *features,
+            *options,
+            *inputs,
+        ),
+        [
+            template,
+            constraints,
+            clobbers,
+            features,
+            options,
+            inputs,
+            _,
+        ] if labels_type.is_some() => (
+            *template,
+            *constraints,
+            *clobbers,
+            *features,
+            *options,
+            *inputs,
+        ),
         _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
     };
 
@@ -273,7 +289,8 @@ where
         return Ok(None);
     };
 
-    let Some((constraints_value, constraints)) = literal_string(request, literals, constraints)? else {
+    let Some((constraints_value, constraints)) = literal_string(request, literals, constraints)?
+    else {
         return Ok(None);
     };
 
@@ -315,7 +332,8 @@ where
         output_type,
         labels_type,
         inputs,
-    )? else {
+    )?
+    else {
         return Ok(None);
     };
 
@@ -361,12 +379,15 @@ fn checked_operands<C>(
     labels_type: Option<TypeId>,
     inputs_expression: BoundExpressionId,
 ) -> Result<
-    Option<([Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS], u8)>,
+    Option<(
+        [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
+        u8,
+    )>,
     CheckerInfrastructureError,
 >
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<bray_symbols::CallableSignatureQuery>
+        + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
         + ?Sized,
 {
     if ranges.len() > MAX_INLINE_ASSEMBLY_OPERANDS {
@@ -408,7 +429,12 @@ where
     let input_expressions = tuple_expression_elements(request, inputs_expression)
         .filter(|elements| elements.len() == inputs.len());
 
-    let pointer_width = request.selected_target().machine().pointer_width_bits().get();
+    let pointer_width = request
+        .selected_target()
+        .machine()
+        .pointer_width_bits()
+        .get();
+
     let mut descriptors = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
     let mut input_index = 0_usize;
     let mut runtime_input_index = 0_usize;
@@ -600,9 +626,7 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     Ok(match value.kind() {
-        ConstantValueKind::Integer(integer) => {
-            integer.to_u64().map(|integer| (identity, integer))
-        }
+        ConstantValueKind::Integer(integer) => integer.to_u64().map(|integer| (identity, integer)),
         _ => None,
     })
 }
@@ -657,8 +681,12 @@ fn register_type_valid(
         return false;
     };
 
-    if matches!(role, RepresentationRole::RawPointer | RepresentationRole::DevicePointer) {
-        return !floating_register_class(class) && pointer_width <= register_width_limit(class, pointer_width);
+    if matches!(
+        role,
+        RepresentationRole::RawPointer | RepresentationRole::DevicePointer
+    ) {
+        return !floating_register_class(class)
+            && pointer_width <= register_width_limit(class, pointer_width);
     }
 
     if let Some(integer) = role.integer_representation() {
@@ -669,7 +697,8 @@ fn register_type_valid(
             }
         };
 
-        return !floating_register_class(class) && width <= register_width_limit(class, pointer_width);
+        return !floating_register_class(class)
+            && width <= register_width_limit(class, pointer_width);
     }
 
     let width = match role {
@@ -707,7 +736,10 @@ fn floating_register_class(class: &str) -> bool {
     class.contains("xmm")
         || class.contains("ymm")
         || class.contains("zmm")
-        || matches!(class, "x" | "w" | "f" | "v" | "sreg" | "dreg" | "qreg" | "vreg" | "freg")
+        || matches!(
+            class,
+            "x" | "w" | "f" | "v" | "sreg" | "dreg" | "qreg" | "vreg" | "freg"
+        )
 }
 
 fn label_type_valid<C>(
@@ -769,14 +801,14 @@ where
     (tuple.kind() == BoundStructuredExpressionKind::Tuple).then(|| tuple.operands().to_vec())
 }
 
-fn constant_integer<C>(
-    request: CheckerUnitView<'_, C>,
-    identity: ConstantValueId,
-) -> Option<u64>
+fn constant_integer<C>(request: CheckerUnitView<'_, C>, identity: ConstantValueId) -> Option<u64>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let value = request.semantic_values().constant_value_data(identity).ok()?;
+    let value = request
+        .semantic_values()
+        .constant_value_data(identity)
+        .ok()?;
 
     let ConstantValueKind::Integer(integer) = value.kind() else {
         return None;
@@ -827,10 +859,15 @@ where
         variant
     };
 
-    let Some(name) = request.member_name(variant.into()).map_err(|error| match error {
-        crate::CheckerFactError::Infrastructure(error) => error,
-        crate::CheckerFactError::Cancelled => CheckerInfrastructureError::SemanticValueUnavailable,
-    })? else {
+    let Some(name) = request
+        .member_name(variant.into())
+        .map_err(|error| match error {
+            crate::CheckerQueryError::Infrastructure(error) => error,
+            crate::CheckerQueryError::Cancelled => {
+                CheckerInfrastructureError::SemanticValueUnavailable
+            }
+        })?
+    else {
         return Ok(None);
     };
 
@@ -912,14 +949,53 @@ mod tests {
 
     #[test]
     fn register_constraints_validate_exact_representation_classes_and_widths() {
-        assert!(register_type_valid(Some(RepresentationRole::ScalarI8), "reg_byte", 64));
-        assert!(!register_type_valid(Some(RepresentationRole::ScalarI32), "reg_byte", 64));
-        assert!(register_type_valid(Some(RepresentationRole::ScalarI32), "reg", 64));
-        assert!(register_type_valid(Some(RepresentationRole::ScalarR32), "xmm_reg", 64));
-        assert!(!register_type_valid(Some(RepresentationRole::ScalarR32), "reg", 64));
-        assert!(register_type_valid(Some(RepresentationRole::RawPointer), "reg", 64));
-        assert!(!register_type_valid(Some(RepresentationRole::DevicePointer), "xmm_reg", 64));
-        assert!(!register_type_valid(Some(RepresentationRole::Unit), "reg", 64));
+        assert!(register_type_valid(
+            Some(RepresentationRole::ScalarI8),
+            "reg_byte",
+            64
+        ));
+
+        assert!(!register_type_valid(
+            Some(RepresentationRole::ScalarI32),
+            "reg_byte",
+            64
+        ));
+
+        assert!(register_type_valid(
+            Some(RepresentationRole::ScalarI32),
+            "reg",
+            64
+        ));
+
+        assert!(register_type_valid(
+            Some(RepresentationRole::ScalarR32),
+            "xmm_reg",
+            64
+        ));
+
+        assert!(!register_type_valid(
+            Some(RepresentationRole::ScalarR32),
+            "reg",
+            64
+        ));
+
+        assert!(register_type_valid(
+            Some(RepresentationRole::RawPointer),
+            "reg",
+            64
+        ));
+
+        assert!(!register_type_valid(
+            Some(RepresentationRole::DevicePointer),
+            "xmm_reg",
+            64
+        ));
+
+        assert!(!register_type_valid(
+            Some(RepresentationRole::Unit),
+            "reg",
+            64
+        ));
     }
 
     #[test]
@@ -944,7 +1020,12 @@ mod tests {
     #[test]
     fn separated_contract_values_reject_implicit_empty_entries() {
         assert_eq!(separated_values("").map(|values| values.len()), Some(0));
-        assert_eq!(separated_values("r, =r").map(|values| values.len()), Some(2));
+
+        assert_eq!(
+            separated_values("r, =r").map(|values| values.len()),
+            Some(2)
+        );
+
         assert!(separated_values("r,,=r").is_none());
     }
 }

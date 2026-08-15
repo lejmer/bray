@@ -1,4 +1,4 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult};
+use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundUnit,
     BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
@@ -15,11 +15,11 @@ use super::symbol::type_binder;
 pub(in crate::compilation) fn bind_declared_value_type_templates(
     context: &CompilationBindingContext<'_>,
     unit: &BoundUnit,
-) -> BinderFactResult<DiagnosticResult<DeclaredValueTypeTemplates>> {
+) -> BindingQueryResult<DiagnosticResult<DeclaredValueTypeTemplates>> {
     let owner = context
         .symbols()
         .symbol_for_key(unit.key().declared_owner())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let mut binding = DeclaredValueTypeBinding::new(context, unit, owner);
 
@@ -30,9 +30,9 @@ pub(in crate::compilation) fn bind_declared_value_type_templates(
     Ok(binding.finish())
 }
 
-pub(super) struct DeclaredValueTypeBinding<'facts> {
-    pub(super) context: &'facts CompilationBindingContext<'facts>,
-    pub(super) unit: &'facts BoundUnit,
+pub(super) struct DeclaredValueTypeBinding<'binding> {
+    pub(super) context: &'binding CompilationBindingContext<'binding>,
+    pub(super) unit: &'binding BoundUnit,
     pub(super) owner: AnySymbolId,
     pub(super) evidence: Vec<DeclaredValueTypeEvidence>,
     pub(super) constraints: Vec<DeclaredValueTypeConstraint>,
@@ -41,10 +41,10 @@ pub(super) struct DeclaredValueTypeBinding<'facts> {
     pub(super) diagnostics: DiagnosticBag,
 }
 
-impl<'facts> DeclaredValueTypeBinding<'facts> {
+impl<'binding> DeclaredValueTypeBinding<'binding> {
     fn new(
-        context: &'facts CompilationBindingContext<'facts>,
-        unit: &'facts BoundUnit,
+        context: &'binding CompilationBindingContext<'binding>,
+        unit: &'binding BoundUnit,
         owner: AnySymbolId,
     ) -> Self {
         Self {
@@ -59,7 +59,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         }
     }
 
-    fn bind_bound_tree(&mut self) -> BinderFactResult<()> {
+    fn bind_bound_tree(&mut self) -> BindingQueryResult<()> {
         let root = AnyBoundNodeId::from(self.unit.root());
 
         let mut cancelled = false;
@@ -84,7 +84,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         });
 
         if cancelled {
-            return Err(BinderFactError::Cancelled);
+            return Err(BindingQueryError::Cancelled);
         }
 
         if let Some(error) = failure {
@@ -94,12 +94,12 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         match outcome {
             BoundWalkOutcome::Completed => Ok(()),
             BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-                Err(BinderFactError::DependencyUnavailable)
+                Err(BindingQueryError::DependencyUnavailable)
             }
         }
     }
 
-    fn bind_node(&mut self, node: AnyBoundNodeId) -> BinderFactResult<()> {
+    fn bind_node(&mut self, node: AnyBoundNodeId) -> BindingQueryResult<()> {
         match node {
             AnyBoundNodeId::Expression(id) => self.bind_expression(id),
             AnyBoundNodeId::Pattern(id) => {
@@ -107,7 +107,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
                     .unit
                     .tree()
                     .pattern(id)
-                    .ok_or(BinderFactError::DependencyUnavailable)?;
+                    .ok_or(BindingQueryError::DependencyUnavailable)?;
 
                 for binding in pattern.bindings() {
                     self.add_constraint(
@@ -124,12 +124,15 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         }
     }
 
-    fn bind_expression(&mut self, id: bray_bound_tree::BoundExpressionId) -> BinderFactResult<()> {
+    fn bind_expression(
+        &mut self,
+        id: bray_bound_tree::BoundExpressionId,
+    ) -> BindingQueryResult<()> {
         let expression = self
             .unit
             .tree()
             .expression(id)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         match expression {
             BoundExpression::Name(name) => {
@@ -152,12 +155,12 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         Ok(())
     }
 
-    fn bind_block(&mut self, id: bray_bound_tree::BoundBlockId) -> BinderFactResult<()> {
+    fn bind_block(&mut self, id: bray_bound_tree::BoundBlockId) -> BindingQueryResult<()> {
         let block = self
             .unit
             .tree()
             .block(id)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         for item in block.items() {
             match item {
@@ -205,7 +208,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
     fn bind_type_anchor(
         &mut self,
         anchor: bray_declarations::SyntaxAnchor,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let Some(syntax) = anchor.find_descendant::<TypeExpressionSyntax>(self.context.syntax())
         else {
             return self.error_type_template();
@@ -217,7 +220,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
     pub(super) fn bind_type_syntax(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BinderFactResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
         let result = type_binder(self.context, self.owner)?.bind_type_expression(syntax)?;
 
         let (template, diagnostics) = result.into_parts();
@@ -227,12 +230,12 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
         Ok(template)
     }
 
-    fn error_type_template(&self) -> BinderFactResult<TypeExpressionTemplate> {
+    fn error_type_template(&self) -> BindingQueryResult<TypeExpressionTemplate> {
         self.context
             .semantic_values()
             .intern_type(TypeData::Error)
             .map(TypeExpressionTemplate::Resolved)
-            .map_err(|_| BinderFactError::DependencyUnavailable)
+            .map_err(|_| BindingQueryError::DependencyUnavailable)
     }
 
     pub(super) fn add_evidence(
@@ -254,9 +257,9 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
             .push(DeclaredValueTypeConstraint::new(kind, left, right));
     }
 
-    pub(super) fn check_cancellation(&self) -> BinderFactResult<()> {
+    pub(super) fn check_cancellation(&self) -> BindingQueryResult<()> {
         if self.context.is_cancelled() {
-            Err(BinderFactError::Cancelled)
+            Err(BindingQueryError::Cancelled)
         } else {
             Ok(())
         }

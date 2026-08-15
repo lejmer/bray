@@ -32,8 +32,10 @@ pub(super) fn validate_memory_operation(
         return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
     }
 
-    if !matches!(memory.kind(), CheckedMemoryOperationKind::InlineAssembly { .. })
-        && !memory.inline_assembly_symbols().is_empty()
+    if !matches!(
+        memory.kind(),
+        CheckedMemoryOperationKind::InlineAssembly { .. }
+    ) && !memory.inline_assembly_symbols().is_empty()
     {
         return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
     }
@@ -109,9 +111,7 @@ pub(super) fn validate_memory_operation(
         }
         CheckedMemoryOperationKind::AtomicInitialize { .. }
         | CheckedMemoryOperationKind::AtomicNotify { .. } => true,
-        CheckedMemoryOperationKind::AtomicLoad { value, .. } => {
-            memory.result_type() == Some(value)
-        }
+        CheckedMemoryOperationKind::AtomicLoad { value, .. } => memory.result_type() == Some(value),
         CheckedMemoryOperationKind::AtomicStore { value, .. }
         | CheckedMemoryOperationKind::AtomicWait { value, .. } => types[1] == value,
         CheckedMemoryOperationKind::AtomicExchange { value, .. }

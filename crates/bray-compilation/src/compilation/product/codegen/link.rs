@@ -52,9 +52,7 @@ impl Compilation {
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
             crate::BuildConfiguration::Release
             | crate::BuildConfiguration::ObservedRelease
-            | crate::BuildConfiguration::TimedRelease { .. } => {
-                DebugLinkPolicy::None
-            }
+            | crate::BuildConfiguration::TimedRelease { .. } => DebugLinkPolicy::None,
         };
 
         let preserve_unused = configuration.preserves_unused_link_content();
@@ -128,18 +126,15 @@ impl Compilation {
             .iter()
             .flat_map(|runtime| {
                 runtime
-                .components()
-                .iter()
-                .flat_map(|component| component.metadata().platform_services())
+                    .components()
+                    .iter()
+                    .flat_map(|component| component.metadata().platform_services())
             })
             .copied()
             .collect();
 
-        let standard_library_inputs = self.standard_library_link_inputs(
-            kind,
-            &imported_symbols,
-            &platform_overrides,
-        )?;
+        let standard_library_inputs =
+            self.standard_library_link_inputs(kind, &imported_symbols, &platform_overrides)?;
 
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
@@ -166,7 +161,8 @@ impl Compilation {
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError> {
+    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError>
+    {
         if product_kind == ProductKind::Library {
             return Ok(Vec::new());
         }

@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, CheckedMemoryOperations,
-    CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
+    CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
+    StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 

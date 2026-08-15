@@ -13,8 +13,9 @@ use super::{
     DiagnosticLinkRequirement, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
     DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem,
-    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticVisibility,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind,
+    DiagnosticStandardLibraryManifestProblem, DiagnosticTargetRepresentation, DiagnosticType,
+    DiagnosticVisibility,
 };
 use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
 

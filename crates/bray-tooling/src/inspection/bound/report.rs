@@ -34,7 +34,7 @@ pub(crate) enum BoundInspectionRenderError {
     SourceIndex,
     StorageState,
     Symbol,
-    SymbolFact,
+    SymbolState,
     Type,
     TypeState,
     SelectionState,
@@ -98,11 +98,11 @@ pub(crate) fn render_bound_inspection(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| BoundInspectionRenderError::SymbolFact)?;
+        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| BoundInspectionRenderError::SymbolFact)?;
+        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
 

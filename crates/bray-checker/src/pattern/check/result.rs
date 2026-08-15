@@ -17,13 +17,13 @@ use crate::constant::check_constant_literal;
 use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::representation::type_representation;
 use crate::type_check::diagnostic_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn pattern_shape_is_total(

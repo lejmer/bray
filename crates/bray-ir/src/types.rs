@@ -151,7 +151,11 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
                 types.insert(labels);
             }
 
-            types.extend(contract.operands().map(bray_bound_tree::InlineAssemblyOperand::ty));
+            types.extend(
+                contract
+                    .operands()
+                    .map(bray_bound_tree::InlineAssemblyOperand::ty),
+            );
         }
         CheckedMemoryOperationKind::AtomicInitialize { value }
         | CheckedMemoryOperationKind::AtomicLoad { value, .. }

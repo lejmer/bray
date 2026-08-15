@@ -5,7 +5,7 @@ mod value_type;
 mod value_type_surface;
 
 pub(super) use context::CompilationBindingContext;
-pub(in crate::compilation) use error::binder_fact_error;
+pub(in crate::compilation) use error::binding_query_error;
 pub(in crate::compilation) use symbol::{
     CompilationSymbolSemantics, bind_declared_trusted_capabilities,
     bind_module_part_directives_for_selection, has_visible_generic_parameters,

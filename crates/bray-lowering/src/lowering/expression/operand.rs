@@ -7,9 +7,9 @@ use bray_ir::{
 use bray_symbols::{AnySymbolId, TypeData};
 
 use super::super::LoweringError;
-use super::access::LoweredPlace;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
+use super::access::LoweredPlace;
 
 impl Lowerer<'_> {
     pub(super) fn lower_member_access(

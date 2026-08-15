@@ -36,7 +36,10 @@ pub(crate) fn test_constant_value() -> ConstantValueId {
         .unwrap_or_else(|error| panic!("test constant type must be valid: {error:?}"));
 
     store
-        .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(false)))
+        .intern_constant_value(ConstantValueData::new(
+            ty,
+            ConstantValueKind::Boolean(false),
+        ))
         .unwrap_or_else(|error| panic!("test constant must be valid: {error:?}"))
 }
 

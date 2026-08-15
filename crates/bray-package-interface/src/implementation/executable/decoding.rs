@@ -11,13 +11,13 @@ use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
     MirBlockKind, MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupEdge,
     MirCleanupPhase, MirConstruction, MirConstructionInput, MirEdge, MirExecutableTemplateId,
-    MirFrameDescriptor, MirFrameReference, MirFrameState, MirGeneratorKind,
-    MirGeneratorOperation, MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation,
-    MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate,
-    MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId,
-    MirStorageKind, MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind,
-    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError,
-    MirUnitBuilder, MirUnitId, MirUnitKind, MirValueId,
+    MirFrameDescriptor, MirFrameReference, MirFrameState, MirGeneratorKind, MirGeneratorOperation,
+    MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation, MirNumericConversionKind,
+    MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
+    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirStorageKind,
+    MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind, MirTextOperation,
+    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirUnitKind, MirValueId,
 };
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiOperation,
@@ -35,8 +35,8 @@ use crate::decode::map_wire_error;
 use crate::semantic::{SemanticDecodeContext, read_symbol_reference};
 use crate::wire::WireReader;
 use crate::{
-    ImportedSemantics, InterfaceExecutableTemplate, InterfaceSymbolResolver,
-    InterfaceConstantValueKind, InterfaceValidationError, InterfaceValidationLimits,
+    ImportedSemantics, InterfaceConstantValueKind, InterfaceExecutableTemplate,
+    InterfaceSymbolResolver, InterfaceValidationError, InterfaceValidationLimits,
 };
 use bray_target::InlineAssemblyOptions;
 
@@ -328,9 +328,7 @@ fn assembly_constant_payload(
 
 fn assembly_options_valid(bits: u64, has_normal_output: bool) -> bool {
     InlineAssemblyOptions::try_new(bits)
-        .is_some_and(|options| {
-            !options.may_unwind() && (has_normal_output || !options.pure())
-        })
+        .is_some_and(|options| !options.may_unwind() && (has_normal_output || !options.pure()))
 }
 
 fn assembly_type_counts(contract: InlineAssemblyContract) -> (usize, usize, usize) {
@@ -2468,11 +2466,10 @@ mod tests {
 
     use super::{
         AssemblyConstantPayload, AssemblyConstantRole, ExecutableTemplateDecodeError,
-        assembly_constant_payload, assembly_options_valid,
+        ProtectedMemoryWrapper, assembly_constant_payload, assembly_options_valid,
         atomic_compare_exchange_result_elements_valid, decoded_atomic_kind,
         decoded_inline_assembly_contract, decoded_inline_assembly_types,
         decoded_inline_assembly_value_types, protected_memory_types_valid,
-        ProtectedMemoryWrapper,
     };
 
     #[derive(Clone, Copy)]
@@ -2501,9 +2498,7 @@ mod tests {
                 operands,
                 result,
                 |ty, wrapper| match (ty, wrapper) {
-                    (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => {
-                        Some(self.element)
-                    }
+                    (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => Some(self.element),
                     (ty, ProtectedMemoryWrapper::RawPointer) if ty == self.pointer => {
                         Some(self.element)
                     }

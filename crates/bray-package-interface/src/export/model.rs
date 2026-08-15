@@ -5,10 +5,10 @@ use bray_symbols::{
 };
 
 use crate::{
-    DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision,
-    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
-    InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceSurface,
-    PackageInterfaceSurfaceBuildError, SymbolRelationshipKind,
+    DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision, InterfaceSemanticRecord,
+    InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceSymbolReference,
+    InterfaceValidationError, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
+    SymbolRelationshipKind,
 };
 
 /// One symbol selected for a library product's public identity surface.
@@ -478,11 +478,7 @@ mod tests {
 
         let semantics = complete.semantics().clone().with_templates(
             complete.semantics().checked_templates.iter().cloned(),
-            complete
-                .semantics()
-                .declaration_templates
-                .iter()
-                .cloned(),
+            complete.semantics().declaration_templates.iter().cloned(),
             [],
         );
 
@@ -576,10 +572,7 @@ mod tests {
             .map(|symbol| symbol.key().clone())
             .unwrap_or_else(|| panic!("test surface must contain one implementation"));
 
-        let semantics = complete
-            .semantics()
-            .clone()
-            .with_implementations([], []);
+        let semantics = complete.semantics().clone().with_implementations([], []);
 
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
@@ -654,9 +647,7 @@ mod tests {
                     InterfaceLanguageRevision::new(0),
                     crate::test_support::implementation_configuration(),
                 ),
-                Err(PackageInterfaceExportBuildError::MissingSemantics(
-                    owner
-                ))
+                Err(PackageInterfaceExportBuildError::MissingSemantics(owner))
             );
         }
     }
@@ -680,11 +671,7 @@ mod tests {
             .unwrap_or_else(|_| panic!("test surface must contain two semantic record owners"));
 
         let first_semantics = complete.semantics().clone().with_target_dependencies(
-            complete
-                .semantics()
-                .target_dependencies()
-                .iter()
-                .cloned(),
+            complete.semantics().target_dependencies().iter().cloned(),
             [
                 InterfaceAbiDependency::new(first_owner.clone(), CallableAbi::Bray),
                 InterfaceAbiDependency::new(second_owner.clone(), CallableAbi::C),
@@ -692,11 +679,7 @@ mod tests {
         );
 
         let second_semantics = complete.semantics().clone().with_target_dependencies(
-            complete
-                .semantics()
-                .target_dependencies()
-                .iter()
-                .cloned(),
+            complete.semantics().target_dependencies().iter().cloned(),
             [
                 InterfaceAbiDependency::new(second_owner, CallableAbi::C),
                 InterfaceAbiDependency::new(first_owner, CallableAbi::Bray),

@@ -90,8 +90,7 @@ pub use pattern::{
     PatternRefutability,
 };
 pub use refinement::{
-    CheckedRefinements, Refinement, RefinementKind, RefinementSetBuildError,
-    RefinementOccurrence,
+    CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
@@ -105,13 +104,12 @@ pub use selection::{
 };
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
-    Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
-    StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageIdentity,
-    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
-    StorageSuspensionState,
+    Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageAlternative,
+    StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageExitDecision, StorageFlow,
+    StorageFlowBuildError, StorageIdentity, StorageIdentityId, StorageOperationDecision,
+    StorageOperationStatus, StoragePlan, StoragePlanBuildError, StoragePlanBuilder,
+    StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

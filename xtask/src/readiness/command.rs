@@ -43,7 +43,9 @@ fn finish(result: Result<(), String>) -> ExitCode {
 fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), String> {
     match audit {
         None => {
-            audit_phase("Auditing semantic readiness", || semantic::audit_coverage(workspace))?;
+            audit_phase("Auditing semantic readiness", || {
+                semantic::audit_coverage(workspace)
+            })?;
 
             audit_phase("Auditing diagnostic readiness", || {
                 semantic::audit_diagnostics(workspace)
@@ -51,7 +53,11 @@ fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), Strin
 
             audit_phase("Auditing lowering readiness", || lowering::audit(workspace))?;
             audit_phase("Auditing memory readiness", || memory::audit(workspace))?;
-            audit_phase("Auditing code generation readiness", || codegen::audit(workspace))?;
+
+            audit_phase("Auditing code generation readiness", || {
+                codegen::audit(workspace)
+            })?;
+
             audit_phase("Auditing emission readiness", || emission::audit(workspace))?;
 
             audit_phase("Auditing linker readiness", || linker::audit(workspace))

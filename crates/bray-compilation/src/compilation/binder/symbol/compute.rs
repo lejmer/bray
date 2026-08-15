@@ -1,12 +1,14 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTypeQuery, CallableSignatureQuery, CallableSymbolId,
     ConstantDeclaredTypeQuery, ExactSymbolId, GenericConstParameterDeclaredTypeQuery,
-    GenericConstParameterSymbolId, ImplementationCoherenceQuery, ImplementationCoherenceKey,
+    GenericConstParameterSymbolId, ImplementationCoherenceKey, ImplementationCoherenceQuery,
     ImplementationSubjectQuery, ImplementationSubjectTemplate, ImplementationSymbolId,
     ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, StructFieldTypeQuery,
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolOrigin,
+    SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
     TraitTypeFulfillmentValueQuery, UnionPayloadFieldTypeQuery,
 };
@@ -19,38 +21,46 @@ use bray_syntax::{
 };
 
 use super::super::context::CompilationBindingContext;
-use super::binding::CompilationSymbolFactBinding;
+use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::environment::type_binder;
 use super::surface::{declaration_callable_surface, declaration_child, declaration_syntax};
-use crate::fact::SymbolFactCache;
+use crate::fact::SymbolQueryCache;
 
-impl CompilationSymbolFactBinding<CallableSignatureQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<CallableSignatureQuery> {
+impl CompilationSymbolQueryEvaluator<CallableSignatureQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<CallableSignatureQuery> {
         &self.callable_signatures
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<CallableSignatureQuery>,
-    ) -> BinderFactResult<SymbolFactResult<CallableSignatureQuery>> {
+        request: SymbolQueryRequest<CallableSignatureQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <CallableSignatureQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         bind_callable_signature(context, request.owner())
     }
 }
 
 macro_rules! impl_declared_type_query {
     ($contract:ty, $cache:ident, $syntax:ty) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolSemantics {
-            fn cache(&self) -> &SymbolFactCache<$contract> {
+        impl CompilationSymbolQueryEvaluator<$contract> for CompilationSymbolSemantics {
+            fn cache(&self) -> &SymbolQueryCache<$contract> {
                 &self.$cache
             }
 
             fn bind(
                 &self,
                 context: &CompilationBindingContext<'_>,
-                request: SymbolFactRequest<$contract>,
-            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                request: SymbolQueryRequest<$contract>,
+            ) -> BindingQueryResult<
+                bray_diagnostics::DiagnosticResult<
+                    <$contract as bray_symbols::SymbolQueryContract>::Value,
+                >,
+            > {
                 bind_declaration_type::<$syntax>(context, request.symbol(), |syntax| {
                     syntax.type_expression()
                 })
@@ -59,16 +69,20 @@ macro_rules! impl_declared_type_query {
     };
 }
 
-impl CompilationSymbolFactBinding<ConstantDeclaredTypeQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<ConstantDeclaredTypeQuery> {
+impl CompilationSymbolQueryEvaluator<ConstantDeclaredTypeQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<ConstantDeclaredTypeQuery> {
         &self.constant_declared_types
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<ConstantDeclaredTypeQuery>,
-    ) -> BinderFactResult<SymbolFactResult<ConstantDeclaredTypeQuery>> {
+        request: SymbolQueryRequest<ConstantDeclaredTypeQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <ConstantDeclaredTypeQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         if let Some(property) = context
             .compilation()
             .available_compiler_known_symbols()
@@ -78,7 +92,7 @@ impl CompilationSymbolFactBinding<ConstantDeclaredTypeQuery> for CompilationSymb
             let ty = context
                 .compilation()
                 .target_property_type(property)
-                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
             return Ok(DiagnosticResult::without_diagnostics(
                 bray_symbols::TypeExpressionTemplate::Resolved(ty),
@@ -91,18 +105,22 @@ impl CompilationSymbolFactBinding<ConstantDeclaredTypeQuery> for CompilationSymb
     }
 }
 
-impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeQuery>
+impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
     for CompilationSymbolSemantics
 {
-    fn cache(&self) -> &SymbolFactCache<GenericConstParameterDeclaredTypeQuery> {
+    fn cache(&self) -> &SymbolQueryCache<GenericConstParameterDeclaredTypeQuery> {
         &self.generic_const_parameter_declared_types
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<GenericConstParameterDeclaredTypeQuery>,
-    ) -> BinderFactResult<SymbolFactResult<GenericConstParameterDeclaredTypeQuery>> {
+        request: SymbolQueryRequest<GenericConstParameterDeclaredTypeQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <GenericConstParameterDeclaredTypeQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         let symbol = request.symbol();
 
         if let Some(address) = context.imported_semantic_address(symbol.into())? {
@@ -110,13 +128,13 @@ impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeQuery>
         }
 
         let parameter = GenericConstParameterSymbolId::try_from_any(symbol)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let origin = context
             .symbols()
             .generic_const_parameter(parameter)
             .map(|parameter| parameter.origin())
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         match origin {
             SymbolOrigin::Source => {
@@ -131,7 +149,7 @@ impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeQuery>
                     .bind_type_expression(&syntax.typed_identifier().type_expression())
             }
             SymbolOrigin::Imported | SymbolOrigin::Synthesized => {
-                Err(BinderFactError::DependencyUnavailable)
+                Err(BindingQueryError::DependencyUnavailable)
             }
         }
     }
@@ -140,16 +158,16 @@ impl CompilationSymbolFactBinding<GenericConstParameterDeclaredTypeQuery>
 fn compiler_known_generic_const_parameter(
     context: &CompilationBindingContext<'_>,
     symbol: GenericConstParameterSymbolId,
-) -> BinderFactResult<GenericConstParameterSyntax> {
+) -> BindingQueryResult<GenericConstParameterSyntax> {
     let parameter = context
         .symbols()
         .generic_const_parameter(symbol)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let owner = parameter.owner().symbol();
 
     let ordinal = usize::try_from(parameter.ordinal())
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     super::surface::with_declaration_root(context, owner, |root| {
         let mut parameter = None;
@@ -186,7 +204,7 @@ fn compiler_known_generic_const_parameter(
             }
         });
 
-        parameter.ok_or(BinderFactError::DependencyUnavailable)
+        parameter.ok_or(BindingQueryError::DependencyUnavailable)
     })
 }
 
@@ -224,7 +242,7 @@ fn bind_declaration_type<T>(
     context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     type_expression: impl FnOnce(T) -> TypeExpressionSyntax,
-) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>
+) -> BindingQueryResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>
 where
     T: bray_syntax::SyntaxCast,
 {
@@ -240,16 +258,20 @@ where
 
 macro_rules! impl_type_member_value_query {
     ($contract:ty, $cache:ident) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolSemantics {
-            fn cache(&self) -> &SymbolFactCache<$contract> {
+        impl CompilationSymbolQueryEvaluator<$contract> for CompilationSymbolSemantics {
+            fn cache(&self) -> &SymbolQueryCache<$contract> {
                 &self.$cache
             }
 
             fn bind(
                 &self,
                 context: &CompilationBindingContext<'_>,
-                request: SymbolFactRequest<$contract>,
-            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                request: SymbolQueryRequest<$contract>,
+            ) -> BindingQueryResult<
+                bray_diagnostics::DiagnosticResult<
+                    <$contract as bray_symbols::SymbolQueryContract>::Value,
+                >,
+            > {
                 bind_type_member_value::<$contract>(context, request.symbol())
             }
         }
@@ -258,14 +280,19 @@ macro_rules! impl_type_member_value_query {
 
 impl_type_member_value_query!(InherentTypeMemberValueQuery, inherent_type_member_values);
 
-impl_type_member_value_query!(TraitTypeFulfillmentValueQuery, trait_type_fulfillment_values);
+impl_type_member_value_query!(
+    TraitTypeFulfillmentValueQuery,
+    trait_type_fulfillment_values
+);
 
 fn bind_type_member_value<C>(
     context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<SymbolFactResult<C>>
+) -> BindingQueryResult<
+    bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>,
+>
 where
-    C: SymbolFactContract<Value = bray_symbols::TypeExpressionTemplate>,
+    C: SymbolQueryContract<Value = bray_symbols::TypeExpressionTemplate>,
 {
     if let Some(address) = context.imported_semantic_address(symbol)? {
         return super::imported::imported_declared_type(context, address);
@@ -276,16 +303,20 @@ where
     type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
 }
 
-impl CompilationSymbolFactBinding<ImplementationSubjectQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<ImplementationSubjectQuery> {
+impl CompilationSymbolQueryEvaluator<ImplementationSubjectQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<ImplementationSubjectQuery> {
         &self.implementation_subjects
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<ImplementationSubjectQuery>,
-    ) -> BinderFactResult<SymbolFactResult<ImplementationSubjectQuery>> {
+        request: SymbolQueryRequest<ImplementationSubjectQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <ImplementationSubjectQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         let symbol = request.symbol();
 
         if let Some(address) = context.imported_semantic_address(symbol)? {
@@ -305,16 +336,22 @@ impl CompilationSymbolFactBinding<ImplementationSubjectQuery> for CompilationSym
     }
 }
 
-impl CompilationSymbolFactBinding<ImplementedTraitApplicationQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<ImplementedTraitApplicationQuery> {
+impl CompilationSymbolQueryEvaluator<ImplementedTraitApplicationQuery>
+    for CompilationSymbolSemantics
+{
+    fn cache(&self) -> &SymbolQueryCache<ImplementedTraitApplicationQuery> {
         &self.implemented_traits
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<ImplementedTraitApplicationQuery>,
-    ) -> BinderFactResult<SymbolFactResult<ImplementedTraitApplicationQuery>> {
+        request: SymbolQueryRequest<ImplementedTraitApplicationQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <ImplementedTraitApplicationQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         let symbol = request.symbol();
 
         if let Some(address) = context.imported_semantic_address(symbol)? {
@@ -325,7 +362,7 @@ impl CompilationSymbolFactBinding<ImplementedTraitApplicationQuery> for Compilat
             context
                 .symbols
                 .inherent_implementation(id)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             return Ok(DiagnosticResult::without_diagnostics(None));
         }
@@ -337,16 +374,20 @@ impl CompilationSymbolFactBinding<ImplementedTraitApplicationQuery> for Compilat
     }
 }
 
-impl CompilationSymbolFactBinding<ImplementationCoherenceQuery> for CompilationSymbolSemantics {
-    fn cache(&self) -> &SymbolFactCache<ImplementationCoherenceQuery> {
+impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<ImplementationCoherenceQuery> {
         &self.implementation_coherence
     }
 
     fn bind(
         &self,
         context: &CompilationBindingContext<'_>,
-        request: SymbolFactRequest<ImplementationCoherenceQuery>,
-    ) -> BinderFactResult<SymbolFactResult<ImplementationCoherenceQuery>> {
+        request: SymbolQueryRequest<ImplementationCoherenceQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <ImplementationCoherenceQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         let owner = request.owner();
 
         if let Some(address) = context.imported_semantic_address(owner.into_any())? {
@@ -360,10 +401,10 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceQuery> for CompilationS
             }));
         }
 
-        let subject =
-            context.symbol_fact(SymbolFactRequest::<ImplementationSubjectQuery>::new(owner))?;
+        let subject = context
+            .resolve_symbol_query(SymbolQueryRequest::<ImplementationSubjectQuery>::new(owner))?;
 
-        let trait_application = context.symbol_fact(SymbolFactRequest::<
+        let trait_application = context.resolve_symbol_query(SymbolQueryRequest::<
             ImplementedTraitApplicationQuery,
         >::new(owner))?;
 
@@ -371,12 +412,12 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceQuery> for CompilationS
             .value()
             .ty()
             .resolved_type()
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let trait_application = match trait_application.value() {
             Some(application) => type_binder(context, owner.into_any())?
                 .resolve_trait_application_template(application)?
-                .ok_or(BinderFactError::DependencyUnavailable)?
+                .ok_or(BindingQueryError::DependencyUnavailable)?
                 .into(),
             None => None,
         };
@@ -390,7 +431,11 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceQuery> for CompilationS
 fn bind_callable_signature(
     context: &CompilationBindingContext<'_>,
     callable: CallableSymbolId,
-) -> BinderFactResult<SymbolFactResult<CallableSignatureQuery>> {
+) -> BindingQueryResult<
+    bray_diagnostics::DiagnosticResult<
+        <CallableSignatureQuery as bray_symbols::SymbolQueryContract>::Value,
+    >,
+> {
     let symbol = callable.into_any();
 
     if let Some(address) = context.imported_semantic_address(symbol)? {
@@ -400,7 +445,7 @@ fn bind_callable_signature(
     let (parameters, receiver) = context
         .symbols
         .callable_parameters_and_receiver(callable)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let surface = declaration_callable_surface(context, symbol)?;
 
@@ -420,22 +465,23 @@ fn bind_callable_signature(
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{BinderFactError, SymbolFactProvider};
+    use bray_binder::{BindingQueryError, SymbolQueryProvider};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
         AnySymbolId, CallableAbi, CallableContractTypeQuery, CallableExecution,
         CallableSignatureQuery, CallableSymbolId, ConstantDeclaredTypeQuery,
         ConstantExpressionExpectedType, ConstantExpressionOccurrence, GenericArgument,
-        GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery, ImplementationSubjectQuery,
-        ImplementationSymbolId, ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery,
-        NamedTypeSymbolId, ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
-        TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
-        TraitTypeFulfillmentValueQuery, TypeData, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
+        GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery,
+        ImplementationSubjectQuery, ImplementationSymbolId, ImplementedTraitApplicationQuery,
+        InherentTypeMemberValueQuery, NamedTypeSymbolId, ReceiverMode, StructSymbolId,
+        SymbolOrigin, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+        TraitConstantMemberDeclaredTypeQuery, TraitTypeFulfillmentValueQuery, TypeData,
+        TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
     };
     use bray_syntax::SyntaxKind;
 
     use crate::compilation::binder::symbol::test_support::{
-        binding_context, published_fact, resolved_type, source_id, symbol_graph, type_data,
+        binding_context, resolved_query, resolved_type, source_id, symbol_graph, type_data,
     };
     use crate::fact::CancellationToken;
     use crate::test_support::compilation;
@@ -547,10 +593,10 @@ func identity<T>(value: T) -> T
         );
 
         let signature_request =
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function));
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function));
 
-        let first_signature = published_fact(&binding_context, signature_request);
-        let second_signature = published_fact(&binding_context, signature_request);
+        let first_signature = resolved_query(&binding_context, signature_request);
+        let second_signature = resolved_query(&binding_context, signature_request);
 
         assert!(Arc::ptr_eq(&first_signature, &second_signature));
         assert!(first_signature.diagnostics().is_empty());
@@ -593,9 +639,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let callable_contract_type = published_fact(
+        let callable_contract_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableContractTypeQuery>::new(callable_contract),
+            SymbolQueryRequest::<CallableContractTypeQuery>::new(callable_contract),
         );
 
         assert!(matches!(
@@ -609,9 +655,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let constant_type = published_fact(
+        let constant_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ConstantDeclaredTypeQuery>::new(constant),
+            SymbolQueryRequest::<ConstantDeclaredTypeQuery>::new(constant),
         );
 
         assert!(matches!(
@@ -625,9 +671,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let field_type = published_fact(
+        let field_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
         );
 
         assert!(matches!(
@@ -641,9 +687,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let payload_type = published_fact(
+        let payload_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<UnionPayloadFieldTypeQuery>::new(payload),
+            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(payload),
         );
 
         assert!(matches!(
@@ -682,9 +728,9 @@ func identity<T>(value: T) -> T
             panic!("implementation should publish one inferred type parameter");
         };
 
-        let subject = published_fact(
+        let subject = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ImplementationSubjectQuery>::new(ImplementationSymbolId::from(
+            SymbolQueryRequest::<ImplementationSubjectQuery>::new(ImplementationSymbolId::from(
                 implementation,
             )),
         );
@@ -741,9 +787,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let member_type = published_fact(
+        let member_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<TraitConstantMemberDeclaredTypeQuery>::new(member),
+            SymbolQueryRequest::<TraitConstantMemberDeclaredTypeQuery>::new(member),
         );
 
         assert!(member_type.diagnostics().is_empty());
@@ -754,9 +800,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let fulfillment_type = published_fact(
+        let fulfillment_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeQuery>::new(fulfillment),
+            SymbolQueryRequest::<TraitConstantFulfillmentDeclaredTypeQuery>::new(fulfillment),
         );
 
         assert_eq!(member_type.value(), fulfillment_type.value());
@@ -767,9 +813,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let type_value = published_fact(
+        let type_value = resolved_query(
             &binding_context,
-            SymbolFactRequest::<TraitTypeFulfillmentValueQuery>::new(type_fulfillment),
+            SymbolQueryRequest::<TraitTypeFulfillmentValueQuery>::new(type_fulfillment),
         );
 
         assert_eq!(member_type.value(), type_value.value());
@@ -780,9 +826,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let inherent_type_value = published_fact(
+        let inherent_type_value = resolved_query(
             &binding_context,
-            SymbolFactRequest::<InherentTypeMemberValueQuery>::new(inherent_type_member),
+            SymbolQueryRequest::<InherentTypeMemberValueQuery>::new(inherent_type_member),
         );
 
         assert_eq!(member_type.value(), inherent_type_value.value());
@@ -793,14 +839,14 @@ func identity<T>(value: T) -> T
             |symbol| ImplementationSymbolId::from(symbol.id()),
         );
 
-        let inherent_subject = published_fact(
+        let inherent_subject = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ImplementationSubjectQuery>::new(inherent_implementation),
+            SymbolQueryRequest::<ImplementationSubjectQuery>::new(inherent_implementation),
         );
 
-        let inherent_trait = published_fact(
+        let inherent_trait = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ImplementedTraitApplicationQuery>::new(inherent_implementation),
+            SymbolQueryRequest::<ImplementedTraitApplicationQuery>::new(inherent_implementation),
         );
 
         let inherent_subject_type = type_data(&compilation, inherent_subject.value().ty());
@@ -819,14 +865,14 @@ func identity<T>(value: T) -> T
             |symbol| ImplementationSymbolId::from(symbol.id()),
         );
 
-        let subject = published_fact(
+        let subject = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ImplementationSubjectQuery>::new(implementation),
+            SymbolQueryRequest::<ImplementationSubjectQuery>::new(implementation),
         );
 
-        let implemented_trait = published_fact(
+        let implemented_trait = resolved_query(
             &binding_context,
-            SymbolFactRequest::<ImplementedTraitApplicationQuery>::new(implementation),
+            SymbolQueryRequest::<ImplementedTraitApplicationQuery>::new(implementation),
         );
 
         let subject_type = type_data(&compilation, subject.value().ty());
@@ -845,9 +891,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let signature = published_fact(
+        let signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 callable_fulfillment,
             )),
         );
@@ -869,9 +915,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let constructor_signature = published_fact(
+        let constructor_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(constructor)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(constructor)),
         );
 
         assert_eq!(constructor_signature.value().parameters().len(), 1);
@@ -888,9 +934,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let finalizer_signature = published_fact(
+        let finalizer_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(finalizer)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(finalizer)),
         );
 
         assert!(matches!(
@@ -913,9 +959,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let destructor_signature = published_fact(
+        let destructor_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(destructor)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(destructor)),
         );
 
         assert_eq!(
@@ -932,9 +978,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let scope_enter_signature = published_fact(
+        let scope_enter_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(scope_enter)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(scope_enter)),
         );
 
         assert_eq!(
@@ -951,9 +997,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let scope_exit_signature = published_fact(
+        let scope_exit_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(scope_exit)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(scope_exit)),
         );
 
         assert!(scope_exit_signature.value().receiver().is_none());
@@ -964,9 +1010,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_finalizer_signature = published_fact(
+        let trait_finalizer_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_finalizer,
             )),
         );
@@ -985,9 +1031,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_destructor_signature = published_fact(
+        let trait_destructor_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_destructor,
             )),
         );
@@ -1006,9 +1052,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_scope_enter_signature = published_fact(
+        let trait_scope_enter_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_scope_enter,
             )),
         );
@@ -1027,9 +1073,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_scope_exit_signature = published_fact(
+        let trait_scope_exit_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_scope_exit,
             )),
         );
@@ -1042,9 +1088,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_scope_enter_fulfillment_signature = published_fact(
+        let trait_scope_enter_fulfillment_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_scope_enter_fulfillment,
             )),
         );
@@ -1063,9 +1109,9 @@ func identity<T>(value: T) -> T
             |symbol| symbol.id(),
         );
 
-        let trait_scope_exit_fulfillment_signature = published_fact(
+        let trait_scope_exit_fulfillment_signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
                 trait_scope_exit_fulfillment,
             )),
         );
@@ -1107,9 +1153,9 @@ func identity<T>(value: T) -> T
         };
 
         let field_type = |field: &bray_symbols::StructFieldSymbol| {
-            published_fact(
+            resolved_query(
                 &binding_context,
-                SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field.id()),
+                SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field.id()),
             )
             .value()
             .clone()
@@ -1215,9 +1261,9 @@ struct Values<const count: usize>
         };
 
         let field_type = |field: &bray_symbols::StructFieldSymbol| {
-            published_fact(
+            resolved_query(
                 &binding_context,
-                SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field.id()),
+                SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field.id()),
             )
             .value()
             .clone()
@@ -1302,9 +1348,9 @@ struct Values<const count: usize>
             |symbol| symbol.id(),
         );
 
-        let declared_type = published_fact(
+        let declared_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<GenericConstParameterDeclaredTypeQuery>::new(parameter),
+            SymbolQueryRequest::<GenericConstParameterDeclaredTypeQuery>::new(parameter),
         );
 
         assert!(declared_type.diagnostics().is_empty());
@@ -1362,9 +1408,9 @@ impl Subject(Provides)
             |symbol| symbol.id(),
         );
 
-        let result = published_fact(
+        let result = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
         );
 
         assert!(result.diagnostics().is_empty());
@@ -1429,14 +1475,14 @@ struct Broken<const flag: bool>
         let zero_field = zero.id();
         let non_integer_field = non_integer.id();
 
-        let zero = published_fact(
+        let zero = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(zero_field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(zero_field),
         );
 
-        let non_integer = published_fact(
+        let non_integer = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(non_integer_field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(non_integer_field),
         );
 
         assert!(zero.diagnostics().is_empty());
@@ -1499,9 +1545,9 @@ func invalid()
             |symbol| symbol.id(),
         );
 
-        let field_type = published_fact(
+        let field_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
         );
 
         let argument = constant_argument(field_type.value());
@@ -1527,9 +1573,9 @@ func invalid()
             |symbol| symbol.id(),
         );
 
-        let signature = published_fact(
+        let signature = resolved_query(
             &binding_context,
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function)),
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function)),
         );
 
         assert!(matches!(
@@ -1574,9 +1620,9 @@ struct Broken
             |symbol| symbol.id(),
         );
 
-        let field_type = published_fact(
+        let field_type = resolved_query(
             &binding_context,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
+            SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field),
         );
 
         assert!(matches!(
@@ -1608,9 +1654,9 @@ func invalid(value: MissingType)
         let invalid_binding_context = binding_context(&invalid_compilation, &cancellation);
 
         let request =
-            SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function));
+            SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function));
 
-        let signature = published_fact(&invalid_binding_context, request);
+        let signature = resolved_query(&invalid_binding_context, request);
 
         let diagnostic_kinds = signature
             .diagnostics()
@@ -1635,13 +1681,13 @@ func invalid(value: MissingType)
 
         let cancelled_binding_context = binding_context(&cancelled_compilation, &cancellation);
 
-        let request = SymbolFactRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
+        let request = SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(
             cancelled_function,
         ));
 
         assert_eq!(
-            cancelled_binding_context.symbol_fact(request),
-            Err(BinderFactError::Cancelled)
+            cancelled_binding_context.resolve_symbol_query(request),
+            Err(BindingQueryError::Cancelled)
         );
     }
 

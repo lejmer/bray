@@ -346,12 +346,20 @@ fn validate_operation_references(
                 return Err(InterfaceValidationError::Malformed);
             }
 
-            validate_index(substitution.to_index(), context.semantics.substitutions.len())?;
+            validate_index(
+                substitution.to_index(),
+                context.semantics.substitutions.len(),
+            )?;
+
             validate_prior_nodes(arguments, node_index)?;
 
             if let Some((implementation, substitution)) = implementation {
                 validate_implementation_reference(context, implementation)?;
-                validate_index(substitution.to_index(), context.semantics.substitutions.len())?;
+
+                validate_index(
+                    substitution.to_index(),
+                    context.semantics.substitutions.len(),
+                )?;
             }
         }
         InterfaceCheckedTemplateOperation::Convert { value, target } => {
@@ -409,7 +417,10 @@ fn validate_operation_type(
         }
         InterfaceCheckedTemplateOperation::Binary { .. } => true,
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
-            let Some(InterfaceType::Borrow { kind: ty_kind, target }) = type_at(semantics, node.ty())
+            let Some(InterfaceType::Borrow {
+                kind: ty_kind,
+                target,
+            }) = type_at(semantics, node.ty())
             else {
                 return Err(InterfaceValidationError::Malformed);
             };

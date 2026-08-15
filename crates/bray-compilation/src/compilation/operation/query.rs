@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, qualified_union_variant};
+use bray_binder::{BindingQueryContext, qualified_union_variant};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
     BoundUnitKey, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, ExpressionTypeEntry,
@@ -19,7 +19,7 @@ use super::super::binder::CompilationBindingContext;
 use super::super::checker::checker_result;
 use super::super::unit::semantic_unit_context_for;
 use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, OperationSelectionFactKey,
+    CancellationToken, CompilationFactKey, FactQueryError, OperationSelectionQueryKey,
 };
 
 use super::model::OperationResolution;
@@ -78,7 +78,7 @@ impl Compilation {
                 continue;
             }
 
-            let operation_key = OperationSelectionFactKey::new(key.clone(), expression);
+            let operation_key = OperationSelectionQueryKey::new(key.clone(), expression);
 
             if let Some(resolution) = self.resolve_operation_selection(
                 &operation_key,
@@ -102,7 +102,7 @@ impl Compilation {
         expression: BoundExpressionId,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<OperationResolution>>>, FactQueryError> {
-        let key = OperationSelectionFactKey::new(unit, expression);
+        let key = OperationSelectionQueryKey::new(unit, expression);
 
         // The cache map, runtime dependency graph, and computation share this query identity.
         let cell = self.state.operation_selections.cell(key.clone())?;
@@ -122,7 +122,7 @@ impl Compilation {
 
     fn compute_operation_selection(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<OperationResolution>>, FactQueryError> {
         // Independently cached prerequisite binding_context own the same shared bound-unit identity.
@@ -154,7 +154,7 @@ impl Compilation {
     )]
     fn resolve_operation_selection(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
@@ -167,7 +167,8 @@ impl Compilation {
             .expression(key.expression())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let selection_kind = selection_kind_for(binding_context, unit, key.expression(), expression)?;
+        let selection_kind =
+            selection_kind_for(binding_context, unit, key.expression(), expression)?;
 
         if selections.expression(key.expression()).is_some() {
             return Ok(None);
@@ -188,9 +189,13 @@ impl Compilation {
         };
 
         let resolution = match selection_kind {
-            bray_bound_tree::SelectionKind::Member => {
-                self.resolve_member_operation(binding_context, unit, &types, key.expression(), diagnostics)?
-            }
+            bray_bound_tree::SelectionKind::Member => self.resolve_member_operation(
+                binding_context,
+                unit,
+                &types,
+                key.expression(),
+                diagnostics,
+            )?,
             bray_bound_tree::SelectionKind::Index => {
                 let built_in = self.resolve_index_operation(
                     binding_context,
@@ -245,7 +250,7 @@ impl Compilation {
 
     fn operation_input_types(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         unit: &BoundUnit,
         expression: &BoundExpression,
         kind: bray_bound_tree::SelectionKind,
@@ -316,11 +321,11 @@ impl Compilation {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "operation selection keeps lazy fact inputs, cancellation, and diagnostics explicit"
+        reason = "operation selection keeps lazy query inputs, cancellation, and diagnostics explicit"
     )]
     pub(super) fn select_operation(
         &self,
-        key: &OperationSelectionFactKey,
+        key: &OperationSelectionQueryKey,
         binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,

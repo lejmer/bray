@@ -28,7 +28,8 @@ pub fn test_target_properties() -> crate::TargetProperties {
     )
     .unwrap_or_else(|| panic!("test C ABI properties must be valid"));
 
-    let Some(properties) = crate::TargetProperties::try_portable("unknown", "linux", "gnu", "gnu", c_abi)
+    let Some(properties) =
+        crate::TargetProperties::try_portable("unknown", "linux", "gnu", "gnu", c_abi)
     else {
         panic!("test target properties must be valid");
     };

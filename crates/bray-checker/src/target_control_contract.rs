@@ -49,7 +49,10 @@ pub(crate) fn separated_values(value: &str) -> Option<Vec<&str>> {
 
     let values = value.split(',').map(str::trim).collect::<Vec<_>>();
 
-    values.iter().all(|value| !value.is_empty()).then_some(values)
+    values
+        .iter()
+        .all(|value| !value.is_empty())
+        .then_some(values)
 }
 
 pub(crate) fn feature_name_valid(feature: &str) -> bool {

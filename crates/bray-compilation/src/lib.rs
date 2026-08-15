@@ -14,11 +14,11 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    BuildConfiguration, CodegenPreparationError, Compilation, CompilationLoadError, CompletionCandidate,
-    EmissionCodegenError, EmissionCodegenErrorKind, LinkedProductEmissionError,
-    NativeProductPlanningError, NativeProductPlan, PackageInterfaceExportError, ProductEmissionError,
-    ProductEmissionErrorKind, ProductEmissionInputs, ProductSourceGraph, SemanticAvailability,
-    TestDiscovery,
+    BuildConfiguration, CodegenPreparationError, Compilation, CompilationLoadError,
+    CompletionCandidate, EmissionCodegenError, EmissionCodegenErrorKind,
+    LinkedProductEmissionError, NativeProductPlan, NativeProductPlanningError,
+    PackageInterfaceExportError, ProductEmissionError, ProductEmissionErrorKind,
+    ProductEmissionInputs, ProductSourceGraph, SemanticAvailability, TestDiscovery,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

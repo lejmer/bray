@@ -7,15 +7,15 @@ policy into binding, publishing checker-private analysis state, or creating circ
 
 `docs/design/compiler-architecture.md` defines the compiler-wide phase, query, and publication model.
 
-`docs/design/symbols.md` defines stable semantic identities, types, constants, contracts, and symbol-owned analysis results.
+`docs/design/symbols.md` defines stable semantic identities, types, constants, contracts, and symbol-owned semantics.
 
 `docs/design/binder.md` defines binding orchestration, bound semantic units, storage terminology, and the shared control-flow graph
 boundary.
 
-`docs/design/lowering.md` defines the durable checker-analysis result boundary consumed by lowering.
+`docs/design/lowering.md` defines the durable checker output consumed by lowering.
 
 This document is authoritative for checker domain ownership, dependencies, inputs, outputs, convergence, recovery, and durable
-analysis results.
+semantics.
 
 ---
 
@@ -24,13 +24,13 @@ analysis results.
 The checker architecture should:
 
 - implement each language rule in one focused domain,
-- expose typed service contracts rather than untyped rule names or generic analysis result maps,
-- support point-local rule checks and independently demandable unit-scoped analysis results over committed
+- expose typed service contracts rather than untyped rule names or generic result maps,
+- support point-local rule checks and independently demandable unit-scoped analyses over committed
   bound structure,
 - make dependencies between checker domains explicit and acyclic,
 - use one control-flow graph for every flow-sensitive domain in a semantic unit,
 - combine mutually dependent storage rules into one coherent flow domain,
-- retain only durable semantic analysis results after checking,
+- retain only durable semantics after checking,
 - produce structured source-correlated diagnostics without user-facing English in checker logic,
 - recover conservatively from malformed bound input without panics or nontermination,
 - support deterministic cancellation, parallelism, and incremental reuse,
@@ -48,7 +48,7 @@ The checker does not:
 - construct a second durable semantic tree,
 - publish its control-flow graph, work lists, lattice states, or solver traces,
 - lower checked semantics into cleanup operations, normalized control flow, or backend-independent MIR,
-- erase unrelated rule outcomes into one universal analysis result record,
+- erase unrelated rule outcomes into one universal checker record,
 - use runtime assertion failures for ordinary invalid source,
 - infer language policy from implementation convenience.
 
@@ -65,12 +65,12 @@ Rule checks can run while the binder constructs a candidate. They do not require
 contract explicitly says otherwise.
 
 "Local" describes the service input, not necessarily when it runs. A flow domain can invoke a point-local contract, conversion, or
-target check with the exact analysis results available at that program point.
+target check with the exact semantic inputs available at that program point.
 
 ### Analysis Domain
 
 An analysis domain owns one coherent semantic problem, including its typed state, transfer rules, merge rules, diagnostics, recovery
-behavior, and durable analysis results.
+behavior, and durable outputs.
 
 A domain is not merely a module name. Its state must have a precise semantic meaning and a stated convergence contract.
 
@@ -79,20 +79,20 @@ A domain is not merely a module name. Its state must have a precise semantic mea
 A flow domain evaluates state over the shared checker-internal control-flow graph. It declares a forward or backward direction, an
 entry or exit boundary state, a deterministic merge operation, and a finite-height or otherwise provably convergent state space.
 
-### Durable Analysis Result
+### Durable Checker Output
 
-A durable analysis result is semantic information required after checking, such as a selected conversion, an expression type, a checked
+A durable checker output is semantic information required after checking, such as a selected conversion, an expression type, a checked
 move, a borrow capability, a control-completion category, an instantiated dependency contract, or a callable body effect summary.
 
-Durable analysis result types belong in `bray-bound-tree`, `bray-symbols`, or another lower representation-owning crate. Checker-private
-analysis IDs and intermediate states are never durable analysis results.
+Durable output types belong in `bray-bound-tree`, `bray-symbols`, or another lower representation-owning crate. Checker-private
+analysis IDs and intermediate states are never durable outputs.
 
 ### Recovery State
 
 A recovery state is a typed conservative result used after malformed or already erroneous input. It preserves category and known
 relationships without pretending that a valid semantic proof exists.
 
-Recovery unknown is distinct from disproven. A failed proof, an unavailable analysis result, malformed source, and compiler cancellation must
+Recovery unknown is distinct from disproven. A failed proof, an unavailable prerequisite, malformed source, and compiler cancellation must
 not collapse into the same state.
 
 ---
@@ -102,17 +102,17 @@ not collapse into the same state.
 `bray-checker` owns semantic rule algorithms, its checker-private control-flow graph and analysis state, transfer functions,
 convergence engines, and the construction of structured checker diagnostics.
 
-`bray-bound-tree` owns the source-shaped bound HIR, durable node and side-analysis result types, unit-local storage and access identities,
+`bray-bound-tree` owns the source-shaped bound HIR, durable node and side-analysis types, unit-local storage and access identities,
 borrow capabilities, and instantiated dependency contracts.
 
 `bray-symbols` owns interned semantic types, constant values and terms, generic substitutions, implementation selections,
-declaration contract summaries, portable dependency-contract templates, and symbol-facing lazy analysis result contracts.
+declaration contract summaries, portable dependency-contract templates, and symbol-facing semantic query contracts.
 
 `bray-binder` owns expected contexts, candidate transactions, point-local checker cooperation during binding, deterministic
 diagnostic ownership, and atomic publication of the published bound unit.
 
-`bray-compilation` owns typed lazy analysis result accessors, caches, private dependency evaluation, cancellation sources, cross-unit
-parallelism, and immutable analysis result publication.
+`bray-compilation` owns typed lazy query accessors, caches, private dependency evaluation, cancellation sources, cross-unit
+parallelism, and immutable result publication.
 
 A checker service receives typed immutable inputs. It must not reach into binder builders, compilation caches, syntax internals, or
 global mutable state.
@@ -134,7 +134,7 @@ discoverable.
 ## Service Shape
 
 Focused checker APIs use exact typed request and result records. A request contains only the semantic inputs needed by that rule,
-plus narrow read-only analysis result access and cancellation when the operation can request analysis results or perform substantial work.
+plus narrow read-only semantic access and cancellation when the operation can request other semantics or perform substantial work.
 
 Unit-scoped domains receive a validated `CheckerUnitView` that pairs the committed bound-unit view and exact root with a closed
 `SemanticUnitContext`. The semantic context identifies the declaration or local callable boundary that supplies parameters,
@@ -143,8 +143,8 @@ context do not agree is an infrastructure failure and cannot enter semantic anal
 focused services. It is not a request to run every checker domain.
 
 The shared request context resolves source text and spans only through `BoundSourceAnchor`. It can return the anchored text and exact
-span but cannot expose a source snapshot, syntax tree, token stream, or arbitrary syntax traversal to checker rules. Symbol analysis results are
-requested through their typed `SymbolFactContract` without selecting a source, compiler-known, or imported implementation API at
+span but cannot expose a source snapshot, syntax tree, token stream, or arbitrary syntax traversal to checker rules. Symbol semantics are
+requested through their typed `SymbolQueryContract` without selecting a source, compiler-known, or imported implementation API at
 the checker boundary.
 
 Conceptually:
@@ -171,22 +171,22 @@ target-available compiler-known symbol view. Checker rules must classify resolve
 names or catalog keys. The view supplies available identity and role association only. Checker-owned semantic rules remain in
 focused checker services.
 
-### Typed Analysis Result Accessors
+### Typed Semantic Queries
 
-The public semantic model is the set of typed lazy analysis result accessors exposed by `Compilation` and symbol views. A caller requests the
-analysis result it needs by its existing typed key and receives that analysis result's stable immutable value and diagnostics. Examples include
-expression types, selected calls, selected operations, control-completion analysis results, storage-access analysis results, effect summaries, and
+The public semantic model is the set of typed lazy queries exposed by `Compilation` and symbol views. A caller requests the
+semantics it needs by the existing typed key and receives a stable immutable value and diagnostics. Examples include
+expression types, selected calls, selected operations, control-completion analyses, storage-access plans, effect summaries, and
 constant values.
 
-The analysis result key is also the identity used for caching and dependency evaluation. The compiler must not mirror each analysis result with a public
-query object, generic analysis result wrapper, dynamic registry entry, duplicate query identity, or stage-progress representation. Dependency
+The query key is also the identity used for caching and dependency evaluation. The compiler must not mirror each semantic value with a public
+query object, generic wrapper, dynamic registry entry, duplicate query identity, or stage-progress representation. Dependency
 recording, single-flight evaluation, scheduling, waiting, and cancellation are private mechanics behind the typed accessors. They
-do not create another semantic layer above the analysis results.
+do not create another semantic layer above the published values.
 
-Each analysis result declares only the prerequisites needed to establish its own contract. Computing one analysis result can request another through its
-typed accessor, but no ordinary analysis result request implies a closed checker schedule or completion of unrelated domains. A control-flow
-analysis result for an enclosing callable does not require control-flow analysis results for nested callable units. A selected-call analysis result does not require
-borrow or effect analysis merely because those analysis results may later be needed by lowering.
+Each query declares only the prerequisites needed to establish its own contract. Computing one value can request another through its
+typed accessor, but no ordinary request implies a closed checker schedule or completion of unrelated domains. Control-flow analysis
+for an enclosing callable does not require control-flow analysis for nested callable units. Call selection does not require
+borrow or effect analysis merely because those outputs may later be needed by lowering.
 
 The semantic unit category selects contextual inputs, not a list of analyses:
 
@@ -195,22 +195,22 @@ The semantic unit category selects contextual inputs, not a list of analyses:
 | `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        |
 | `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                      |
 | `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             |
-| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target properties                                 |
+| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target properties                            |
 | `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 |
-| `Constraint`          | Generic parameters and analysis results available before the constraint being defined                                            |
-| `ContractClause`      | Callable parameters and clause-specific analysis results, with `result` present only for a value-producing `ensures(...)` clause |
+| `Constraint`          | Generic parameters and propositions available before the constraint being defined                                     |
+| `ContractClause`      | Callable parameters and clause-specific propositions, with `result` present only for a value-producing `ensures(...)` clause |
 
-Runtime-default analysis results record requirements without imposing them on calls or constructions that supply an explicit value. Constant
+Runtime defaults record requirements without imposing them on calls or constructions that supply an explicit value. Constant
 templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution, selected
 implementations, and target profile.
 
 For contract-clause semantic contexts, `requires(...)` does not assume itself. `ensures(...)` can reference the declared normal
-result, but body checking must prove the ensured analysis result independently on every reachable normal completion. Trusted analysis results retain
+result, but body checking must prove the postcondition independently on every reachable normal completion. Trusted propositions retain
 their provenance in every category.
 
-Package diagnostics is an intentionally broad consumer. It requests every applicable diagnostic-owning analysis result reachable from the
+Package diagnostics is an intentionally broad consumer. It requests every applicable diagnostic-owning query reachable from the
 package and merges their diagnostics deterministically. Lowering is a different projection: it requests and validates the exact
-typed analysis results named by `LoweringInput`. Neither projection is a universal checked-unit value or evidence that unrelated analysis results ran.
+typed inputs named by `LoweringInput`. Neither projection is a universal checked-unit value or evidence that unrelated analyses ran.
 
 ### Outcomes And Cancellation
 
@@ -218,9 +218,9 @@ Every substantial checker operation observes the caller-provided cancellation so
 diagnostics and no partial results.
 
 Cancellation is not a semantic result and must not be represented as an error type, recovery node, unknown proof, or user
-diagnostic. The compilation analysis result evaluation discards all task-local checker state after cancellation.
+diagnostic. Compilation query evaluation discards all task-local checker state after cancellation.
 
-Failures to resolve a bound source anchor, obtain a required semantic analysis result, or satisfy a checker request invariant are typed
+Failures to resolve a bound source anchor, obtain required semantics, or satisfy a checker request invariant are typed
 infrastructure failures. They are distinct from cancellation and from source diagnostics, and they publish neither a recovered
 semantic result nor a user-facing diagnostic.
 
@@ -248,7 +248,7 @@ selected target profile and target properties
     |
     +--> target gates and declaration-availability results
                   |
-bound structure, symbol analysis results, and target results
+bound structure, symbol semantics, and target results
                   |
     +--> type, compatibility, and candidate selection
                   |
@@ -260,7 +260,7 @@ bound structure, symbol analysis results, and target results
                   |
        reachability and control completion
              /                 \
-    analysis result refinement          liveness
+        refinement          liveness
              \                 /
           composite storage flow
                   |
@@ -287,7 +287,7 @@ Constant, predicate, constraint, and contract-clause finalization consumes the s
 storage, dependency, effect, and contract results as ordinary units. It does not resolve names, select operations, or build a
 private control-flow model again.
 
-Analysis Result refinement and liveness can run independently after reachability when neither requests the other's results. The composite
+Refinement and liveness can run independently after reachability when neither requests the other's results. The composite
 storage domain waits for both because refinement can prove disjointness and valid variants while liveness supports borrow shortening
 and lifecycle decisions.
 
@@ -331,13 +331,13 @@ rounds do not publish diagnostics. Cannot-infer and incompatibility diagnostics 
 reach a stable state.
 
 Iteration source selection first consumes the source expression type, then contributes the selected element type to iteration
-pattern checking and final expression typing. The final expression-semantic analysis result must depend on those occurrence-specific
+pattern checking and final expression typing. The final expression semantics must depend on those occurrence-specific
 selections without introducing a dependency cycle. Internal partial inference may supply the source types required for
-selection, but it must not be exposed as a complete checked analysis result or publish final diagnostics.
+selection, but it must not be exposed as complete checked semantics or publish final diagnostics.
 
 The same fixed point resolves source type-expression templates when their embedded constant expressions depend on expression
 typing, callable selection, implementation selection, or a target-sized representation. Each occurrence is keyed by its declaration
-owner and exact syntax anchor. Its expected type comes from either an already stable type or the declared type analysis result of the exact
+owner and exact syntax anchor. Its expected type comes from either an already stable type or the declared type of the exact
 generic const parameter. Resolving one occurrence must not force unrelated declaration types, bodies, or constant instances.
 
 Successful occurrence checking publishes a stable open `ConstantTermId`. Resolving a containing template then constructs the
@@ -372,13 +372,13 @@ The selection domain owns:
 - ambiguity, wrong-category, inaccessible, and unavailable-candidate outcomes.
 
 Candidate enumeration must come from typed symbol lookup and implementation indexes. Exact implementation lookup must expose an
-immutable candidate-set analysis result keyed by the checked subject type and trait application. Candidate records must be origin-neutral and
-must retain stable implementation identity, inferred substitution, generic constraint templates, target-analysis result dependencies, and
+immutable candidate set keyed by the checked subject type and trait application. Candidate records must be origin-neutral and
+must retain stable implementation identity, inferred substitution, generic constraint templates, target dependencies, and
 coherence evidence without asserting applicability. The checker must evaluate candidates in stable order. It must not rank
 candidates when the language says that exactly one applicable arm is required.
 
 The checker must evaluate the retained generic constraints, target availability, and coherence requirements before requesting an
-`ImplementationSelectionQuery`. Candidate lookup must not publish a selected implementation witness. A selection analysis result must represent
+`ImplementationSelectionQuery`. Candidate lookup must not publish a selected implementation witness. A selection must represent
 the checked commitment reached after all applicability predicates that can affect candidate participation are stable.
 
 The binder must supply source-associated callable candidate records with stable semantic keys, target availability, effective
@@ -409,10 +409,10 @@ identify the selection category without embedding rendered language text in chec
 Callable overload applicability uses explicit argument mapping, parameter type compatibility, receiver type and receiver mode for
 methods, explicit generic substitution, static generic constraints, and target availability. It does not use expected result type,
 argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
-obligations, `requires(...)` analysis results, or postconditions.
+obligations, `requires(...)` preconditions, or postconditions.
 
 Each callable candidate carries the complete substitution produced by binding the source-ordered explicit generic inputs against
-that candidate's type and const parameters. Selection validates that substitution and its static constraints as candidate analysis results.
+that candidate's type and const parameters. Selection validates that substitution and its static constraints against the candidate evidence.
 Generic inputs remain separate from evaluated call arguments and never become expression operands.
 
 Operator and indexing applicability likewise must not use a previously inferred expression result type to choose a candidate. A
@@ -456,7 +456,7 @@ whether those operations are valid at the exact program point.
 
 Recovered pattern syntax produces an error-aware pattern result with conservative storage use and no unproven refinement.
 
-Pattern checking follows `docs/language/patterns.md` and its operation-mode, refutability, partial-move, and analysis result-refinement rules.
+Pattern checking follows `docs/language/patterns.md` and its operation-mode, refutability, partial-move, and refinement rules.
 
 ### Constant Checking And Evaluation
 
@@ -470,7 +470,7 @@ The constant domain owns:
 - deterministic evaluation resource limits,
 - constant dependency and cycle detection,
 - admissible constant control flow and termination,
-- target-analysis result dependencies,
+- target dependencies,
 - interned constant value and term production.
 
 Source type-expression templates are inputs to this domain, not checked constant terms. The domain validates their embedded
@@ -486,7 +486,7 @@ literals default to `c128`. Complex literal components use the real representati
 Defaulting is a finalization step and must not run while callers may still add expected-type evidence.
 
 Closed evaluation receives the complete checked expression types, exact semantic selections, and the results of every referenced
-constant dependency. The compilation analysis result layer owns dependency scheduling, caching, and cycle detection. It supplies either the
+constant dependency. The compilation query layer owns dependency scheduling, caching, and cycle detection. It supplies either the
 referenced `ConstantValueId` or a cycle result for each constant-reference occurrence. The checker owns the source-correlated
 diagnostic and error-value recovery for a reported cycle.
 
@@ -502,11 +502,11 @@ aggregate state. Cancellation publishes neither a value nor diagnostics.
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
 runtime storage, perform I/O, start tasks, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
 
-Evaluating a call to a const callable requests the callable analysis results required by constant evaluation, including its bound body,
-expression types, selected operations, constant-validity analysis results, and referenced constant values. It does not request unrelated
-storage or tooling analysis results and does not invoke binding or another checker service directly.
+Evaluating a call to a const callable requests the callable semantics required by constant evaluation, including its bound body,
+expression types, selected operations, constant-validity checks, and referenced constant values. It does not request unrelated
+storage analyses or tooling queries and does not invoke binding or another checker service directly.
 
-Evaluation failure returns an error-aware constant analysis result with structured diagnostics. Deterministic resource exhaustion is a
+Evaluation failure returns an error-aware constant value with structured diagnostics. Deterministic resource exhaustion is a
 compile-time rejection. Cancellation remains a non-semantic `CheckerOutcome::Cancelled`.
 
 Constant checking follows `docs/language/declarations/constant-declarations.md`,
@@ -515,7 +515,7 @@ Constant checking follows `docs/language/declarations/constant-declarations.md`,
 ### Declared Type Representation Contracts
 
 Each product or union declaration must expose one independently demandable, immutable representation contract keyed by its named
-type identity. The checker derives this analysis result from represented fields and payloads, lifecycle declarations, generic parameters, and
+type identity. The checker derives this representation from fields and payloads, lifecycle declarations, generic parameters, and
 the declaration's `@layout`, `@copy`, and variant `@tag` directives.
 
 The contract records source-level layout mode and options, the selected union tag type and values when source layout fixes them,
@@ -526,8 +526,8 @@ Indirection can terminate an outer-size cycle, but it does not make the represen
 Representation checking must also honor the request's deterministic active-recursion limit. Exhaustion produces one structured
 diagnostic and a recovered representation contract. It must not publish a partially checked representation as valid.
 
-This analysis result validates source semantics only. Target-specific offsets, padding, aggregate size, ABI alignment support, and physical
-layout calculation remain separate target-dependent analysis results. Public contracts must be serializable through compiled package
+This representation validates source semantics only. Target-specific offsets, padding, aggregate size, ABI alignment support, and physical
+layout calculation remain separate target-dependent queries. Public contracts must be serializable through compiled package
 interfaces so importing compilations consume the same checked representation without rechecking dependency source.
 
 ### Predicate, Constraint, And Contract Rules
@@ -598,7 +598,7 @@ request point does not make target policy part of package loading or declaration
 Preselection target expressions use the closed target-selection context defined by the language. That context can reference only
 the selected profile, compiler-known target properties and values, literals, and the permitted built-in operations. It uses the
 stable built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant
-analysis result. This closed foundational surface prevents a dependency cycle from target availability back into ordinary source selection.
+query. This closed foundational surface prevents a dependency cycle from target availability back into ordinary source selection.
 
 Public target-dependent semantic results record the exact target-property dependencies required by compiled package interfaces and incremental
 queries.
@@ -668,7 +668,7 @@ Liveness supports borrow shortening, scope-exit planning, obligation diagnostics
 required. It does not itself decide whether an access is initialized, whether two accesses overlap, or whether ending an obligation
 is legal.
 
-Only liveness analysis results required by durable borrow or lifecycle decisions are retained. Full live-in and live-out sets are
+Only liveness decisions required by durable borrow or lifecycle semantics are retained. Full live-in and live-out sets are
 checker-private.
 
 ### Composite Storage Flow
@@ -676,7 +676,7 @@ checker-private.
 Initialization, ownership, movement, borrowing, alias compatibility, mutation authority, partial-state tracking, and lifecycle
 obligations form one composite forward domain.
 
-These analysis results are mutually dependent. Splitting them into independent passes would create circular requests, duplicate storage state,
+These storage subdomains are mutually dependent. Splitting them into independent passes would create circular requests, duplicate storage state,
 or allow one pass to validate an operation against stale results from another.
 
 The domain state is a typed product over storage identities and capabilities. It includes only meaningful relationships such as:
@@ -721,8 +721,8 @@ Merges retain only operations valid for every reachable incoming state. Partial 
 represented-part identity. Active borrow and lifecycle obligation sets merge conservatively. A path cannot silently discard an
 obligation or restore mutation authority merely because another predecessor does not carry it.
 
-The domain uses the reachability mask, analysis result refinements, and liveness results. It produces durable per-operation storage analysis results,
-borrow capabilities, checked accesses, scope-exit obligations, and recovery analysis results required by lowering.
+The domain uses the reachability mask, refinements, and liveness results. It produces durable per-operation storage decisions,
+borrow capabilities, checked accesses, scope-exit obligations, and recovery state required by lowering.
 
 Recovery state is conservative. Unknown overlap conflicts, unknown initialization cannot be read as initialized, and unknown
 ownership cannot be moved or destroyed as though valid. The domain reports independent errors where useful but avoids repeating an
@@ -742,13 +742,13 @@ operation performed through it. Operations include reads, writes, moves, unresol
 access, indexing, slicing, and pattern projections. A single expression can produce several projected accesses with the same
 operation, as with product or sequence destructuring.
 
-Planning requests only the exact unit's bound tree, final expression types, checked pattern analysis results, and semantic selections,
-including selected iteration sources. Nested semantic units and unrelated declarations retain independent analysis result identities and are
+Planning requests only the exact unit's bound tree, final expression types, checked pattern analysis, and semantic selections,
+including selected iteration sources. Nested semantic units and unrelated declarations retain independent query identities and are
 not scanned or materialized by the enclosing request.
 
 The planner does not decide flow legality, storage overlap, borrow duration, initialization state, or ownership validity. It
 preserves checked selections and projections when available. Missing or recovered semantic providers produce conservative
-source-correlated storage and access analysis results without guessing a target.
+source-correlated storage and access plans without guessing a target.
 
 ### Dependency-Contract Propagation
 
@@ -773,7 +773,7 @@ name is special.
 The merge is a deterministic normalized union of requirements with typed guards. Requirements are discharged only by a checked
 operation that proves their resolution. Recovery preserves conservative requirements rather than dropping them.
 
-Durable results are unit-local `BoundDependencyContractId` values and inferred portable templates required by symbol analysis results or
+Durable results are unit-local `BoundDependencyContractId` values and inferred portable templates required by symbol semantics or
 compiled interfaces. Full propagation states remain checker-private.
 
 These rules follow `docs/language/ownership-and-borrowing/dependency-contracts.md` and the async computation and task rules in
@@ -794,7 +794,7 @@ Its state retains:
 - accumulated body effects,
 - capability uses and the declaration envelopes against which they are validated,
 - ordinary and trusted contract obligations still requiring proof or propagation,
-- normal-completion analysis results promised by selected operations.
+- normal-completion guarantees promised by selected operations.
 
 Effect accumulation is deterministic set union over typed effect identities. Each capability use is checked against the exact
 availability result produced by composite storage flow or against declaration-scoped trusted authority that is not flow-varying.
@@ -805,11 +805,11 @@ does not create a second lifecycle or run-obligation result.
 
 The callable body summary must fit the declaration's caller-visible surface. A trusted callable's `uses(...)` clause must exactly
 cover trusted implementation capabilities used by the body. Trusted caller obligations used by wrappers must be discharged or
-exposed. `ensures(...)` analysis results are checked on every reachable normal completion, not on panic, propagation, divergence, or
+exposed. `ensures(...)` postconditions are checked on every reachable normal completion, not on panic, propagation, divergence, or
 cancellation exits unless the language contract explicitly says otherwise.
 
-Durable analysis results include the normalized body effect summary, checked capability uses, discharged or propagated contract obligations,
-and source-correlated exit analysis results needed by lowering and symbol analysis results.
+Durable outputs include the normalized body effect summary, checked capability uses, discharged or propagated contract obligations,
+and source-correlated exit decisions needed by lowering and symbol semantics.
 
 These rules follow `docs/language/callables/effects-and-capabilities.md`, `docs/language/contracts-and-trust.md`,
 `docs/language/lifecycle.md`, and `docs/language/async-and-concurrency.md`.
@@ -856,11 +856,11 @@ Result-affecting semantic work limits belong to the immutable compilation reques
 domain contexts rather than a separate budget service.
 
 Package-level implementation-coherence and callable-overload validation each consume the configured comparison limit within their
-requested analysis result. Candidate families and pairs remain ordered by stable identity. Reaching the limit emits one structured diagnostic at the
+requested package query. Candidate families and pairs remain ordered by stable identity. Reaching the limit emits one structured diagnostic at the
 next deterministic source participant and rejects the incomplete package-level answer instead of silently accepting unchecked
 pairs.
 
-Changing a semantic work limit invalidates only analysis results whose result depends on that limit and their ordinary dependents. Worker
+Changing a semantic work limit invalidates only queries whose result depends on that limit and their ordinary dependents. Worker
 count, query priority, cancellation, and cache retention remain scheduling inputs and do not affect semantic identity.
 
 The pre-lowering bounded-work policy is divided by domain:
@@ -869,12 +869,12 @@ The pre-lowering bounded-work policy is divided by domain:
 - parser recursion is bounded while green-tree traversal and teardown remain iterative,
 - declaration, symbol, bound-node, analysis-node, and semantic-value arenas use checked compact identities and reject capacity
   overflow before publication,
-- generic and type work remains demand-driven per requested occurrence, detects analysis result cycles, and observes syntax or semantic
+- generic and type work remains demand-driven per requested occurrence, detects dependency cycles, and observes syntax or semantic
   recursion limits instead of expanding an eager transitive closure,
 - constant evaluation owns operation, aggregate, literal, expansion, exact-integer, and call-depth limits,
-- flow-sensitive analysis owns explicit analysis result and storage-cell capacities plus finite convergence arguments,
-- implementation and overload families own package-analysis result pair-comparison limits,
-- analysis result caches own finite retention independently of semantic answers,
+- flow-sensitive analysis owns explicit refinement and storage-cell capacities plus finite convergence arguments,
+- implementation and overload families own package-level pair-comparison limits,
+- query caches own finite retention independently of semantic answers,
 - diagnostic accumulation is bounded by the source occurrences, semantic entities, and explicitly limited work items that can
   produce diagnostics.
 
@@ -916,7 +916,7 @@ operations. A cancelled fixed point publishes nothing.
 ## Durable Publication
 
 Checker output remains task-local until the compilation validates its unit identity and publishes it through the matching typed
-analysis result accessor. Publication freezes that analysis result and its diagnostics without mutating or wrapping the published bound unit.
+query accessor. Publication freezes that output and its diagnostics without mutating or wrapping the published bound unit.
 
 Durable checked data can include:
 
@@ -924,13 +924,13 @@ Durable checked data can include:
 - defined result types and selected semantic operations,
 - checked conversions, calls, implementations, and witnesses,
 - checked storage accesses and operation modes,
-- borrow capabilities and mutation-authority analysis results,
-- control-completion and scope-exit analysis results,
+- borrow capabilities and mutation authority,
+- control-completion and scope-exit decisions,
 - instantiated dependency contracts,
 - normalized body effects and capability uses,
-- checked contract analysis results and obligation outcomes,
+- checked contracts and obligation outcomes,
 - constant values, predicate summaries, and target dependencies,
-- recovery analysis results required to keep later phases panic-free.
+- recovery state required to keep later phases panic-free.
 
 Checker output does not include:
 
@@ -941,19 +941,19 @@ Checker output does not include:
 - temporary alias or overlap caches,
 - checker-owned diagnostic suppression state.
 
-Each published analysis result validates the unit identity and category required by its contract. A missing prerequisite prevents that analysis result
+Each published output validates the unit identity and category required by its contract. A missing prerequisite prevents that output
 from being published and is not an invitation for a consumer to rerun checker logic. Package diagnostics merges diagnostics from
-the diagnostic-owning analysis results it requests. Lowering validates its exact typed input analysis results before constructing MIR.
+the diagnostic-owning queries it requests. Lowering validates its exact typed inputs before constructing MIR.
 
 ---
 
 ## Parallelism And Determinism
 
-Independent semantic analysis results can be evaluated in parallel when their declared prerequisites are available.
+Independent semantic analyses can be evaluated in parallel when their declared prerequisites are available.
 
-Within one unit, domains whose prerequisite analysis results are satisfied can run in parallel. Reachability precedes only domains that
+Within one unit, domains whose prerequisites are satisfied can run in parallel. Reachability precedes only domains that
 consume its mask. Refinement and liveness can run concurrently where neither depends on the other. Storage, dependency, effect,
-capability, and obligation analysis results declare their actual inputs rather than inheriting a universal schedule.
+capability, and obligation domains declare their actual inputs rather than inheriting a universal schedule.
 
 Small units should remain serial when parallel coordination costs more than the work.
 
@@ -980,7 +980,7 @@ Recovery rules include:
 - error types retain type category without satisfying unrelated constraints,
 - unresolved references retain lookup failure category and viable candidates,
 - recovered control remains conservatively reachable,
-- recovered analysis results are not treated as proven,
+- recovered state is not treated as proven,
 - recovered storage overlap is treated as potentially conflicting,
 - recovered initialization is not readable as a valid value,
 - recovered ownership does not erase lifecycle obligations,
@@ -1034,11 +1034,11 @@ Implementation issues should be split along these dependency boundaries:
 2. type, compatibility, candidate, trait, conversion, and pattern rule services,
 3. constant, predicate, constraint, contract, and target rule services,
 4. reachability and control-completion analysis,
-5. analysis result-refinement and liveness analyses,
+5. refinement and liveness analyses,
 6. composite storage-flow analysis,
 7. dependency-contract propagation,
 8. effect, capability-use, contract, and trust validation,
-9. category-specific durable analysis result types and binder publication,
+9. category-specific durable output types and binder publication,
 10. deterministic diagnostics, cancellation, recovery, convergence, and parallelism coverage.
 
 An issue can combine adjacent slices when the implementation remains focused. It must not bypass an earlier dependency with a

@@ -1,7 +1,5 @@
 use std::marker::PhantomData;
 
-use bray_diagnostics::DiagnosticResult;
-
 use crate::{
     AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId, CallableSymbolId,
     ConstantSymbolId, GenericConstParameterSymbolId, GenericOwnerId, ImplementationSymbolId,
@@ -19,7 +17,7 @@ use super::{
     ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
     ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
     OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
-    PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
+    PredicateSignatureTemplate, SymbolQueryKind, TraitApplicationTemplate, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate,
 };
 
@@ -30,43 +28,37 @@ mod sealed {
 /// Maps one typed symbol owner to its immutable semantic query value.
 ///
 /// This sealed contract keeps the owner, value, and erased query category coupled at compile time.
-pub trait SymbolFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
+pub trait SymbolQueryContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The exact symbol family that can own this query.
     type Owner: Copy + Ord + Send + Sync + 'static;
     /// The immutable semantic value supplied by the query.
     type Value: std::hash::Hash + Send + Sync + 'static;
 
     /// The category used by erased query coordination and completion.
-    const KIND: SymbolFactKind;
+    const KIND: SymbolQueryKind;
 
     /// Erases the typed owner only for query coordination.
     fn erase_owner(owner: Self::Owner) -> AnySymbolId;
 }
 
-/// The diagnostic-bearing result of one typed symbol query contract.
-pub type SymbolFactResult<C> = DiagnosticResult<<C as SymbolFactContract>::Value>;
-
 /// Couples an instance-specific semantic query key to its immutable value.
 ///
-/// These facts retain semantic inputs beyond one symbol owner.
-pub trait SemanticFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
+/// These queries retain semantic inputs beyond one symbol owner.
+pub trait SemanticQueryContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The complete symbol-domain inputs excluding compilation snapshot and target context.
     type Key: Send + Sync + 'static;
     /// The immutable semantic value supplied by the query.
     type Value: Send + Sync + 'static;
 }
 
-/// The diagnostic-bearing result of an instance-specific semantic query contract.
-pub type SemanticFactResult<C> = DiagnosticResult<<C as SemanticFactContract>::Value>;
-
 /// A typed request for one symbol-owned semantic query.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SymbolFactRequest<C: SymbolFactContract> {
+pub struct SymbolQueryRequest<C: SymbolQueryContract> {
     owner: C::Owner,
     marker: PhantomData<fn() -> C>,
 }
 
-impl<C: SymbolFactContract> SymbolFactRequest<C> {
+impl<C: SymbolQueryContract> SymbolQueryRequest<C> {
     /// Creates a request for the query owned by the exact symbol.
     pub const fn new(owner: C::Owner) -> Self {
         Self {
@@ -86,12 +78,12 @@ impl<C: SymbolFactContract> SymbolFactRequest<C> {
     }
 
     /// Returns the exact query category selected by the contract.
-    pub const fn kind(self) -> SymbolFactKind {
+    pub const fn kind(self) -> SymbolQueryKind {
         C::KIND
     }
 }
 
-macro_rules! define_symbol_fact_contract {
+macro_rules! define_resolve_symbol_query_contract {
     (
         $(
             $(#[$meta:meta])*
@@ -110,11 +102,11 @@ macro_rules! define_symbol_fact_contract {
 
             impl sealed::Sealed for $contract {}
 
-            impl SymbolFactContract for $contract {
+            impl SymbolQueryContract for $contract {
                 type Owner = $owner;
                 type Value = $value;
 
-                const KIND: SymbolFactKind = SymbolFactKind::$kind;
+                const KIND: SymbolQueryKind = SymbolQueryKind::$kind;
 
                 fn erase_owner(owner: Self::Owner) -> AnySymbolId {
                     ($erase)(owner)
@@ -124,7 +116,7 @@ macro_rules! define_symbol_fact_contract {
     };
 }
 
-define_symbol_fact_contract! {
+define_resolve_symbol_query_contract! {
     /// Validated using relationships and re-export edges for one logical module.
     ModuleSurfaceQuery {
         owner: ModuleSymbolId,
@@ -372,7 +364,7 @@ define_symbol_fact_contract! {
     }
 }
 
-macro_rules! define_semantic_fact_contract {
+macro_rules! define_semantic_query_contract {
     (
         $(
             $(#[$meta:meta])*
@@ -389,7 +381,7 @@ macro_rules! define_semantic_fact_contract {
 
             impl sealed::Sealed for $contract {}
 
-            impl SemanticFactContract for $contract {
+            impl SemanticQueryContract for $contract {
                 type Key = $key;
                 type Value = $value;
             }
@@ -397,7 +389,7 @@ macro_rules! define_semantic_fact_contract {
     };
 }
 
-define_semantic_fact_contract! {
+define_semantic_query_contract! {
     /// Finds the implementations participating in one package coherence domain.
     ImplementationParticipationQuery {
         key: ImplementationCoherenceDomainKey,
@@ -430,18 +422,18 @@ mod tests {
     use crate::{
         CallableSignatureQuery, ConstantDefinitionQuery, ConstantSymbolId, FunctionSymbolId,
         ImplementationCandidateSetQuery, ImplementationCoherenceDomainKey,
-        ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelectionQuery,
-        SemanticFactContract, SymbolFactKind, SymbolFactRequest, SymbolId,
-        TraitConstantMemberDefinitionQuery, TraitConstantMemberSymbolId,
+        ImplementationParticipationQuery, ImplementationRequirementKey,
+        ImplementationSelectionQuery, SemanticQueryContract, SymbolId, SymbolQueryKind,
+        SymbolQueryRequest, TraitConstantMemberDefinitionQuery, TraitConstantMemberSymbolId,
     };
 
     #[test]
     fn typed_requests_couple_owner_value_and_query_category() {
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(7));
-        let request = SymbolFactRequest::<CallableSignatureQuery>::new(function.into());
+        let request = SymbolQueryRequest::<CallableSignatureQuery>::new(function.into());
 
         assert_eq!(request.symbol(), function.into());
-        assert_eq!(request.kind(), SymbolFactKind::CallableSignature);
+        assert_eq!(request.kind(), SymbolQueryKind::CallableSignature);
         assert_eq!(request.owner().symbol_id(), function.symbol_id());
     }
 
@@ -450,7 +442,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CallableSignatureQuery>();
-        assert_send_sync::<SymbolFactRequest<CallableSignatureQuery>>();
+        assert_send_sync::<SymbolQueryRequest<CallableSignatureQuery>>();
     }
 
     #[test]
@@ -460,13 +452,13 @@ mod tests {
         let constant = ConstantSymbolId::from_symbol_id(raw);
         let trait_member = TraitConstantMemberSymbolId::from_symbol_id(raw);
 
-        let constant = SymbolFactRequest::<ConstantDefinitionQuery>::new(constant);
+        let constant = SymbolQueryRequest::<ConstantDefinitionQuery>::new(constant);
 
         let trait_member =
-            SymbolFactRequest::<TraitConstantMemberDefinitionQuery>::new(trait_member);
+            SymbolQueryRequest::<TraitConstantMemberDefinitionQuery>::new(trait_member);
 
-        assert_eq!(constant.kind(), SymbolFactKind::ConstantDefinition);
-        assert_eq!(trait_member.kind(), SymbolFactKind::ConstantDefinition);
+        assert_eq!(constant.kind(), SymbolQueryKind::ConstantDefinition);
+        assert_eq!(trait_member.kind(), SymbolQueryKind::ConstantDefinition);
         assert_eq!(constant.symbol().symbol_id(), raw);
         assert_eq!(trait_member.symbol().symbol_id(), raw);
         assert_ne!(constant.symbol(), trait_member.symbol());
@@ -476,7 +468,7 @@ mod tests {
     fn instance_specific_contracts_retain_typed_keys_and_values() {
         fn assert_candidate_contract<C>()
         where
-            C: SemanticFactContract<
+            C: SemanticQueryContract<
                     Key = ImplementationRequirementKey,
                     Value = crate::ImplementationCandidateSet,
                 >,
@@ -485,7 +477,7 @@ mod tests {
 
         fn assert_selection_contract<C>()
         where
-            C: SemanticFactContract<
+            C: SemanticQueryContract<
                     Key = ImplementationRequirementKey,
                     Value = crate::ImplementationSelection,
                 >,
@@ -494,7 +486,7 @@ mod tests {
 
         fn assert_participation_contract<C>()
         where
-            C: SemanticFactContract<
+            C: SemanticQueryContract<
                     Key = ImplementationCoherenceDomainKey,
                     Value = crate::ImplementationParticipationSet,
                 >,

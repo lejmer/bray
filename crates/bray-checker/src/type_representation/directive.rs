@@ -14,7 +14,7 @@ use bray_symbols::{
     DirectiveArgumentName, DirectiveKind, IntegerConstant, IntegerSign, NamedTypeSymbolId,
 };
 
-use crate::{CheckerFactResult, CheckerSource};
+use crate::{CheckerQueryResult, CheckerSource};
 
 use super::check::{Copyability, MemberRepresentation, RepresentationChecker};
 use super::model::{DeclaredTypeDefinition, RepresentationIntegerType, TypeRepresentationContext};
@@ -28,7 +28,7 @@ where
         definition: &DeclaredTypeDefinition,
         members: &MemberRepresentation,
         recovered: &mut bool,
-    ) -> CheckerFactResult<RequestedLayout> {
+    ) -> CheckerQueryResult<RequestedLayout> {
         let Some(directive) = definition
             .directives()
             .directives()
@@ -239,7 +239,7 @@ where
         expression: DeclarationExpressionTemplate,
         option: DiagnosticLayoutOption,
         recovered: &mut bool,
-    ) -> CheckerFactResult<Option<u64>> {
+    ) -> CheckerQueryResult<Option<u64>> {
         let result = self.context.unsigned_integer(expression)?;
 
         self.diagnostics
@@ -283,7 +283,7 @@ where
         layout: DeclaredLayoutMode,
         tag_type: Option<RepresentationIntegerType>,
         recovered: &mut bool,
-    ) -> CheckerFactResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
+    ) -> CheckerQueryResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
         if matches!(
             definition.subject(),
             bray_symbols::NamedTypeSymbolId::Struct(_)
@@ -609,11 +609,11 @@ where
             ))
     }
 
-    fn argument_text(&self, expression: DeclarationExpressionTemplate) -> CheckerFactResult<&str> {
+    fn argument_text(&self, expression: DeclarationExpressionTemplate) -> CheckerQueryResult<&str> {
         self.context
             .source(expression.syntax())
             .map(CheckerSource::text)
-            .map_err(crate::CheckerFactError::Infrastructure)
+            .map_err(crate::CheckerQueryError::Infrastructure)
     }
 }
 

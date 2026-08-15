@@ -11,11 +11,11 @@ use super::prefix::{
     compiler_known_module_for_owner, lookup_surface_name_with_imports, next_imported_module_prefix,
     source_module_prefix, token_reference,
 };
-use crate::{BinderFactContext, BinderFactResult, binder::Binder};
+use crate::{BindingQueryContext, BindingQueryResult, binder::Binder};
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(crate) fn bind_member(
         &mut self,
@@ -23,17 +23,17 @@ where
         source: &SourceSnapshot,
         token: SyntaxToken,
         access: NameAccess,
-    ) -> BinderFactResult<NameLookupResult<ResolvedMemberName>> {
+    ) -> BindingQueryResult<NameLookupResult<ResolvedMemberName>> {
         let Some(reference) = token_reference(source, token) else {
             return Ok(malformed_lookup());
         };
 
-        let symbols = self.facts().symbols();
+        let symbols = self.binding_context().symbols();
 
         let imported_symbols = if symbols.symbol_key(owner).is_some() {
             None
         } else {
-            self.facts().imported_symbols()?
+            self.binding_context().imported_symbols()?
         };
 
         let mut ordinary = lookup_surface_name_with_imports(

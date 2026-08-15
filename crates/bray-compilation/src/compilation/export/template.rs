@@ -267,10 +267,8 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             _ => self.export.type_id(ty)?,
         };
 
-        self.nodes.push(InterfaceCheckedTemplateNode::new(
-            operation,
-            interface_ty,
-        ));
+        self.nodes
+            .push(InterfaceCheckedTemplateNode::new(operation, interface_ty));
 
         self.expression_nodes.insert(expression_id, node);
 

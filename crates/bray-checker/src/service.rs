@@ -20,11 +20,10 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedAsync, CheckedControlFlow,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, SelectedCall,
-    SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
+    BodyBehaviorContributions, CheckedAsync, CheckedControlFlow, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
+    CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness,
+    SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
 };
 use bray_symbols::{
     CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,
@@ -143,8 +142,8 @@ impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
 pub trait PatternChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     /// Checks patterns in one committed bound unit.
@@ -160,8 +159,8 @@ where
 
 impl<C> PatternChecker<C> for DefaultPatternChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized
 {
 }
@@ -169,7 +168,7 @@ impl<C> PatternChecker<C> for DefaultPatternChecker where
 /// Storage identity and occurrence-specific access planning over one checked bound unit.
 pub trait StoragePlanner<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Constructs persistent storage identities and evaluated access plans.
     fn plan_storage(
@@ -185,14 +184,14 @@ where
 }
 
 impl<C> StoragePlanner<C> for DefaultStoragePlanner where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
 /// Storage, access, capability, and obligation liveness over one checked bound unit.
 pub trait LivenessAnalyzer<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable last-use and lexical scope-boundary decisions.
     fn analyze_liveness(
@@ -207,7 +206,7 @@ where
 }
 
 impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
@@ -233,7 +232,7 @@ impl<C> RefinementAnalyzer<C> for DefaultRefinementAnalyzer where C: CheckerRequ
 /// Composite storage, ownership, movement, and borrow checking over one unit.
 pub trait StorageFlowChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable per-operation storage decisions.
     fn check_storage_flow(
@@ -250,14 +249,14 @@ where
 }
 
 impl<C> StorageFlowChecker<C> for DefaultStorageFlowChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
 /// Value, access, borrow, witness, and selected-call dependency propagation over one unit.
 pub trait DependencyContractChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable normalized contracts without repeating storage analysis.
     fn check_dependency_contracts(
@@ -272,7 +271,7 @@ where
 }
 
 impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
@@ -280,8 +279,8 @@ impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
 pub trait MemoryOperationChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
-        + crate::CheckerSemanticFactProvider<DeclarationDirectivesQuery>
+        + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticQueryProvider<DeclarationDirectivesQuery>
         + ?Sized,
 {
     /// Classifies checked memory calls and their ownership and storage effects.
@@ -297,8 +296,8 @@ where
 
 impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
-        + crate::CheckerSemanticFactProvider<DeclarationDirectivesQuery>
+        + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticQueryProvider<DeclarationDirectivesQuery>
         + ?Sized
 {
 }
@@ -306,7 +305,7 @@ impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
 /// Async frame, suspension, task ownership, and cleanup checking over one unit.
 pub trait AsyncChecker<C>: Sync
 where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Computes durable async analysis from independently checked semantic inputs.
     #[expect(
@@ -338,7 +337,7 @@ where
 }
 
 impl<C> AsyncChecker<C> for DefaultAsyncChecker where
-    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
 {
 }
 
@@ -368,10 +367,10 @@ impl<C> BodyBehaviorCollector<C> for DefaultBodyBehaviorCollector where
 pub trait ExpressionSemanticChecker<C>: Sync
 where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
-        + crate::CheckerSemanticFactProvider<GenericConstraintsQuery>
-        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     /// Computes final expression types and exact semantic selections together.
@@ -401,10 +400,10 @@ where
 
 impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
     C: CheckerRequestContext
-        + crate::CheckerSemanticFactProvider<CallableSignatureQuery>
-        + crate::CheckerSemanticFactProvider<GenericConstraintsQuery>
-        + crate::CheckerSemanticFactProvider<StructFieldTypeQuery>
-        + crate::CheckerSemanticFactProvider<UnionPayloadFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
+        + crate::CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized
 {
 }

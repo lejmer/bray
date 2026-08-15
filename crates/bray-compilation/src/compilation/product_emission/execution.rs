@@ -414,13 +414,11 @@ impl Compilation {
             .state
             .fact_runtime
             .map_indexed(2, |index| match index {
-                0 => {
-                    ProductEmissionInput::PackageInterface(self.product_interface_artifacts(
-                        requires_interface,
-                        requires_implementation,
-                        cancellation,
-                    ))
-                }
+                0 => ProductEmissionInput::PackageInterface(self.product_interface_artifacts(
+                    requires_interface,
+                    requires_implementation,
+                    cancellation,
+                )),
                 1 => ProductEmissionInput::Diagnostics(
                     cancellation
                         .check()
@@ -448,8 +446,8 @@ impl Compilation {
                 ProductEmissionInput::PackageInterface(artifact) => {
                     package_interface = Some(artifact);
                 }
-                ProductEmissionInput::Diagnostics(fact_diagnostics) => {
-                    diagnostics = Some(fact_diagnostics);
+                ProductEmissionInput::Diagnostics(query_diagnostics) => {
+                    diagnostics = Some(query_diagnostics);
                 }
             }
         }

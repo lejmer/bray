@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::{NameAccess, SymbolFactProvider};
+use bray_binder::{NameAccess, SymbolQueryProvider};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallableOverloadArm,
@@ -13,12 +13,12 @@ use bray_symbols::{
     AnySymbolId, CallableOverloadSymbolId, CallableSignatureQuery, CallableSignatureTemplate,
     CallableSymbolId, GenericDeclarationTemplate, GenericDeclarationTemplateQuery, GenericOwnerId,
     ImplementationSymbolId, ImportedSymbolSkeleton, MemberLookupResult, NamedTypeSymbolId,
-    SymbolFactRequest, SymbolGraph, SymbolOrigin, TraitSymbolId, diagnostic_symbol_kind,
+    SymbolGraph, SymbolOrigin, SymbolQueryRequest, TraitSymbolId, diagnostic_symbol_kind,
 };
 use bray_syntax::PathSyntax;
 
 use super::Compilation;
-use super::binder::{CompilationBindingContext, binder_fact_error};
+use super::binder::{CompilationBindingContext, binding_query_error};
 use super::diagnostics::symbol_diagnostic_identity;
 use super::foreign::diagnostic::template_diagnostic_type;
 use super::limits::try_count_comparison;
@@ -48,7 +48,7 @@ impl Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticBag, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::CallableOverloadValidation,
             &self.state.callable_overload_validation,
             cancellation,
@@ -62,7 +62,11 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let binding_context = self.binding_context(cancellation)?;
-        let imported = binding_context.imported_symbols().map_err(binder_fact_error)?;
+
+        let imported = binding_context
+            .imported_symbols()
+            .map_err(binding_query_error)?;
+
         let values = self.semantic_value_store()?;
 
         let mut diagnostics = DiagnosticBag::new();
@@ -98,7 +102,7 @@ impl Compilation {
 
                 let result = binding_context
                     .bind_surface_path(module.id(), &path, NameAccess::Internal)
-                    .map_err(binder_fact_error)?;
+                    .map_err(binding_query_error)?;
 
                 diagnostics.add_range(result.diagnostics().iter().cloned());
 
@@ -266,8 +270,8 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<CallableArm>, FactQueryError> {
         let signature = binding_context
-            .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(callable))
-            .map_err(binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
+            .map_err(binding_query_error)?;
 
         diagnostics.add_range(signature.diagnostics().iter().cloned());
 
@@ -276,10 +280,10 @@ impl Compilation {
         };
 
         let generic = binding_context
-            .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
+            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
                 owner,
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         diagnostics.add_range(generic.diagnostics().iter().cloned());
 

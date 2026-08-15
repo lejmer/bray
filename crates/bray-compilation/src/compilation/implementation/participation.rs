@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, bind_implementation_using};
+use bray_binder::{BindingQueryContext, bind_implementation_using};
 use bray_declarations::{DeclarationKind, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, ImplementationCoherenceDomainKey,
     ImplementationParticipationEvidence, ImplementationParticipationQuery,
     ImplementationParticipationSet, ImplementationSymbolId, NamedTraitImplementationSymbolId,
-    ParticipatingImplementation, SemanticFactResult, SymbolOrigin,
+    ParticipatingImplementation, SymbolOrigin,
 };
 use bray_syntax::UsingDeclarationSyntax;
 
@@ -20,7 +20,14 @@ impl Compilation {
     pub fn implementation_participation(
         &self,
         domain: ImplementationCoherenceDomainKey,
-    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <ImplementationParticipationQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         self.implementation_participation_with_cancellation(domain, &self.state.cancellation)
     }
 
@@ -28,7 +35,14 @@ impl Compilation {
         &self,
         domain: ImplementationCoherenceDomainKey,
         cancellation: &crate::fact::CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationQuery>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <ImplementationParticipationQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         if domain.package() != self.package_identity() {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -55,7 +69,12 @@ impl Compilation {
         &self,
         domain: ImplementationCoherenceDomainKey,
         cancellation: &crate::fact::CancellationToken,
-    ) -> Result<SemanticFactResult<ImplementationParticipationQuery>, FactQueryError> {
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<
+            <ImplementationParticipationQuery as bray_symbols::SemanticQueryContract>::Value,
+        >,
+        FactQueryError,
+    > {
         cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
@@ -140,8 +159,9 @@ impl Compilation {
 
             let module = self.source_module_for_declaration(symbols, declaration)?;
 
-            let bound = bind_implementation_using(&binding_context, module.id(), &using_declaration)
-                .map_err(super::super::binder::binder_fact_error)?;
+            let bound =
+                bind_implementation_using(&binding_context, module.id(), &using_declaration)
+                    .map_err(super::super::binder::binding_query_error)?;
 
             diagnostics.add_range(bound.diagnostics().iter().cloned());
 
@@ -164,7 +184,7 @@ impl Compilation {
         for (implementation, anchors) in anchors_by_implementation {
             let key = binding_context
                 .symbol_key(implementation.into())
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .cloned()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -435,7 +455,9 @@ impl First
 
         let second = compilation
             .implementation_participation(domain())
-            .unwrap_or_else(|error| panic!("participation result must remain available: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("participation result must remain available: {error:?}")
+            });
 
         assert!(Arc::ptr_eq(&first, &second));
         assert!(first.diagnostics().is_empty());

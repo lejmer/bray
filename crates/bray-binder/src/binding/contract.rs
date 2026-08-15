@@ -2,12 +2,12 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnySymbolId, CallableSignatureQuery, CallableSymbolId, LocalScopeBoundary, LocalScopeId,
-    NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, TypeData,
+    NamedTypeSymbolId, StructSymbolId, SymbolQueryRequest, TypeData,
 };
 
 use crate::binder::Binder;
 use crate::binding::BindingResult;
-use crate::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
 
 pub(crate) fn push_contract_scope<C>(
     binder: &mut Binder<'_, C>,
@@ -16,7 +16,7 @@ pub(crate) fn push_contract_scope<C>(
     has_result: bool,
 ) -> BindingResult<LocalScopeId>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let scope = binder.unit_mut().push_scope(
         parent,
@@ -35,39 +35,42 @@ where
 }
 
 pub(crate) fn callable_normal_completion_has_value<C>(
-    facts: &C,
+    binding_context: &C,
     owner: AnySymbolId,
-) -> BinderFactResult<bool>
+) -> BindingQueryResult<bool>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolSemantics: SymbolFactProvider<CallableSignatureQuery>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let Some(owner) = CallableSymbolId::try_from_any(owner) else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
-    let signature = facts
+    let signature = binding_context
         .symbol_semantics()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureQuery>::new(owner))?;
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
 
     let Some(result_type) = signature.value().result().resolved_type() else {
         return Ok(true);
     };
 
-    let result = facts
+    let result = binding_context
         .semantic_values()
         .type_data(result_type)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-    let roles = facts.symbols().compiler_known_provider().role_registry();
+    let roles = binding_context
+        .symbols()
+        .compiler_known_provider()
+        .role_registry();
 
     let unit = roles
         .representation_symbol::<StructSymbolId>(RepresentationRole::Unit)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let never = roles
         .representation_symbol::<StructSymbolId>(RepresentationRole::Never)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let unit = NamedTypeSymbolId::Struct(unit);
     let never = NamedTypeSymbolId::Struct(never);

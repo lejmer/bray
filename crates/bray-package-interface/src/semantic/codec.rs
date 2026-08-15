@@ -4,7 +4,9 @@ mod decoding;
 mod encoding;
 mod record;
 
-pub(super) use common::{DECLARATION_SEMANTICS_FORMAT_VERSION, DECLARATION_TEMPLATE_FORMAT_VERSION};
+pub(super) use common::{
+    DECLARATION_SEMANTICS_FORMAT_VERSION, DECLARATION_TEMPLATE_FORMAT_VERSION,
+};
 pub(crate) use common::{SemanticDecodeContext, read_symbol_reference, write_symbol_reference};
 pub use decoding::decode_semantics;
 pub(crate) use decoding::{

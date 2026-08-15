@@ -1,5 +1,5 @@
 use bray_binder::{
-    BinderDependency, BinderFactContext, BoundUnitBindingError, BoundUnitComputation,
+    BinderDependency, BindingQueryContext, BoundUnitBindingError, BoundUnitComputation,
     bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
     bind_contract_clause, bind_embedded_constant, bind_expression_candidates,
     bind_predicate_definition, bind_runtime_default, bind_target_gate, semantic_unit_context,
@@ -7,8 +7,8 @@ use bray_binder::{
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
     BoundWalkOutcome, CheckedControlFlow, CheckedExpressionTypes, CheckedMemoryOperations,
-    CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, Liveness, StoragePlan, walk_bound_unit_view,
+    CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates,
+    Liveness, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
@@ -19,7 +19,7 @@ use bray_checker::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
 
-use crate::compilation::binder::{CompilationBindingContext, binder_fact_error, type_scope};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error, type_scope};
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
 use crate::fact::FactQueryError;
 
@@ -30,11 +30,19 @@ pub(super) fn bind_unit(
 ) -> Result<BoundUnitComputation, BoundUnitBindingError> {
     match key.kind() {
         BoundUnitKind::CallableBody => bind_callable_body(binding_context, unit, key)?.finish(),
-        BoundUnitKind::AnonymousCallable => bind_anonymous_callable(binding_context, unit, key)?.finish(),
+        BoundUnitKind::AnonymousCallable => {
+            bind_anonymous_callable(binding_context, unit, key)?.finish()
+        }
         BoundUnitKind::RuntimeDefault => bind_runtime_default(binding_context, unit, key)?.finish(),
-        BoundUnitKind::ConstantTemplate => bind_constant_template(binding_context, unit, key)?.finish(),
-        BoundUnitKind::EmbeddedConstant => bind_embedded_constant(binding_context, unit, key)?.finish(),
-        BoundUnitKind::PredicateDefinition => bind_predicate_definition(binding_context, unit, key)?.finish(),
+        BoundUnitKind::ConstantTemplate => {
+            bind_constant_template(binding_context, unit, key)?.finish()
+        }
+        BoundUnitKind::EmbeddedConstant => {
+            bind_embedded_constant(binding_context, unit, key)?.finish()
+        }
+        BoundUnitKind::PredicateDefinition => {
+            bind_predicate_definition(binding_context, unit, key)?.finish()
+        }
         BoundUnitKind::Constraint => bind_constraint(binding_context, unit, key)?.finish(),
         BoundUnitKind::ContractClause => bind_contract_clause(binding_context, unit, key)?.finish(),
         BoundUnitKind::TargetGate => bind_target_gate(binding_context, unit, key)?.finish(),
@@ -78,7 +86,7 @@ pub(super) fn expression_candidates(
         .symbol_for_key(bound.key().declared_owner())
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let type_scope = type_scope(binding_context, owner).map_err(binder_fact_error)?;
+    let type_scope = type_scope(binding_context, owner).map_err(binding_query_error)?;
 
     let mut candidates = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
@@ -110,7 +118,7 @@ pub(super) fn expression_candidates(
     });
 
     if let Some(error) = failure {
-        return Err(binder_fact_error(error));
+        return Err(binding_query_error(error));
     }
 
     match outcome {

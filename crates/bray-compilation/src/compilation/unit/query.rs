@@ -5,11 +5,10 @@ use std::sync::Arc;
 use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, CheckedAsync, CheckedControlFlow,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, StorageFlow,
-    StoragePlan, walk_bound_unit_view,
+    BoundWalkEvent, BoundWalkOutcome, CheckedAsync, CheckedControlFlow, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
+    CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness,
+    StorageFlow, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     AsyncChecker, CheckerInfrastructureError, CheckerUnitView, DefaultAsyncChecker,
@@ -22,13 +21,13 @@ use super::support::{
     bind_unit, check_control_flow, check_patterns, expression_candidates, map_binding_error,
     semantic_unit_context_for,
 };
-use crate::compilation::binder::{bind_declared_value_type_templates, binder_fact_error};
+use crate::compilation::binder::{bind_declared_value_type_templates, binding_query_error};
 use crate::compilation::checker::checker_result;
-use crate::compilation::state::{CheckedExpressionSemantics, Compilation};
 use crate::compilation::operation::operation_type_input;
+use crate::compilation::state::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact, QueryPriority,
-    UnitFactCache,
+    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
+    UnitQueryCache,
 };
 
 type ExpressionSemanticComputation = (
@@ -234,7 +233,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<BoundUnit>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<BoundUnit>>, FactQueryError> {
         let priority = self
             .state
             .fact_runtime
@@ -249,8 +248,8 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Arc<PublishedUnitFact<BoundUnit>>, FactQueryError> {
-        self.unit_fact_with_priority(
+    ) -> Result<Arc<PublishedUnitResult<BoundUnit>>, FactQueryError> {
+        self.unit_query_with_priority(
             &self.state.bound_units,
             CompilationFactKey::BoundUnit(key.clone()),
             key.clone(),
@@ -271,8 +270,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedControlFlow>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedControlFlow>>, FactQueryError> {
+        self.unit_query(
             &self.state.checked_control_flow,
             CompilationFactKey::CheckedControlFlow(key.clone()),
             key.clone(),
@@ -294,8 +293,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionSemantics>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedExpressionSemantics>>, FactQueryError> {
+        self.unit_query(
             &self.state.expression_semantics,
             CompilationFactKey::ExpressionSemantics(key.clone()),
             key.clone(),
@@ -364,8 +363,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionSemantics>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedExpressionSemantics>>, FactQueryError> {
+        self.unit_query(
             &self.state.provisional_expression_semantics,
             CompilationFactKey::ProvisionalExpressionSemantics(key.clone()),
             key.clone(),
@@ -516,7 +515,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionTypes>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<CheckedExpressionTypes>>, FactQueryError> {
         self.expression_semantic_projection(
             &self.state.checked_expression_types,
             CompilationFactKey::CheckedExpressionTypes,
@@ -530,7 +529,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedLiteralValues>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<CheckedLiteralValues>>, FactQueryError> {
         self.expression_semantic_projection(
             &self.state.checked_literal_values,
             CompilationFactKey::CheckedLiteralValues,
@@ -544,9 +543,9 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedPatterns>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<CheckedPatterns>>, FactQueryError> {
         // Cache identity, unit publication, and dependent queries retain the shared key separately.
-        self.unit_fact(
+        self.unit_query(
             &self.state.checked_patterns,
             CompilationFactKey::CheckedPatterns(key.clone()),
             key.clone(),
@@ -704,7 +703,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedSemanticSelections>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<CheckedSemanticSelections>>, FactQueryError> {
         self.expression_semantic_projection(
             &self.state.checked_semantic_selections,
             CompilationFactKey::CheckedSemanticSelections,
@@ -716,17 +715,17 @@ impl Compilation {
 
     fn expression_semantic_projection<T>(
         &self,
-        cache: &UnitFactCache<T>,
+        cache: &UnitQueryCache<T>,
         semantic_key: fn(BoundUnitKey) -> CompilationFactKey,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         project: fn(&CheckedExpressionSemantics) -> &T,
-    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
+    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError>
     where
         T: Clone + std::hash::Hash + Send + Sync,
     {
         // Cache identity, unit publication, and the atomic computation retain the shared key.
-        self.unit_fact(
+        self.unit_query(
             cache,
             semantic_key(key.clone()),
             key.clone(),
@@ -747,8 +746,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<CheckedAsync>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<CheckedAsync>>, FactQueryError> {
+        self.unit_query(
             &self.state.async_analysis,
             CompilationFactKey::AsyncAnalysis(key.clone()),
             key.clone(),
@@ -767,8 +766,7 @@ impl Compilation {
 
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
 
-                let refinements =
-                    self.refinements_with_cancellation(key.clone(), cancellation)?;
+                let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
 
                 let flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
 
@@ -819,8 +817,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitFact<DeclaredValueTypeTemplates>>, FactQueryError> {
-        self.unit_fact(
+    ) -> Result<Arc<PublishedUnitResult<DeclaredValueTypeTemplates>>, FactQueryError> {
+        self.unit_query(
             &self.state.declared_value_type_templates,
             CompilationFactKey::DeclaredValueTypeTemplates(key.clone()),
             key.clone(),
@@ -829,8 +827,9 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let binding_context = self.binding_context_for(&key, cancellation)?;
 
-                let result = bind_declared_value_type_templates(&binding_context, bound.result().value())
-                    .map_err(binder_fact_error)?;
+                let result =
+                    bind_declared_value_type_templates(&binding_context, bound.result().value())
+                        .map_err(binding_query_error)?;
 
                 Ok((result, Box::new([])))
             },
@@ -1251,10 +1250,7 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(
-            compilation.state.storage_flow.is_published(&key),
-            Ok(false)
-        );
+        assert_eq!(compilation.state.storage_flow.is_published(&key), Ok(false));
 
         let analysis = match compilation.storage_flow(key.clone()) {
             Ok(analysis) => analysis,
@@ -1288,9 +1284,11 @@ mod tests {
 
         assert!(Arc::ptr_eq(&analysis, &repeated));
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::StorageFlow(key.clone()),
-        ) {
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::StorageFlow(key.clone()))
+        {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published storage flow must retain dependencies"),
             Err(error) => panic!("storage-flow dependencies must be readable: {error:?}"),
@@ -1300,11 +1298,7 @@ mod tests {
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::Liveness(key.clone())));
 
-        assert!(
-            dependencies.contains(&crate::fact::CompilationFactKey::Refinements(
-                key.clone()
-            ))
-        );
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::Refinements(key.clone())));
     }
 
     #[test]
@@ -2087,10 +2081,7 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(
-            compilation.state.refinements.is_published(&key),
-            Ok(false)
-        );
+        assert_eq!(compilation.state.refinements.is_published(&key), Ok(false));
 
         let first = match compilation.refinements(key.clone()) {
             Ok(analysis) => analysis,
@@ -2116,9 +2107,11 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &second));
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::Refinements(key.clone()),
-        ) {
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::Refinements(key.clone()))
+        {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published refinements must retain dependencies"),
             Err(error) => panic!("refinement dependencies must be readable: {error:?}"),
@@ -2401,7 +2394,11 @@ mod tests {
             SymbolKind::GenericConstParameter
         ));
 
-        assert!(has_value_kind(analysis.value(), SymbolKind::CallableParameter));
+        assert!(has_value_kind(
+            analysis.value(),
+            SymbolKind::CallableParameter
+        ));
+
         assert!(has_value_kind(analysis.value(), SymbolKind::LocalConstant));
 
         assert!(
@@ -2887,7 +2884,9 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let valid = compilation
             .memory_operations(source_function_body_key(&compilation, "valid_callback"))
-            .unwrap_or_else(|error| panic!("valid callback memory analysis must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("valid callback memory analysis must publish: {error:?}")
+            });
 
         assert!(valid.diagnostics().is_empty(), "{valid:#?}");
 
@@ -3031,16 +3030,14 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
     #[test]
     fn invalid_atomic_orders_publish_structured_diagnostics_before_lowering() {
-        let compilation = compilation(
-            concat!(
-                "module app;\n",
-                "func main()\n",
-                "{\n",
-                "    let storage = core.atomic.initialize<u32>(1);\n",
-                "    let value = core.atomic.load<u32, 2>(&storage);\n",
-                "}\n",
-            ),
-        );
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let storage = core.atomic.initialize<u32>(1);\n",
+            "    let value = core.atomic.load<u32, 2>(&storage);\n",
+            "}\n",
+        ));
 
         let operations = compilation
             .memory_operations(source_callable_body_key(&compilation))
@@ -3066,9 +3063,16 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let operations = compilation
             .memory_operations(source_function_body_key(&compilation, "initialize"))
-            .unwrap_or_else(|error| panic!("open generic atomic operation must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("open generic atomic operation must publish: {error:?}")
+            });
 
-        assert!(operations.diagnostics().is_empty(), "{:#?}", operations.diagnostics());
+        assert!(
+            operations.diagnostics().is_empty(),
+            "{:#?}",
+            operations.diagnostics()
+        );
+
         assert_eq!(operations.value().operations().len(), 1);
 
         assert!(matches!(
@@ -3153,9 +3157,16 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let operations = compilation
             .memory_operations(source_callable_body_key(&compilation))
-            .unwrap_or_else(|error| panic!("transparent atomic operations must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("transparent atomic operations must publish: {error:?}")
+            });
 
-        assert!(operations.diagnostics().is_empty(), "{:#?}", operations.diagnostics());
+        assert!(
+            operations.diagnostics().is_empty(),
+            "{:#?}",
+            operations.diagnostics()
+        );
+
         assert_eq!(operations.value().operations().len(), 2);
 
         assert!(matches!(
@@ -3180,9 +3191,16 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let operations = compilation
             .memory_operations(source_callable_body_key(&compilation))
-            .unwrap_or_else(|error| panic!("target-sized atomic operations must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("target-sized atomic operations must publish: {error:?}")
+            });
 
-        assert!(operations.diagnostics().is_empty(), "{:#?}", operations.diagnostics());
+        assert!(
+            operations.diagnostics().is_empty(),
+            "{:#?}",
+            operations.diagnostics()
+        );
+
         assert_eq!(operations.value().operations().len(), 2);
 
         assert!(matches!(
@@ -3216,9 +3234,16 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         let operations = compilation
             .memory_operations(source_callable_body_key(&compilation))
-            .unwrap_or_else(|error| panic!("plain-storage atomic operations must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("plain-storage atomic operations must publish: {error:?}")
+            });
 
-        assert!(operations.diagnostics().is_empty(), "{:#?}", operations.diagnostics());
+        assert!(
+            operations.diagnostics().is_empty(),
+            "{:#?}",
+            operations.diagnostics()
+        );
+
         assert_eq!(operations.value().operations().len(), 3);
     }
 
@@ -4852,7 +4877,10 @@ func convert(pos value: Value) -> i32
         analysis: &DeclaredValueTypeTemplates,
         kind: DeclaredValueTypeConstraintKind,
     ) -> bool {
-        analysis.constraints().iter().any(|entry| entry.kind() == kind)
+        analysis
+            .constraints()
+            .iter()
+            .any(|entry| entry.kind() == kind)
     }
 
     fn has_value_kind(analysis: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bool {
@@ -5003,7 +5031,7 @@ func main()
             checked
                 .iter()
                 .skip(1)
-                .all(|fact| Arc::ptr_eq(&checked[0], fact))
+                .all(|result| Arc::ptr_eq(&checked[0], result))
         );
     }
 
@@ -5331,7 +5359,12 @@ func other()
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
 
         let literal_patterns = analysis
             .value()
@@ -5382,7 +5415,12 @@ func other()
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
 
         assert_eq!(
             analysis
@@ -5536,7 +5574,12 @@ func other()
         };
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -5743,11 +5786,11 @@ func other()
             "    }\n",
         ));
 
-        let covered_facts = covered
+        let covered_patterns = covered
             .patterns(source_callable_body_key(&covered))
             .unwrap_or_else(|error| panic!("covered alternatives must publish: {error:?}"));
 
-        let diagnostic = covered_facts
+        let diagnostic = covered_patterns
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingUnreachableMatchArm)
             .next()
@@ -5906,7 +5949,12 @@ func other()
 
         assert!(coverage.is_exhaustive());
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -5941,7 +5989,12 @@ func other()
         };
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -5981,7 +6034,12 @@ func other()
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(coverage.unreachable_arms().is_empty());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6016,7 +6074,12 @@ func other()
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(!analysis.value().is_recovered());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6060,7 +6123,12 @@ func other()
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(analysis.value().binding_types().is_empty());
         assert!(!analysis.value().is_recovered());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6122,7 +6190,12 @@ func other()
         assert!(coverage.is_exhaustive(), "{analysis:?}");
         assert!(analysis.value().binding_types().is_empty());
         assert!(!analysis.value().is_recovered());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6157,7 +6230,12 @@ func other()
 
         assert!(analysis.value().binding_types().is_empty());
         assert!(!analysis.value().is_recovered());
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6229,7 +6307,11 @@ func other()
             RepresentationRole::ScalarBool,
         );
 
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6345,7 +6427,12 @@ func other()
         };
 
         assert_type_representation(&compilation, binding.ty(), RepresentationRole::ScalarBool);
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6437,7 +6524,12 @@ func other()
         };
 
         assert!(coverage.is_exhaustive(), "{analysis:?}");
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6639,7 +6731,11 @@ func other()
             Some(PatternProjection::ProductField(_))
         ));
 
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6684,7 +6780,11 @@ func other()
             Some(PatternProjection::ActiveUnionPayloadField { .. })
         ));
 
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]
@@ -6714,7 +6814,9 @@ func other()
 
         let analysis = match compilation.patterns(key) {
             Ok(analysis) => analysis,
-            Err(error) => panic!("positional payload-pattern analysis must be available: {error:?}"),
+            Err(error) => {
+                panic!("positional payload-pattern analysis must be available: {error:?}")
+            }
         };
 
         let [binding] = analysis.value().binding_types() else {
@@ -6730,7 +6832,11 @@ func other()
             Some(PatternProjection::ActiveUnionPayloadField { .. })
         ));
 
-        assert!(analysis.diagnostics().is_empty(), "{:?}", analysis.diagnostics());
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]

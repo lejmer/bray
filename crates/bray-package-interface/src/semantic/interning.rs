@@ -11,8 +11,8 @@ mod template;
 mod ty;
 
 pub use declaration_model::{
-    ImportedCallableParameterDefault, ImportedCallableSignature,
-    ImportedGenericDeclaration, ImportedPredicateDefinition,
+    ImportedCallableParameterDefault, ImportedCallableSignature, ImportedGenericDeclaration,
+    ImportedPredicateDefinition,
 };
 pub use model::{
     ImportedAbiDependency, ImportedCallableContract, ImportedConstraint,

@@ -4,7 +4,7 @@ use bray_syntax::AwaitExpressionSyntax;
 
 use super::super::BindingResult;
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 
 impl ExpressionBinder {
@@ -15,7 +15,7 @@ impl ExpressionBinder {
         syntax: &AwaitExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let operand = self.bind_expression(binder, scope, Some(&syntax.expression()))?;
         let is_recovered = syntax.is_recovered() || binder.expression_is_recovered(operand);

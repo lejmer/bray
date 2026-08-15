@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCandidate,
     ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceEvidence,
-    ImplementationCoherenceQuery, ImplementationCoherenceParticipant,
-    ImplementationHeadTemplateQuery, ImplementationRequirementKey, SymbolFactRequest,
+    ImplementationCoherenceParticipant, ImplementationCoherenceQuery,
+    ImplementationHeadTemplateQuery, ImplementationRequirementKey, SymbolQueryRequest,
 };
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
@@ -50,7 +50,7 @@ impl super::super::Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImplementationHeaderIndex,
             &self.state.implementation_index,
             cancellation,
@@ -85,19 +85,20 @@ impl super::super::Compilation {
 
             if let Some(address) = binding_context
                 .imported_semantic_address(implementation.into_any())
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
             {
-                let imported = super::super::binder::imported_implementation(&binding_context, address)
-                    .map_err(super::super::binder::binder_fact_error)?;
+                let imported =
+                    super::super::binder::imported_implementation(&binding_context, address)
+                        .map_err(super::super::binder::binding_query_error)?;
 
                 let owner = GenericOwnerId::try_new(implementation.into_any())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let generic = binding_context
-                    .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateQuery>::new(
-                        owner,
-                    ))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                    .resolve_symbol_query(
+                        SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(owner),
+                    )
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let Some(trait_application) = imported.value().trait_application() else {
                     continue;
@@ -128,16 +129,16 @@ impl super::super::Compilation {
             );
 
             let head = binding_context
-                .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<ImplementationHeadTemplateQuery>::new(
                     implementation,
                 ))
-                .map_err(super::super::binder::binder_fact_error)?;
+                .map_err(super::super::binder::binding_query_error)?;
 
             let coherence = binding_context
-                .symbol_fact(SymbolFactRequest::<ImplementationCoherenceQuery>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                     implementation,
                 ))
-                .map_err(super::super::binder::binder_fact_error)?;
+                .map_err(super::super::binder::binding_query_error)?;
 
             let diagnostics =
                 DiagnosticBag::merged_all([head.diagnostics(), coherence.diagnostics()]);

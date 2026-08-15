@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubjectRoot, SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph,
-    SymbolOrdinal, SymbolOrigin, TypeData, TypeExpressionTemplate, TypeId,
+    DependencySubjectRoot, SymbolGraph, SymbolOrdinal, SymbolOrigin, SymbolQueryContract,
+    SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::super::context::CompilationBindingContext;
@@ -36,15 +36,15 @@ pub(super) fn binding_context<'compilation>(
     }
 }
 
-pub(super) fn published_fact<C>(
+pub(super) fn resolved_query<C>(
     binding_context: &CompilationBindingContext<'_>,
-    request: SymbolFactRequest<C>,
-) -> Arc<SymbolFactResult<C>>
+    request: SymbolQueryRequest<C>,
+) -> Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>
 where
-    C: SymbolFactContract,
-    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolFactProvider<C>,
+    C: SymbolQueryContract,
+    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
 {
-    match binding_context.symbol_fact(request) {
+    match binding_context.resolve_symbol_query(request) {
         Ok(result) => result,
         Err(error) => panic!("test symbol query must bind: {error:?}"),
     }

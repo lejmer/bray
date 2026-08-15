@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
-    MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow,
-    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StorageProjection, StorageRelationship, StorageSuspensionState,
+    MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
+    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow, StorageIdentity,
+    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
+    StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
@@ -20,8 +20,8 @@ use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::storage::StorageScopeOwners;
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 use super::super::availability::storage_is_recovered;
@@ -45,7 +45,7 @@ pub(crate) fn check_storage_flow<C>(
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<StorageFlow>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureQuery> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if selections.unit() != request.unit().unit()
         || selections.kind() != request.unit().key().kind()
@@ -86,8 +86,8 @@ where
 
         match copyability.resolve(access.reached_type()) {
             Ok(_) => {}
-            Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerFactError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
         }
@@ -97,8 +97,8 @@ where
 
     let (mutable_storage, authority_diagnostics) = match mutable_storage(request, storage) {
         Ok(result) => result,
-        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
     };
@@ -107,8 +107,8 @@ where
 
     let owners = match StorageScopeOwners::collect(request) {
         Ok(owners) => owners,
-        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
     };

@@ -63,7 +63,10 @@ mod tests {
         let absolute = std::env::temp_dir().join("bray-cargo-target");
 
         assert_eq!(
-            cargo_target_from(Path::new("workspace"), Some(absolute.clone().into_os_string())),
+            cargo_target_from(
+                Path::new("workspace"),
+                Some(absolute.clone().into_os_string())
+            ),
             absolute
         );
     }

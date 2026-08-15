@@ -36,7 +36,7 @@
       "diagnostic_source_tests": ["constant_instance_cycles_publish_one_deterministic_diagnostic"],
       "valid_source_tests": ["constant_instances_demand_only_referenced_definitions_and_reuse_publications"],
       "boundary_tests": ["missing_imported_constant_bodies_publish_structured_diagnostics"],
-      "published": ["ConstantInstanceFactKey"]
+      "published": ["ConstantInstanceQueryKey"]
     },
     {
       "name": "generic-constraints",
@@ -74,7 +74,7 @@
         "indirect_calls_use_the_callable_type_contract_without_recovery",
         "exact_operator_candidates_publish_their_selected_target"
       ],
-      "published": ["OperationSelectionFactKey"]
+      "published": ["OperationSelectionQueryKey"]
     },
     {
       "name": "member-index-and-slice-access",

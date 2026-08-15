@@ -1,24 +1,22 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    AtomicFetchKind, BoundExpressionId, CheckedMemoryOperationKind, MemoryOrder,
-    CheckedMemoryOperations,
+    AtomicFetchKind, BoundExpressionId, CheckedMemoryOperationKind, CheckedMemoryOperations,
+    MemoryOrder,
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticMemoryOperation, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticMemoryOperation, SeverityKind,
 };
 use bray_symbols::{
-    ConstantTermData, ConstantValueKind, DeclaredLayoutMode, DeclaredStorageShape,
-    GenericArgument, GenericSubstitutionId, TypeData, TypeId,
+    ConstantTermData, ConstantValueKind, DeclaredLayoutMode, DeclaredStorageShape, GenericArgument,
+    GenericSubstitutionId, TypeData, TypeId,
 };
 use bray_target::TargetAtomicRepresentation;
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) const fn atomic_hook(hook: ImplementationHook) -> bool {
     matches!(
@@ -42,9 +40,7 @@ pub(crate) const fn atomic_hook(hook: ImplementationHook) -> bool {
     )
 }
 
-pub(crate) const fn diagnostic_hook(
-    hook: ImplementationHook,
-) -> Option<DiagnosticMemoryOperation> {
+pub(crate) const fn diagnostic_hook(hook: ImplementationHook) -> Option<DiagnosticMemoryOperation> {
     use DiagnosticMemoryOperation as Operation;
     use ImplementationHook as Hook;
 
@@ -125,11 +121,12 @@ where
     use CheckedMemoryOperationKind as Kind;
     use ImplementationHook as Hook;
 
-    let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-        CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        )
-    })?;
+    let operation =
+        crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
+            CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            )
+        })?;
 
     let parsed = match parse_atomic_arguments(request, arguments)? {
         Some(parsed) => parsed,
@@ -141,12 +138,7 @@ where
     };
 
     let Some(representation) = operation_representation(request, &parsed, diagnostics)? else {
-        add_unavailable_atomic_operation_diagnostic(
-            request,
-            expression,
-            operation,
-            diagnostics,
-        )?;
+        add_unavailable_atomic_operation_diagnostic(request, expression, operation, diagnostics)?;
 
         return Ok(None);
     };
@@ -160,12 +152,7 @@ where
     };
 
     if !available {
-        add_unavailable_atomic_operation_diagnostic(
-            request,
-            expression,
-            operation,
-            diagnostics,
-        )?;
+        add_unavailable_atomic_operation_diagnostic(request, expression, operation, diagnostics)?;
 
         return Ok(None);
     }
@@ -176,21 +163,30 @@ where
         }
         (
             Hook::AtomicLoad,
-            [AtomicGenericArgument::Type(value), AtomicGenericArgument::Order(order)],
+            [
+                AtomicGenericArgument::Type(value),
+                AtomicGenericArgument::Order(order),
+            ],
         ) if order.valid_for_load() => Kind::AtomicLoad {
             value: *value,
             order: *order,
         },
         (
             Hook::AtomicStore,
-            [AtomicGenericArgument::Type(value), AtomicGenericArgument::Order(order)],
+            [
+                AtomicGenericArgument::Type(value),
+                AtomicGenericArgument::Order(order),
+            ],
         ) if order.valid_for_store() => Kind::AtomicStore {
             value: *value,
             order: *order,
         },
         (
             Hook::AtomicExchange,
-            [AtomicGenericArgument::Type(value), AtomicGenericArgument::Order(order)],
+            [
+                AtomicGenericArgument::Type(value),
+                AtomicGenericArgument::Order(order),
+            ],
         ) => Kind::AtomicExchange {
             value: *value,
             order: *order,
@@ -214,22 +210,29 @@ where
             | Hook::AtomicFetchAnd
             | Hook::AtomicFetchOr
             | Hook::AtomicFetchXor,
-            [AtomicGenericArgument::Type(value), AtomicGenericArgument::Order(order)],
+            [
+                AtomicGenericArgument::Type(value),
+                AtomicGenericArgument::Order(order),
+            ],
         ) => Kind::AtomicFetch {
             value: *value,
             kind: fetch_kind(hook),
             order: *order,
         },
-        (
-            Hook::AtomicFence | Hook::AtomicCompilerFence,
-            [AtomicGenericArgument::Order(order)],
-        ) if order.valid_for_fence() => Kind::Fence {
-            compiler_only: hook == Hook::AtomicCompilerFence,
-            order: *order,
-        },
+        (Hook::AtomicFence | Hook::AtomicCompilerFence, [AtomicGenericArgument::Order(order)])
+            if order.valid_for_fence() =>
+        {
+            Kind::Fence {
+                compiler_only: hook == Hook::AtomicCompilerFence,
+                order: *order,
+            }
+        }
         (
             Hook::AtomicWait,
-            [AtomicGenericArgument::Type(value), AtomicGenericArgument::Order(order)],
+            [
+                AtomicGenericArgument::Type(value),
+                AtomicGenericArgument::Order(order),
+            ],
         ) if order.valid_for_load() => Kind::AtomicWait {
             value: *value,
             order: *order,
@@ -385,8 +388,8 @@ where
     let Some(value) = atomic_value_type(arguments) else {
         return Ok(Some(AtomicRepresentationResolution::Known(
             AtomicValueRepresentation {
-            target: TargetAtomicRepresentation::U8,
-            integer: false,
+                target: TargetAtomicRepresentation::U8,
+                integer: false,
             },
         )));
     };
@@ -429,14 +432,9 @@ where
         }));
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(value)
-        .map_err(|_| {
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
-            )
-        })?;
+    let data = request.semantic_values().type_data(value).map_err(|_| {
+        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
 
     if matches!(data.as_ref(), TypeData::TypeParameter(_)) {
         pending.remove(&value);
@@ -543,11 +541,11 @@ where
 }
 
 const fn atomic_query_outcome(
-    error: crate::CheckerFactError,
+    error: crate::CheckerQueryError,
 ) -> CheckerOutcome<CheckedMemoryOperations> {
     match error {
-        crate::CheckerFactError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerFactError::Infrastructure(error) => {
+        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        crate::CheckerQueryError::Infrastructure(error) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
     }
@@ -616,8 +614,8 @@ fn add_invalid_atomic_order_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let span = expression_span(request, expression)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span =
+        expression_span(request, expression).map_err(CheckerOutcome::InfrastructureFailure)?;
 
     diagnostics.add(
         Diagnostic::new(
@@ -645,8 +643,8 @@ fn add_unavailable_atomic_operation_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let span = expression_span(request, expression)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let span =
+        expression_span(request, expression).map_err(CheckerOutcome::InfrastructureFailure)?;
 
     crate::memory_diagnostics::add_target_memory_operation_unavailable(
         span,

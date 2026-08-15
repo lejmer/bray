@@ -118,8 +118,8 @@ fn toolchain_directory() -> Result<PathBuf, ToolchainError> {
 
 /// Returns a tool path inside the provisioned LLVM installation.
 pub fn tool_path(root: &Path, name: &str) -> PathBuf {
-    let configured = std::env::var_os(BRAY_LLVM_PREFIX)
-        .or_else(|| std::env::var_os(LLVM_SYS_PREFIX));
+    let configured =
+        std::env::var_os(BRAY_LLVM_PREFIX).or_else(|| std::env::var_os(LLVM_SYS_PREFIX));
 
     tool_path_with_prefix(root, name, configured.as_deref())
 }
@@ -134,13 +134,11 @@ fn tool_path_with_prefix(root: &Path, name: &str, configured: Option<&OsStr>) ->
             .join(ACTIVE_DIRECTORY),
     };
 
-    prefix
-        .join("bin")
-        .join(if cfg!(windows) {
-            format!("{name}.exe")
-        } else {
-            name.to_owned()
-        })
+    prefix.join("bin").join(if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    })
 }
 
 fn rustc_host() -> Result<String, ToolchainError> {
@@ -699,8 +697,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, validate_marker,
-        tool_path_with_prefix, write_marker,
+        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, tool_path_with_prefix,
+        validate_marker, write_marker,
     };
 
     #[test]

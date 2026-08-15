@@ -129,8 +129,7 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let completion = ControlCompletion::from_kinds([ControlCompletionKind::Recovered]);
 
-        let control_flow =
-            CheckedControlFlow::new(unit, BoundUnitKind::CallableBody, completion);
+        let control_flow = CheckedControlFlow::new(unit, BoundUnitKind::CallableBody, completion);
 
         assert_eq!(control_flow.unit(), unit);
         assert_eq!(control_flow.kind(), BoundUnitKind::CallableBody);

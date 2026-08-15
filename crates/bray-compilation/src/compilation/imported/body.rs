@@ -36,7 +36,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::DependencyImplementation(interface),
             cache,
             cancellation,
@@ -546,10 +546,8 @@ mod tests {
     fn missing_imported_executable_templates_publish_structured_diagnostics() {
         let (compilation, owner) = imported_body_compilation(true);
 
-        let address = ImportedExecutableTemplateAddress::root(constant_body_address(
-            &compilation,
-            owner,
-        ));
+        let address =
+            ImportedExecutableTemplateAddress::root(constant_body_address(&compilation, owner));
 
         let result = compilation
             .imported_executable_template_with_cancellation(

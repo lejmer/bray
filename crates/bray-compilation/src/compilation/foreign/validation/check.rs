@@ -1,6 +1,6 @@
 // rust-style: allow(module-too-large, reason = "foreign boundary validation keeps its exhaustive ABI contract checks together")
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -10,7 +10,7 @@ use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticType};
 use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
     FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeQuery,
-    StructSymbolId, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+    StructSymbolId, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
     diagnostic_callable_abi, diagnostic_callable_execution,
 };
 use bray_syntax::FunctionDeclarationSyntax;
@@ -599,7 +599,7 @@ fn c_struct_matches(
 
     let structure = binding_context
         .structure(*structure)
-        .map_err(super::super::super::binder::binder_fact_error)?
+        .map_err(super::super::super::binder::binding_query_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -619,8 +619,8 @@ fn c_struct_matches(
 
     for (field, expected) in structure.fields().iter().zip(expected_fields) {
         let field = binding_context
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(*field))
-            .map_err(super::super::super::binder::binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+            .map_err(super::super::super::binder::binding_query_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
         else {
@@ -680,7 +680,7 @@ fn platform_status_matches(
 
     let structure = binding_context
         .structure(*structure)
-        .map_err(super::super::super::binder::binder_fact_error)?
+        .map_err(super::super::super::binder::binding_query_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -704,8 +704,8 @@ fn platform_status_matches(
         RepresentationRole::ScalarI64,
     ]) {
         let field = binding_context
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeQuery>::new(*field))
-            .map_err(super::super::super::binder::binder_fact_error)?;
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+            .map_err(super::super::super::binder::binding_query_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
         else {

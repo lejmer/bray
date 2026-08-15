@@ -1,11 +1,11 @@
 use crate::inspection::{InterfaceInspectionRecord, InterfaceInspectionRecordKind};
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError,
-    InterfaceValidationLimits, ValidatedInterfaceSection,
+    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError, InterfaceValidationLimits,
+    ValidatedInterfaceSection,
 };
 
-use super::{contract, declaration, directory, bundle, support, surface, template, value};
+use super::{bundle, contract, declaration, directory, support, surface, template, value};
 
 pub(crate) fn decode_inspection_records(
     section: ValidatedInterfaceSection<'_>,

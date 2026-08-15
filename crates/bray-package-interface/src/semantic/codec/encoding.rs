@@ -1,7 +1,7 @@
+mod bundle;
 mod contract;
 mod declaration;
 mod directory;
-mod bundle;
 mod model;
 mod support;
 mod surface;

@@ -1,4 +1,4 @@
-use super::{TargetScalarSupport, TargetScalarKind};
+use super::{TargetScalarKind, TargetScalarSupport};
 
 const C_SCALAR_KIND_COUNT: usize = 18;
 

@@ -2,26 +2,26 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, SymbolCompletionLevel, SymbolCompletionPlanError, SymbolFactCompletionRequest,
-    SymbolFactForcer, SymbolGraph,
+    AnySymbolId, SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionPlanError,
+    SymbolCompletionQuery, SymbolGraph,
 };
 
 use super::{CancellationToken, FactRuntime};
 
-/// An outer force-completion outcome that is not a source diagnostic.
+/// An outer symbol-completion outcome that is not a source diagnostic.
 #[derive(Debug, Eq, PartialEq)]
 pub enum SymbolCompletionError<E> {
     /// Completion was cancelled and no partial diagnostics were returned.
     Cancelled,
     /// The requested root does not belong to the symbol graph.
     UnknownSymbol(AnySymbolId),
-    /// The fact provider could not be prepared for completion.
-    Provider(E),
-    /// One exact fact request failed at the query boundary.
-    Fact {
-        /// The canonical request whose provider failed.
-        request: SymbolFactCompletionRequest,
-        /// The provider-specific query error.
+    /// The query evaluator could not be prepared for completion.
+    Evaluator(E),
+    /// One exact query failed at the completion boundary.
+    Query {
+        /// The stable query whose evaluator failed.
+        request: SymbolCompletionQuery,
+        /// The evaluator-specific query error.
         error: E,
     },
     /// A scoped completion worker panicked before returning its result.
@@ -35,12 +35,12 @@ impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
             Self::UnknownSymbol(symbol) => {
                 write!(formatter, "symbol completion root {symbol:?} is unknown")
             }
-            Self::Provider(error) => {
-                write!(formatter, "symbol completion provider failed: {error}")
+            Self::Evaluator(error) => {
+                write!(formatter, "symbol completion evaluator failed: {error}")
             }
-            Self::Fact { request, error } => write!(
+            Self::Query { request, error } => write!(
                 formatter,
-                "symbol fact {:?} for {:?} failed: {error}",
+                "symbol query {:?} for {:?} failed: {error}",
                 request.kind(),
                 request.symbol()
             ),
@@ -55,25 +55,25 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Provider(error) | Self::Fact { error, .. } => Some(error),
+            Self::Evaluator(error) | Self::Query { error, .. } => Some(error),
             Self::Cancelled | Self::UnknownSymbol(_) | Self::WorkerFailure => None,
         }
     }
 }
 
-/// Forces one symbol-owned subtree and deterministically aggregates fact diagnostics.
+/// Evaluates one symbol-owned subtree and deterministically aggregates query diagnostics.
 ///
-/// Diagnostics are returned only after every required fact completes successfully.
-pub(crate) fn force_complete_symbol<F>(
+/// Diagnostics are returned only after every required query completes successfully.
+pub(crate) fn complete_symbol<F>(
     graph: &SymbolGraph,
     root: AnySymbolId,
     level: SymbolCompletionLevel,
     runtime: &FactRuntime,
     cancellation: &CancellationToken,
-    forcer: &F,
+    evaluator: &F,
 ) -> Result<DiagnosticBag, SymbolCompletionError<F::Error>>
 where
-    F: SymbolFactForcer + ?Sized,
+    F: SymbolCompletionEvaluator + ?Sized,
     F::Error: Send,
 {
     let plan = match graph.completion_plan(root, level, cancellation) {
@@ -86,19 +86,19 @@ where
         }
     };
 
-    let diagnostics = force_scheduled(plan.requests(), runtime, cancellation, forcer)?;
+    let diagnostics = evaluate_scheduled(plan.requests(), runtime, cancellation, evaluator)?;
 
     Ok(DiagnosticBag::merged_all(diagnostics.iter()))
 }
 
-fn force_scheduled<F>(
-    requests: &[SymbolFactCompletionRequest],
+fn evaluate_scheduled<F>(
+    requests: &[SymbolCompletionQuery],
     runtime: &FactRuntime,
     cancellation: &CancellationToken,
-    forcer: &F,
+    evaluator: &F,
 ) -> Result<Vec<DiagnosticBag>, SymbolCompletionError<F::Error>>
 where
-    F: SymbolFactForcer + ?Sized,
+    F: SymbolCompletionEvaluator + ?Sized,
     F::Error: Send,
 {
     let scheduled = catch_unwind(AssertUnwindSafe(|| {
@@ -106,7 +106,7 @@ where
             if cancellation.is_cancelled() {
                 None
             } else {
-                Some(forcer.force(requests[index]))
+                Some(evaluator.evaluate(requests[index]))
             }
         })
     }));
@@ -124,8 +124,8 @@ where
         };
 
         match result {
-            Ok(fact_diagnostics) => diagnostics.push(fact_diagnostics),
-            Err(error) => return Err(SymbolCompletionError::Fact { request, error }),
+            Ok(query_diagnostics) => diagnostics.push(query_diagnostics),
+            Err(error) => return Err(SymbolCompletionError::Query { request, error }),
         }
     }
 
@@ -146,12 +146,11 @@ mod tests {
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion, TextSize};
     use bray_symbols::{
-        AnySymbolId, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactKind,
-        SymbolGraph,
+        AnySymbolId, SymbolCompletionLevel, SymbolCompletionQuery, SymbolGraph, SymbolQueryKind,
     };
 
-    use super::{SymbolCompletionError, force_complete_symbol};
-    use crate::fact::{CompilationFactKey, FactRuntime, SymbolFactKey};
+    use super::{SymbolCompletionError, complete_symbol};
+    use crate::fact::{CompilationFactKey, FactRuntime, SymbolQueryKey};
     use crate::{CancellationToken, Compilation, FactCycle, FactQueryError, WorkerBudget};
 
     #[test]
@@ -178,7 +177,7 @@ mod tests {
             .map(|(index, request)| (request, index))
             .collect::<BTreeMap<_, _>>();
 
-        let forcer = |request: SymbolFactCompletionRequest| -> Result<DiagnosticBag, ()> {
+        let evaluator = |request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
             let Some(index) = ordinals.get(&request).copied() else {
                 return Err(());
             };
@@ -203,8 +202,8 @@ mod tests {
             ))
         };
 
-        let serial = force(&graph, package, WorkerBudget::serial(), &forcer);
-        let parallel = force(&graph, package, worker_budget(4), &forcer);
+        let serial = complete(&graph, package, WorkerBudget::serial(), &evaluator);
+        let parallel = complete(&graph, package, worker_budget(4), &evaluator);
 
         assert_eq!(serial, parallel);
 
@@ -235,49 +234,49 @@ mod tests {
         };
 
         let [first_request, second_request, ..] = plan.requests() else {
-            panic!("test completion plan should contain multiple fact requests");
+            panic!("test completion plan should contain multiple query requests");
         };
 
         let first_request = *first_request;
         let second_request = *second_request;
 
-        let serial_forcer = |request| -> Result<DiagnosticBag, ForcedFactError> {
+        let serial_evaluator = |request| -> Result<DiagnosticBag, CompletionEvaluationError> {
             if request == first_request || request == second_request {
-                return Err(ForcedFactError::Request(request));
+                return Err(CompletionEvaluationError::Request(request));
             }
 
             Ok(DiagnosticBag::new())
         };
 
-        let serial = force_complete_symbol(
+        let serial = complete_symbol(
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
             &FactRuntime::new(WorkerBudget::serial()),
             &CancellationToken::new(),
-            &serial_forcer,
+            &serial_evaluator,
         );
 
-        let parallel_forcer = LaterErrorFirstForcer::new(first_request, second_request);
+        let parallel_evaluator = LaterErrorFirstEvaluator::new(first_request, second_request);
 
-        let parallel = force_complete_symbol(
+        let parallel = complete_symbol(
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
             &FactRuntime::new(worker_budget(2)),
             &CancellationToken::new(),
-            &parallel_forcer,
+            &parallel_evaluator,
         );
 
-        let expected = Err(SymbolCompletionError::Fact {
+        let expected = Err(SymbolCompletionError::Query {
             request: first_request,
-            error: ForcedFactError::Request(first_request),
+            error: CompletionEvaluationError::Request(first_request),
         });
 
         assert_eq!(serial, expected);
         assert_eq!(parallel, expected);
 
-        assert!(parallel_forcer.later_error_completed());
+        assert!(parallel_evaluator.later_error_completed());
     }
 
     #[test]
@@ -286,7 +285,7 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
         let cancellation = CancellationToken::new();
 
-        let forcer = |_request: SymbolFactCompletionRequest| -> Result<DiagnosticBag, ()> {
+        let evaluator = |_request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
             cancellation.cancel();
 
             Ok(DiagnosticBag::single(Diagnostic::new(
@@ -296,13 +295,13 @@ mod tests {
             )))
         };
 
-        let result = force_complete_symbol(
+        let result = complete_symbol(
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
             &FactRuntime::new(WorkerBudget::serial()),
             &cancellation,
-            &forcer,
+            &evaluator,
         );
 
         assert!(matches!(result, Err(SymbolCompletionError::Cancelled)));
@@ -314,7 +313,7 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
         let cancellation = CancellationToken::new();
 
-        let forcer = |_request: SymbolFactCompletionRequest| -> Result<DiagnosticBag, ()> {
+        let evaluator = |_request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
             cancellation.cancel();
 
             Ok(DiagnosticBag::single(Diagnostic::new(
@@ -324,27 +323,27 @@ mod tests {
             )))
         };
 
-        let result = force_complete_symbol(
+        let result = complete_symbol(
             &graph,
             package,
             SymbolCompletionLevel::DeclarationSurface,
             &FactRuntime::new(worker_budget(4)),
             &cancellation,
-            &forcer,
+            &evaluator,
         );
 
         assert!(matches!(result, Err(SymbolCompletionError::Cancelled)));
     }
 
     #[test]
-    fn fact_cycles_are_outer_errors_unless_the_provider_recovers() {
+    fn query_cycles_are_outer_errors_unless_the_evaluator_recovers() {
         let graph = graph("module app; const First: Int = 1;");
         let constant = AnySymbolId::from(graph.constants()[0].id());
 
-        let failing = |request: SymbolFactCompletionRequest| {
-            if request.kind() == SymbolFactKind::GenericDeclarationTemplate {
+        let failing = |request: SymbolCompletionQuery| {
+            if request.kind() == SymbolQueryKind::GenericDeclarationTemplate {
                 let key =
-                    CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
+                    CompilationFactKey::from(SymbolQueryKey::new(request.symbol(), request.kind()));
 
                 return Err(FactQueryError::Cycle(FactCycle::new([key.clone(), key])));
             }
@@ -352,7 +351,7 @@ mod tests {
             Ok(DiagnosticBag::new())
         };
 
-        let failure = force_complete_symbol(
+        let failure = complete_symbol(
             &graph,
             constant,
             SymbolCompletionLevel::DeclarationSurface,
@@ -363,48 +362,44 @@ mod tests {
 
         assert!(matches!(
             failure,
-            Err(SymbolCompletionError::Fact {
+            Err(SymbolCompletionError::Query {
                 request,
                 error: FactQueryError::Cycle(_),
-            }) if request.kind() == SymbolFactKind::GenericDeclarationTemplate
+            }) if request.kind() == SymbolQueryKind::GenericDeclarationTemplate
         ));
 
-        let recovering =
-            |request: SymbolFactCompletionRequest| -> Result<DiagnosticBag, FactQueryError> {
-                if request.kind() == SymbolFactKind::GenericDeclarationTemplate {
-                    return Ok(DiagnosticBag::single(Diagnostic::new(
-                        DiagnosticId::new(7),
-                        DiagnosticKind::DeclarationDuplicateName,
-                        SeverityKind::Error,
-                    )));
-                }
+        let recovering = |request: SymbolCompletionQuery| -> Result<DiagnosticBag, FactQueryError> {
+            if request.kind() == SymbolQueryKind::GenericDeclarationTemplate {
+                return Ok(DiagnosticBag::single(Diagnostic::new(
+                    DiagnosticId::new(7),
+                    DiagnosticKind::DeclarationDuplicateName,
+                    SeverityKind::Error,
+                )));
+            }
 
-                Ok(DiagnosticBag::new())
-            };
+            Ok(DiagnosticBag::new())
+        };
 
-        let recovered = force(&graph, constant, WorkerBudget::serial(), &recovering);
+        let recovered = complete(&graph, constant, WorkerBudget::serial(), &recovering);
 
         assert_eq!(recovered.len(), 1);
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum ForcedFactError {
+    enum CompletionEvaluationError {
         Coordination,
-        Request(SymbolFactCompletionRequest),
+        Request(SymbolCompletionQuery),
     }
 
-    struct LaterErrorFirstForcer {
-        first_request: SymbolFactCompletionRequest,
-        later_request: SymbolFactCompletionRequest,
+    struct LaterErrorFirstEvaluator {
+        first_request: SymbolCompletionQuery,
+        later_request: SymbolCompletionQuery,
         later_completed: Mutex<bool>,
         later_changed: Condvar,
     }
 
-    impl LaterErrorFirstForcer {
-        fn new(
-            first_request: SymbolFactCompletionRequest,
-            later_request: SymbolFactCompletionRequest,
-        ) -> Self {
+    impl LaterErrorFirstEvaluator {
+        fn new(first_request: SymbolCompletionQuery, later_request: SymbolCompletionQuery) -> Self {
             Self {
                 first_request,
                 later_request,
@@ -421,65 +416,62 @@ mod tests {
         }
     }
 
-    impl bray_symbols::SymbolFactForcer for LaterErrorFirstForcer {
-        type Error = ForcedFactError;
+    impl bray_symbols::SymbolCompletionEvaluator for LaterErrorFirstEvaluator {
+        type Error = CompletionEvaluationError;
 
-        fn force(
-            &self,
-            request: SymbolFactCompletionRequest,
-        ) -> Result<DiagnosticBag, Self::Error> {
+        fn evaluate(&self, request: SymbolCompletionQuery) -> Result<DiagnosticBag, Self::Error> {
             if request == self.first_request {
                 let mut later_completed = self
                     .later_completed
                     .lock()
-                    .map_err(|_| ForcedFactError::Coordination)?;
+                    .map_err(|_| CompletionEvaluationError::Coordination)?;
 
                 while !*later_completed {
                     later_completed = self
                         .later_changed
                         .wait(later_completed)
-                        .map_err(|_| ForcedFactError::Coordination)?;
+                        .map_err(|_| CompletionEvaluationError::Coordination)?;
                 }
 
-                return Err(ForcedFactError::Request(request));
+                return Err(CompletionEvaluationError::Request(request));
             }
 
             if request == self.later_request {
                 let mut later_completed = self
                     .later_completed
                     .lock()
-                    .map_err(|_| ForcedFactError::Coordination)?;
+                    .map_err(|_| CompletionEvaluationError::Coordination)?;
 
                 *later_completed = true;
 
                 self.later_changed.notify_all();
 
-                return Err(ForcedFactError::Request(request));
+                return Err(CompletionEvaluationError::Request(request));
             }
 
             Ok(DiagnosticBag::new())
         }
     }
 
-    fn force<F>(
+    fn complete<F>(
         graph: &SymbolGraph,
         root: AnySymbolId,
         workers: WorkerBudget,
-        forcer: &F,
+        evaluator: &F,
     ) -> DiagnosticBag
     where
-        F: bray_symbols::SymbolFactForcer,
+        F: bray_symbols::SymbolCompletionEvaluator,
         F::Error: std::fmt::Debug + Send,
     {
         let runtime = FactRuntime::new(workers);
 
-        match force_complete_symbol(
+        match complete_symbol(
             graph,
             root,
             SymbolCompletionLevel::DeclarationSurface,
             &runtime,
             &CancellationToken::new(),
-            forcer,
+            evaluator,
         ) {
             Ok(diagnostics) => diagnostics,
             Err(error) => panic!("completion should succeed: {error:?}"),

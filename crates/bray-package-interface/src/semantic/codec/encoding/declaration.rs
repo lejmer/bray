@@ -8,7 +8,9 @@ use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemantics, InterfaceStorageShape};
 
-pub(super) fn encode_declaration_semantics(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
+pub(super) fn encode_declaration_semantics(
+    semantics: &InterfaceSemantics,
+) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
     encoder.write_u32(super::super::DECLARATION_SEMANTICS_FORMAT_VERSION);
@@ -72,10 +74,14 @@ pub(super) fn encode_declaration_semantics(semantics: &InterfaceSemantics) -> En
         },
     );
 
-    encode_record_table(&mut encoder, &semantics.declared_types, |encoder, declared| {
-        write_symbol_reference(encoder, &declared.owner);
-        encoder.write_u32(declared.ty.raw());
-    });
+    encode_record_table(
+        &mut encoder,
+        &semantics.declared_types,
+        |encoder, declared| {
+            write_symbol_reference(encoder, &declared.owner);
+            encoder.write_u32(declared.ty.raw());
+        },
+    );
 
     encode_record_table(
         &mut encoder,

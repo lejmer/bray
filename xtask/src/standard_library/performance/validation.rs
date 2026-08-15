@@ -274,9 +274,10 @@ fn validate_batching(
                 selected_inner_iterations: recorded_inner_iterations,
             },
         ) => {
-            let expected_sample_count = usize::try_from(CALIBRATION_SAMPLE_COUNT).map_err(|_| {
-                "calibration sample count cannot be represented by this host".to_owned()
-            })?;
+            let expected_sample_count =
+                usize::try_from(CALIBRATION_SAMPLE_COUNT).map_err(|_| {
+                    "calibration sample count cannot be represented by this host".to_owned()
+                })?;
 
             let samples_are_valid = [
                 bray_samples_nanoseconds,
@@ -285,8 +286,7 @@ fn validate_batching(
             ]
             .into_iter()
             .all(|samples| {
-                samples.len() == expected_sample_count
-                    && samples.iter().all(|sample| *sample > 0)
+                samples.len() == expected_sample_count && samples.iter().all(|sample| *sample > 0)
             });
 
             let seed = NonZeroU64::new(*seed_inner_iterations)
@@ -310,8 +310,9 @@ fn validate_batching(
                 || *recorded_inner_iterations != expected.get()
                 || selected_inner_iterations != expected
             {
-                return Err("workload batch calibration does not match its measured contract"
-                    .to_owned());
+                return Err(
+                    "workload batch calibration does not match its measured contract".to_owned(),
+                );
             }
 
             Ok(())

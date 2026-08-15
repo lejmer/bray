@@ -1065,13 +1065,7 @@ mod tests {
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
     ) -> NativeProtectedFrame {
-        protected_frame_with_state(
-            alignment,
-            frame_state,
-            resume,
-            move_completion,
-            destroy,
-        )
+        protected_frame_with_state(alignment, frame_state, resume, move_completion, destroy)
     }
 
     fn protected_frame_with_state(
@@ -1107,10 +1101,7 @@ mod tests {
     }
 
     extern "C" fn movable_frame_state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(
-            NativeFrameAffinity::MOVABLE,
-            NativeLaneRequirements::NONE,
-        )
+        NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
     }
 
     extern "C-unwind" fn resume_frame(_: usize) -> NativeFrameProgress {

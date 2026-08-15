@@ -2,7 +2,9 @@ use std::num::NonZeroU16;
 
 use bray_runtime_interface::PanicAbiIdentity;
 use bray_symbols::CallableAbi;
-use bray_target::{CodeModel, NativeTarget, RelocationModel, TargetScalarKind as ProfileScalarKind};
+use bray_target::{
+    CodeModel, NativeTarget, RelocationModel, TargetScalarKind as ProfileScalarKind,
+};
 
 use super::{
     CallableAbiMapping, CodegenLinkage, CodegenTarget, TargetAbi, TargetAddressSpace,

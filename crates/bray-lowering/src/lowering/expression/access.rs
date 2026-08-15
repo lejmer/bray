@@ -1,7 +1,6 @@
 use bray_bound_tree::{
-    BoundExpressionId, SelectedReceiver, StorageAccessId,
-    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StorageOperationStatus,
-    StorageProjection,
+    BoundExpressionId, SelectedReceiver, StorageAccessId, StorageAccessPurpose, StorageIdentity,
+    StorageIdentityId, StorageOperationStatus, StorageProjection,
 };
 use bray_ir::{
     MirBlockId, MirFieldReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
@@ -55,11 +54,7 @@ impl Lowerer<'_> {
         };
 
         if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type)? {
-            return Ok(LoweredExpression::continuing(
-                current,
-                Some(value),
-                source,
-            ));
+            return Ok(LoweredExpression::continuing(current, Some(value), source));
         }
 
         self.lower_storage_borrow(id, id, current, kind, *target, result_type, source)
@@ -235,11 +230,7 @@ impl Lowerer<'_> {
         let source = self.expression_source(operand)?;
 
         if let Some(value) = self.static_string_literal_borrow(operand, kind, result_type)? {
-            return Ok(LoweredExpression::continuing(
-                current,
-                Some(value),
-                source,
-            ));
+            return Ok(LoweredExpression::continuing(current, Some(value), source));
         }
 
         self.lower_storage_borrow(operand, parent, current, kind, target, result_type, source)
@@ -565,7 +556,8 @@ impl Lowerer<'_> {
         }
 
         if project_borrowed_root {
-            source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
+            source_type =
+                self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
         }
 
         Ok(MirPlace::new(root.storage(), lowered, source_type))

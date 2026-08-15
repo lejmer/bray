@@ -616,7 +616,7 @@ interface diagnostic, not a later code-generation failure.
 ### Per-Semantic Record Dependencies
 
 The artifact retains per-semantic record target dependencies so incremental and lazy queries can use precise keys. Every dependency records the
-exact semantic-semantic record owner that consumes it, the required target-property declaration, and the required stable value. An
+exact semantic record owner that consumes it, the required target-property declaration, and the required stable value. An
 implementation-header query therefore obtains only the target dependencies owned by that exact implementation.
 
 The artifact can also publish a stable interface-wide compatibility summary for fast rejection. The summary is derived from the
@@ -743,7 +743,7 @@ interface construction, and encoding in sequence.
 `bray-compilation` requests and freezes an immutable export bundle before encoding. The bundle contains category-specific semantic
 records and checked templates. It does not expose compilation caches or mutable symbol providers to the encoder.
 
-Interface construction forces exactly the semantic records required by the reachable public graph. Executable bodies remain unforced unless a
+Interface construction requests exactly the semantic records required by the reachable public graph. Executable bodies remain unrequested unless a
 separate implementation payload contract requires them.
 
 The export bundle must be error-free for all semantic records required by the interface. A package with invalid public surface semantic records does not
@@ -1085,7 +1085,7 @@ Tests should verify:
 - private and support entities never enter ordinary lookup,
 - imported defaults instantiate without source parsing or rebinding,
 - imported contracts and dependency contracts affect local checking,
-- force completion of imported package roots decodes every required semantic record deterministically,
+- completion of imported package roots decodes every required semantic record deterministically,
 - imported executable bodies are not requested during declaration-surface completion.
 
 ### Corruption And Resource Tests
