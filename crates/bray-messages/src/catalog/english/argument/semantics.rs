@@ -376,6 +376,7 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::PointerFromExposedAddress => "pointer address reconstruction",
         DiagnosticMemoryOperation::PointerAddressComparison => "pointer address comparison",
         DiagnosticMemoryOperation::CompilerFence => "compiler fence",
+        DiagnosticMemoryOperation::HardwareFence => "hardware fence",
         DiagnosticMemoryOperation::CatastrophicAbort => "catastrophic abort",
         DiagnosticMemoryOperation::DebuggerTrap => "debugger trap",
         DiagnosticMemoryOperation::UnreachableTermination => "unreachable termination",

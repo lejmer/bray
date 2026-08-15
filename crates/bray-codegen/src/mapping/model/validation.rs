@@ -348,6 +348,7 @@ fn terminator_runtime_references(
         | MirTerminatorKind::PatternBranch { .. }
         | MirTerminatorKind::Iterate { .. }
         | MirTerminatorKind::Switch { .. }
+        | MirTerminatorKind::InlineAssembly(_)
         | MirTerminatorKind::Return(_)
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::ForwardRunResult { .. }

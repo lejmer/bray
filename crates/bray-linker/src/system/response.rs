@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use super::SystemLinkerConfiguration;
+use crate::command::linker_visible_path;
 use crate::external_tool::{
     ResponseFileEncoding, ResponseFileEncodingError, encode_response_arguments,
     response_file_materialization_path, response_file_path, response_file_reference,
@@ -16,16 +17,17 @@ pub(super) fn invocation(
     plan: &LinkPlan,
     arguments: Vec<OsString>,
 ) -> Result<ExternalToolInvocation, SystemLinkerInvocationBuildError> {
+    let current_directory = configuration.invocation_directory(plan);
+
     let (arguments, response_files) = match configuration.family().response_file_encoding() {
         Some(encoding) => {
-            let (response_file, reference_path) = response_file(
-                plan,
-                &arguments,
-                encoding,
-                configuration.current_directory(),
-            )?;
+            let (response_file, reference_path) =
+                response_file(plan, &arguments, encoding, current_directory)?;
 
-            let reference = response_file_reference(&reference_path);
+            let reference = response_file_reference(linker_visible_path(
+                &reference_path,
+                current_directory,
+            ));
 
             (vec![reference], vec![response_file])
         }
@@ -35,9 +37,7 @@ pub(super) fn invocation(
     // Each process request owns its configuration so the immutable driver can serve concurrent links.
     let environment = configuration.environment().iter().cloned();
 
-    let current_directory = configuration
-        .current_directory()
-        .map(std::path::Path::to_path_buf);
+    let current_directory = current_directory.map(std::path::Path::to_path_buf);
 
     ExternalToolInvocation::try_new(
         configuration.program(),

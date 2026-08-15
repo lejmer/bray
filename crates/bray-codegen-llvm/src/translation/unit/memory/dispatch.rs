@@ -193,11 +193,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::SliceLength => {
                 self.translate_slice_length(memory).map(Some)
             }
-            CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
-                self.translate_volatile_read(memory, pointee).map(Some)
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee,
+                address_space,
+                ..
+            } => {
+                self.translate_volatile_read(memory, pointee, address_space)
+                    .map(Some)
             }
-            CheckedMemoryOperationKind::VolatileWrite { .. } => {
-                self.translate_volatile_write(memory)?;
+            CheckedMemoryOperationKind::VolatileWrite { address_space, .. } => {
+                self.translate_volatile_write(memory, address_space)?;
 
                 Ok(None)
             }
@@ -210,8 +215,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::CompareAddress { comparison, .. } => {
                 self.translate_address_comparison(memory, comparison).map(Some)
             }
-            CheckedMemoryOperationKind::CompilerFence => {
-                self.translate_compiler_fence()?;
+            CheckedMemoryOperationKind::Fence {
+                compiler_only,
+                order,
+            } => {
+                self.translate_fence(order, compiler_only)?;
 
                 Ok(None)
             }
@@ -237,7 +245,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::InlineAssembly {
                 output, contract, ..
             } => {
-                self.translate_inline_assembly(operation, memory, contract, output.is_none())
+                self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
             }
         }
     }
@@ -257,7 +265,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::LayoutQuery { .. }
             | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::CallbackState { .. }
-            | CheckedMemoryOperationKind::CompilerFence
+            | CheckedMemoryOperationKind::Fence { .. }
             | CheckedMemoryOperationKind::CatastrophicAbort
             | CheckedMemoryOperationKind::DebuggerTrap
             | CheckedMemoryOperationKind::UnreachableTermination
@@ -305,7 +313,8 @@ mod tests {
 
     use bray_bound_tree::{
         CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
-        MemoryOffsetUnit, MemoryReadKind, PointerAddressComparison, VolatileAddressSpace,
+        MemoryOffsetUnit, MemoryOrder, MemoryReadKind, PointerAddressComparison,
+        VolatileAddressSpace,
     };
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
@@ -328,7 +337,8 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
-        TargetLayoutContract, TargetOperationFacts, TargetProfile, TargetValueLayout,
+        TargetAddressSpaceFacts, TargetFacts, TargetLayoutContract, TargetOperationFacts,
+        TargetProfile, TargetValueLayout,
     };
     use inkwell::context::Context;
 
@@ -340,6 +350,7 @@ mod tests {
         aligned_value: TypeId,
         borrow: TypeId,
         pointer: TypeId,
+        device_pointer: TypeId,
         usize: TypeId,
         boolean: TypeId,
         tag: TypeId,
@@ -388,6 +399,19 @@ mod tests {
                 "missing generated LLVM for {spelling}"
             );
         }
+
+        assert!(
+            ir.lines()
+                .any(|line| line.contains("load volatile i32, ptr addrspace(5)")),
+            "device volatile load did not retain target address space 5: {ir}"
+        );
+
+        assert!(
+            ir.lines().any(|line| {
+                line.contains("store volatile i32") && line.contains("ptr addrspace(5)")
+            }),
+            "device volatile store did not retain target address space 5: {ir}"
+        );
 
         for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
             let call = ir
@@ -508,8 +532,8 @@ mod tests {
                 backend.prepare_module(fixture.request(), &context),
                 Err(bray_codegen::CodegenFailure::UnsupportedTarget)
             ));
+            }
         }
-    }
 
     fn memory_operation_fixture(
         backend: &LlvmCodeGenerator,
@@ -720,6 +744,52 @@ mod tests {
             None,
         );
 
+        let device_pointer = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::Null {
+                pointee: types.value,
+            },
+            [],
+            [],
+            Some(types.device_pointer),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("device null operation must produce a value"));
+
+        let device_value = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Device,
+                kind: MemoryReadKind::Copy,
+            },
+            [MirOperand::Value(device_pointer)],
+            [types.device_pointer],
+            Some(types.value),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("device volatile read must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileWrite {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Device,
+            },
+            [
+                MirOperand::Value(device_pointer),
+                MirOperand::Value(device_value),
+            ],
+            [types.device_pointer, types.value],
+            None,
+        );
+
         let exposed = push_memory(
             &mut builder,
             entry,
@@ -762,7 +832,10 @@ mod tests {
         }
 
         for kind in [
-            CheckedMemoryOperationKind::CompilerFence,
+            CheckedMemoryOperationKind::Fence {
+                compiler_only: true,
+                order: MemoryOrder::SequentiallyConsistent,
+            },
             CheckedMemoryOperationKind::DebuggerTrap,
             CheckedMemoryOperationKind::SpinLoopHint,
         ] {
@@ -1148,7 +1221,8 @@ mod tests {
         let aligned_value = intern_type(&store, TypeData::tuple([value, value]));
         let borrow = intern_type(&store, TypeData::tuple([value]));
         let pointer = intern_type(&store, TypeData::tuple([borrow]));
-        let usize = intern_type(&store, TypeData::tuple([pointer]));
+        let device_pointer = intern_type(&store, TypeData::tuple([pointer]));
+        let usize = intern_type(&store, TypeData::tuple([device_pointer]));
         let boolean = intern_type(&store, TypeData::tuple([usize]));
         let tag = intern_type(&store, TypeData::tuple([boolean]));
         let layout = intern_type(&store, TypeData::tuple([tag]));
@@ -1165,6 +1239,7 @@ mod tests {
             aligned_value,
             borrow,
             pointer,
+            device_pointer,
             usize,
             boolean,
             tag,
@@ -1182,10 +1257,21 @@ mod tests {
     fn memory_target(raw_memory: bool, allocation: bool) -> bray_codegen::CodegenTarget {
         let profile = test_target_profile();
 
-        let facts = profile
-            .facts()
-            .clone()
-            .with_operations(TargetOperationFacts::new(raw_memory, allocation));
+        let baseline = profile.facts();
+
+        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+            .unwrap_or_else(|| panic!("memory test address spaces must be valid"));
+
+        let facts = TargetFacts::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            baseline.abis(),
+            baseline.c_abi(),
+            address_spaces,
+            baseline.alignments(),
+            TargetOperationFacts::new(raw_memory, allocation),
+        );
 
         let profile =
             TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
@@ -1251,6 +1337,14 @@ mod tests {
                 CodegenTypeKind::Pointer {
                     target: types.value,
                     address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
+            CodegenTypeMapping::new(
+                types.device_pointer,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.value,
+                    address_space: TargetAddressSpaceKind::Device,
                 },
             ),
             CodegenTypeMapping::new(

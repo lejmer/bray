@@ -106,6 +106,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.clear_moved_places()?;
                 llvm(self.builder.build_unreachable())?;
             }
+            MirTerminatorKind::InlineAssembly(assembly) => {
+                self.translate_inline_assembly_terminator(block, assembly)?;
+            }
             MirTerminatorKind::Panic { cleanup, .. }
             | MirTerminatorKind::CancelCurrentRun { cleanup } => {
                 self.add_edge_arguments(cleanup.edge())?;

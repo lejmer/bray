@@ -584,17 +584,17 @@ where
         let available = candidates.iter().collect::<Vec<_>>();
 
         for (ordinal, argument) in call.arguments().iter().enumerate() {
-            if !expected_type_directed_variant(request, argument.expression()) {
-                continue;
-            }
+            let expected = common_parameter_type(request, &available, call.arguments(), ordinal)?;
 
-            let Some(expected) =
-                common_parameter_type(request, &available, call.arguments(), ordinal)?
-            else {
+            let Some(expected) = expected else {
                 continue;
             };
 
-            session.add_evidence(argument.expression(), expected)?;
+            if expected_type_directed_variant(request, argument.expression()) {
+                session.add_evidence(argument.expression(), expected)?;
+            }
+
+            session.add_expectation(argument.expression(), expected)?;
         }
 
         let Some(candidates) = viable_candidates(
@@ -727,14 +727,18 @@ where
 
 fn common_candidate_value<T: Copy + Eq>(
     candidates: &[&CallableCandidate],
-    mut value: impl FnMut(&CallableCandidate) -> Option<T>,
+    value: impl FnMut(&CallableCandidate) -> Option<T>,
 ) -> Option<T> {
-    let mut candidates = candidates.iter().copied();
+    common_value(candidates.iter().copied().map(value))
+}
 
-    let first = value(candidates.next()?)?;
+fn common_value<T: Copy + Eq>(values: impl IntoIterator<Item = Option<T>>) -> Option<T> {
+    let mut values = values.into_iter();
 
-    candidates
-        .all(|candidate| value(candidate) == Some(first))
+    let first = values.next()??;
+
+    values
+        .all(|value| value == Some(first))
         .then_some(first)
 }
 
@@ -1548,7 +1552,7 @@ mod tests {
     use bray_bound_tree::BoundUnitId;
     use bray_symbols::BorrowKind;
 
-    use super::{borrow_receiver_capability, prepare_calls};
+    use super::{borrow_receiver_capability, common_value, prepare_calls};
     use crate::test_support::{
         TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
         push_expression,
@@ -1571,6 +1575,13 @@ mod tests {
             borrow_receiver_capability(BorrowKind::Mutable, false),
             ReceiverCapability::Owned
         );
+    }
+
+    #[test]
+    fn common_candidate_expectations_require_structural_agreement() {
+        assert_eq!(common_value([Some(7_u8), Some(7)]), Some(7));
+        assert_eq!(common_value([Some(1_u8), Some(2)]), None);
+        assert_eq!(common_value([Some(1_u8), None]), None);
     }
 
     #[test]

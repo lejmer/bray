@@ -1,8 +1,12 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::command::linker_visible_path;
 use crate::external_tool::is_explicit_program_path;
-use crate::{ExternalToolInvocation, ExternalToolInvocationBuildError, LinkerTargetIdentity};
+use crate::{
+    DebugLinkPolicy, ExternalToolInvocation, ExternalToolInvocationBuildError, LinkPlan,
+    LinkerTargetIdentity,
+};
 
 use super::SystemLinkerFamily;
 
@@ -74,6 +78,28 @@ impl SystemLinkerConfiguration {
         self.invocation_template.current_directory()
     }
 
+    pub(super) fn invocation_directory<'directory>(
+        &'directory self,
+        plan: &'directory LinkPlan,
+    ) -> Option<&'directory Path> {
+        if let Some(configured) = self.current_directory() {
+            return Some(configured);
+        }
+
+        if !matches!(
+            self.family,
+            SystemLinkerFamily::Microsoft | SystemLinkerFamily::MicrosoftCompiler
+        ) || plan.policy().debug() != DebugLinkPolicy::Companion
+        {
+            return None;
+        }
+
+        plan.primary_output()
+            .filter(|output| output.destination().path().is_absolute())
+            .and_then(|output| output.destination().path().parent())
+            .filter(|directory| !directory.as_os_str().is_empty())
+    }
+
     /// Returns the optional linker-map destination selected by the host workflow.
     pub const fn map_output(&self) -> Option<&SystemLinkerMapOutput> {
         self.map_output.as_ref()
@@ -98,31 +124,37 @@ impl SystemLinkerMapOutput {
     }
 
     /// Returns the complete map arguments for the selected system-linker family.
-    pub fn arguments(&self, family: SystemLinkerFamily) -> Vec<OsString> {
+    pub fn arguments(
+        &self,
+        family: SystemLinkerFamily,
+        current_directory: Option<&Path>,
+    ) -> Vec<OsString> {
+        let path = linker_visible_path(&self.0, current_directory);
+
         match family {
-            SystemLinkerFamily::Gnu => vec!["-Map".into(), self.0.as_os_str().to_owned()],
+            SystemLinkerFamily::Gnu => vec!["-Map".into(), path.as_os_str().to_owned()],
             SystemLinkerFamily::Microsoft => {
-                vec![format!("/map:{}", self.0.display()).into()]
+                vec![format!("/map:{}", path.display()).into()]
             }
-            SystemLinkerFamily::Apple => vec!["-map".into(), self.0.as_os_str().to_owned()],
+            SystemLinkerFamily::Apple => vec!["-map".into(), path.as_os_str().to_owned()],
             SystemLinkerFamily::GnuCompiler | SystemLinkerFamily::WslGnuCompiler => {
                 let output = if family == SystemLinkerFamily::WslGnuCompiler {
-                    crate::command::wsl_path(&self.0.to_string_lossy()).into()
+                    crate::command::wsl_path(&path.to_string_lossy()).into()
                 } else {
-                    self.0.as_os_str().to_owned()
+                    path.as_os_str().to_owned()
                 };
 
                 vec!["-Xlinker".into(), "-Map".into(), "-Xlinker".into(), output]
             }
             SystemLinkerFamily::MicrosoftCompiler => vec![
                 "-Xlinker".into(),
-                format!("/map:{}", self.0.display()).into(),
+                format!("/map:{}", path.display()).into(),
             ],
             SystemLinkerFamily::AppleCompiler => vec![
                 "-Xlinker".into(),
                 "-map".into(),
                 "-Xlinker".into(),
-                self.0.as_os_str().to_owned(),
+                path.as_os_str().to_owned(),
             ],
         }
     }

@@ -21,6 +21,8 @@ mod service;
 mod storage;
 mod target;
 mod target_control;
+mod target_control_contract;
+mod target_control_symbol;
 mod type_check;
 mod type_normalization;
 mod type_representation;

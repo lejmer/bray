@@ -22,8 +22,24 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "same-name isolation",
 ];
 const UNAVAILABLE_TARGET_FIXTURE: &str = "xtask/fixtures/readiness/memory-unavailable-target.bray";
-const INVALID_TARGET_CONTROL_FIXTURE: &str =
-    "xtask/fixtures/readiness/target-control-invalid.bray";
+const INVALID_TARGET_CONTROL_FIXTURES: &[(&str, bray_target::NativeTarget)] = &[
+    (
+        "xtask/fixtures/readiness/target-control-invalid.bray",
+        bray_target::NativeTarget::X86_64LinuxGnu,
+    ),
+    (
+        "xtask/fixtures/readiness/target-control-invalid-constraint.bray",
+        bray_target::NativeTarget::X86_64LinuxGnu,
+    ),
+    (
+        "xtask/fixtures/readiness/target-control-invalid-symbol.bray",
+        bray_target::NativeTarget::X86_64LinuxGnu,
+    ),
+    (
+        "xtask/fixtures/readiness/target-control-invalid-dialect.bray",
+        bray_target::NativeTarget::Aarch64LinuxGnu,
+    ),
+];
 
 #[derive(Deserialize)]
 struct CoverageFixture {
@@ -144,17 +160,20 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
 }
 
 fn audit_invalid_target_control(workspace: &RustWorkspace) -> Result<(), String> {
-    if fixture_reports(
-        workspace,
-        INVALID_TARGET_CONTROL_FIXTURE,
-        SelectedTarget::baseline(),
-        DiagnosticKind::CheckingInvalidTargetControlContract,
-    )? {
-        Ok(())
-    } else {
-        Err("invalid target-control contract did not produce the structured rejection diagnostic"
-            .to_owned())
+    for (fixture, target) in INVALID_TARGET_CONTROL_FIXTURES {
+        if !fixture_reports(
+            workspace,
+            fixture,
+            SelectedTarget::for_native(*target),
+            DiagnosticKind::CheckingInvalidTargetControlContract,
+        )? {
+            return Err(format!(
+                "invalid target-control contract did not produce the structured rejection diagnostic: {fixture}"
+            ));
+        }
     }
+
+    Ok(())
 }
 
 fn fixture_reports(

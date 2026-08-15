@@ -274,7 +274,7 @@ fn configure_link_map(
     let output = bray_linker::SystemLinkerMapOutput::try_new(map)
         .ok_or_else(|| BuildError::conformance("native provider retention", "invalid map path"))?;
 
-    command.args(output.arguments(family));
+    command.args(output.arguments(family, None));
 
     Ok(())
 }

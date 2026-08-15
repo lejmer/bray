@@ -360,7 +360,13 @@ mod tests {
         let constant = test_constant_value();
 
         let assembly = InlineAssemblyContract::new(
-            constant, constant, constant, constant, constant,
+            constant,
+            constant,
+            constant,
+            constant,
+            constant,
+            [None; bray_bound_tree::MAX_INLINE_ASSEMBLY_OPERANDS],
+            0,
         );
 
         let cases = [
@@ -508,7 +514,14 @@ mod tests {
                 2,
                 true,
             ),
-            (CheckedMemoryOperationKind::CompilerFence, 0, false),
+            (
+                CheckedMemoryOperationKind::Fence {
+                    compiler_only: true,
+                    order: bray_bound_tree::MemoryOrder::SequentiallyConsistent,
+                },
+                0,
+                false,
+            ),
             (CheckedMemoryOperationKind::CatastrophicAbort, 0, false),
             (CheckedMemoryOperationKind::DebuggerTrap, 0, false),
             (
@@ -519,25 +532,27 @@ mod tests {
             (CheckedMemoryOperationKind::SpinLoopHint, 0, false),
             (
                 CheckedMemoryOperationKind::TargetFeatureEnabled { feature: constant },
+                0,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::InlineAssembly {
+                    inputs: ty,
+                    output: Some(ty),
+                    labels: None,
+                    contract: assembly,
+                },
                 1,
                 true,
             ),
             (
                 CheckedMemoryOperationKind::InlineAssembly {
-                    input: ty,
-                    output: Some(ty),
-                    contract: assembly,
-                },
-                6,
-                true,
-            ),
-            (
-                CheckedMemoryOperationKind::InlineAssembly {
-                    input: ty,
+                    inputs: ty,
                     output: None,
+                    labels: None,
                     contract: assembly,
                 },
-                6,
+                1,
                 false,
             ),
         ];

@@ -127,6 +127,7 @@ where
             &type_arguments,
             arguments.as_slice(),
             literals,
+            selections,
         ) {
             Ok(check) => check,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -618,6 +619,7 @@ where
         | ImplementationHook::PointerAddressEqual
         | ImplementationHook::PointerAddressLess
         | ImplementationHook::CompilerFence
+        | ImplementationHook::HardwareFence
         | ImplementationHook::CatastrophicAbort
         | ImplementationHook::DebuggerTrap
         | ImplementationHook::UnreachableTermination
@@ -625,6 +627,7 @@ where
         | ImplementationHook::TargetFeatureEnabled
         | ImplementationHook::InlineAssembly
         | ImplementationHook::DivergingInlineAssembly
+        | ImplementationHook::BranchingInlineAssembly
         | ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin
         | ImplementationHook::TaskCancel

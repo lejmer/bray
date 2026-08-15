@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bray_target::NativeTarget;
+use bray_runtime_interface::native_platform_service_role_symbol;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
 
@@ -301,17 +302,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                 ],
             ),
             RuntimeArchiveKind::TestHost => (
-                &[
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_WRITE_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_FLUSH_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_LOCK_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_UNLOCK_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_WRITE_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_FLUSH_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_LOCK_SYMBOL,
-                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_UNLOCK_SYMBOL,
-                ],
+                &[bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL],
                 &[
                     "bray_runtime_memory_",
                     "bray_runtime_string_",
@@ -320,17 +311,49 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
             ),
         };
 
-        let undeclared_platform_service = symbols.iter().any(|symbol| {
-            symbol.starts_with("bray_platform_") && !required.contains(&symbol.as_str())
-        });
+        let required = required
+            .iter()
+            .copied()
+            .chain(
+                component
+                    .kind
+                    .platform_services()
+                    .iter()
+                    .copied()
+                    .map(native_platform_service_role_symbol),
+            )
+            .collect::<BTreeSet<_>>();
 
-        if required.iter().any(|symbol| !symbols.contains(*symbol))
-            || forbidden
-                .iter()
-                .any(|prefix| symbols.iter().any(|symbol| symbol.starts_with(prefix)))
-            || undeclared_platform_service
+        let missing = required
+            .iter()
+            .filter(|symbol| !symbols.contains(**symbol))
+            .map(|symbol| (*symbol).to_owned())
+            .collect::<Vec<_>>();
+
+        let forbidden = symbols
+            .iter()
+            .filter(|symbol| forbidden.iter().any(|prefix| symbol.starts_with(prefix)))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let undeclared_platform_services = symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.starts_with("bray_platform_") && !required.contains(symbol.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if !missing.is_empty()
+            || !forbidden.is_empty()
+            || !undeclared_platform_services.is_empty()
         {
-            return Err(CommandError::RuntimeComponentBoundary(component.kind));
+            return Err(CommandError::RuntimeComponentBoundary {
+                kind: component.kind,
+                missing,
+                forbidden,
+                undeclared_platform_services,
+            });
         }
     }
 

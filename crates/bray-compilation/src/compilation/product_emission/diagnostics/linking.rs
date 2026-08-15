@@ -276,6 +276,7 @@ pub(super) fn staging_failure_diagnostics(
         LinkStagingError::InvalidContent(artifact) => {
             DiagnosticEmissionStagingFailure::InvalidContent(diagnostic_artifact(artifact))
         }
+        LinkStagingError::MissingArtifacts => DiagnosticEmissionStagingFailure::Incomplete,
         LinkStagingError::Create { artifact, kind } => {
             return staging_io_failure_diagnostics(
                 artifact,

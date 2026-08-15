@@ -376,7 +376,7 @@ where
             CheckedMemoryOperationKind::ExposeAddress { .. }
             | CheckedMemoryOperationKind::FromExposedAddress { .. }
             | CheckedMemoryOperationKind::CompareAddress { .. }
-            | CheckedMemoryOperationKind::CompilerFence
+            | CheckedMemoryOperationKind::Fence { .. }
             | CheckedMemoryOperationKind::CatastrophicAbort
             | CheckedMemoryOperationKind::DebuggerTrap
             | CheckedMemoryOperationKind::UnreachableTermination

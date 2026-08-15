@@ -73,7 +73,9 @@ impl LinkerDriver for SystemLinkerDriver {
             return failed_outcome(plan, failure);
         }
 
-        let mut arguments = match system_arguments_for(plan, self.family()) {
+        let current_directory = self.configuration.invocation_directory(plan);
+
+        let mut arguments = match system_arguments_for(plan, self.family(), current_directory) {
             Ok(arguments) => arguments,
             Err(_) => {
                 return failed_outcome(plan, LinkFailure::DriverIncompatible);
@@ -81,7 +83,7 @@ impl LinkerDriver for SystemLinkerDriver {
         };
 
         if let Some(output) = self.configuration.map_output() {
-            arguments.extend(output.arguments(self.family()));
+            arguments.extend(output.arguments(self.family(), current_directory));
         }
 
         let invocation = match invocation(&self.configuration, plan, arguments) {
@@ -227,7 +229,7 @@ mod tests {
             let output = crate::SystemLinkerMapOutput::try_new(path)
                 .unwrap_or_else(|| panic!("test map path must be valid"));
 
-            let arguments = output.arguments(family);
+            let arguments = output.arguments(family, None);
 
             assert_eq!(arguments, expected);
         }

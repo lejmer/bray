@@ -914,7 +914,10 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::CompareAddress { pointee, .. } => {
             ("compare_address", vec![("pointee", pointee)])
         }
-        CheckedMemoryOperationKind::CompilerFence => ("compiler_fence", Vec::new()),
+        CheckedMemoryOperationKind::Fence { compiler_only, .. } => (
+            if compiler_only { "compiler_fence" } else { "hardware_fence" },
+            Vec::new(),
+        ),
         CheckedMemoryOperationKind::CatastrophicAbort => ("catastrophic_abort", Vec::new()),
         CheckedMemoryOperationKind::DebuggerTrap => ("debugger_trap", Vec::new()),
         CheckedMemoryOperationKind::UnreachableTermination => {
@@ -924,11 +927,20 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => {
             ("target_feature_enabled", Vec::new())
         }
-        CheckedMemoryOperationKind::InlineAssembly { input, output, .. } => {
-            let mut types = vec![("input", input)];
+        CheckedMemoryOperationKind::InlineAssembly {
+            inputs,
+            output,
+            labels,
+            ..
+        } => {
+            let mut types = vec![("inputs", inputs)];
 
             if let Some(output) = output {
                 types.push(("output", output));
+            }
+
+            if let Some(labels) = labels {
+                types.push(("labels", labels));
             }
 
             ("inline_assembly", types)
@@ -1546,6 +1558,29 @@ fn inspection_terminator(
             parts.edge("otherwise", otherwise, None, &context)?;
 
             "switch"
+        }
+        MirTerminatorKind::InlineAssembly(assembly) => {
+            parts.operand("inputs", assembly.inputs(), &context)?;
+            parts.r#type("inputs", assembly.inputs_type(), &context)?;
+            parts.r#type("output", assembly.output_type(), &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("normal"),
+                target: assembly.normal().slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            for (index, alternate) in assembly.alternates().iter().enumerate() {
+                parts.edges.push(InspectionMirEdge {
+                    role: format!("alternate[{index}]"),
+                    target: alternate.slot(),
+                    arguments: Vec::new(),
+                    cleanup_phase: None,
+                });
+            }
+
+            "inline_assembly"
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {

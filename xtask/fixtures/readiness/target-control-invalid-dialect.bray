@@ -1,14 +1,14 @@
-trusted module target_control_invalid;
+trusted module target_control_invalid_dialect;
 
-trusted func invalid_assembly() -> i32
+trusted func invalid_dialect() -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    return trusted core.target.assembly<((i32, i32), ), (i32, )>(
+    return trusted core.target.assembly<(i32, ), (i32, )>(
         template = "",
         constraints = "=reg,reg",
         clobbers = "",
         features = "",
-        options = 0,
-        inputs = ((1, 2),),
+        options = 4,
+        inputs = (1,),
     ).0;
 }

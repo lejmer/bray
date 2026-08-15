@@ -8,6 +8,8 @@ Bray is currently a greenfield project. Therefore, do not preserve backwards-com
 
 Treat discovered gaps as part of the active PR unless folding them in would turn it into a multi-thousand-line change or a genuinely independent subsystem. 
 
+Do not dismiss a discovered defect as unrelated. Fix bounded defects in the active work. Otherwise, link an existing tracking issue or create one before proceeding. Treat failures in fail-fast workflows as blocking because later checks did not run.
+
 ## Simplicity and scope
 
 Implement the smallest coherent design that satisfies the current requirements and known near-term consumers. Do not add abstraction layers, wrapper types, request/context/result types, validation surfaces, or APIs based only on speculative future needs. Forward-looking APIs are appropriate when a planned consumer and its required contract are already understood. Every new type must enforce a current or planned invariant, establish meaningful identity or ownership, or provide behavior that cannot be expressed clearly by an existing type or direct function.

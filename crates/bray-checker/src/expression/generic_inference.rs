@@ -68,6 +68,28 @@ where
     Ok(arguments)
 }
 
+pub(crate) fn infer_generic_arguments_from_type<C>(
+    request: CheckerUnitView<'_, C>,
+    open: TypeId,
+    actual: TypeId,
+    parameters: &[GenericParameterSymbolId],
+) -> Result<Option<Vec<GenericArgument>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let inferable = parameters.iter().copied().collect::<BTreeSet<_>>();
+    let mut inference = GenericArgumentInference::new(request, inferable);
+
+    if !inference.infer_type(open, actual)? {
+        return Ok(None);
+    }
+
+    Ok(parameters
+        .iter()
+        .map(|parameter| inference.arguments.get(parameter).copied())
+        .collect())
+}
+
 struct GenericArgumentInference<'request, C>
 where
     C: CheckerRequestContext + ?Sized,

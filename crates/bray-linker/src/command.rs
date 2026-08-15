@@ -14,23 +14,33 @@ use crate::{
 pub(super) fn system_arguments_for(
     plan: &LinkPlan,
     family: SystemLinkerFamily,
+    current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
     match family {
         SystemLinkerFamily::Gnu | SystemLinkerFamily::Microsoft | SystemLinkerFamily::Apple => {
-            arguments_for(plan, family.flavor())
+            arguments_for_with_directory(plan, family.flavor(), current_directory)
         }
-        SystemLinkerFamily::GnuCompiler => gnu_compiler_arguments(plan, false),
-        SystemLinkerFamily::WslGnuCompiler => gnu_compiler_arguments(plan, true),
-        SystemLinkerFamily::MicrosoftCompiler => microsoft_compiler_arguments(plan),
-        SystemLinkerFamily::AppleCompiler => apple_compiler_arguments(plan),
+        SystemLinkerFamily::GnuCompiler => {
+            gnu_compiler_arguments(plan, false, current_directory)
+        }
+        SystemLinkerFamily::WslGnuCompiler => {
+            gnu_compiler_arguments(plan, true, current_directory)
+        }
+        SystemLinkerFamily::MicrosoftCompiler => {
+            microsoft_compiler_arguments(plan, current_directory)
+        }
+        SystemLinkerFamily::AppleCompiler => {
+            apple_compiler_arguments(plan, current_directory)
+        }
     }
 }
 
 fn gnu_compiler_arguments(
     plan: &LinkPlan,
     through_wsl: bool,
+    current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
-    let raw = arguments_for(plan, LldFlavor::Elf)?;
+    let raw = arguments_for_with_directory(plan, LldFlavor::Elf, current_directory)?;
     let mut arguments = Vec::with_capacity(raw.len() + 4);
 
     if through_wsl {
@@ -80,8 +90,11 @@ pub(crate) fn wsl_path(argument: &str) -> String {
     format!("/mnt/{drive}/{suffix}")
 }
 
-fn microsoft_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPlanError> {
-    let raw = arguments_for(plan, LldFlavor::Coff)?;
+fn microsoft_compiler_arguments(
+    plan: &LinkPlan,
+    current_directory: Option<&Path>,
+) -> Result<Vec<OsString>, LldPlanError> {
+    let raw = arguments_for_with_directory(plan, LldFlavor::Coff, current_directory)?;
     let mut arguments = Vec::with_capacity(raw.len() * 2 + 2);
 
     arguments.push(format!("--target={}", plan.target().triple()).into());
@@ -101,7 +114,7 @@ fn microsoft_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPla
             arguments.push(output.into());
         } else if text == "/dll" {
             arguments.push("-shared".into());
-        } else if is_ordinary_file_input(plan, &argument) {
+        } else if is_ordinary_file_input(plan, &argument, current_directory) {
             arguments.push(argument);
         } else {
             arguments.push("-Xlinker".into());
@@ -112,18 +125,26 @@ fn microsoft_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPla
     Ok(arguments)
 }
 
-fn is_ordinary_file_input(plan: &LinkPlan, argument: &OsStr) -> bool {
+fn is_ordinary_file_input(
+    plan: &LinkPlan,
+    argument: &OsStr,
+    current_directory: Option<&Path>,
+) -> bool {
     plan.inputs().iter().any(|input| {
         input.mode() == LinkInputMode::Ordinary
             && matches!(
                 input.source(),
-                LinkInputSource::File(path) if path.as_os_str() == argument
+                LinkInputSource::File(path)
+                    if linker_visible_path(path, current_directory).as_os_str() == argument
             )
     })
 }
 
-fn apple_compiler_arguments(plan: &LinkPlan) -> Result<Vec<OsString>, LldPlanError> {
-    let raw = arguments_for(plan, LldFlavor::MachO)?;
+fn apple_compiler_arguments(
+    plan: &LinkPlan,
+    current_directory: Option<&Path>,
+) -> Result<Vec<OsString>, LldPlanError> {
+    let raw = arguments_for_with_directory(plan, LldFlavor::MachO, current_directory)?;
     let mut arguments = Vec::with_capacity(raw.len());
     let mut raw = raw.into_iter();
 
@@ -157,17 +178,25 @@ pub(super) fn arguments_for(
     plan: &LinkPlan,
     flavor: LldFlavor,
 ) -> Result<Vec<OsString>, LldPlanError> {
+    arguments_for_with_directory(plan, flavor, None)
+}
+
+fn arguments_for_with_directory(
+    plan: &LinkPlan,
+    flavor: LldFlavor,
+    current_directory: Option<&Path>,
+) -> Result<Vec<OsString>, LldPlanError> {
     let mut arguments = Vec::new();
 
     push_determinism_arguments(&mut arguments, flavor);
     push_target_arguments(&mut arguments, plan, flavor)?;
-    push_output_arguments(&mut arguments, plan, flavor)?;
+    push_output_arguments(&mut arguments, plan, flavor, current_directory)?;
     push_policy_arguments(&mut arguments, plan, flavor)?;
     push_symbol_arguments(&mut arguments, plan, flavor);
-    push_search_paths(&mut arguments, plan, flavor)?;
+    push_search_paths(&mut arguments, plan, flavor, current_directory)?;
 
     for input in plan.inputs() {
-        push_input(&mut arguments, input, flavor)?;
+        push_input(&mut arguments, input, flavor, current_directory)?;
     }
 
     Ok(arguments)
@@ -267,19 +296,24 @@ fn push_output_arguments(
     arguments: &mut Vec<OsString>,
     plan: &LinkPlan,
     flavor: LldFlavor,
+    current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
     let Some(primary) = plan.primary_output() else {
         return Err(LldPlanError::MissingPrimaryOutput);
     };
 
-    push_output_path(arguments, flavor, primary.destination().path());
+    push_output_path(
+        arguments,
+        flavor,
+        linker_visible_path(primary.destination().path(), current_directory),
+    );
 
     for output in plan.outputs() {
         if output.destination().id() == primary.destination().id() {
             continue;
         }
 
-        push_companion_output(arguments, output, flavor)?;
+        push_companion_output(arguments, output, flavor, current_directory)?;
     }
 
     Ok(())
@@ -299,14 +333,19 @@ fn push_companion_output(
     arguments: &mut Vec<OsString>,
     output: &PlannedLinkedArtifact,
     flavor: LldFlavor,
+    current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
+    let path = linker_visible_path(output.destination().path(), current_directory);
+
     match (flavor, output.kind()) {
         (LldFlavor::Coff, LinkedArtifactKind::ImportLibrary) => {
-            arguments.push(prefixed("/implib:", output.destination().path()));
+            arguments.push(prefixed("/implib:", path));
         }
         (LldFlavor::Coff, LinkedArtifactKind::DebugCompanion) => {
             arguments.push("/debug".into());
-            arguments.push(prefixed("/pdb:", output.destination().path()));
+            arguments.push(prefixed("/pdb:", path));
+            arguments.push("/pdbaltpath:%_PDB%".into());
+            arguments.push(r"/pdbsourcepath:X:\bray".into());
         }
         (
             LldFlavor::Elf | LldFlavor::Coff | LldFlavor::MachO,
@@ -423,19 +462,22 @@ fn push_search_paths(
     arguments: &mut Vec<OsString>,
     plan: &LinkPlan,
     flavor: LldFlavor,
+    current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
     for search_path in plan.search_paths() {
+        let path = linker_visible_path(search_path.path(), current_directory);
+
         match (flavor, search_path.kind()) {
             (LldFlavor::Elf | LldFlavor::MachO, LinkSearchPathKind::Library) => {
                 arguments.push("-L".into());
-                arguments.push(search_path.path().as_os_str().to_owned());
+                arguments.push(path.as_os_str().to_owned());
             }
             (LldFlavor::Coff, LinkSearchPathKind::Library) => {
-                arguments.push(prefixed("/libpath:", search_path.path()));
+                arguments.push(prefixed("/libpath:", path));
             }
             (LldFlavor::MachO, LinkSearchPathKind::Framework) => {
                 arguments.push("-F".into());
-                arguments.push(search_path.path().as_os_str().to_owned());
+                arguments.push(path.as_os_str().to_owned());
             }
             (LldFlavor::Elf | LldFlavor::Coff, LinkSearchPathKind::Framework) => {
                 return Err(LldPlanError::UnsupportedFramework);
@@ -450,9 +492,12 @@ fn push_input(
     arguments: &mut Vec<OsString>,
     input: &LinkInput,
     flavor: LldFlavor,
+    current_directory: Option<&Path>,
 ) -> Result<(), LldPlanError> {
     match input.source() {
         LinkInputSource::File(path) => {
+            let path = linker_visible_path(path, current_directory);
+
             if input.mode() == LinkInputMode::WholeArchive {
                 push_whole_archive(arguments, path, flavor);
             } else {
@@ -478,6 +523,20 @@ fn push_input(
     }
 
     Ok(())
+}
+
+pub(super) fn linker_visible_path<'path>(
+    path: &'path Path,
+    current_directory: Option<&Path>,
+) -> &'path Path {
+    let Some(current_directory) = current_directory else {
+        return path;
+    };
+
+    path.strip_prefix(current_directory)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or(path)
 }
 
 fn push_whole_archive(arguments: &mut Vec<OsString>, path: &Path, flavor: LldFlavor) {
@@ -564,10 +623,10 @@ mod tests {
     use super::{LldFlavor, arguments_for, system_arguments_for};
     use crate::test_support::{link_input, link_plan_builder, planned_output, product};
     use crate::{
-        LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
-        LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath, LinkSearchPathKind,
-        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-        LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
+        DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
+        LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath,
+        LinkSearchPathKind, LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement,
+        LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
     };
 
     #[test]
@@ -726,6 +785,53 @@ mod tests {
     }
 
     #[test]
+    fn coff_debug_companions_embed_output_independent_pdb_references() {
+        let plan = shared_library_plan(
+            TargetArchitecture::X86_64,
+            ObjectFormat::Coff,
+            "staging/application.dll",
+            Some((
+                "staging/application.pdb",
+                LinkedArtifactKind::DebugCompanion,
+            )),
+        );
+
+        let arguments = arguments_for(&plan, LldFlavor::Coff)
+            .unwrap_or_else(|error| panic!("COFF debug arguments must be valid: {error:?}"));
+
+        let debug = arguments
+            .iter()
+            .position(|argument| argument == "/debug")
+            .unwrap_or_else(|| panic!("COFF debug arguments must request linked debug data"));
+
+        assert_eq!(
+            &arguments[debug.. debug + 4],
+            [
+                OsString::from("/debug"),
+                OsString::from("/pdb:staging/application.pdb"),
+                OsString::from("/pdbaltpath:%_PDB%"),
+                OsString::from(r"/pdbsourcepath:X:\bray"),
+            ]
+        );
+
+        let stable_arguments = system_arguments_for(
+            &plan,
+            SystemLinkerFamily::MicrosoftCompiler,
+            Some(std::path::Path::new("staging")),
+        )
+        .unwrap_or_else(|error| panic!("COFF compiler arguments must be valid: {error:?}"));
+
+        assert!(stable_arguments.contains(&OsString::from("application.dll")));
+        assert!(stable_arguments.contains(&OsString::from("/pdb:application.pdb")));
+
+        assert!(!stable_arguments.iter().any(|argument| {
+            argument
+                .to_string_lossy()
+                .contains("staging/application")
+        }));
+    }
+
+    #[test]
     fn native_compiler_drivers_preserve_typed_link_plans() {
         let cases = [
             (
@@ -772,11 +878,11 @@ mod tests {
         ];
 
         for (family, plan, expected) in cases {
-            assert_eq!(system_arguments_for(&plan, family), Ok(expected));
+            assert_eq!(system_arguments_for(&plan, family, None), Ok(expected));
 
             assert_eq!(
-                system_arguments_for(&plan, family),
-                system_arguments_for(&plan, family)
+                system_arguments_for(&plan, family, None),
+                system_arguments_for(&plan, family, None)
             );
         }
     }
@@ -880,6 +986,15 @@ mod tests {
         let driver = LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "lld", "1", "20")
             .unwrap_or_else(|| panic!("test linker identity must be valid"));
 
+        let debug = if matches!(
+            companion,
+            Some((_, LinkedArtifactKind::DebugCompanion))
+        ) {
+            DebugLinkPolicy::Companion
+        } else {
+            DebugLinkPolicy::None
+        };
+
         let mut builder = LinkPlanBuilder::new(
             product(),
             LinkedProductKind::SharedLibrary,
@@ -889,7 +1004,7 @@ mod tests {
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
-                crate::DebugLinkPolicy::None,
+                debug,
                 None,
             ),
         );

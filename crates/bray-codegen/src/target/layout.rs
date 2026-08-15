@@ -90,6 +90,8 @@ pub enum TargetAddressSpaceKind {
     Stack,
     /// Heap storage.
     Heap,
+    /// Device-visible storage selected by the target profile.
+    Device,
 }
 
 /// Target address-space number assigned to one language-level role.

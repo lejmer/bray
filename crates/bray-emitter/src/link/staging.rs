@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_linker::{LinkedArtifactKind, StagingPathKey};
-use tempfile::{Builder, TempDir, TempPath};
+use tempfile::{Builder, TempDir};
 
 use crate::artifact::content::{open_content, validate_staged_content};
 use crate::{
@@ -14,13 +16,11 @@ use crate::{
 };
 
 const COPY_BUFFER_LEN: usize = 64 * 1024;
-const LINK_INPUT_PREFIX: &str = ".bray-link-input-";
-const LINK_OUTPUT_PREFIX: &str = ".bray-link-output-";
+const LINK_TRANSACTION_PREFIX: &str = ".bray-link-transaction-";
 
 /// Transactional emitter-owned storage for one native link operation.
 pub struct LinkStaging {
-    _paths: Vec<TempPath>,
-    _output_directories: Vec<TempDir>,
+    _transaction: TempDir,
     inputs: Arc<[StagedArtifact]>,
     outputs: Arc<[LinkOutputStaging]>,
 }
@@ -38,7 +38,18 @@ impl LinkStaging {
 
         let managed_staging = managed_staging_directory(plan)?;
         let contributions = contributions_by_id(contributions)?;
-        let mut paths = Vec::new();
+
+        let transaction_owner = plan
+            .artifacts()
+            .first()
+            .ok_or(LinkStagingError::MissingArtifacts)?;
+
+        let transaction = transaction_directory(
+            plan,
+            transaction_owner,
+            managed_staging.as_deref(),
+        )?;
+
         let mut inputs = Vec::new();
 
         for planned in plan.staged_artifacts() {
@@ -52,13 +63,12 @@ impl LinkStaging {
 
             validate_contribution(planned, contribution)?;
 
-            let path = stage_input(contribution, managed_staging.as_deref(), cancellation)?;
+            let path = stage_input(contribution, transaction.path(), cancellation)?;
 
             // The typed staging record outlives this borrow from the immutable plan.
             let staged = StagedArtifact::try_new(planned.id().clone(), path.to_path_buf())
                 .map_err(|_| LinkStagingError::InvalidStagingPath(planned.id().clone()))?;
 
-            paths.push(path);
             inputs.push(staged);
         }
 
@@ -70,7 +80,6 @@ impl LinkStaging {
         }
 
         let mut outputs = Vec::new();
-        let mut output_directories = Vec::new();
 
         for planned in plan
             .artifacts()
@@ -81,8 +90,7 @@ impl LinkStaging {
                 return Err(LinkStagingError::Cancelled);
             }
 
-            let (directory, path) =
-                reserve_output(planned, managed_staging.as_deref(), cancellation)?;
+            let path = reserve_output(planned, transaction.path(), cancellation)?;
 
             let kind = linked_kind(planned.id().kind())
                 .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
@@ -100,13 +108,11 @@ impl LinkStaging {
             )
             .map_err(|_| LinkStagingError::InvalidStagingPath(planned.id().clone()))?;
 
-            output_directories.push(directory);
             outputs.push(output);
         }
 
         Ok(Self {
-            _paths: paths,
-            _output_directories: output_directories,
+            _transaction: transaction,
             inputs: inputs.into(),
             outputs: outputs.into(),
         })
@@ -150,6 +156,8 @@ pub enum LinkStagingError {
     UnsupportedOutput(ArtifactId),
     /// A private staging path could not be represented by the typed link contract.
     InvalidStagingPath(ArtifactId),
+    /// The emission plan contains no artifact that can own a private link transaction.
+    MissingArtifacts,
     /// Private staging storage could not be created.
     Create {
         artifact: ArtifactId,
@@ -204,23 +212,21 @@ fn validate_contribution(
 
 fn stage_input(
     contribution: &ArtifactContribution,
-    managed_staging: Option<&Path>,
+    transaction: &Path,
     cancellation: &dyn Cancellation,
-) -> Result<TempPath, LinkStagingError> {
+) -> Result<PathBuf, LinkStagingError> {
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
     }
 
     let artifact = contribution.id().clone();
 
-    let mut builder = Builder::new();
+    let path = transaction.join(transaction_input_name(&artifact));
 
-    builder.prefix(LINK_INPUT_PREFIX);
-
-    let mut staging = managed_staging.map_or_else(
-        || builder.tempfile(),
-        |directory| builder.tempfile_in(directory),
-    )
+    let mut staging = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
         .map_err(|error| LinkStagingError::Create {
             artifact: artifact.clone(),
             kind: error.kind(),
@@ -275,8 +281,6 @@ fn stage_input(
         kind: error.kind(),
     })?;
 
-    let path = staging.into_temp_path();
-
     validate_staged_content(
         &path,
         contribution.content().byte_len(),
@@ -290,43 +294,14 @@ fn stage_input(
 
 fn reserve_output(
     planned: &PlannedArtifact,
-    managed_staging: Option<&Path>,
+    transaction: &Path,
     cancellation: &dyn Cancellation,
-) -> Result<(TempDir, PathBuf), LinkStagingError> {
+) -> Result<PathBuf, LinkStagingError> {
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
     }
 
-    let mut builder = Builder::new();
-
-    builder.prefix(LINK_OUTPUT_PREFIX);
-
-    let directory = match planned.destination() {
-        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { .. }) => builder
-            .tempdir_in(managed_staging.ok_or_else(|| {
-                LinkStagingError::InvalidStagingPath(planned.id().clone())
-            })?),
-        PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {
-            let directory = destination
-                .parent()
-                .filter(|path| !path.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-
-            builder.tempdir_in(directory)
-        }
-        PlannedArtifactDestination::Publish(OutputSink::Memory { .. } | OutputSink::Stream(_)) => {
-            builder.tempdir()
-        }
-        PlannedArtifactDestination::Stage => {
-            return Err(LinkStagingError::UnsupportedOutput(planned.id().clone()));
-        }
-    }
-    .map_err(|error| LinkStagingError::Create {
-        artifact: planned.id().clone(),
-        kind: error.kind(),
-    })?;
-
-    let name = match planned.destination() {
+    let suffix = match planned.destination() {
         PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { artifact, .. }) => {
             artifact
                 .to_path_buf()
@@ -348,12 +323,76 @@ fn reserve_output(
             )
             .into()
         }
-        PlannedArtifactDestination::Stage => unreachable!("staged outputs were rejected above"),
+        PlannedArtifactDestination::Stage => {
+            return Err(LinkStagingError::UnsupportedOutput(planned.id().clone()));
+        }
     };
 
-    let path = directory.path().join(name);
+    let path = transaction.join(transaction_output_name(planned.id(), suffix));
 
-    Ok((directory, path))
+    Ok(path)
+}
+
+fn transaction_directory(
+    plan: &EmissionPlan,
+    owner: &PlannedArtifact,
+    managed_staging: Option<&Path>,
+) -> Result<TempDir, LinkStagingError> {
+    let mut builder = Builder::new();
+
+    builder.prefix(LINK_TRANSACTION_PREFIX);
+
+    let filesystem_parent = plan.artifacts().iter().find_map(|artifact| {
+        if !matches!(artifact.producer(), ArtifactProducer::Linker(_)) {
+            return None;
+        }
+
+        let PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) =
+            artifact.destination()
+        else {
+            return None;
+        };
+
+        Some(
+            destination
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new(".")),
+        )
+    });
+
+    let directory = if let Some(managed_staging) = managed_staging {
+        builder.tempdir_in(managed_staging)
+    } else if let Some(filesystem_parent) = filesystem_parent {
+        builder.tempdir_in(filesystem_parent)
+    } else {
+        builder.tempdir()
+    };
+
+    directory.map_err(|error| LinkStagingError::Create {
+        artifact: owner.id().clone(),
+        kind: error.kind(),
+    })
+}
+
+fn transaction_input_name(artifact: &ArtifactId) -> String {
+    format!(
+        "input-{}-{}",
+        artifact.kind().machine_key(),
+        artifact.ordinal()
+    )
+}
+
+fn transaction_output_name(artifact: &ArtifactId, suffix: OsString) -> OsString {
+    let mut name = OsString::from(format!(
+        "output-{}-{}-",
+        artifact.kind().machine_key(),
+        artifact.ordinal()
+    ));
+
+    name.push(suffix);
+
+    name
 }
 
 fn managed_staging_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, LinkStagingError> {
@@ -575,7 +614,6 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
 
-        let destination_name = Some(std::ffi::OsString::from("application"));
         let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
 
@@ -600,15 +638,20 @@ mod tests {
         let private_staging = directory.path().join(".bray/staging");
 
         assert_eq!(output_directory.parent(), Some(private_staging.as_path()));
-        assert_eq!(input_path.parent(), Some(private_staging.as_path()));
-
-        assert_eq!(
-            first.outputs()[0].path().file_name(),
-            destination_name.as_deref()
-        );
+        assert_eq!(input_path.parent(), Some(output_directory));
 
         let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
             .unwrap_or_else(|error| panic!("second link staging must complete: {error:?}"));
+
+        assert_eq!(
+            first.inputs()[0].path().file_name(),
+            second.inputs()[0].path().file_name()
+        );
+
+        assert_eq!(
+            first.outputs()[0].path().file_name(),
+            second.outputs()[0].path().file_name()
+        );
 
         assert_ne!(first.outputs()[0].path(), second.outputs()[0].path());
 

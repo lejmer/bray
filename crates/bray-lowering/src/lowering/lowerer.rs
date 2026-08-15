@@ -253,11 +253,12 @@ mod tests {
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
         CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections, ControlCompletion,
         ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
-        LivenessFacts, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
-        MemoryOperationDecision, MemoryOperationStatus, MemoryReadKind, OperatorTarget,
-        SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation, SelectedPropagation,
-        SelectedPropagationBoundary, SemanticSelection, SemanticSelectionEntry, StorageFlowFacts,
-        StoragePlanBuilder,
+        InlineAssemblyContract, LivenessFacts, MemoryAddressKind, MemoryCopyKind,
+        MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus,
+        MemoryOrder, MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall,
+        SelectedConversion, SelectedOperation, SelectedPropagation, SelectedPropagationBoundary,
+        SemanticSelection, SemanticSelectionEntry, StorageFlowFacts, StoragePlanBuilder,
+        VolatileAddressSpace,
     };
     use bray_ir::{
         MirBinaryOperator, MirCallArgument, MirOperationKind, MirTerminatorKind, MirUnitKind,
@@ -547,6 +548,87 @@ mod tests {
                         && operation.result_type().is_some() == kind.produces_value()
             ));
         }
+    }
+
+    #[test]
+    fn target_control_runtime_arguments_are_selected_before_lowering() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let ty = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test target-control type must intern: {error:?}"));
+
+        let constant = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(false),
+            ))
+            .unwrap_or_else(|error| panic!("test target-control constant must intern: {error:?}"));
+
+        let contract = InlineAssemblyContract::new(
+            constant,
+            constant,
+            constant,
+            constant,
+            constant,
+            [None; bray_bound_tree::MAX_INLINE_ASSEMBLY_OPERANDS],
+            0,
+        );
+
+        let fence = CheckedMemoryOperationKind::Fence {
+            compiler_only: false,
+            order: MemoryOrder::AcquireRelease,
+        };
+
+        let feature = CheckedMemoryOperationKind::TargetFeatureEnabled { feature: constant };
+
+        let assembly = CheckedMemoryOperationKind::InlineAssembly {
+            inputs: ty,
+            output: Some(ty),
+            labels: None,
+            contract,
+        };
+
+        let branching = CheckedMemoryOperationKind::InlineAssembly {
+            inputs: ty,
+            output: Some(ty),
+            labels: Some(ty),
+            contract,
+        };
+
+        let volatile = CheckedMemoryOperationKind::VolatileRead {
+            pointee: ty,
+            address_space: VolatileAddressSpace::Host,
+            kind: MemoryReadKind::Copy,
+        };
+
+        let address = CheckedMemoryOperationKind::ExposeAddress { pointee: ty };
+
+        assert_eq!(fence.operand_count(), 0);
+        assert_eq!(fence.runtime_argument_index(0), None);
+        assert_eq!(feature.operand_count(), 0);
+        assert_eq!(feature.runtime_argument_index(0), None);
+        assert_eq!(assembly.operand_count(), 1);
+
+        assert_eq!(
+            (0..6)
+                .map(|ordinal| assembly.runtime_argument_index(ordinal))
+                .collect::<Vec<_>>(),
+            [None, None, None, None, None, Some(0)]
+        );
+
+        assert_eq!(branching.operand_count(), 1);
+
+        assert_eq!(
+            (0..7)
+                .map(|ordinal| branching.runtime_argument_index(ordinal))
+                .collect::<Vec<_>>(),
+            [None, None, None, None, None, Some(0), None]
+        );
+
+        assert_eq!(volatile.runtime_argument_index(0), Some(0));
+        assert_eq!(address.runtime_argument_index(0), Some(0));
     }
 
     struct LoweringFixture {

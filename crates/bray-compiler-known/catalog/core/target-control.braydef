@@ -41,7 +41,7 @@ scope CoreTargetControl at core.target {
         implementation DeviceVolatileLoad;
 
         surface {
-            trusted func device_volatile_load<T>(pos pointer: RawPointer<T>) -> T
+            trusted func device_volatile_load<T>(pos pointer: DevicePointer<T>) -> T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -57,7 +57,7 @@ scope CoreTargetControl at core.target {
 
         surface {
             trusted func device_volatile_store<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DevicePointer<T>,
                 pos value: T,
             ) -> unit
                 requires(
@@ -117,10 +117,20 @@ scope CoreTargetControl at core.target {
         }
     }
 
+    declaration HardwareFence {
+        implementation HardwareFence;
+
+        surface {
+            trusted func hardware_fence(pos order: MemoryOrder) -> unit uses(intrinsic);
+        }
+    }
+
     declaration CompilerFence {
         implementation CompilerFence;
 
-        surface { trusted func compiler_fence() -> unit uses(intrinsic); }
+        surface {
+            trusted func compiler_fence(pos order: MemoryOrder) -> unit uses(intrinsic);
+        }
     }
 
     declaration CatastrophicAbort {
@@ -160,14 +170,14 @@ scope CoreTargetControl at core.target {
         implementation InlineAssembly;
 
         surface {
-            trusted func assembly<Input, Output>(
+            trusted func assembly<Inputs, Outputs>(
                 pos template: string,
                 pos constraints: string,
                 pos clobbers: string,
                 pos features: string,
                 options: u32,
-                pos input: Input,
-            ) -> Output
+                pos inputs: Inputs,
+            ) -> Outputs
                 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init);
         }
     }
@@ -176,14 +186,31 @@ scope CoreTargetControl at core.target {
         implementation DivergingInlineAssembly;
 
         surface {
-            trusted func diverging_assembly<Input>(
+            trusted func diverging_assembly<Inputs>(
                 pos template: string,
                 pos constraints: string,
                 pos clobbers: string,
                 pos features: string,
                 options: u32,
-                pos input: Input,
+                pos inputs: Inputs,
             ) -> never
+                uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init);
+        }
+    }
+
+    declaration BranchingInlineAssembly {
+        implementation BranchingInlineAssembly;
+
+        surface {
+            trusted func branching_assembly<Inputs, Outputs, Labels>(
+                pos template: string,
+                pos constraints: string,
+                pos clobbers: string,
+                pos features: string,
+                options: u32,
+                pos inputs: Inputs,
+                pos labels: Labels,
+            ) -> Outputs
                 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init);
         }
     }

@@ -52,12 +52,15 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::PointerFromExposedAddress => Operation::PointerFromExposedAddress,
         Hook::PointerAddressEqual | Hook::PointerAddressLess => Operation::PointerAddressComparison,
         Hook::CompilerFence => Operation::CompilerFence,
+        Hook::HardwareFence => Operation::HardwareFence,
         Hook::CatastrophicAbort => Operation::CatastrophicAbort,
         Hook::DebuggerTrap => Operation::DebuggerTrap,
         Hook::UnreachableTermination => Operation::UnreachableTermination,
         Hook::SpinLoopHint => Operation::SpinLoopHint,
         Hook::TargetFeatureEnabled => Operation::TargetFeatureCheck,
-        Hook::InlineAssembly | Hook::DivergingInlineAssembly => Operation::InlineAssembly,
+        Hook::InlineAssembly | Hook::DivergingInlineAssembly | Hook::BranchingInlineAssembly => {
+            Operation::InlineAssembly
+        }
         _ => return None,
     })
 }
@@ -149,12 +152,56 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             Operation::PointerFromExposedAddress
         }
         CheckedMemoryOperationKind::CompareAddress { .. } => Operation::PointerAddressComparison,
-        CheckedMemoryOperationKind::CompilerFence => Operation::CompilerFence,
+        CheckedMemoryOperationKind::Fence {
+            compiler_only: true,
+            ..
+        } => Operation::CompilerFence,
+        CheckedMemoryOperationKind::Fence {
+            compiler_only: false,
+            ..
+        } => Operation::HardwareFence,
         CheckedMemoryOperationKind::CatastrophicAbort => Operation::CatastrophicAbort,
         CheckedMemoryOperationKind::DebuggerTrap => Operation::DebuggerTrap,
         CheckedMemoryOperationKind::UnreachableTermination => Operation::UnreachableTermination,
         CheckedMemoryOperationKind::SpinLoopHint => Operation::SpinLoopHint,
         CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => Operation::TargetFeatureCheck,
         CheckedMemoryOperationKind::InlineAssembly { .. } => Operation::InlineAssembly,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOrder};
+    use bray_compiler_known::ImplementationHook;
+
+    use super::{diagnostic_checked_memory_operation, diagnostic_memory_operation};
+
+    #[test]
+    fn compiler_and_hardware_fences_keep_distinct_structured_categories() {
+        let compiler = diagnostic_memory_operation(ImplementationHook::CompilerFence)
+            .unwrap_or_else(|| panic!("compiler fence must have a diagnostic category"));
+
+        let hardware = diagnostic_memory_operation(ImplementationHook::HardwareFence)
+            .unwrap_or_else(|| panic!("hardware fence must have a diagnostic category"));
+
+        assert_eq!(compiler.as_str(), "compiler_fence");
+        assert_eq!(hardware.as_str(), "hardware_fence");
+        assert_ne!(compiler, hardware);
+
+        assert_eq!(
+            diagnostic_checked_memory_operation(CheckedMemoryOperationKind::Fence {
+                compiler_only: true,
+                order: MemoryOrder::SequentiallyConsistent,
+            }),
+            compiler
+        );
+
+        assert_eq!(
+            diagnostic_checked_memory_operation(CheckedMemoryOperationKind::Fence {
+                compiler_only: false,
+                order: MemoryOrder::SequentiallyConsistent,
+            }),
+            hardware
+        );
     }
 }

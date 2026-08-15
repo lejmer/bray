@@ -1,7 +1,9 @@
+// rust-style: allow(module-too-large, reason = "the checked memory operation and target-control contracts form one exhaustive typed protocol inventory")
+
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{ConstantValueId, TypeId};
+use bray_symbols::{CallableAbi, CallableInstanceData, ConstantValueId, TypeId};
 
 use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
@@ -59,6 +61,197 @@ pub enum PointerAddressComparison {
     Less,
 }
 
+/// Ordering strength shared by hardware and compiler synchronization fences.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MemoryOrder {
+    /// No ordering beyond atomicity.
+    Relaxed,
+    /// Prevent later operations from moving before the fence.
+    Acquire,
+    /// Prevent earlier operations from moving after the fence.
+    Release,
+    /// Apply both acquire and release ordering.
+    AcquireRelease,
+    /// Participate in the single sequentially consistent order.
+    SequentiallyConsistent,
+}
+
+impl MemoryOrder {
+    /// Returns whether the order is meaningful for a synchronization fence.
+    pub const fn valid_for_fence(self) -> bool {
+        !matches!(self, Self::Relaxed)
+    }
+
+    /// Returns the stable package-interface encoding.
+    pub const fn to_u32(self) -> u32 {
+        match self {
+            Self::Relaxed => 0,
+            Self::Acquire => 1,
+            Self::Release => 2,
+            Self::AcquireRelease => 3,
+            Self::SequentiallyConsistent => 4,
+        }
+    }
+
+    /// Decodes one stable package-interface value.
+    pub const fn from_u64(value: u64) -> Option<Self> {
+        match value {
+            0 => Some(Self::Relaxed),
+            1 => Some(Self::Acquire),
+            2 => Some(Self::Release),
+            3 => Some(Self::AcquireRelease),
+            4 => Some(Self::SequentiallyConsistent),
+            _ => None,
+        }
+    }
+}
+
+/// Semantic role of one exactly checked inline-assembly operand.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InlineAssemblyOperandKind {
+    /// A register-class or explicit-register input.
+    Input,
+    /// An output that may overlap an unrelated input.
+    LateOutput,
+    /// An early-clobber output.
+    Output,
+    /// A tied input and late output.
+    InOut,
+    /// A tied input and early-clobber output.
+    EarlyInOut,
+    /// A compile-time integer immediate.
+    Immediate,
+    /// A closed callable symbol address.
+    Symbol,
+    /// A pointer naming an addressable memory operand.
+    Memory,
+    /// A typed alternate control-flow destination.
+    Label,
+}
+
+/// One exact callable symbol retained for assembly relocation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InlineAssemblySymbol {
+    instance: CallableInstanceData,
+    abi: CallableAbi,
+}
+
+impl InlineAssemblySymbol {
+    /// Creates a closed callable symbol identity with its checked calling convention.
+    pub const fn new(instance: CallableInstanceData, abi: CallableAbi) -> Self {
+        Self { instance, abi }
+    }
+
+    /// Returns the fully substituted callable instance.
+    pub const fn instance(self) -> CallableInstanceData {
+        self.instance
+    }
+
+    /// Returns the callable calling convention.
+    pub const fn abi(self) -> CallableAbi {
+        self.abi
+    }
+}
+
+/// One typed operand descriptor retained after exact target checking.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InlineAssemblyOperand {
+    kind: InlineAssemblyOperandKind,
+    ty: TypeId,
+    input: Option<u16>,
+    runtime_input: Option<u16>,
+    output: Option<u16>,
+    constant: Option<ConstantValueId>,
+    symbol: Option<InlineAssemblySymbol>,
+    constraint_start: u16,
+    constraint_length: u16,
+}
+
+impl InlineAssemblyOperand {
+    /// Creates one descriptor from its checked structural positions and constraint spelling.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "an assembly operand retains each checked structural fact explicitly"
+    )]
+    pub const fn new(
+        kind: InlineAssemblyOperandKind,
+        ty: TypeId,
+        input: Option<u16>,
+        runtime_input: Option<u16>,
+        output: Option<u16>,
+        constant: Option<ConstantValueId>,
+        symbol: Option<InlineAssemblySymbol>,
+        constraint_start: u16,
+        constraint_length: u16,
+    ) -> Self {
+        Self {
+            kind,
+            ty,
+            input,
+            runtime_input,
+            output,
+            constant,
+            symbol,
+            constraint_start,
+            constraint_length,
+        }
+    }
+
+    /// Returns the exact operand role.
+    pub const fn kind(self) -> InlineAssemblyOperandKind {
+        self.kind
+    }
+
+    /// Returns the checked source type.
+    pub const fn ty(self) -> TypeId {
+        self.ty
+    }
+
+    /// Returns the input-tuple ordinal consumed by this operand.
+    pub const fn input(self) -> Option<u16> {
+        self.input
+    }
+
+    /// Returns the compact runtime input ordinal when this operand is evaluated into MIR.
+    pub const fn runtime_input(self) -> Option<u16> {
+        self.runtime_input
+    }
+
+    /// Returns the output-tuple ordinal initialized by this operand.
+    pub const fn output(self) -> Option<u16> {
+        self.output
+    }
+
+    /// Returns the checked constant identity required by an immediate operand.
+    pub const fn constant(self) -> Option<ConstantValueId> {
+        self.constant
+    }
+
+    /// Returns the checked callable relocation identity required by a symbol operand.
+    pub const fn symbol(self) -> Option<InlineAssemblySymbol> {
+        self.symbol
+    }
+
+    /// Removes the checker-only symbol identity after it has been lowered to MIR.
+    pub const fn without_symbol(mut self) -> Self {
+        self.symbol = None;
+
+        self
+    }
+
+    /// Returns the byte range of this operand's target constraint class.
+    pub const fn constraint_range(self) -> (u16, u16) {
+        (self.constraint_start, self.constraint_length)
+    }
+}
+
+/// Maximum descriptor count retained in the compact checked operation contract.
+pub const MAX_INLINE_ASSEMBLY_OPERANDS: usize = 32;
+
+const BASE_INLINE_ASSEMBLY_CONSTANTS: usize = 5;
+const MAX_INLINE_ASSEMBLY_CONTRACT_CONSTANTS: usize =
+    BASE_INLINE_ASSEMBLY_CONSTANTS + MAX_INLINE_ASSEMBLY_OPERANDS;
+
 /// Compile-time identities forming one exactly checked inline-assembly contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InlineAssemblyContract {
@@ -67,6 +260,8 @@ pub struct InlineAssemblyContract {
     clobbers: ConstantValueId,
     features: ConstantValueId,
     options: ConstantValueId,
+    operands: [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
+    operand_count: u8,
 }
 
 impl InlineAssemblyContract {
@@ -77,6 +272,8 @@ impl InlineAssemblyContract {
         clobbers: ConstantValueId,
         features: ConstantValueId,
         options: ConstantValueId,
+        operands: [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
+        operand_count: u8,
     ) -> Self {
         Self {
             template,
@@ -84,6 +281,8 @@ impl InlineAssemblyContract {
             clobbers,
             features,
             options,
+            operands,
+            operand_count,
         }
     }
 
@@ -112,9 +311,29 @@ impl InlineAssemblyContract {
         self.options
     }
 
+    /// Iterates the canonical checked operands in constraint order.
+    pub fn operands(self) -> impl Iterator<Item = InlineAssemblyOperand> {
+        self.operands
+            .into_iter()
+            .take(usize::from(self.operand_count))
+            .flatten()
+    }
+
+    /// Returns the same structural contract after checker symbol identities enter MIR.
+    pub fn without_symbols(mut self) -> Self {
+        for operand in self.operands.iter_mut().flatten() {
+            *operand = operand.without_symbol();
+        }
+
+        self
+    }
+
     /// Iterates the complete checked compile-time contract in declaration order.
     pub fn constant_values(self) -> impl Iterator<Item = ConstantValueId> {
-        [
+        let mut values = [None; MAX_INLINE_ASSEMBLY_CONTRACT_CONSTANTS];
+        let mut count = 0;
+
+        for value in [
             self.template,
             self.constraints,
             self.clobbers,
@@ -122,6 +341,15 @@ impl InlineAssemblyContract {
             self.options,
         ]
         .into_iter()
+        .chain(self.operands().filter_map(InlineAssemblyOperand::constant))
+        {
+            if !values[..count].contains(&Some(value)) {
+                values[count] = Some(value);
+                count += 1;
+            }
+        }
+
+        values.into_iter().take(count).flatten()
     }
 }
 
@@ -284,8 +512,13 @@ pub enum CheckedMemoryOperationKind {
         /// Exact comparison performed after exposure.
         comparison: PointerAddressComparison,
     },
-    /// Prevent compiler reordering across this operation.
-    CompilerFence,
+    /// Apply one checked hardware or compiler synchronization fence.
+    Fence {
+        /// Whether the barrier applies only to compiler reordering.
+        compiler_only: bool,
+        /// Checked synchronization ordering.
+        order: MemoryOrder,
+    },
     /// Terminate the product catastrophically without source cleanup.
     CatastrophicAbort,
     /// Request a debugger trap and continue when the debugger resumes.
@@ -301,10 +534,12 @@ pub enum CheckedMemoryOperationKind {
     },
     /// Execute exactly checked trusted target-gated inline assembly.
     InlineAssembly {
-        /// Typed input, in/out, symbol, memory, or immediate operand.
-        input: TypeId,
-        /// Typed output, absent when the assembly cannot continue normally.
+        /// Structural tuple of typed input operands.
+        inputs: TypeId,
+        /// Structural tuple of typed outputs, absent when assembly cannot continue normally.
         output: Option<TypeId>,
+        /// Structural tuple of typed label callables for alternate control flow.
+        labels: Option<TypeId>,
         /// Checked compile-time assembly contract.
         contract: InlineAssemblyContract,
     },
@@ -313,7 +548,7 @@ pub enum CheckedMemoryOperationKind {
 impl CheckedMemoryOperationKind {
     /// Iterates compile-time values that form part of the checked operation contract.
     pub fn contract_constants(self) -> impl Iterator<Item = ConstantValueId> {
-        let mut values = [None; 5];
+        let mut values = [None; MAX_INLINE_ASSEMBLY_CONTRACT_CONSTANTS];
 
         match self {
             Self::TargetFeatureEnabled { feature } => values[0] = Some(feature),
@@ -348,8 +583,7 @@ impl CheckedMemoryOperationKind {
             | Self::CallbackState { .. } => 1,
             Self::VolatileRead { .. }
             | Self::ExposeAddress { .. }
-            | Self::FromExposedAddress { .. }
-            | Self::TargetFeatureEnabled { .. } => 1,
+            | Self::FromExposedAddress { .. } => 1,
             Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
@@ -366,14 +600,71 @@ impl CheckedMemoryOperationKind {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
             } => 1,
-            Self::InlineAssembly { .. } => 6,
+            Self::InlineAssembly { .. } => 1,
             Self::Null { .. }
             | Self::LayoutQuery { .. }
-            | Self::CompilerFence
+            | Self::Fence { .. }
             | Self::CatastrophicAbort
             | Self::DebuggerTrap
             | Self::UnreachableTermination
-            | Self::SpinLoopHint => 0,
+            | Self::SpinLoopHint
+            | Self::TargetFeatureEnabled { .. } => 0,
+        }
+    }
+
+    /// Maps a selected source-argument ordinal to its runtime MIR operand index.
+    pub const fn runtime_argument_index(self, ordinal: usize) -> Option<usize> {
+        match self {
+            Self::Address { .. }
+            | Self::IsNull { .. }
+            | Self::Reinterpret { .. }
+            | Self::Read { .. }
+            | Self::Allocate
+            | Self::Deallocate
+            | Self::RawBufferCapacity
+            | Self::RawBufferInitializedCount
+            | Self::RawBufferPointer
+            | Self::RawBufferInitializedSlice
+            | Self::RawBufferInitializedSliceMut
+            | Self::RawBufferSparePointer { .. }
+            | Self::RawBufferRelease { .. }
+            | Self::SliceLength
+            | Self::CallbackState { .. }
+            | Self::VolatileRead { .. }
+            | Self::ExposeAddress { .. }
+            | Self::FromExposedAddress { .. }
+            | Self::LayoutQuery {
+                kind: MemoryLayoutQueryKind::Layout,
+                ..
+            } => {
+                if ordinal == 0 { Some(0) } else { None }
+            }
+            Self::Offset { .. }
+            | Self::Write { .. }
+            | Self::RawAllocate
+            | Self::RawBufferReplace { .. }
+            | Self::RawBufferRelocate { .. }
+            | Self::ByteSliceCopy
+            | Self::RawBufferSetInitializedCount
+            | Self::ByteBufferRead
+            | Self::VolatileWrite { .. }
+            | Self::CompareAddress { .. } => {
+                if ordinal < 2 { Some(ordinal) } else { None }
+            }
+            Self::Copy { .. } | Self::RawDeallocate | Self::ByteBufferFill => {
+                if ordinal < 3 { Some(ordinal) } else { None }
+            }
+            Self::InlineAssembly { .. } => {
+                if ordinal == 5 { Some(0) } else { None }
+            }
+            Self::Null { .. }
+            | Self::LayoutQuery { .. }
+            | Self::Fence { .. }
+            | Self::CatastrophicAbort
+            | Self::DebuggerTrap
+            | Self::UnreachableTermination
+            | Self::SpinLoopHint
+            | Self::TargetFeatureEnabled { .. } => None,
         }
     }
 
@@ -392,7 +683,7 @@ impl CheckedMemoryOperationKind {
                 | Self::ByteBufferFill
                 | Self::ByteSliceCopy
                 | Self::VolatileWrite { .. }
-                | Self::CompilerFence
+                | Self::Fence { .. }
                 | Self::CatastrophicAbort
                 | Self::DebuggerTrap
                 | Self::UnreachableTermination
@@ -568,10 +859,76 @@ impl CheckedMemoryOperations {
 mod tests {
     use super::{
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-        CheckedMemoryOperationsBuildError, MemoryReadKind,
+        CheckedMemoryOperationsBuildError, InlineAssemblyContract, InlineAssemblyOperand,
+        InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS, MemoryReadKind,
     };
     use crate::test_support::error_type;
     use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
+    use bray_symbols::{ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData};
+
+    #[test]
+    fn inline_assembly_contract_constants_include_unique_immediates() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let ty = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test assembly type must intern: {error:?}"));
+
+        let first = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(false),
+            ))
+            .unwrap_or_else(|error| panic!("first assembly constant must intern: {error:?}"));
+
+        let second = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(true),
+            ))
+            .unwrap_or_else(|error| panic!("second assembly constant must intern: {error:?}"));
+
+        let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
+        operands[0] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Immediate,
+            ty,
+            Some(0),
+            None,
+            None,
+            Some(first),
+            None,
+            0,
+            1,
+        ));
+
+        operands[1] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Immediate,
+            ty,
+            Some(1),
+            None,
+            None,
+            Some(second),
+            None,
+            2,
+            1,
+        ));
+
+        let contract = InlineAssemblyContract::new(
+            first, first, first, first, first, operands, 2,
+        );
+
+        let operation = CheckedMemoryOperationKind::InlineAssembly {
+            inputs: ty,
+            output: None,
+            labels: None,
+            contract,
+        };
+
+        assert_eq!(contract.constant_values().collect::<Vec<_>>(), [first, second]);
+        assert_eq!(operation.contract_constants().collect::<Vec<_>>(), [first, second]);
+    }
 
     #[test]
     fn operation_tables_sort_and_index_expressions() {

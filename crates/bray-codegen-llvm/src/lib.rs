@@ -1,8 +1,9 @@
 //! LLVM implementation of Bray's code generation contract.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod backend;
+mod callbr;
 mod environment;
 mod initialization;
 mod installation;

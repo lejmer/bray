@@ -6,9 +6,9 @@ This chapter defines Bray operations whose meaning depends on selected-target in
 
 `core.target.volatile_load` and `core.target.volatile_store` perform one host-address-space volatile access. Their raw-memory predicates establish validity, alignment, and initialization. A volatile read of a copyable value preserves initialization. A volatile read of a non-copyable value moves the value and consumes the source initialization fact. A volatile store establishes initialization only after the store completes.
 
-`core.target.device_volatile_load` and `core.target.device_volatile_store` select device-memory semantics. They require both `raw_memory` and `device_memory`. A target without a device address space rejects them before code generation.
+`core.target.device_volatile_load` and `core.target.device_volatile_store` use `DevicePointer<T>`, which is not interchangeable with host `RawPointer<T>`. The selected code generation target assigns the device pointer's exact address-space identity. They require both `raw_memory` and `device_memory`. A target without a device address space rejects them before code generation.
 
-Volatile access is not atomic access. It creates no synchronization edge and supplies no inter-thread ordering guarantee. Atomic storage and hardware fences use the atomic operation family.
+Volatile access is not atomic access. It creates no synchronization edge and supplies no inter-thread ordering guarantee.
 
 ## Pointer addresses
 
@@ -18,7 +18,7 @@ Volatile access is not atomic access. It creates no synchronization edge and sup
 
 ## Barriers and termination
 
-`core.target.compiler_fence` prevents the optimizer from moving memory effects across the fence. It does not emit a hardware synchronization instruction and creates no synchronization edge.
+`core.target.compiler_fence` prevents the optimizer from moving memory effects across the fence. `core.target.hardware_fence` emits a target synchronization fence. Both accept `MemoryOrder`. Fence ordering must be `Acquire`, `Release`, `AcquireRelease`, or `SequentiallyConsistent`. `Relaxed` is rejected because it provides no meaningful fence contract. A compiler fence does not create a hardware synchronization edge.
 
 `core.target.abort` performs catastrophic termination without source cleanup, panic propagation, or cancellation propagation. `core.target.debugger_trap` traps and may continue when a debugger resumes execution. `core.target.unreachable` terminates a trusted path whose reachability contract has been violated. MIR marks abort, unreachable, and diverging assembly as non-continuing control flow.
 
@@ -32,11 +32,13 @@ Assembly feature lists are comma-separated literal feature names. Every named fe
 
 ## Trusted inline assembly
 
-`core.target.assembly<Input, Output>` and `core.target.diverging_assembly<Input>` are trusted compiler-provided declarations. Their template, constraint, clobber, feature, and option operands must be literals. The input is evaluated and moved according to its ordinary typed argument contract. A continuing assembly operation initializes its typed output. A diverging operation has no output and no normal successor.
+`core.target.assembly<Inputs, Outputs>`, `core.target.diverging_assembly<Inputs>`, and `core.target.branching_assembly<Inputs, Outputs, Labels>` are trusted compiler-provided declarations. Their template, constraint, clobber, feature, and option operands must be literals. Inputs and outputs are tuple types, including one-element tuples. Register and memory inputs are evaluated and moved according to their ordinary typed argument contracts. Immediate and callable-symbol inputs remain checked compile-time identities and do not become runtime tuple elements. A continuing assembly operation initializes its output tuple. A diverging operation has no output and no normal successor. Branching assembly also accepts a tuple of synchronous `func() -> never` label callables and is represented as an explicit MIR terminator with one normal result continuation.
 
 The declarations require `intrinsic`, `raw_memory`, `device_memory`, `unchecked_alias`, and `unchecked_init`. This capability set makes potential register, memory, device, alias, and initialization effects visible in the containing trusted declaration. Ordinary source cannot invoke the operations without acknowledging those capabilities.
 
-The constraint literal is a comma-separated list. A late output begins with `=`. An early output begins with `=&`. An input-output operand begins with `+`, with `+&` selecting an early input-output operand. Register classes, explicit physical registers, immediate `i`, symbol `s`, and memory `m` constraints are target checked. Continuing assembly has exactly one output and one input contribution. Diverging assembly has exactly one input and no output.
+The constraint literal is a comma-separated list. A late output begins with `=`. An early output begins with `=&`. An input-output operand begins with `+`, with `+&` selecting an early input-output operand. Register classes, explicit physical registers, immediate `i`, symbol `s`, memory `m`, and `label` constraints are target checked against each corresponding tuple element before MIR lowering. Register operands accept only target-compatible scalar or pointer representations and widths. Immediates must be checked integer constants. Symbol operands must be direct callable names whose fully closed instance is retained for relocation. Memory operands must be pointer values. Labels must be synchronous `func() -> never` values.
+
+Output-bearing constraints come first, followed by pure inputs and labels. Output tuple elements, input tuple elements, and label tuple elements each follow their own descriptor order. An input-output descriptor contributes one output and one tied input. LLVM template positions follow lowered constraint positions, so a `+reg,reg` contract uses `$0` for the output, `$1` for its tied input, and `$2` for the pure input.
 
 The clobber literal is a comma-separated list of target registers and the portable names `memory`, `cc`, `flags`, `dirflag`, and `fpsr`. `abi:C` and `abi:system` request the selected target's exact caller-saved register set when that ABI exists. Unknown registers, clobbers, and ABIs are rejected before MIR lowering.
 
@@ -49,9 +51,11 @@ The option value is a literal bit set:
 | `4` | Use the Intel assembly dialect on targets that support it |
 | `8` | Assembly may unwind |
 
-Unknown option bits are rejected. Pure assembly cannot declare a memory clobber. Assembly cannot unwind through Bray frames, so a set unwind bit is rejected deterministically. Local assembler labels remain within the template. Operand labels and alternate exits are rejected because this declaration family has either one normal successor or no normal successor.
+Unknown option bits are rejected. Pure assembly cannot declare a memory clobber. Assembly cannot unwind through Bray frames, so a set unwind bit is rejected deterministically. Local assembler labels remain within the template. A `label` operand is available only through `branching_assembly` and carries an alternate external transfer target.
 
-The LLVM backend receives the checked template, target constraints, expanded ABI clobbers, side-effect flag, stack contract, dialect, and divergence fact without weakening them. Code generation treats any mismatch with the already checked contract as a compiler invariant failure.
+The target profile owns inline-assembly availability, target features, register classes, physical registers, clobber ABIs, and supported syntax dialects. The default dialect is the selected target's LLVM syntax. The Intel option is accepted only for an x86 profile that explicitly supports it. LLVM's integrated assembler consumes the validated inline assembly while object generation and linking remain ordinary Bray artifact orchestration. Bray Tack does not select, chain, or configure multiple external assembler programs for one target.
+
+The LLVM backend receives the checked typed descriptors, template, target constraints, expanded ABI clobbers, side-effect flag, stack contract, dialect, and control-flow shape without weakening them. Code generation derives its LLVM constraints and argument/result shapes from those descriptors. Any mismatch with the already checked contract is a compiler invariant failure.
 
 ## Related chapters
 

@@ -1,5 +1,10 @@
 trusted module application;
 
+func alternate() -> never
+{
+    loop {}
+}
+
 trusted func main() -> i32
     uses(device_memory, intrinsic, layout_reinterpret, manual_alloc, raw_memory, unchecked_alias, unchecked_init)
 {
@@ -26,24 +31,37 @@ trusted func main() -> i32
     let address: usize = trusted core.target.expose_address<u8>(advanced);
     let reconstructed: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
     let null: RawPointer<u8> = core.memory.null<u8>();
-    trusted core.target.compiler_fence();
+    trusted core.target.compiler_fence(MemoryOrder.SequentiallyConsistent);
+    trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
     trusted core.target.spin_loop_hint();
     let target_feature = trusted core.target.feature_enabled("sse2");
 
-    let assembly: i32 = trusted core.target.assembly<i32, i32>(
+    let assembly: (i32, ) = trusted core.target.assembly<(i32, ), (i32, )>(
         template = "",
         constraints = "+reg",
         clobbers = "",
         features = "",
         options = 1,
-        input = 42,
+        inputs = (42,),
+    );
+
+    let branching: (i32, ) = trusted core.target.branching_assembly<(i32, ), (i32, ), (func() -> never, )>(
+        template = "",
+        constraints = "+reg,label",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (42,),
+        labels = (alternate,),
     );
 
     let copied_ok = copied == 11 && volatile == 11;
     let advanced_ok = trusted core.target.address_equal<u8>(advanced, reconstructed);
     let null_ok = core.memory.is_null<u8>(null);
     let target_feature_known = target_feature || !target_feature;
-    let valid = released_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly == 42;
+
+    let valid = released_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly.0 == 42 &&
+        branching.0 == 42;
 
     if valid
     {

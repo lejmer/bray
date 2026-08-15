@@ -139,6 +139,52 @@ scope Ambient at ambient {
         surface { element: T; }
     }
 
+    declaration DevicePointer {
+        representation DevicePointer;
+
+        surface { struct DevicePointer<T> with(true) {} }
+    }
+
+    declaration DevicePointerElement {
+        owner DevicePointer;
+
+        surface { element: T; }
+    }
+
+    declaration MemoryOrder {
+        surface { union MemoryOrder {} }
+    }
+
+    declaration MemoryOrderRelaxed {
+        owner MemoryOrder;
+
+        surface { Relaxed; }
+    }
+
+    declaration MemoryOrderAcquire {
+        owner MemoryOrder;
+
+        surface { Acquire; }
+    }
+
+    declaration MemoryOrderRelease {
+        owner MemoryOrder;
+
+        surface { Release; }
+    }
+
+    declaration MemoryOrderAcquireRelease {
+        owner MemoryOrder;
+
+        surface { AcquireRelease; }
+    }
+
+    declaration MemoryOrderSequentiallyConsistent {
+        owner MemoryOrder;
+
+        surface { SequentiallyConsistent; }
+    }
+
     declaration Heap {
         surface { struct Heap {} }
     }

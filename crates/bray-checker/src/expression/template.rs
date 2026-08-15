@@ -22,7 +22,7 @@ use crate::{
     resolve_type_expression_template,
 };
 
-pub(super) enum TemplateResolution<T> {
+pub(crate) enum TemplateResolution<T> {
     Resolved(T),
     Unsupported,
 }
@@ -352,7 +352,7 @@ where
     })
 }
 
-fn resolve_signature<C>(
+pub(crate) fn resolve_signature<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,

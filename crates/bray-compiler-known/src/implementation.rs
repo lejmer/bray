@@ -92,6 +92,8 @@ define_catalog_enum! {
         PointerAddressLess => "PointerAddressLess",
         /// Prevents compiler reordering across the operation.
         CompilerFence => "CompilerFence",
+        /// Emits a target hardware synchronization fence.
+        HardwareFence => "HardwareFence",
         /// Terminates the product catastrophically without source cleanup.
         CatastrophicAbort => "CatastrophicAbort",
         /// Requests a debugger trap on the selected target.
@@ -106,6 +108,8 @@ define_catalog_enum! {
         InlineAssembly => "InlineAssembly",
         /// Executes checked trusted inline assembly that cannot continue.
         DivergingInlineAssembly => "DivergingInlineAssembly",
+        /// Executes checked trusted inline assembly with alternate label continuations.
+        BranchingInlineAssembly => "BranchingInlineAssembly",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -205,6 +209,7 @@ impl ImplementationHook {
         Self::PointerAddressEqual,
         Self::PointerAddressLess,
         Self::CompilerFence,
+        Self::HardwareFence,
         Self::CatastrophicAbort,
         Self::DebuggerTrap,
         Self::UnreachableTermination,
@@ -212,6 +217,7 @@ impl ImplementationHook {
         Self::TargetFeatureEnabled,
         Self::InlineAssembly,
         Self::DivergingInlineAssembly,
+        Self::BranchingInlineAssembly,
     ];
 }
 

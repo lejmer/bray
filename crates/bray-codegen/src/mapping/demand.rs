@@ -188,6 +188,10 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
                 collect_edge_values(case.edge(), demands);
             }
         }
+        MirTerminatorKind::InlineAssembly(assembly) => {
+            demands.values.extend(assembly.contract().constant_values());
+            collect_operand_value(assembly.inputs(), demands);
+        }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {
                 collect_operand_value(value, demands);

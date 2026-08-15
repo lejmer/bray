@@ -54,6 +54,8 @@ pub enum MirUnitBuildError {
     DuplicateTerminator(MirBlockId),
     /// A block has no terminator.
     MissingTerminator(MirBlockId),
+    /// A branching assembly terminator has inconsistent structural operand types.
+    InvalidInlineAssemblyTerminator(MirBlockId),
     /// An edge supplies the wrong number of destination arguments.
     EdgeArgumentCountMismatch(MirBlockId),
     /// An edge argument type does not match its destination parameter.

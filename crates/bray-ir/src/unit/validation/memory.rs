@@ -28,6 +28,12 @@ pub(super) fn validate_memory_operation(
         return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
     }
 
+    if !matches!(memory.kind(), CheckedMemoryOperationKind::InlineAssembly { .. })
+        && !memory.inline_assembly_symbols().is_empty()
+    {
+        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+    }
+
     let types = memory.operand_types();
 
     let valid = match memory.kind() {
@@ -66,14 +72,28 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SliceLength
         | CheckedMemoryOperationKind::CallbackState { .. }
-        | CheckedMemoryOperationKind::CompilerFence
+        | CheckedMemoryOperationKind::Fence { .. }
         | CheckedMemoryOperationKind::CatastrophicAbort
         | CheckedMemoryOperationKind::DebuggerTrap
         | CheckedMemoryOperationKind::UnreachableTermination
         | CheckedMemoryOperationKind::SpinLoopHint
         | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
-        CheckedMemoryOperationKind::InlineAssembly { input, output, .. } => {
-            types[5] == input && memory.result_type() == output
+        CheckedMemoryOperationKind::InlineAssembly {
+            inputs,
+            output,
+            labels,
+            contract,
+        } => {
+            types[0] == inputs
+                && labels.is_none()
+                && memory.result_type() == output
+                && contract
+                    .operands()
+                    .filter(|operand| {
+                        operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol
+                    })
+                    .count()
+                    == memory.inline_assembly_symbols().len()
         }
     };
 
