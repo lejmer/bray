@@ -87,7 +87,8 @@ fn execute(mut options: Options) -> Result<(), String> {
     let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
     progress::phase("Building matched application peers");
 
-    let application_compilation = comparison_build::build_application(
+    let application_compilation = comparison_build::build(
+        crate::performance::model::CompilationKind::Application,
         &root,
         &compiler,
         &options.output,
@@ -98,8 +99,15 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     progress::phase("Building matched source library peers");
 
-    let library_compilation =
-        comparison_build::build_library(&root, &compiler, &options.output, options.target)?;
+    let library_compilation = comparison_build::build(
+        crate::performance::model::CompilationKind::Library,
+        &root,
+        &compiler,
+        &options.output,
+        options.target,
+        prepared.toolchain(),
+        prepared.runtime(),
+    )?;
 
     let mut workloads = Vec::with_capacity(selected.len());
 

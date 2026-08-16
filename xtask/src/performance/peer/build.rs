@@ -124,7 +124,7 @@ fn rust_configuration(
     linker: &Path,
     controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<PeerCompilerConfiguration, String> {
-    let mut arguments = rust_release_arguments(source, target, linker);
+    let mut arguments = rust_executable_arguments(source, target, linker);
 
     arguments.extend([
         "--cfg".to_owned(),
@@ -152,8 +152,11 @@ fn rust_configuration(
         batching: peer_batching(controlled_inner_iterations),
     })
 }
-fn rust_release_arguments(source: &Path, target: NativeTarget, linker: &Path) -> Vec<String> {
-    let mut arguments = vec![
+pub(in crate::performance) fn rust_release_arguments(
+    source: &Path,
+    target: NativeTarget,
+) -> Vec<String> {
+    vec![
         crate::path::slash_separated(source),
         "--edition".to_owned(),
         "2024".to_owned(),
@@ -169,11 +172,22 @@ fn rust_release_arguments(source: &Path, target: NativeTarget, linker: &Path) ->
         "codegen-units=1".to_owned(),
         "-C".to_owned(),
         "lto=off".to_owned(),
+    ]
+}
+
+pub(in crate::performance) fn rust_executable_arguments(
+    source: &Path,
+    target: NativeTarget,
+    linker: &Path,
+) -> Vec<String> {
+    let mut arguments = rust_release_arguments(source, target);
+
+    arguments.extend([
         "-C".to_owned(),
         "strip=symbols".to_owned(),
         "-C".to_owned(),
         format!("linker={}", crate::path::slash_separated(linker)),
-    ];
+    ]);
 
     if target.object_format() == ObjectFormat::Coff {
         arguments.extend(["-C".to_owned(), "target-feature=+crt-static".to_owned()]);
@@ -181,51 +195,8 @@ fn rust_release_arguments(source: &Path, target: NativeTarget, linker: &Path) ->
 
     arguments
 }
-pub(in crate::performance) fn matched_rust_configuration(
-    root: &Path,
-    source: &Path,
-    executable: &Path,
-    target: NativeTarget,
-) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
-    matched_rust_configuration_with_map(root, source, executable, None, target)
-}
 
-pub(in crate::performance) fn matched_rust_evidence_configuration(
-    root: &Path,
-    source: &Path,
-    executable: &Path,
-    linker_map: &Path,
-    target: NativeTarget,
-) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
-    matched_rust_configuration_with_map(root, source, executable, Some(linker_map), target)
-}
-
-fn matched_rust_configuration_with_map(
-    root: &Path,
-    source: &Path,
-    executable: &Path,
-    linker_map: Option<&Path>,
-    target: NativeTarget,
-) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
-    let linker = rust_linker(root, target);
-    let mut arguments = rust_release_arguments(source, target, &linker);
-
-    if let Some(linker_map) = linker_map {
-        append_rust_linker_map(&mut arguments, target.object_format(), linker_map)?;
-    }
-
-    arguments.extend(["-o".to_owned(), crate::path::slash_separated(executable)]);
-
-    Ok((
-        linker,
-        PeerCompilerConfiguration {
-            arguments,
-            environment: BTreeMap::new(),
-            batching: PeerBatching::SingleExecution,
-        },
-    ))
-}
-fn rust_linker(root: &Path, target: NativeTarget) -> PathBuf {
+pub(in crate::performance) fn rust_linker(root: &Path, target: NativeTarget) -> PathBuf {
     let name = match target.object_format() {
         ObjectFormat::Coff => "lld-link",
         ObjectFormat::Elf => "ld.lld",
@@ -318,7 +289,7 @@ fn cpp_configuration(
     selector: &str,
     controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<PeerCompilerConfiguration, String> {
-    let mut arguments = cpp_release_arguments(target);
+    let mut arguments = cpp_executable_arguments(target);
 
     arguments.push(format!("-DBRAY_WORKLOAD={selector}"));
 
@@ -346,17 +317,22 @@ fn cpp_configuration(
     })
 }
 
-fn cpp_release_arguments(target: NativeTarget) -> Vec<String> {
-    let mut arguments = vec![
+pub(in crate::performance) fn cpp_release_arguments(target: NativeTarget) -> Vec<String> {
+    vec![
         "--driver-mode=g++".to_owned(),
         "-std=c++20".to_owned(),
         "-O3".to_owned(),
         "-DNDEBUG".to_owned(),
         "-fno-exceptions".to_owned(),
         "-fno-rtti".to_owned(),
-        "-fuse-ld=lld".to_owned(),
         format!("--target={}", target.as_str()),
-    ];
+    ]
+}
+
+pub(in crate::performance) fn cpp_executable_arguments(target: NativeTarget) -> Vec<String> {
+    let mut arguments = cpp_release_arguments(target);
+
+    arguments.push("-fuse-ld=lld".to_owned());
 
     if target.object_format() == ObjectFormat::Coff {
         arguments.push("-fms-runtime-lib=static".to_owned());
@@ -369,48 +345,6 @@ fn cpp_release_arguments(target: NativeTarget) -> Vec<String> {
     }
 
     arguments
-}
-
-pub(in crate::performance) fn matched_cpp_configuration(
-    source: &Path,
-    executable: &Path,
-    target: NativeTarget,
-) -> Result<PeerCompilerConfiguration, String> {
-    matched_cpp_configuration_with_map(source, executable, None, target)
-}
-
-pub(in crate::performance) fn matched_cpp_evidence_configuration(
-    source: &Path,
-    executable: &Path,
-    linker_map: &Path,
-    target: NativeTarget,
-) -> Result<PeerCompilerConfiguration, String> {
-    matched_cpp_configuration_with_map(source, executable, Some(linker_map), target)
-}
-
-fn matched_cpp_configuration_with_map(
-    source: &Path,
-    executable: &Path,
-    linker_map: Option<&Path>,
-    target: NativeTarget,
-) -> Result<PeerCompilerConfiguration, String> {
-    let mut arguments = cpp_release_arguments(target);
-
-    if let Some(linker_map) = linker_map {
-        append_cpp_linker_map(&mut arguments, target.object_format(), linker_map)?;
-    }
-
-    arguments.extend([
-        crate::path::slash_separated(source),
-        "-o".to_owned(),
-        crate::path::slash_separated(executable),
-    ]);
-
-    Ok(PeerCompilerConfiguration {
-        arguments,
-        environment: BTreeMap::new(),
-        batching: PeerBatching::SingleExecution,
-    })
 }
 
 fn strip_cpp_artifact(root: &Path, executable: &Path) -> Result<(), String> {
@@ -700,7 +634,7 @@ pub(in crate::performance) fn fixture_build_configuration(
     }
 }
 
-fn append_rust_linker_map(
+pub(in crate::performance) fn append_rust_linker_map(
     arguments: &mut Vec<String>,
     format: ObjectFormat,
     map: &Path,
@@ -721,7 +655,7 @@ fn append_rust_linker_map(
     Ok(())
 }
 
-fn append_cpp_linker_map(
+pub(in crate::performance) fn append_cpp_linker_map(
     arguments: &mut Vec<String>,
     format: ObjectFormat,
     map: &Path,
