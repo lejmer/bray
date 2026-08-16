@@ -31,8 +31,10 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
         return Err("report workload count is outside the canonical corpus bound".to_owned());
     }
 
-    super::compilation::validate(&report.application_compilation)?;
-    super::compilation::validate(&report.library_compilation)?;
+    let target = validate_identity(report)?;
+
+    super::compilation::validate(&report.application_compilation, target)?;
+    super::compilation::validate(&report.library_compilation, target)?;
 
     if report.application_compilation.kind != super::model::CompilationKind::Application {
         return Err("application compilation report uses the wrong comparison kind".to_owned());
@@ -41,8 +43,6 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
     if report.library_compilation.kind != super::model::CompilationKind::Library {
         return Err("library compilation report uses the wrong comparison kind".to_owned());
     }
-
-    let target = validate_identity(report)?;
 
     if report.application_compilation.contract
         != super::compilation::MATCHED_APPLICATION_CONTRACT

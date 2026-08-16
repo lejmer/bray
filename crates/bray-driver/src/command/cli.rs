@@ -496,6 +496,8 @@ mod tests {
             "out",
             "--managed-output-directory",
             "native/release/example.application",
+            "--linker-map-output",
+            "out/example.map",
             "main.bray",
         ])
         .unwrap_or_else(|error| panic!("build invocation should parse: {error:?}"));
@@ -550,6 +552,13 @@ mod tests {
         );
 
         assert_eq!(configuration.output_root(), std::path::Path::new("out"));
+
+        assert_eq!(
+            configuration
+                .linker_map_output()
+                .map(bray_linker::SystemLinkerMapOutput::path),
+            Some(std::path::Path::new("out/example.map"))
+        );
 
         assert_eq!(
             configuration

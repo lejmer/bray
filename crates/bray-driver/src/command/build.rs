@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_emitter::ManagedOutputDirectory;
+use bray_linker::SystemLinkerMapOutput;
 use bray_messages::command_help as help;
 use bray_runtime_interface::RuntimeCapability;
 use bray_target::TargetOutputKind;
@@ -75,6 +76,7 @@ pub struct DriverProductConfiguration {
     required_capabilities: Vec<RuntimeCapability>,
     output_root: PathBuf,
     managed_output_directory: Option<ManagedOutputDirectory>,
+    linker_map_output: Option<SystemLinkerMapOutput>,
     test_catalog: Option<PathBuf>,
     artifacts: Vec<TargetOutputKind>,
     inspections: Vec<DriverInspectionArtifact>,
@@ -106,6 +108,7 @@ impl DriverProductConfiguration {
             required_capabilities,
             output_root,
             managed_output_directory: None,
+            linker_map_output: None,
             test_catalog,
             artifacts,
             inspections,
@@ -147,6 +150,18 @@ impl DriverProductConfiguration {
     /// Returns the stable root-relative public output directory, when configured by a host.
     pub const fn managed_output_directory(&self) -> Option<&ManagedOutputDirectory> {
         self.managed_output_directory.as_ref()
+    }
+
+    /// Selects an explicit linker-map destination for the linked product.
+    pub fn with_linker_map_output(mut self, output: SystemLinkerMapOutput) -> Self {
+        self.linker_map_output = Some(output);
+
+        self
+    }
+
+    /// Returns the explicitly requested linker-map destination, when present.
+    pub const fn linker_map_output(&self) -> Option<&SystemLinkerMapOutput> {
+        self.linker_map_output.as_ref()
     }
 
     /// Returns the requested test-catalog publication path, when applicable.
@@ -202,6 +217,13 @@ pub(crate) struct CliBuildCommand {
         hide = true
     )]
     managed_output_directory: Option<ManagedOutputDirectory>,
+    #[arg(
+        long = "linker-map-output",
+        value_name = "FILE",
+        value_parser = parse_linker_map_output,
+        hide = true
+    )]
+    linker_map_output: Option<SystemLinkerMapOutput>,
     #[arg(long = "test-catalog", value_name = "PATH", help = help::TEST_CATALOG)]
     test_catalog: Option<PathBuf>,
     #[arg(long = "artifact", value_enum, value_name = "ARTIFACT", help = help::ARTIFACT)]
@@ -259,6 +281,10 @@ impl CliBuildCommand {
             configuration = configuration.with_managed_output_directory(directory);
         }
 
+        if let Some(output) = self.linker_map_output {
+            configuration = configuration.with_linker_map_output(output);
+        }
+
         DriverCommand::build(configuration, self.files)
     }
 }
@@ -266,6 +292,11 @@ impl CliBuildCommand {
 fn parse_managed_output_directory(value: &str) -> Result<ManagedOutputDirectory, String> {
     ManagedOutputDirectory::try_new(value)
         .ok_or_else(|| help::MANAGED_OUTPUT_DIRECTORY_INVALID.to_owned())
+}
+
+fn parse_linker_map_output(value: &str) -> Result<SystemLinkerMapOutput, String> {
+    SystemLinkerMapOutput::try_new(value)
+        .ok_or_else(|| help::LINKER_MAP_OUTPUT_INVALID.to_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

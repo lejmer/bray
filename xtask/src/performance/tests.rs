@@ -17,8 +17,9 @@ use super::corpus::{
 };
 use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, CompilationBuildReport,
-    CompilationComparability, CompilationIncomparability, CompilationKind, CompilationLanguage,
-    LibraryReuse, LinkerInvocationReport, Observation, PeerBatching, PeerLanguage, PeerReport,
+    CompilationComparability, CompilationEvidenceReport, CompilationIncomparability,
+    CompilationKind, CompilationLanguage, CompilationReuseEvidence, LibraryReuse,
+    LinkerInvocationReport, LinkerMapReport, Observation, PeerBatching, PeerLanguage, PeerReport,
     PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION, ToolInvocationReport,
     WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
@@ -268,7 +269,7 @@ fn compilation_reuse_excludes_application_owned_objects() {
         .get_mut(&CompilationLanguage::Rust)
         .unwrap_or_else(|| panic!("application comparison must contain Rust"));
 
-    build.reused_artifacts = super::compilation::reused_artifacts(
+    build.reuse.runtime = super::compilation::reuse_evidence(
         &[ArtifactReport {
             kind: ArtifactKind::Executable,
             path: "application".to_owned(),
@@ -286,10 +287,11 @@ fn compilation_reuse_excludes_application_owned_objects() {
             },
             linker_map: None,
         }],
-        [],
-    );
+        |_| Some(super::compilation::CompilationReuseRole::Runtime),
+    )
+    .runtime;
 
-    assert_eq!(build.reused_artifacts.entries, [retained("std.lib", "runtime.o")]);
+    assert_eq!(build.reuse.runtime.entries, [retained("std.lib", "runtime.o")]);
 }
 
 #[test]
@@ -374,18 +376,135 @@ fn compilation_comparability_explains_different_source_authority() {
 }
 
 #[test]
+fn compilation_comparability_rejects_source_sizes_outside_the_syntax_tolerance() {
+    let mut report = report("corpus", 101, 2);
+
+    let rust = report
+        .library_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("library comparison must contain Rust"));
+
+    rust.authority.source_bytes = 257;
+
+    let builds = std::mem::take(&mut report.library_compilation.builds);
+
+    report.library_compilation = super::compilation::comparison(
+        CompilationKind::Library,
+        super::compilation::MATCHED_LIBRARY_CONTRACT,
+        builds,
+    );
+
+    let CompilationComparability::Incomparable { reasons } =
+        &report.library_compilation.comparability
+    else {
+        panic!("dissimilar source sizes must be incomparable");
+    };
+
+    assert!(reasons.values().all(|reasons| {
+        reasons.contains(&CompilationIncomparability::DifferentSourceByteScale)
+    }));
+}
+
+#[test]
+fn compilation_validation_rejects_noncanonical_timed_invocations() {
+    let mut invalid_report = report("corpus", 101, 2);
+
+    let rust = invalid_report
+        .application_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("application comparison must contain Rust"));
+
+    let optimization = rust
+        .compiler
+        .arguments
+        .iter_mut()
+        .find(|argument| argument.as_str() == "opt-level=3")
+        .unwrap_or_else(|| panic!("fixture Rust invocation must select release optimization"));
+
+    *optimization = "opt-level=2".to_owned();
+
+    rust.linker = LinkerInvocationReport::IntegratedCompilerDriver {
+        driver: rust.compiler.program.clone(),
+        arguments: rust.compiler.arguments.clone(),
+    };
+
+    assert!(super::validation::validate(&invalid_report).is_err());
+
+    let mut target_report = report("corpus", 101, 2);
+
+    let rust = target_report
+        .application_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("application comparison must contain Rust"));
+
+    let evidence = rust
+        .evidence
+        .as_mut()
+        .unwrap_or_else(|| panic!("application comparison must contain evidence"));
+
+    let target = evidence
+        .compiler
+        .arguments
+        .iter_mut()
+        .find(|argument| argument.as_str() == "x86_64-pc-windows-msvc")
+        .unwrap_or_else(|| panic!("fixture Rust evidence must select the report target"));
+
+    *target = "aarch64-unknown-linux-gnu".to_owned();
+
+    assert!(super::validation::validate(&target_report).is_err());
+
+    let mut profile_report = report("corpus", 101, 2);
+
+    let bray = profile_report
+        .application_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Bray)
+        .unwrap_or_else(|| panic!("application comparison must contain Bray"));
+
+    let evidence = bray
+        .evidence
+        .as_mut()
+        .unwrap_or_else(|| panic!("Bray application comparison must contain evidence"));
+
+    let profile = evidence
+        .compiler
+        .arguments
+        .iter()
+        .position(|argument| argument == "--profile")
+        .unwrap_or_else(|| panic!("Bray evidence must request a profile"));
+
+    evidence.compiler.arguments.drain(profile..=profile + 3);
+
+    assert!(super::validation::validate(&profile_report).is_err());
+}
+
+#[test]
 fn matched_compilation_lanes_record_external_source_authority() {
     let report = report("corpus", 101, 2);
 
     for build in report.application_compilation.builds.values() {
         assert_eq!(build.authority.library_reuse, LibraryReuse::Packaged);
-        assert!(!build.reused_artifacts.entries.is_empty());
+        assert!(!build.reuse.packaged_library.entries.is_empty());
+        assert!(!build.reuse.runtime.entries.is_empty());
         assert!(!build.compiler.program.is_empty());
+        assert!(build.evidence.as_ref().is_some_and(|evidence| evidence.linker_map.is_some()));
+
+        assert!(!build.compiler.arguments.iter().any(|argument| {
+            argument == "--profile"
+                || argument == "--profile-output"
+                || argument == "--linker-map-output"
+                || argument.to_ascii_lowercase().contains("/map:")
+                || argument.to_ascii_lowercase().contains("-map,")
+        }));
     }
 
     for build in report.library_compilation.builds.values() {
         assert_eq!(build.authority.library_reuse, LibraryReuse::Source);
-        assert!(build.reused_artifacts.entries.is_empty());
+        assert!(build.reuse.packaged_library.entries.is_empty());
+        assert!(build.reuse.runtime.entries.is_empty());
         assert!(!build.compiler.program.is_empty());
     }
 }
@@ -673,6 +792,14 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 .unwrap_or_else(|| panic!("fixture repetition count must be nonzero")),
         );
 
+        let compilation_language = match language {
+            PeerLanguage::Rust => CompilationLanguage::Rust,
+            PeerLanguage::Cpp => CompilationLanguage::Cpp,
+        };
+
+        let compiler = matched_compiler(compilation_language, CompilationKind::Application, false);
+        let evidence = matched_compiler(compilation_language, CompilationKind::Application, true);
+
         let build = CompilationBuildReport {
             toolchain: "peer compiler".to_owned(),
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
@@ -687,17 +814,19 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 }],
                 LibraryReuse::Packaged,
             ),
-            compiler: ToolInvocationReport {
-                program: configuration.compiler.clone(),
-                arguments: configuration.production.arguments.clone(),
-                environment: configuration.production.environment.clone(),
-                response_files: Vec::new(),
-            },
+            compiler: compiler.clone(),
             linker: LinkerInvocationReport::IntegratedCompilerDriver {
-                driver: configuration.linker.clone(),
-                arguments: configuration.production.arguments.clone(),
+                driver: compiler.program.clone(),
+                arguments: compiler.arguments.clone(),
             },
-            reused_artifacts: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+            evidence: Some(CompilationEvidenceReport {
+                compiler: evidence,
+                linker_map: Some(linker_map()),
+            }),
+            reuse: CompilationReuseEvidence {
+                packaged_library: bounded(vec![retained("peer-library.lib", "library.o")]),
+                runtime: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+            },
             profile: None,
         };
 
@@ -743,6 +872,12 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     .into_iter()
     .collect();
 
+    let bray_compiler = matched_compiler(
+        CompilationLanguage::Bray,
+        CompilationKind::Application,
+        false,
+    );
+
     let bray_build = CompilationBuildReport {
         toolchain: "Bray compiler".to_owned(),
         source_sha256: bray_base::lowercase_hex(&Sha256::digest("Bray source")),
@@ -754,17 +889,23 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             ["small_output".to_owned()],
             LibraryReuse::Packaged,
         ),
-        compiler: ToolInvocationReport {
-            program: "brayc".to_owned(),
-            arguments: vec!["build".to_owned()],
-            environment: BTreeMap::new(),
-            response_files: Vec::new(),
-        },
+        compiler: bray_compiler.clone(),
         linker: LinkerInvocationReport::IntegratedCompilerDriver {
             driver: "brayc".to_owned(),
-            arguments: vec!["build".to_owned()],
+            arguments: bray_compiler.arguments,
         },
-        reused_artifacts: bounded(vec![retained("runtime.lib", "startup.o")]),
+        evidence: Some(CompilationEvidenceReport {
+            compiler: matched_compiler(
+                CompilationLanguage::Bray,
+                CompilationKind::Application,
+                true,
+            ),
+            linker_map: Some(linker_map()),
+        }),
+        reuse: CompilationReuseEvidence {
+            packaged_library: bounded(vec![retained("std.lib", "library.o")]),
+            runtime: bounded(vec![retained("runtime.lib", "startup.o")]),
+        },
         profile: Some(profile(median)),
     };
 
@@ -791,14 +932,16 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             ["performance_library".to_owned()],
             LibraryReuse::Source,
         ),
-        compiler: ToolInvocationReport {
-            program: format!("{language:?}-compiler"),
-            arguments: vec!["compile-library".to_owned()],
-            environment: BTreeMap::new(),
-            response_files: Vec::new(),
-        },
+        compiler: matched_compiler(language, CompilationKind::Library, false),
         linker: LinkerInvocationReport::NotApplicable,
-        reused_artifacts: bounded(Vec::new()),
+        evidence: (language == CompilationLanguage::Bray).then(|| CompilationEvidenceReport {
+            compiler: matched_compiler(language, CompilationKind::Library, true),
+            linker_map: None,
+        }),
+        reuse: CompilationReuseEvidence {
+            packaged_library: bounded(Vec::new()),
+            runtime: bounded(Vec::new()),
+        },
         profile,
     };
 
@@ -888,6 +1031,147 @@ const fn peer_language_name(language: PeerLanguage) -> &'static str {
     match language {
         PeerLanguage::Rust => "rust",
         PeerLanguage::Cpp => "cpp",
+    }
+}
+
+fn matched_compiler(
+    language: CompilationLanguage,
+    kind: CompilationKind,
+    evidence: bool,
+) -> ToolInvocationReport {
+    let target = "x86_64-pc-windows-msvc";
+
+    let (program, arguments) = match language {
+        CompilationLanguage::Bray => {
+            let mut arguments = Vec::new();
+
+            if evidence {
+                arguments.extend([
+                    "--profile".to_owned(),
+                    "summary".to_owned(),
+                    "--profile-output".to_owned(),
+                    "profile.json".to_owned(),
+                ]);
+            }
+
+            if kind == CompilationKind::Application {
+                arguments.extend([
+                    "--standard-library-root".to_owned(),
+                    "standard-library".to_owned(),
+                ]);
+            }
+
+            arguments.extend([
+                "build".to_owned(),
+                "--package".to_owned(),
+                "bray.performance".to_owned(),
+                "--product".to_owned(),
+                "performance".to_owned(),
+                "--product-kind".to_owned(),
+                match kind {
+                    CompilationKind::Application => "executable",
+                    CompilationKind::Library => "library",
+                }
+                .to_owned(),
+                "--target".to_owned(),
+                target.to_owned(),
+                "--release".to_owned(),
+                "--artifact".to_owned(),
+                match kind {
+                    CompilationKind::Application => "executable",
+                    CompilationKind::Library => "relocatable-object",
+                }
+                .to_owned(),
+            ]);
+
+            if kind == CompilationKind::Application {
+                arguments.extend([
+                    "--runtime-artifact".to_owned(),
+                    "runtime.json".to_owned(),
+                ]);
+
+                if evidence {
+                    arguments.extend([
+                        "--linker-map-output".to_owned(),
+                        "application.map".to_owned(),
+                    ]);
+                }
+            }
+
+            arguments.extend([
+                "--output".to_owned(),
+                "out".to_owned(),
+                "source.bray".to_owned(),
+            ]);
+
+            ("brayc", arguments)
+        }
+        CompilationLanguage::Rust => {
+            let mut arguments = vec![
+                "source.rs".to_owned(),
+                "--target".to_owned(),
+                target.to_owned(),
+                "-C".to_owned(),
+                "opt-level=3".to_owned(),
+                "-C".to_owned(),
+                "debuginfo=0".to_owned(),
+            ];
+
+            if kind == CompilationKind::Library {
+                arguments.extend([
+                    "--crate-type".to_owned(),
+                    "lib".to_owned(),
+                    "--emit".to_owned(),
+                    "obj".to_owned(),
+                ]);
+            } else if evidence {
+                arguments.extend([
+                    "-C".to_owned(),
+                    "link-arg=/MAP:application.map".to_owned(),
+                ]);
+            }
+
+            arguments.extend(["-o".to_owned(), "out".to_owned()]);
+
+            ("rustc", arguments)
+        }
+        CompilationLanguage::Cpp => {
+            let mut arguments = vec![
+                "--driver-mode=g++".to_owned(),
+                "-std=c++20".to_owned(),
+                "-O3".to_owned(),
+                "-DNDEBUG".to_owned(),
+                format!("--target={target}"),
+            ];
+
+            if kind == CompilationKind::Library {
+                arguments.push("-c".to_owned());
+            } else if evidence {
+                arguments.push("-Wl,/MAP:application.map".to_owned());
+            }
+
+            arguments.extend([
+                "source.cpp".to_owned(),
+                "-o".to_owned(),
+                "out".to_owned(),
+            ]);
+
+            ("clang", arguments)
+        }
+    };
+
+    ToolInvocationReport {
+        program: program.to_owned(),
+        arguments,
+        environment: BTreeMap::new(),
+        response_files: Vec::new(),
+    }
+}
+
+fn linker_map() -> LinkerMapReport {
+    LinkerMapReport {
+        bytes: 1,
+        sha256: bray_base::lowercase_hex(&Sha256::digest("linker map")),
     }
 }
 

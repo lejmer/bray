@@ -7,18 +7,16 @@ use bray_compilation::CompilationProfileReport;
 use super::super::compilation::external_invocation;
 use super::super::model::ToolInvocationReport;
 
-pub(super) struct BrayCompilerRun {
+pub(super) struct TimedBrayCompilerRun {
     pub(super) elapsed_nanoseconds: u64,
     pub(super) invocation: ToolInvocationReport,
-    pub(super) profile: CompilationProfileReport,
 }
 
-pub(super) fn run(
+pub(super) fn run_timed(
     compiler: &Path,
     arguments: Vec<String>,
-    profile: &Path,
     description: &str,
-) -> Result<BrayCompilerRun, String> {
+) -> Result<TimedBrayCompilerRun, String> {
     let mut command = Command::new(compiler);
 
     command.args(&arguments);
@@ -29,19 +27,30 @@ pub(super) fn run(
 
     let elapsed_nanoseconds = super::super::peer::elapsed_nanoseconds(started);
 
-    let profile_bytes = std::fs::read(profile)
-        .map_err(|error| format!("could not read {}: {error}", profile.display()))?;
-
-    let profile = serde_json::from_slice(&profile_bytes)
-        .map_err(|error| format!("could not decode compiler profile: {error}"))?;
-
-    Ok(BrayCompilerRun {
+    Ok(TimedBrayCompilerRun {
         elapsed_nanoseconds,
         invocation: external_invocation(
             crate::path::slash_separated(compiler),
             arguments,
             std::collections::BTreeMap::new(),
         ),
-        profile,
     })
+}
+
+pub(super) fn run_profiled(
+    compiler: &Path,
+    arguments: &[String],
+    profile: &Path,
+    description: &str,
+) -> Result<CompilationProfileReport, String> {
+    let mut command = Command::new(compiler);
+
+    command.args(arguments);
+    crate::command::require_success(command, description)?;
+
+    let profile_bytes = std::fs::read(profile)
+        .map_err(|error| format!("could not read {}: {error}", profile.display()))?;
+
+    serde_json::from_slice(&profile_bytes)
+        .map_err(|error| format!("could not decode compiler profile: {error}"))
 }

@@ -214,6 +214,9 @@ fn incomparability_reason(reason: &CompilationIncomparability) -> &'static str {
         CompilationIncomparability::DifferentSourceUnitCount => {
             "source unit count differs from the other languages"
         }
+        CompilationIncomparability::DifferentSourceByteScale => {
+            "source byte count exceeds the cross-language syntax tolerance"
+        }
         CompilationIncomparability::DifferentPackageInputCount => {
             "package input count differs from the other languages"
         }
@@ -223,6 +226,7 @@ fn incomparability_reason(reason: &CompilationIncomparability) -> &'static str {
         CompilationIncomparability::MissingPackagedLibraryArtifact => {
             "packaged library artifact is missing"
         }
+        CompilationIncomparability::MissingRuntimeArtifact => "runtime artifact is missing",
         CompilationIncomparability::UnexpectedReusedArtifact => {
             "source-library build reused a packaged artifact"
         }
@@ -245,22 +249,49 @@ fn compilation_build(
         "<details><summary>{} compilation details</summary><dl>\
         <dt>Toolchain</dt><dd>{}</dd><dt>Source SHA-256</dt><dd><code>{}</code></dd>\
         <dt>Packages</dt><dd>{}</dd><dt>Modules</dt><dd>{}</dd>\
-        <dt>Reused artifacts</dt><dd>{} shown, {} omitted</dd></dl>",
+        <dt>Packaged-library artifacts</dt><dd>{} shown, {} omitted</dd>\
+        <dt>Runtime artifacts</dt><dd>{} shown, {} omitted</dd></dl>",
         language_name(language),
         escape(&build.toolchain),
         escape(&build.source_sha256),
         escaped_join(&build.authority.packages),
         escaped_join(&build.authority.modules),
-        build.reused_artifacts.entries.len(),
-        build.reused_artifacts.omitted_count,
+        build.reuse.packaged_library.entries.len(),
+        build.reuse.packaged_library.omitted_count,
+        build.reuse.runtime.entries.len(),
+        build.reuse.runtime.omitted_count,
     );
 
     tool_invocation(html, "Compiler invocation", &build.compiler);
     linker_invocation(html, &build.linker);
 
-    html.push_str("<h4>Reused artifacts</h4><ul>");
+    reused_artifacts(html, "Packaged-library artifacts", &build.reuse.packaged_library);
+    reused_artifacts(html, "Runtime artifacts", &build.reuse.runtime);
 
-    for artifact in &build.reused_artifacts.entries {
+    if let Some(evidence) = &build.evidence {
+        tool_invocation(html, "Evidence compiler invocation", &evidence.compiler);
+
+        if let Some(map) = &evidence.linker_map {
+            let _ = write!(
+                html,
+                "<p>Linker evidence: {} bytes, SHA-256 <code>{}</code></p>",
+                grouped(map.bytes),
+                escape(&map.sha256),
+            );
+        }
+    }
+
+    html.push_str("</details>");
+}
+
+fn reused_artifacts(
+    html: &mut BoundedHtml,
+    title: &str,
+    artifacts: &super::model::BoundedList<super::model::RetainedInput>,
+) {
+    let _ = write!(html, "<h4>{}</h4><ul>", escape(title));
+
+    for artifact in &artifacts.entries {
         let identity = artifact.member.as_ref().map_or_else(
             || artifact.artifact.clone(),
             |member| format!("{} ({member})", artifact.artifact),
@@ -269,7 +300,7 @@ fn compilation_build(
         let _ = write!(html, "<li><code>{}</code></li>", escape(&identity));
     }
 
-    html.push_str("</ul></details>");
+    html.push_str("</ul>");
 }
 
 fn linker_invocation(html: &mut BoundedHtml, linker: &LinkerInvocationReport) {

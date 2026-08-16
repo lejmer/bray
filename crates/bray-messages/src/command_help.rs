@@ -164,6 +164,8 @@ pub const RUNTIME_PROFILE: &str = "Select toolchain runtime profile PROFILE";
 pub const RUNTIME_CAPABILITY: &str = "Require the selected runtime to provide CAPABILITY";
 /// Describes artifact output directories.
 pub const BUILD_OUTPUT: &str = "Write build artifacts under DIRECTORY";
+/// Reports an empty compiler-host linker-map destination.
+pub const LINKER_MAP_OUTPUT_INVALID: &str = "linker-map output path must not be empty";
 /// Reports an invalid compiler-host output namespace.
 pub const MANAGED_OUTPUT_DIRECTORY_INVALID: &str =
     "managed output directory must be a normalized relative path";

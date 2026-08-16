@@ -218,8 +218,11 @@ explicit equivalent run configuration.
 The two compiler comparisons invoke the optimized Bray compiler executable, `rustc`, and `clang++` as external processes. The
 application lane compiles source-equivalent applications against each language's packaged library and runtime. The library lane
 compiles source-equivalent library authority from source. The report records source units and bytes, package and module inputs,
-exact compiler and linker arguments, reused artifacts, toolchains, source digests, and elapsed time. A row with incomplete or
-different authority is explicitly non-comparable, records exact reasons, and cannot publish a winner.
+exact compiler and linker arguments, packaged-library and runtime reuse evidence, toolchains, source digests, and elapsed time.
+Measured compiler invocations do not generate profiles or linker maps. Separate untimed evidence invocations produce those records
+from the same source and release policy. Cross-language syntax may differ in verbosity, so source byte counts remain comparable only
+while the largest source is no more than eight times the smallest. A row with incomplete or different authority is explicitly
+non-comparable, records exact reasons, and cannot publish a winner.
 
 Every workload also builds maintained Rust and C++ runtime peers directly through `rustc` and `clang++`. The report records each
 exact toolchain, optimization configuration, source digest, process duration, language-controlled duration, artifact size,

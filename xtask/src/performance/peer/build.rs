@@ -185,13 +185,34 @@ pub(in crate::performance) fn matched_rust_configuration(
     root: &Path,
     source: &Path,
     executable: &Path,
+    target: NativeTarget,
+) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
+    matched_rust_configuration_with_map(root, source, executable, None, target)
+}
+
+pub(in crate::performance) fn matched_rust_evidence_configuration(
+    root: &Path,
+    source: &Path,
+    executable: &Path,
     linker_map: &Path,
+    target: NativeTarget,
+) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
+    matched_rust_configuration_with_map(root, source, executable, Some(linker_map), target)
+}
+
+fn matched_rust_configuration_with_map(
+    root: &Path,
+    source: &Path,
+    executable: &Path,
+    linker_map: Option<&Path>,
     target: NativeTarget,
 ) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
     let linker = rust_linker(root, target);
     let mut arguments = rust_release_arguments(source, target, &linker);
 
-    append_rust_linker_map(&mut arguments, target.object_format(), linker_map)?;
+    if let Some(linker_map) = linker_map {
+        append_rust_linker_map(&mut arguments, target.object_format(), linker_map)?;
+    }
 
     arguments.extend(["-o".to_owned(), crate::path::slash_separated(executable)]);
 
@@ -353,12 +374,31 @@ fn cpp_release_arguments(target: NativeTarget) -> Vec<String> {
 pub(in crate::performance) fn matched_cpp_configuration(
     source: &Path,
     executable: &Path,
+    target: NativeTarget,
+) -> Result<PeerCompilerConfiguration, String> {
+    matched_cpp_configuration_with_map(source, executable, None, target)
+}
+
+pub(in crate::performance) fn matched_cpp_evidence_configuration(
+    source: &Path,
+    executable: &Path,
     linker_map: &Path,
+    target: NativeTarget,
+) -> Result<PeerCompilerConfiguration, String> {
+    matched_cpp_configuration_with_map(source, executable, Some(linker_map), target)
+}
+
+fn matched_cpp_configuration_with_map(
+    source: &Path,
+    executable: &Path,
+    linker_map: Option<&Path>,
     target: NativeTarget,
 ) -> Result<PeerCompilerConfiguration, String> {
     let mut arguments = cpp_release_arguments(target);
 
-    append_cpp_linker_map(&mut arguments, target.object_format(), linker_map)?;
+    if let Some(linker_map) = linker_map {
+        append_cpp_linker_map(&mut arguments, target.object_format(), linker_map)?;
+    }
 
     arguments.extend([
         crate::path::slash_separated(source),

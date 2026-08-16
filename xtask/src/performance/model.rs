@@ -119,9 +119,11 @@ pub(super) enum CompilationIncomparability {
     MissingPackageInputs,
     MissingModuleInputs,
     DifferentSourceUnitCount,
+    DifferentSourceByteScale,
     DifferentPackageInputCount,
     DifferentModuleInputCount,
     MissingPackagedLibraryArtifact,
+    MissingRuntimeArtifact,
     UnexpectedReusedArtifact,
     CompilesLibrarySourceForApplication,
     ReusesPackagedLibraryForLibraryBuild,
@@ -135,8 +137,21 @@ pub(super) struct CompilationBuildReport {
     pub authority: CompilationAuthority,
     pub compiler: ToolInvocationReport,
     pub linker: LinkerInvocationReport,
-    pub reused_artifacts: BoundedList<RetainedInput>,
+    pub evidence: Option<CompilationEvidenceReport>,
+    pub reuse: CompilationReuseEvidence,
     pub profile: Option<bray_compilation::CompilationProfileReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct CompilationEvidenceReport {
+    pub compiler: ToolInvocationReport,
+    pub linker_map: Option<LinkerMapReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct CompilationReuseEvidence {
+    pub packaged_library: BoundedList<RetainedInput>,
+    pub runtime: BoundedList<RetainedInput>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

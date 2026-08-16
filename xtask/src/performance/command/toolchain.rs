@@ -20,6 +20,7 @@ const SOURCE_ROOTS: &[&str] = &[
 ];
 const EXCLUDED_SOURCE_PATHS: &[&str] = &[
     "xtask/src/performance/html.rs",
+    "xtask/src/performance/presentation.rs",
     "xtask/src/performance/ranking.rs",
     "xtask/src/performance/report.rs",
 ];
@@ -232,6 +233,10 @@ mod tests {
 
         assert!(source_path_is_excluded(Path::new(
             "xtask/src/performance/ranking.rs"
+        )));
+
+        assert!(source_path_is_excluded(Path::new(
+            "xtask/src/performance/presentation.rs"
         )));
 
         assert!(!source_path_is_excluded(Path::new(
