@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 9;
+pub(super) const CORPUS_REVISION: u32 = 10;
 pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
 pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
 pub(super) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;
@@ -84,19 +84,20 @@ func main() {}
         source: r#"module incremental_bytes_small;
 
 using std.bytes;
+using std.memory;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: Buffer = try Buffer(capacity = 0);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 0);
     let mut index: usize = 0;
 
     while index < 64
     {
-        try push(&mut buffer, value = 65);
-        index = index + 1;
+        try trusted std.bytes.push(&mut buffer, value = 65);
+        index += 1;
     }
 
-    assert(length(&buffer) == 64);
+    assert(std.bytes.length(&buffer) == 64);
     return Ok(unit);
 }
 "#,
@@ -119,19 +120,20 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         source: r#"module incremental_bytes;
 
 using std.bytes;
+using std.memory;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: Buffer = try Buffer(capacity = 0);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 0);
     let mut index: usize = 0;
 
     while index < 4096
     {
-        try push(&mut buffer, value = 65);
-        index = index + 1;
+        try trusted std.bytes.push(&mut buffer, value = 65);
+        index += 1;
     }
 
-    assert(length(&buffer) == 4096);
+    assert(std.bytes.length(&buffer) == 4096);
     return Ok(unit);
 }
 "#,
@@ -223,16 +225,19 @@ func main()
 
     while index < 256
     {
-        match consume std.format.write<string>(&mut sink, std.format.Argument<string>(&literal))
+        match consume trusted std.format.write<string>(&mut sink, std.format.Argument<string>(&literal))
         {
             case Ok(_) {}
             case Error(_) { panic("raw text formatting failed"); }
         }
 
-        index = index + 1;
+        index += 1;
     }
 
-    match consume std.format.write<string>(&mut sink, std.format.Argument.with_options<string>(&long, options = quoted))
+    match consume trusted std.format.write<string>(
+        &mut sink,
+        std.format.Argument.with_options<string>(&long, options = quoted),
+    )
     {
         case Ok(_) {}
         case Error(_) { panic("escaped text formatting failed"); }
@@ -255,12 +260,16 @@ func main()
         batching: BatchingPolicy::SingleExecution,
         source: r#"module format_numbers;
 
+using std.bytes;
 using std.format;
+using std.format.ByteSinkFormatting;
+using std.format.U32Format;
+using std.memory;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
     requires(blocking_execution())
 {
-    let mut sink: ByteSink = try ByteSink(capacity = 2986);
+    let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 2986);
     let mut value: u32 = 0;
 
     while value < 1024
@@ -268,13 +277,13 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         let formatted: u32 = value;
 
         {
-            try write(&mut sink, Argument<u32>(&formatted));
+            try trusted std.format.write<u32>(&mut sink, std.format.Argument<u32>(&formatted));
         }
 
-        value = value + 1;
+        value += 1;
     }
 
-    assert(std.bytes.slice_length(bytes(&sink)) == 2986);
+    assert(std.bytes.slice_length(std.format.bytes(&sink)) == 2986);
 
     return Ok(unit);
 }
@@ -297,31 +306,35 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         batching: BatchingPolicy::SingleExecution,
         source: r#"module format_large_width;
 
+using std.bytes;
 using std.format;
+using std.format.ByteSinkFormatting;
+using std.format.U32Format;
+using std.memory;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
     requires(blocking_execution())
 {
-    let mut sink: ByteSink = try ByteSink(capacity = 133120);
+    let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 133120);
     let value: u32 = 42;
     let mut formatted: usize = 0;
 
     while formatted < 1024
     {
-        let options: Options = Options(
-            radix = Radix.Decimal,
+        let options: std.format.Options = std.format.Options(
+            radix = std.format.Radix.Decimal,
             precision = 0,
             width = 130,
-            alignment = Alignment.Right,
-            sign = Sign.NegativeOnly,
-            escaping = Escaping.Raw,
+            alignment = std.format.Alignment.Right,
+            sign = std.format.Sign.NegativeOnly,
+            escaping = std.format.Escaping.Raw,
         );
 
-        try write(&mut sink, Argument.with_options<u32>(&value, options = options));
+        try trusted std.format.write<u32>(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
         formatted += 1;
     }
 
-    let output: &[u8] = bytes(&sink);
+    let output: &[u8] = std.format.bytes(&sink);
     let length: usize = std.bytes.slice_length(output);
     let mut index: usize = 0;
 
@@ -433,19 +446,17 @@ func main()
 {
     let mut writer: ValidatingWriter = ValidatingWriter();
 
-    let mut sink: std.io.FormattingSink<ValidatingWriter> =
-        std.io.FormattingSink<ValidatingWriter>(&mut writer);
+    let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
 
     let value: u32 = 42;
     let mut formatted: usize = 0;
 
     while formatted < 1024
     {
-        match consume trusted std.format.write_to<
-            u32,
-            std.io.FormattingSink<ValidatingWriter>,
-            std.io.IoError
-        >(&mut sink, std.format.Argument<u32>(&value))
+        match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
+            &mut sink,
+            std.format.Argument<u32>(&value)
+        )
         {
             case Ok(_) {}
             case Error(_) { assert(false); }
@@ -485,7 +496,7 @@ func main() -> Result<unit, std.io.IoError>
     while index < 1024
     {
         try std.io.print(&"x");
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
@@ -552,7 +563,7 @@ async func main() -> Result<unit, std.io.IoError>
     while index < 128
     {
         try await std.io.print_async(&"x");
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
@@ -593,7 +604,7 @@ func main() -> Result<unit, std.io.IoError>
     while index < 256
     {
         let _: std.fs.FileMetadata = try std.fs.metadata(&path);
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
@@ -643,7 +654,7 @@ func main() -> Result<unit, std.io.IoError>
     {
         let remaining: &[u8] = &bytes[written.. 4096];
 
-        written = written + try file.write(remaining);
+        written += try file.write(remaining);
     }
 
     try file.flush();
@@ -716,7 +727,7 @@ func main()
     while index < 1024
     {
         let _: std.process.Id = std.process.current_id();
-        index = index + 1;
+        index += 1;
     }
 }
 "#,
@@ -766,7 +777,7 @@ func main() -> Result<unit, std.time.ClockError>
     while index < 1024
     {
         let _: std.time.Instant = try std.time.monotonic_now();
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
