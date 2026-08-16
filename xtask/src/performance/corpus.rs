@@ -1,8 +1,6 @@
-// rust-style: allow(module-too-large, reason = "performance workloads form one flat contract catalog")
-
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 8;
+pub(super) const CORPUS_REVISION: u32 = 9;
 pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
 pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
 pub(super) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;
@@ -14,7 +12,6 @@ pub(super) struct Workload {
     pub units: &'static str,
     pub batching: BatchingPolicy,
     pub source: &'static str,
-    pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
     pub expected_side_effects: ExpectedSideEffects,
     pub platform_operations: &'static [&'static str],
@@ -61,21 +58,6 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-const FORMAT_SOURCES: &[&str] = &[
-    "standard-library/std/src/std.bray",
-    "standard-library/std/src/memory.bray",
-    "standard-library/std/src/bytes/buffer.bray",
-    "standard-library/std/src/string.bray",
-    "standard-library/std/src/character.bray",
-    "standard-library/std/src/numeric/checked.bray",
-    "standard-library/std/src/numeric/limits.bray",
-    "standard-library/std/src/format/options.bray",
-    "standard-library/std/src/format/argument.bray",
-    "standard-library/std/src/format/sink.bray",
-    "standard-library/std/src/format/integer_width.bray",
-    "standard-library/std/src/format/rendering.bray",
-];
-
 pub(super) const WORKLOADS: [Workload; 13] = [
     Workload {
         id: "small_output",
@@ -87,7 +69,6 @@ pub(super) const WORKLOADS: [Workload; 13] = [
 
 func main() {}
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -100,7 +81,7 @@ func main() {}
         scale: 64,
         units: "bytes",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module std.bytes;
+        source: r#"module incremental_bytes_small;
 
 using std.bytes;
 
@@ -119,11 +100,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[
-            "standard-library/std/src/std.bray",
-            "standard-library/std/src/memory.bray",
-            "standard-library/std/src/bytes/buffer.bray",
-        ],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         storage: Some(StorageExpectation {
@@ -140,7 +116,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         scale: 4096,
         units: "bytes",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module std.bytes;
+        source: r#"module incremental_bytes;
 
 using std.bytes;
 
@@ -159,11 +135,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[
-            "standard-library/std/src/std.bray",
-            "standard-library/std/src/memory.bray",
-            "standard-library/std/src/bytes/buffer.bray",
-        ],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -270,7 +241,6 @@ func main()
     assert(std.bytes.slice_length(std.format.bytes(&sink)) > 0);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         storage: None,
@@ -283,7 +253,7 @@ func main()
         scale: 1024,
         units: "values",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module std.format;
+        source: r#"module format_numbers;
 
 using std.format;
 
@@ -309,7 +279,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: FORMAT_SOURCES,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -326,7 +295,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         scale: 1024,
         units: "values",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module std.format;
+        source: r#"module format_large_width;
 
 using std.format;
 
@@ -381,7 +350,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: FORMAT_SOURCES,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -490,7 +458,6 @@ func main()
     assert(writer.length == 2048);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -524,7 +491,6 @@ func main() -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Repeated {
             byte: b'x',
             count: 1024,
@@ -592,7 +558,6 @@ async func main() -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Repeated {
             byte: b'x',
             count: 128,
@@ -634,7 +599,6 @@ func main() -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
@@ -698,7 +662,6 @@ func output_path() -> std.path.Path
     }
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-file-output"),
         platform_operations: &[
@@ -757,7 +720,6 @@ func main()
     }
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &["platform.context.identity"],
@@ -810,7 +772,6 @@ func main() -> Result<unit, std.time.ClockError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &["platform.clock.monotonic_now"],

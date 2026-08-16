@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use bray_base::lowercase_hex;
 use bray_target::{NativeTarget, ObjectFormat};
-use sha2::{Digest as _, Sha256};
 
 use super::super::model::{
     PeerBatching, PeerBuildConfiguration, PeerCompilerConfiguration, PeerLanguage, RuntimeLinkage,
@@ -15,18 +13,17 @@ use super::source::{PeerSource, sources};
 
 const RUST_INNER_ITERATIONS_ENVIRONMENT: &str = "BRAY_PERFORMANCE_INNER_ITERATIONS";
 
-pub(in crate::standard_library::performance) struct BuiltPeer {
+pub(in crate::performance) struct BuiltPeer {
     pub language: PeerLanguage,
     pub toolchain: String,
     pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
-    pub production_compile_link_nanoseconds: u64,
     pub executable: PathBuf,
     pub linker_map: PathBuf,
     pub timed_executable: PathBuf,
 }
 
-pub(in crate::standard_library::performance) fn build(
+pub(in crate::performance) fn build(
     root: &Path,
     output: &Path,
     target: NativeTarget,
@@ -82,11 +79,8 @@ fn build_rust(
         None,
     )?;
 
-    let started = Instant::now();
-
     run_compiler("rustc", &production, "building Rust performance peer")?;
 
-    let production_compile_link_nanoseconds = elapsed_nanoseconds(started);
     let timed_executable = directory.join(crate::native_toolchain::executable_name("peer-timed"));
     let timed_linker_map = directory.join("peer-timed.map");
 
@@ -114,8 +108,7 @@ fn build_rust(
             runtime_linkage: runtime_linkage(target)?,
             post_link_actions: vec!["rustc strips symbols during linking".to_owned()],
         },
-        source_sha256: source_digest(source.selector, source.contents),
-        production_compile_link_nanoseconds,
+        source_sha256: super::super::compilation::source_digest(source.contents),
         executable,
         linker_map,
         timed_executable,
@@ -131,33 +124,12 @@ fn rust_configuration(
     linker: &Path,
     controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<PeerCompilerConfiguration, String> {
-    let mut arguments = vec![
-        crate::path::slash_separated(source),
-        "--edition".to_owned(),
-        "2024".to_owned(),
-        "--target".to_owned(),
-        target.as_str().to_owned(),
-        "-C".to_owned(),
-        "opt-level=3".to_owned(),
-        "-C".to_owned(),
-        "debuginfo=0".to_owned(),
-        "-C".to_owned(),
-        "panic=abort".to_owned(),
-        "-C".to_owned(),
-        "codegen-units=1".to_owned(),
-        "-C".to_owned(),
-        "lto=off".to_owned(),
-        "-C".to_owned(),
-        "strip=symbols".to_owned(),
-        "-C".to_owned(),
-        format!("linker={}", crate::path::slash_separated(linker)),
+    let mut arguments = rust_release_arguments(source, target, linker);
+
+    arguments.extend([
         "--cfg".to_owned(),
         format!("peer_workload=\"{workload}\""),
-    ];
-
-    if target.object_format() == ObjectFormat::Coff {
-        arguments.extend(["-C".to_owned(), "target-feature=+crt-static".to_owned()]);
-    }
+    ]);
 
     let mut environment = BTreeMap::new();
 
@@ -180,7 +152,58 @@ fn rust_configuration(
         batching: peer_batching(controlled_inner_iterations),
     })
 }
+fn rust_release_arguments(source: &Path, target: NativeTarget, linker: &Path) -> Vec<String> {
+    let mut arguments = vec![
+        crate::path::slash_separated(source),
+        "--edition".to_owned(),
+        "2024".to_owned(),
+        "--target".to_owned(),
+        target.as_str().to_owned(),
+        "-C".to_owned(),
+        "opt-level=3".to_owned(),
+        "-C".to_owned(),
+        "debuginfo=0".to_owned(),
+        "-C".to_owned(),
+        "panic=abort".to_owned(),
+        "-C".to_owned(),
+        "codegen-units=1".to_owned(),
+        "-C".to_owned(),
+        "lto=off".to_owned(),
+        "-C".to_owned(),
+        "strip=symbols".to_owned(),
+        "-C".to_owned(),
+        format!("linker={}", crate::path::slash_separated(linker)),
+    ];
 
+    if target.object_format() == ObjectFormat::Coff {
+        arguments.extend(["-C".to_owned(), "target-feature=+crt-static".to_owned()]);
+    }
+
+    arguments
+}
+pub(in crate::performance) fn matched_rust_configuration(
+    root: &Path,
+    source: &Path,
+    executable: &Path,
+    linker_map: &Path,
+    target: NativeTarget,
+) -> Result<(PathBuf, PeerCompilerConfiguration), String> {
+    let linker = rust_linker(root, target);
+    let mut arguments = rust_release_arguments(source, target, &linker);
+
+    append_rust_linker_map(&mut arguments, target.object_format(), linker_map)?;
+
+    arguments.extend(["-o".to_owned(), crate::path::slash_separated(executable)]);
+
+    Ok((
+        linker,
+        PeerCompilerConfiguration {
+            arguments,
+            environment: BTreeMap::new(),
+            batching: PeerBatching::SingleExecution,
+        },
+    ))
+}
 fn rust_linker(root: &Path, target: NativeTarget) -> PathBuf {
     let name = match target.object_format() {
         ObjectFormat::Coff => "lld-link",
@@ -225,15 +248,12 @@ fn build_cpp(
         None,
     )?;
 
-    let started = Instant::now();
-
     let compiler = crate::path::slash_separated(&clang);
 
     run_compiler(&compiler, &production, "building C++ performance peer")?;
 
     strip_cpp_artifact(root, &executable)?;
 
-    let production_compile_link_nanoseconds = elapsed_nanoseconds(started);
     let timed_executable = directory.join(crate::native_toolchain::executable_name("peer-timed"));
     let timed_linker_map = directory.join("peer-timed.map");
 
@@ -262,8 +282,7 @@ fn build_cpp(
             runtime_linkage: runtime_linkage(target)?,
             post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
         },
-        source_sha256: source_digest(source.selector, source.contents),
-        production_compile_link_nanoseconds,
+        source_sha256: super::super::compilation::source_digest(source.contents),
         executable,
         linker_map,
         timed_executable,
@@ -278,27 +297,9 @@ fn cpp_configuration(
     selector: &str,
     controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<PeerCompilerConfiguration, String> {
-    let mut arguments = vec![
-        "--driver-mode=g++".to_owned(),
-        "-std=c++20".to_owned(),
-        "-O3".to_owned(),
-        "-DNDEBUG".to_owned(),
-        "-fno-exceptions".to_owned(),
-        "-fno-rtti".to_owned(),
-        "-fuse-ld=lld".to_owned(),
-        format!("--target={}", target.as_str()),
-        format!("-DBRAY_WORKLOAD={selector}"),
-    ];
+    let mut arguments = cpp_release_arguments(target);
 
-    if target.object_format() == ObjectFormat::Coff {
-        arguments.push("-fms-runtime-lib=static".to_owned());
-
-        if target.as_str().starts_with("x86_64-") {
-            arguments.push("-D_AMD64_".to_owned());
-        }
-    } else if target.object_format() == ObjectFormat::Elf {
-        arguments.extend(["-static-libstdc++".to_owned(), "-static-libgcc".to_owned()]);
-    }
+    arguments.push(format!("-DBRAY_WORKLOAD={selector}"));
 
     if let Some(inner_iterations) = controlled_inner_iterations {
         arguments.push("-DBRAY_PEER_TIMING".to_owned());
@@ -324,6 +325,54 @@ fn cpp_configuration(
     })
 }
 
+fn cpp_release_arguments(target: NativeTarget) -> Vec<String> {
+    let mut arguments = vec![
+        "--driver-mode=g++".to_owned(),
+        "-std=c++20".to_owned(),
+        "-O3".to_owned(),
+        "-DNDEBUG".to_owned(),
+        "-fno-exceptions".to_owned(),
+        "-fno-rtti".to_owned(),
+        "-fuse-ld=lld".to_owned(),
+        format!("--target={}", target.as_str()),
+    ];
+
+    if target.object_format() == ObjectFormat::Coff {
+        arguments.push("-fms-runtime-lib=static".to_owned());
+
+        if target.as_str().starts_with("x86_64-") {
+            arguments.push("-D_AMD64_".to_owned());
+        }
+    } else if target.object_format() == ObjectFormat::Elf {
+        arguments.extend(["-static-libstdc++".to_owned(), "-static-libgcc".to_owned()]);
+    }
+
+    arguments
+}
+
+pub(in crate::performance) fn matched_cpp_configuration(
+    source: &Path,
+    executable: &Path,
+    linker_map: &Path,
+    target: NativeTarget,
+) -> Result<PeerCompilerConfiguration, String> {
+    let mut arguments = cpp_release_arguments(target);
+
+    append_cpp_linker_map(&mut arguments, target.object_format(), linker_map)?;
+
+    arguments.extend([
+        crate::path::slash_separated(source),
+        "-o".to_owned(),
+        crate::path::slash_separated(executable),
+    ]);
+
+    Ok(PeerCompilerConfiguration {
+        arguments,
+        environment: BTreeMap::new(),
+        batching: PeerBatching::SingleExecution,
+    })
+}
+
 fn strip_cpp_artifact(root: &Path, executable: &Path) -> Result<(), String> {
     let strip = bray_llvm_toolchain::tool_path(root, "llvm-strip");
     let mut command = Command::new(strip);
@@ -333,7 +382,7 @@ fn strip_cpp_artifact(root: &Path, executable: &Path) -> Result<(), String> {
     crate::command::require_success(command, "stripping C++ performance peer").map(|_| ())
 }
 
-pub(in crate::standard_library::performance) fn runtime_linkage(
+pub(in crate::performance) fn runtime_linkage(
     target: NativeTarget,
 ) -> Result<RuntimeLinkage, String> {
     match target.object_format() {
@@ -348,7 +397,7 @@ pub(in crate::standard_library::performance) fn runtime_linkage(
     }
 }
 
-pub(in crate::standard_library::performance) fn rebuild_timed(
+pub(in crate::performance) fn rebuild_timed(
     root: &Path,
     target: NativeTarget,
     workload: &str,
@@ -416,7 +465,7 @@ pub(in crate::standard_library::performance) fn rebuild_timed(
     Ok(())
 }
 
-pub(in crate::standard_library::performance) fn build_configuration_matches(
+pub(in crate::performance) fn build_configuration_matches(
     language: PeerLanguage,
     workload: &str,
     target: NativeTarget,
@@ -497,11 +546,9 @@ pub(in crate::standard_library::performance) fn build_configuration_matches(
         }
     };
 
-    !configuration.compiler.is_empty()
-        && configuration.target == target.as_str()
+    configuration.target == target.as_str()
         && configuration.production == expected.0
         && configuration.timed == expected.1
-        && configuration.runtime_linkage == RuntimeLinkage::StaticApplicationRuntime
         && configuration.post_link_actions == [expected.2]
         && match language {
             PeerLanguage::Rust => configuration.compiler == "rustc",
@@ -509,7 +556,7 @@ pub(in crate::standard_library::performance) fn build_configuration_matches(
         }
 }
 
-fn run_compiler(
+pub(in crate::performance) fn run_compiler(
     program: impl AsRef<std::ffi::OsStr>,
     configuration: &PeerCompilerConfiguration,
     description: &str,
@@ -532,7 +579,7 @@ fn peer_batching(inner_iterations: Option<NonZeroU64>) -> PeerBatching {
 }
 
 #[cfg(test)]
-pub(in crate::standard_library::performance) fn fixture_build_configuration(
+pub(in crate::performance) fn fixture_build_configuration(
     language: PeerLanguage,
     workload: &str,
     target: NativeTarget,
@@ -611,6 +658,67 @@ pub(in crate::standard_library::performance) fn fixture_build_configuration(
             post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
         },
     }
+}
+
+fn append_rust_linker_map(
+    arguments: &mut Vec<String>,
+    format: ObjectFormat,
+    map: &Path,
+) -> Result<(), String> {
+    let map = crate::path::slash_separated(map);
+
+    let argument = match format {
+        ObjectFormat::Coff => format!("/MAP:{map}"),
+        ObjectFormat::Elf => format!("-Wl,-Map,{map}"),
+        ObjectFormat::MachO => format!("-Wl,-map,{map}"),
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+            return Err("performance peers do not support the selected object format".to_owned());
+        }
+    };
+
+    arguments.extend(["-C".to_owned(), format!("link-arg={argument}")]);
+
+    Ok(())
+}
+
+fn append_cpp_linker_map(
+    arguments: &mut Vec<String>,
+    format: ObjectFormat,
+    map: &Path,
+) -> Result<(), String> {
+    let map = crate::path::slash_separated(map);
+
+    match format {
+        ObjectFormat::Coff => arguments.push(format!("-Wl,/MAP:{map}")),
+        ObjectFormat::Elf => arguments.push(format!("-Wl,-Map,{map}")),
+        ObjectFormat::MachO => arguments.push(format!("-Wl,-map,{map}")),
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+            return Err("performance peers do not support the selected object format".to_owned());
+        }
+    }
+
+    Ok(())
+}
+
+pub(in crate::performance) fn command_identity(
+    command: &mut Command,
+    tool: &str,
+) -> Result<String, String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("could not run {tool}: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!("{tool} did not report its identity"));
+    }
+
+    let identity = String::from_utf8_lossy(&output.stdout);
+
+    Ok(identity.lines().next().unwrap_or_default().trim().to_owned())
+}
+
+pub(in crate::performance) fn elapsed_nanoseconds(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
@@ -815,79 +923,4 @@ mod tests {
 
         assert_eq!(rust.batching, cpp.batching);
     }
-}
-
-fn append_rust_linker_map(
-    arguments: &mut Vec<String>,
-    format: ObjectFormat,
-    map: &Path,
-) -> Result<(), String> {
-    let argument = match format {
-        ObjectFormat::Coff => format!("/MAP:{}", crate::path::slash_separated(map)),
-        ObjectFormat::Elf => format!("-Wl,-Map,{}", crate::path::slash_separated(map)),
-        ObjectFormat::MachO => format!("-Wl,-map,{}", crate::path::slash_separated(map)),
-        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
-            return Err("performance peers do not support the selected object format".to_owned());
-        }
-    };
-
-    arguments.extend(["-C".to_owned(), format!("link-arg={argument}")]);
-
-    Ok(())
-}
-
-fn append_cpp_linker_map(
-    arguments: &mut Vec<String>,
-    format: ObjectFormat,
-    map: &Path,
-) -> Result<(), String> {
-    match format {
-        ObjectFormat::Coff => {
-            arguments.push(format!("-Wl,/MAP:{}", crate::path::slash_separated(map)))
-        }
-        ObjectFormat::Elf => {
-            arguments.push(format!("-Wl,-Map,{}", crate::path::slash_separated(map)))
-        }
-        ObjectFormat::MachO => {
-            arguments.push(format!("-Wl,-map,{}", crate::path::slash_separated(map)))
-        }
-        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
-            return Err("performance peers do not support the selected object format".to_owned());
-        }
-    }
-
-    Ok(())
-}
-
-fn command_identity(command: &mut Command, tool: &str) -> Result<String, String> {
-    let output = command
-        .output()
-        .map_err(|error| format!("could not run {tool}: {error}"))?;
-
-    if !output.status.success() {
-        return Err(format!("{tool} did not report its identity"));
-    }
-
-    let identity = String::from_utf8_lossy(&output.stdout);
-
-    Ok(identity
-        .lines()
-        .next()
-        .unwrap_or(&identity)
-        .trim()
-        .to_owned())
-}
-
-fn source_digest(selector: &str, source: &str) -> String {
-    let mut digest = Sha256::new();
-
-    digest.update(selector.as_bytes());
-    digest.update([0]);
-    digest.update(source.as_bytes());
-
-    lowercase_hex(&digest.finalize())
-}
-
-fn elapsed_nanoseconds(started: Instant) -> u64 {
-    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }

@@ -2,12 +2,16 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 7;
+pub(super) const SCHEMA_REVISION: u32 = 1;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
 pub(super) const MAX_DYNAMIC_LIBRARY_COUNT: usize = 256;
 pub(super) const MAX_PLATFORM_OPERATION_COUNT: usize = 32;
+pub(super) const MAX_COMPILATION_INPUT_COUNT: usize = 256;
+pub(super) const MAX_TOOL_ARGUMENT_COUNT: usize = 4_096;
+pub(super) const MAX_TOOL_ENVIRONMENT_COUNT: usize = 256;
+pub(super) const MAX_RESPONSE_FILE_COUNT: usize = 16;
 pub(super) const PROCESS_EXECUTION_SCOPE: &str =
     "wall-clock process execution including startup and teardown";
 pub(super) const BRAY_EXECUTION_SCOPE: &str =
@@ -19,6 +23,8 @@ pub(super) const STORAGE_OBSERVATION_SCOPE: &str =
 pub(super) struct PerformanceReport {
     pub schema_revision: u32,
     pub identity: ReportIdentity,
+    pub application_compilation: CompilationComparisonReport,
+    pub library_compilation: CompilationComparisonReport,
     pub workloads: Vec<WorkloadReport>,
 }
 
@@ -47,7 +53,7 @@ pub(super) struct WorkloadReport {
     pub units: String,
     pub expected_output_sha256: String,
     pub batching: WorkloadBatching,
-    pub compilation: bray_compilation::CompilationProfileReport,
+    pub compiler_profile: bray_compilation::CompilationProfileReport,
     pub process_execution: ExecutionStatistics,
     pub bray_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
@@ -67,11 +73,110 @@ pub(super) struct PeerReport {
     pub toolchain: String,
     pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
-    pub production_compile_link_nanoseconds: u64,
     pub process_execution: ExecutionStatistics,
     pub controlled_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
     pub observations: WorkloadObservations,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub(super) struct CompilationComparisonReport {
+    pub kind: CompilationKind,
+    pub contract: String,
+    pub comparability: CompilationComparability,
+    pub builds: BTreeMap<CompilationLanguage, CompilationBuildReport>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CompilationKind {
+    Application,
+    Library,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CompilationLanguage {
+    Bray,
+    Rust,
+    Cpp,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(super) enum CompilationComparability {
+    Comparable,
+    Incomparable {
+        reasons: BTreeMap<CompilationLanguage, Vec<CompilationIncomparability>>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CompilationIncomparability {
+    MissingImplementation,
+    MissingSourceAuthority,
+    MissingPackageInputs,
+    MissingModuleInputs,
+    DifferentSourceUnitCount,
+    DifferentPackageInputCount,
+    DifferentModuleInputCount,
+    MissingPackagedLibraryArtifact,
+    UnexpectedReusedArtifact,
+    CompilesLibrarySourceForApplication,
+    ReusesPackagedLibraryForLibraryBuild,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub(super) struct CompilationBuildReport {
+    pub toolchain: String,
+    pub source_sha256: String,
+    pub elapsed_nanoseconds: u64,
+    pub authority: CompilationAuthority,
+    pub compiler: ToolInvocationReport,
+    pub linker: LinkerInvocationReport,
+    pub reused_artifacts: BoundedList<RetainedInput>,
+    pub profile: Option<bray_compilation::CompilationProfileReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct CompilationAuthority {
+    pub source_units: u64,
+    pub source_bytes: u64,
+    pub packages: Vec<String>,
+    pub modules: Vec<String>,
+    pub library_reuse: LibraryReuse,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LibraryReuse {
+    Packaged,
+    Source,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub(super) enum LinkerInvocationReport {
+    IntegratedCompilerDriver {
+        driver: String,
+        arguments: Vec<String>,
+    },
+    NotApplicable,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct ToolInvocationReport {
+    pub program: String,
+    pub arguments: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+    pub response_files: Vec<ResponseFileReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct ResponseFileReport {
+    pub path: String,
+    pub contents_hex: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -213,6 +318,8 @@ pub(super) struct ComparisonReport {
     pub schema_revision: u32,
     pub baseline_identity: ReportIdentity,
     pub candidate_identity: ReportIdentity,
+    pub application_compilation: BTreeMap<CompilationLanguage, MetricComparison>,
+    pub library_compilation: BTreeMap<CompilationLanguage, MetricComparison>,
     pub workloads: Vec<WorkloadComparison>,
 }
 
@@ -230,7 +337,6 @@ pub(super) struct WorkloadComparison {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct PeerComparison {
-    pub compile_link: MetricComparison,
     pub process_execution: MetricComparison,
     pub controlled_execution: MetricComparison,
     pub artifacts: Vec<ArtifactComparison>,

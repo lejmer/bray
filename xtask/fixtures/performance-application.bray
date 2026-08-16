@@ -1,0 +1,6 @@
+module performance_application;
+
+func main() -> i32
+{
+    return 0;
+}

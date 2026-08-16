@@ -1,7 +1,7 @@
 use super::super::model::PeerLanguage;
 
-pub(super) const RUST_SOURCE: &str = include_str!("../../../../fixtures/performance-peer.rs");
-pub(super) const CPP_SOURCE: &str = include_str!("../../../../fixtures/performance-peer.cpp");
+pub(super) const RUST_SOURCE: &str = include_str!("../../../fixtures/performance-peer.rs");
+pub(super) const CPP_SOURCE: &str = include_str!("../../../fixtures/performance-peer.cpp");
 
 pub(super) struct PeerSource {
     pub language: PeerLanguage,
@@ -45,7 +45,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
     ])
 }
 
-pub(in crate::standard_library::performance) fn corpus_contract(workload: &str) -> String {
+pub(in crate::performance) fn corpus_contract(workload: &str) -> String {
     let comparison_contract = comparison_contract(workload).unwrap_or("missing");
     let mut contract = format!("contract\0{comparison_contract}\0");
 
@@ -66,7 +66,7 @@ pub(in crate::standard_library::performance) fn corpus_contract(workload: &str) 
     contract
 }
 
-pub(in crate::standard_library::performance) fn comparison_contract(
+pub(in crate::performance) fn comparison_contract(
     workload: &str,
 ) -> Option<&'static str> {
     match workload {

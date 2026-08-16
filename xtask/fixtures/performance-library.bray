@@ -1,0 +1,14 @@
+module performance_library;
+
+func accumulate(seed: u64, mut count: u64) -> u64
+{
+    let mut value: u64 = seed;
+
+    while count > 0
+    {
+        count -= 1;
+        value += count;
+    }
+
+    return value;
+}

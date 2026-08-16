@@ -11,6 +11,7 @@ mod native_product;
 mod native_toolchain;
 mod package_interface;
 mod path;
+mod performance;
 mod progress;
 mod readiness;
 mod runtime_artifact;
@@ -19,7 +20,7 @@ mod standard_library;
 mod style;
 mod workspace;
 
-const USAGE: &str = "usage: cargo xtask <compiler-known | format | package-interface | readiness | runtime-artifact | standard-library | style> ...";
+const USAGE: &str = "usage: cargo xtask <compiler-known | format | package-interface | performance | readiness | runtime-artifact | standard-library | style> ...";
 
 fn main() -> std::process::ExitCode {
     let mut arguments = std::env::args().skip(1);
@@ -28,6 +29,7 @@ fn main() -> std::process::ExitCode {
         Some("compiler-known") => compiler_known::run(arguments),
         Some("format") => source_format::run(arguments),
         Some("package-interface") => package_interface::run(arguments),
+        Some("performance") => performance::run(arguments),
         Some("readiness") => readiness::run(arguments),
         Some("runtime-artifact") => runtime_artifact::run(arguments),
         Some("standard-library") => standard_library::run(arguments),

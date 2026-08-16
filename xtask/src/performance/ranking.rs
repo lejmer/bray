@@ -6,7 +6,6 @@ pub(super) struct CandidateWinners {
     pub(super) process_median: Option<u64>,
     pub(super) throughput: Option<u64>,
     pub(super) executable_bytes: Option<u64>,
-    pub(super) compile_link_nanoseconds: Option<u64>,
     pub(super) allocation_count: Option<u64>,
     pub(super) allocated_bytes: Option<u64>,
     pub(super) copied_bytes: Option<u64>,
@@ -58,14 +57,6 @@ impl CandidateWinners {
                         .peers
                         .values()
                         .map(|peer| executable_bytes(&peer.artifacts)),
-                ),
-            ),
-            compile_link_nanoseconds: minimum_complete(
-                std::iter::once(Some(workload.compilation.elapsed_nanoseconds)).chain(
-                    workload
-                        .peers
-                        .values()
-                        .map(|peer| Some(peer.production_compile_link_nanoseconds)),
                 ),
             ),
             allocation_count: minimum_complete(

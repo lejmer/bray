@@ -63,7 +63,7 @@ pub(super) fn report_identity(
     })
 }
 
-pub(in crate::standard_library::performance) fn expected_output_digest(
+pub(in crate::performance) fn expected_output_digest(
     output: ExpectedOutput,
 ) -> Result<String, String> {
     let mut digest = Sha256::new();
@@ -118,11 +118,6 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
         digest.update([0]);
         digest.update(super::super::peer::corpus_contract(workload.id).as_bytes());
         digest.update([0]);
-
-        for source in workload.standard_library_sources {
-            digest.update(source.as_bytes());
-            digest.update([0]);
-        }
 
         match workload.expected_output {
             ExpectedOutput::Empty => digest.update([0]),

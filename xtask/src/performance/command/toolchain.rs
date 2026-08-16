@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use super::progress;
 use crate::bundle::DirectoryPublication;
 
-const CACHE_FORMAT_REVISION: u8 = 2;
+const CACHE_FORMAT_REVISION: u8 = 3;
 const CACHE_INPUT_FILE_NAME: &str = "input.sha256";
 const INPUT_FILES: &[&str] = &["Cargo.lock", "Cargo.toml", "xtask/Cargo.toml"];
 const SOURCE_ROOTS: &[&str] = &[
@@ -19,9 +19,9 @@ const SOURCE_ROOTS: &[&str] = &[
     "xtask/src",
 ];
 const EXCLUDED_SOURCE_PATHS: &[&str] = &[
-    "xtask/src/standard_library/performance/html.rs",
-    "xtask/src/standard_library/performance/ranking.rs",
-    "xtask/src/standard_library/performance/report.rs",
+    "xtask/src/performance/html.rs",
+    "xtask/src/performance/ranking.rs",
+    "xtask/src/performance/report.rs",
 ];
 
 pub(super) struct PreparedToolchain {
@@ -223,23 +223,23 @@ mod tests {
     #[test]
     fn report_rendering_does_not_invalidate_the_compiled_toolchain() {
         assert!(source_path_is_excluded(Path::new(
-            "xtask/src/standard_library/performance/report.rs"
+            "xtask/src/performance/report.rs"
         )));
 
         assert!(source_path_is_excluded(Path::new(
-            "xtask/src/standard_library/performance/html.rs"
+            "xtask/src/performance/html.rs"
         )));
 
         assert!(source_path_is_excluded(Path::new(
-            "xtask/src/standard_library/performance/ranking.rs"
+            "xtask/src/performance/ranking.rs"
         )));
 
         assert!(!source_path_is_excluded(Path::new(
-            "xtask/src/standard_library/performance/model.rs"
+            "xtask/src/performance/model.rs"
         )));
 
         assert!(!source_path_is_excluded(Path::new(
-            "xtask/src/standard_library/performance/command/toolchain.rs"
+            "xtask/src/performance/command/toolchain.rs"
         )));
     }
 

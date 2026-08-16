@@ -16,8 +16,10 @@ use super::corpus::{
     ExpectedSideEffects,
 };
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBatching, PeerLanguage,
-    PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, CompilationBuildReport,
+    CompilationComparability, CompilationIncomparability, CompilationKind, CompilationLanguage,
+    LibraryReuse, LinkerInvocationReport, Observation, PeerBatching, PeerLanguage, PeerReport,
+    PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION, ToolInvocationReport,
     WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
@@ -257,6 +259,138 @@ fn reports_round_trip_with_explicit_unavailable_observations() {
 }
 
 #[test]
+fn compilation_reuse_excludes_application_owned_objects() {
+    let mut report = report("corpus", 101, 2);
+
+    let build = report
+        .application_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("application comparison must contain Rust"));
+
+    build.reused_artifacts = super::compilation::reused_artifacts(
+        &[ArtifactReport {
+            kind: ArtifactKind::Executable,
+            path: "application".to_owned(),
+            bytes: 1,
+            sections: bounded(Vec::new()),
+            dependencies: ArtifactDependencies {
+                static_inputs: bounded(vec![
+                    super::model::RetainedInput {
+                        artifact: "application.o".to_owned(),
+                        member: None,
+                    },
+                    retained("std.lib", "runtime.o"),
+                ]),
+                dynamic_libraries: bounded(Vec::new()),
+            },
+            linker_map: None,
+        }],
+        [],
+    );
+
+    assert_eq!(build.reused_artifacts.entries, [retained("std.lib", "runtime.o")]);
+}
+
+#[test]
+fn compilation_comparability_rejects_stale_claims_and_suppresses_winners() {
+    let mut report = report("corpus", 101, 2);
+
+    let rust = report
+        .application_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("application comparison must contain Rust"));
+
+    rust.authority.library_reuse = LibraryReuse::Source;
+
+    assert!(super::validation::validate(&report).is_err());
+
+    let builds = std::mem::take(&mut report.application_compilation.builds);
+
+    report.application_compilation = super::compilation::comparison(
+        CompilationKind::Application,
+        super::compilation::MATCHED_APPLICATION_CONTRACT,
+        builds,
+    );
+
+    super::validation::validate(&report)
+        .unwrap_or_else(|error| panic!("incomparable authority must remain reportable: {error}"));
+
+    let mut html = super::html::BoundedHtml::new();
+
+    super::presentation::compilation_comparison(
+        &mut html,
+        "Application compilation",
+        &report.application_compilation,
+    );
+
+    let html = super::html::finish(html)
+        .unwrap_or_else(|error| panic!("incomparable comparison must render: {error}"));
+
+    assert!(html.contains("application build compiled library source"));
+    assert!(!html.contains("class=\"metric-best\""));
+}
+
+#[test]
+fn compilation_comparability_explains_different_source_authority() {
+    let mut report = report("corpus", 101, 2);
+
+    let rust = report
+        .library_compilation
+        .builds
+        .get_mut(&CompilationLanguage::Rust)
+        .unwrap_or_else(|| panic!("library comparison must contain Rust"));
+
+    rust.authority.source_units = 2;
+    rust.authority.packages.push("support".to_owned());
+    rust.authority.modules.push("support".to_owned());
+
+    let builds = std::mem::take(&mut report.library_compilation.builds);
+
+    report.library_compilation = super::compilation::comparison(
+        CompilationKind::Library,
+        super::compilation::MATCHED_LIBRARY_CONTRACT,
+        builds,
+    );
+
+    super::validation::validate(&report)
+        .unwrap_or_else(|error| panic!("different authority must remain reportable: {error}"));
+
+    let CompilationComparability::Incomparable { reasons } =
+        &report.library_compilation.comparability
+    else {
+        panic!("different authority must be incomparable");
+    };
+
+    assert_eq!(
+        reasons[&CompilationLanguage::Rust],
+        [
+            CompilationIncomparability::DifferentSourceUnitCount,
+            CompilationIncomparability::DifferentPackageInputCount,
+            CompilationIncomparability::DifferentModuleInputCount,
+        ]
+    );
+}
+
+#[test]
+fn matched_compilation_lanes_record_external_source_authority() {
+    let report = report("corpus", 101, 2);
+
+    for build in report.application_compilation.builds.values() {
+        assert_eq!(build.authority.library_reuse, LibraryReuse::Packaged);
+        assert!(!build.reused_artifacts.entries.is_empty());
+        assert!(!build.compiler.program.is_empty());
+    }
+
+    for build in report.library_compilation.builds.values() {
+        assert_eq!(build.authority.library_reuse, LibraryReuse::Source);
+        assert!(build.reused_artifacts.entries.is_empty());
+        assert!(!build.compiler.program.is_empty());
+    }
+}
+
+#[test]
 fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
     let baseline = report("corpus", 100, 4);
     let candidate = report("corpus", 102, 4);
@@ -298,7 +432,7 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
     for (language, peer) in &mut recalibrated.workloads[0].peers {
         peer.controlled_execution = recalibrated_execution.clone();
 
-        peer.build_configuration = super::peer::fixture_build_configuration(
+        let configuration = super::peer::fixture_build_configuration(
             *language,
             "small_output",
             bray_target::NativeTarget::X86_64WindowsMsvc,
@@ -306,6 +440,8 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
             std::num::NonZeroU64::new(recalibrated_count)
                 .unwrap_or_else(|| panic!("recalibrated fixture count must be nonzero")),
         );
+
+        peer.build_configuration = configuration;
     }
 
     compare(&baseline, &recalibrated)
@@ -358,10 +494,8 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
         .get_mut(&PeerLanguage::Rust)
         .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
         .build_configuration
-        .production
-        .batching = PeerBatching::Repeated {
-        inner_iterations: 100_000_000,
-    };
+        .timed
+        .batching = PeerBatching::SingleExecution;
 
     assert!(compare(&baseline, &batched_production).is_err());
 
@@ -421,7 +555,7 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
 
     let workload = &mut candidate.workloads[0];
 
-    workload.compilation.metrics[0].value = 5;
+    workload.compiler_profile.metrics[0].value = 5;
     workload.artifacts[0].bytes = 120;
     workload.artifacts[0].sections.entries[0].bytes = 30;
 
@@ -530,18 +664,47 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         .display()
         .to_string();
 
-        PeerReport {
+        let configuration = super::peer::fixture_build_configuration(
+            language,
+            "small_output",
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            std::path::Path::new(&path),
+            std::num::NonZeroU64::new(inner_iterations)
+                .unwrap_or_else(|| panic!("fixture repetition count must be nonzero")),
+        );
+
+        let build = CompilationBuildReport {
             toolchain: "peer compiler".to_owned(),
-            build_configuration: super::peer::fixture_build_configuration(
-                language,
-                "small_output",
-                bray_target::NativeTarget::X86_64WindowsMsvc,
-                std::path::Path::new(&path),
-                std::num::NonZeroU64::new(inner_iterations)
-                    .unwrap_or_else(|| panic!("fixture repetition count must be nonzero")),
-            ),
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
-            production_compile_link_nanoseconds: median,
+            elapsed_nanoseconds: median,
+            authority: super::compilation::authority(
+                1,
+                11,
+                [format!("{}.performance_peer", peer_language_name(language)), "precompiled_standard_library".to_owned()],
+                [match language {
+                    PeerLanguage::Rust => "crate".to_owned(),
+                    PeerLanguage::Cpp => "translation_unit".to_owned(),
+                }],
+                LibraryReuse::Packaged,
+            ),
+            compiler: ToolInvocationReport {
+                program: configuration.compiler.clone(),
+                arguments: configuration.production.arguments.clone(),
+                environment: configuration.production.environment.clone(),
+                response_files: Vec::new(),
+            },
+            linker: LinkerInvocationReport::IntegratedCompilerDriver {
+                driver: configuration.linker.clone(),
+                arguments: configuration.production.arguments.clone(),
+            },
+            reused_artifacts: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+            profile: None,
+        };
+
+        let report = PeerReport {
+            toolchain: "peer compiler".to_owned(),
+            build_configuration: configuration,
+            source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
             process_execution: process_execution.clone(),
             controlled_execution: bray_execution.clone(),
             artifacts: vec![ArtifactReport {
@@ -564,15 +727,101 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 copied_bytes: unavailable(),
                 platform_operations: BTreeMap::new(),
             },
-        }
+        };
+
+        (report, build)
     };
 
+    let (rust_peer, rust_build) = peer(PeerLanguage::Rust);
+
+    let (cpp_peer, cpp_build) = peer(PeerLanguage::Cpp);
+
     let peers = [
-        (PeerLanguage::Rust, peer(PeerLanguage::Rust)),
-        (PeerLanguage::Cpp, peer(PeerLanguage::Cpp)),
+        (PeerLanguage::Rust, rust_peer),
+        (PeerLanguage::Cpp, cpp_peer),
     ]
     .into_iter()
     .collect();
+
+    let bray_build = CompilationBuildReport {
+        toolchain: "Bray compiler".to_owned(),
+        source_sha256: bray_base::lowercase_hex(&Sha256::digest("Bray source")),
+        elapsed_nanoseconds: median,
+        authority: super::compilation::authority(
+            1,
+            11,
+            ["bray.performance.small_output".to_owned(), "std".to_owned()],
+            ["small_output".to_owned()],
+            LibraryReuse::Packaged,
+        ),
+        compiler: ToolInvocationReport {
+            program: "brayc".to_owned(),
+            arguments: vec!["build".to_owned()],
+            environment: BTreeMap::new(),
+            response_files: Vec::new(),
+        },
+        linker: LinkerInvocationReport::IntegratedCompilerDriver {
+            driver: "brayc".to_owned(),
+            arguments: vec!["build".to_owned()],
+        },
+        reused_artifacts: bounded(vec![retained("runtime.lib", "startup.o")]),
+        profile: Some(profile(median)),
+    };
+
+    let application_compilation = super::compilation::comparison(
+        CompilationKind::Application,
+        super::compilation::MATCHED_APPLICATION_CONTRACT,
+        [
+            (CompilationLanguage::Bray, bray_build),
+            (CompilationLanguage::Rust, rust_build),
+            (CompilationLanguage::Cpp, cpp_build),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
+    let library_build = |language, profile| CompilationBuildReport {
+        toolchain: format!("{language:?} compiler"),
+        source_sha256: bray_base::lowercase_hex(&Sha256::digest(format!("{language:?} library"))),
+        elapsed_nanoseconds: median,
+        authority: super::compilation::authority(
+            1,
+            32,
+            ["performance_library".to_owned()],
+            ["performance_library".to_owned()],
+            LibraryReuse::Source,
+        ),
+        compiler: ToolInvocationReport {
+            program: format!("{language:?}-compiler"),
+            arguments: vec!["compile-library".to_owned()],
+            environment: BTreeMap::new(),
+            response_files: Vec::new(),
+        },
+        linker: LinkerInvocationReport::NotApplicable,
+        reused_artifacts: bounded(Vec::new()),
+        profile,
+    };
+
+    let library_compilation = super::compilation::comparison(
+        CompilationKind::Library,
+        super::compilation::MATCHED_LIBRARY_CONTRACT,
+        [
+            (
+                CompilationLanguage::Bray,
+                library_build(CompilationLanguage::Bray, Some(profile(median))),
+            ),
+            (
+                CompilationLanguage::Rust,
+                library_build(CompilationLanguage::Rust, None),
+            ),
+            (
+                CompilationLanguage::Cpp,
+                library_build(CompilationLanguage::Cpp, None),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
 
     PerformanceReport {
         schema_revision: SCHEMA_REVISION,
@@ -590,6 +839,8 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             sample_iterations: 3,
             timer_resolution_nanoseconds: 100,
         },
+        library_compilation,
+        application_compilation,
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),
             peer_contract: "start and complete an empty program once".to_owned(),
@@ -605,7 +856,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 cpp_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
                 selected_inner_iterations: inner_iterations,
             },
-            compilation: profile(median),
+            compiler_profile: profile(median),
             process_execution,
             bray_execution,
             artifacts: vec![ArtifactReport {
@@ -630,6 +881,13 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             },
             peers,
         }],
+    }
+}
+
+const fn peer_language_name(language: PeerLanguage) -> &'static str {
+    match language {
+        PeerLanguage::Rust => "rust",
+        PeerLanguage::Cpp => "cpp",
     }
 }
 
