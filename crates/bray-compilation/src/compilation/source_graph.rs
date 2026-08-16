@@ -259,6 +259,39 @@ mod tests {
     }
 
     #[test]
+    fn disabled_source_unit_prefixes_do_not_remove_block_module_suffixes() {
+        let source = concat!(
+            "@test\n",
+            "module app;\n",
+            "\n",
+            "func only_test()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "module app.production\n",
+            "{\n",
+            "    func ordinary()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        );
+
+        let library = compilation(&[source], ProductKind::Library);
+        let test = compilation(&[source], ProductKind::Test);
+
+        let library_graph = source_graph(&library);
+        let test_graph = source_graph(&test);
+
+        assert!(!has_declaration(library_graph, "only_test"));
+        assert!(has_declaration(library_graph, "ordinary"));
+        assert_eq!(library_graph.declarations().module_parts().len(), 1);
+
+        assert!(has_declaration(test_graph, "only_test"));
+        assert!(has_declaration(test_graph, "ordinary"));
+        assert_eq!(test_graph.declarations().module_parts().len(), 2);
+    }
+
+    #[test]
     fn test_functions_contribute_only_to_test_products() {
         let source = concat!(
             "module app;\n",

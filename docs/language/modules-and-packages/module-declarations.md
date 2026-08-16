@@ -88,10 +88,12 @@ func parse_packet(pos bytes: &[u8]) -> Packet
 @test
 module net.tests
 {
+    using net;
+
     @test
     func parses_minimal_packet()
     {
-        let _: Packet = net.parse_packet(minimal_packet_bytes());
+        let _: net.Packet = net.parse_packet(minimal_packet_bytes());
     }
 }
 ```
