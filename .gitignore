@@ -34,7 +34,9 @@ profiles/
 .vscode/
 
 # Codex
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/**
 .codex/
 .worktrees/
 
