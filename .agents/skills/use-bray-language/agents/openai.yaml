@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Bray Language"
+  short_description: "Apply Bray-native language features and idioms"
+  default_prompt: "Use $use-bray-language to identify and apply the most direct Bray features for this implementation."

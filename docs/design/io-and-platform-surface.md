@@ -1,7 +1,7 @@
 # I/O And Platform Standard-Library Surface
 
-This document defines the concrete standard-library declaration surface for Bray's external I/O and platform facilities. The
-language semantics governing these declarations are specified in
+This document defines the concrete standard-library declaration surface for Bray's portable external I/O, process, time, and
+entropy facilities. The language semantics governing these declarations are specified in
 [I/O and platform services](../language/io-and-platform-services.md).
 
 No I/O declaration is ambient. Source names it through an ordinary qualified path or makes it available through an explicit
@@ -9,16 +9,26 @@ No I/O declaration is ambient. Source names it through an ordinary qualified pat
 
 ## Package Layout
 
-The public platform-facing modules are:
+The portable public service modules whose declaration contracts are defined here are:
 
-| Module | Public responsibility |
-| --- | --- |
-| `std.io` | Byte streams, standard input and output, buffering, flushing, and I/O failures |
-| `std.path` | Lossless target-native paths and explicit text conversion |
-| `std.fs` | Files, directories, metadata, traversal, and filesystem mutation |
+| Module        | Public responsibility                                                          |
+|---------------|--------------------------------------------------------------------------------|
+| `std.io`      | Byte streams, standard input and output, buffering, flushing, and I/O failures |
+| `std.path`    | Lossless target-native paths and explicit text conversion                      |
+| `std.fs`      | Files, directories, metadata, traversal, and filesystem mutation               |
 | `std.process` | Process context, child-process control, and typed Bray child-process protocols |
-| `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timers |
-| `std.random` | System entropy and deterministic pseudorandom generation |
+| `std.time`    | Durations, monotonic instants, wall-clock values, deadlines, and timers        |
+| `std.random`  | System entropy and deterministic pseudorandom generation                       |
+
+Other public modules in the `std` package are intentionally outside this document. Core data modules are defined by
+[Core data standard library](core-data-standard-library.md). `std.atomic`, `std.run`, and `std.task` are defined by the
+[concurrency specification](../language/async-and-concurrency/standard-library-concurrency.md). `std.memory` is defined by the
+[standard-library memory surface](../language/targets-layout-abi-and-raw-memory/standard-library-memory-surface.md). `std.ffi`,
+`std.ffi.c`, `std.dynamic`, and the target-specific `std.os.*` modules are defined by
+[Foreign and platform interoperability](foreign-and-platform-interoperability.md). `std.testing` is defined by
+[Testing standard library and runner](testing.md).
+
+`std.platform` is an internal implementation module, not part of the public package surface.
 
 These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public `std`
 surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the semantics specified

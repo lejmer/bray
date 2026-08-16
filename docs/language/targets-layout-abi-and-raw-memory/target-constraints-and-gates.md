@@ -16,9 +16,9 @@ module counters;
 
 using std.atomic;
 
-func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
+func add(pos counter: &std.atomic.Atomic<u64>, amount: u64) -> u64
 {
-    return std.atomic.add(counter, amount, ordering = std.atomic.Ordering.acq_rel);
+    return std.atomic.fetch_add(counter, amount, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 }
 ```
 
@@ -36,7 +36,8 @@ struct Counter
 func add(pos counter: &mut Counter, amount: u64) -> u64
 {
     let old = counter.value;
-    counter.value = old + amount;
+    counter.value += amount;
+
     return old;
 }
 ```
@@ -80,7 +81,7 @@ A generic declaration that uses a target-conditional declaration must be valid f
 
 A closed static instance is target-specific. Its canonical identity includes the selected target-profile identity, and its
 initializer, type, constraints, selected witnesses, layout, and storage representation are checked for that profile. A demanded
-thread-static instance additionally requires `target.platform.native_threads`.
+thread-local static instance additionally requires `target.platform.native_threads`.
 
 A target-gated module contribution can prove target availability for declarations inside that contribution.
 

@@ -1,14 +1,14 @@
 # I/O and platform services
 
-Bray exposes external I/O and platform facilities through ordinary declarations in the `std` package. These declarations obey
-normal visibility, ownership, checking, target-availability, and package-interface rules.
+Bray exposes portable external I/O, process, time, and entropy facilities through ordinary declarations in the `std` package.
+These declarations obey normal visibility, ownership, checking, target-availability, and package-interface rules.
 
 No I/O declaration is ambient. Source names it through an ordinary qualified path or makes it available through an explicit
 `using` declaration.
 
 ## Service Modules
 
-The public platform-facing modules are:
+The portable public service modules specified by this chapter are:
 
 | Module        | Public responsibility                                                          |
 |---------------|--------------------------------------------------------------------------------|
@@ -18,6 +18,15 @@ The public platform-facing modules are:
 | `std.process` | Process context, child-process control, and typed Bray child-process protocols |
 | `std.time`    | Durations, monotonic instants, wall-clock values, deadlines, and timers        |
 | `std.random`  | System entropy and deterministic pseudorandom generation                       |
+
+Other public `std` modules remain outside this chapter. `std.atomic`, `std.run`, and `std.task` belong to
+[standard-library concurrency and parallelism](async-and-concurrency/standard-library-concurrency.md).
+`std.memory` belongs to [the standard-library memory surface](targets-layout-abi-and-raw-memory/standard-library-memory-surface.md).
+`std.ffi`, `std.ffi.c`, `std.dynamic`, and the target-specific `std.os.*` modules belong to
+[targets, layout, ABI, and raw memory](targets-layout-abi-and-raw-memory.md). Core data and testing modules are ordinary
+standard-library surfaces rather than platform services specified here.
+
+`std.platform` is an internal implementation module, not part of the public package surface.
 
 These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public `std`
 surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the semantics specified

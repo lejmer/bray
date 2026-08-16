@@ -8,7 +8,7 @@ Examples of access paths include:
 
 - local bindings,
 - product-static instances,
-- thread-static instances on the current exact native-thread attachment,
+- thread-local static instances on the current exact native-thread attachment,
 - field access paths,
 - tuple element projections,
 - array element projections,
@@ -52,8 +52,8 @@ A static access path has no source-owned movement or whole-storage mutation auth
 its dependency root remains available. Interior mutation can project capabilities only through an operation whose contract
 establishes synchronization, atomicity, single assignment, or scoped exclusivity.
 
-A product-static path is rooted in its owning product instance. A thread-static path is rooted in both its owning product and the
-current exact native-thread attachment. These roots participate in every projection from the path.
+A product-static path is rooted in its owning product instance. A thread-local static path is rooted in both its owning product and
+the current exact native-thread attachment. These roots participate in every projection from the path.
 
 Disjointness participates in borrow checking, mutation authority, movement, initialization, destruction, finalization, and condition refinement.
 

@@ -1281,26 +1281,30 @@ Static declarations introduce address-bearing product or native-thread storage.
 
 ```ebnf
 static-declaration =
-    static-declaration-modifiers [ "thread" ] "static" identifier
+    static-directives static-declaration-modifiers "static" identifier
     [ generic-parameter-list ] ":" type-expression { with-clause }
     "=" constant-expression ";" ;
+
+static-directives =
+    { thread-local-directive } ;
+
+thread-local-directive =
+    directive-marker "thread_local" ;
 
 static-declaration-modifiers =
     [ visibility-modifier ] ;
 ```
 
-`static` declares product storage. `thread static` declares storage for each attached native thread.
-
-`thread` is contextual in this declaration position and remains an identifier elsewhere, including in the module path
-`std.thread`.
+`static` declares product storage. `@thread_local` selects storage for each attached native thread. The directive accepts no
+arguments and cannot be repeated.
 
 Generic parameters, when present, are written after the declaration name. Header `with(...)` clauses establish static constraints
 for the declaration.
 
 The type annotation and initializer are required. The initializer is checked as a constant expression template.
 
-Visibility modifiers are valid because static declarations are module-level declarations. The modifier order is visibility,
-optional `thread`, then `static`.
+Visibility modifiers are valid because static declarations are module-level declarations. Directives precede the optional
+visibility modifier and `static`.
 
 The complete storage, specialization, access, dependency, and cleanup rules are defined in
 [Static storage declarations](declarations/static-storage-declarations.md).

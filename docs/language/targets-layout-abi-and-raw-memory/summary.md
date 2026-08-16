@@ -15,7 +15,8 @@ Default physical layout is compiler-defined and not public ABI.
 `@link(...)` and `@symbol(...)` bind ABI-facing declarations to external artifacts and symbols.
 
 Bray static declarations have product or exact-thread address identity and do not implicitly create foreign data-symbol exports.
-Target profiles participate in closed static identity, and native-thread availability also governs thread-static availability.
+Target profiles participate in closed static identity, and native-thread availability also governs `@thread_local` static
+availability.
 
 `RawPointer<T>` is a copyable raw pointer value, not a reference or owner.
 

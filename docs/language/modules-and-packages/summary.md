@@ -7,7 +7,7 @@ Package identity belongs to the package and build layer.
 Package products select explicit source and dependency graphs.
 
 Each runtime product instance owns its realized product statics. Exact native-thread attachments within that product own their
-thread statics until deterministic detach cleanup completes.
+thread-local statics until deterministic detach cleanup completes.
 
 Modules are named declaration containers, not runtime objects.
 

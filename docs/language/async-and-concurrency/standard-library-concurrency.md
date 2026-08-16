@@ -46,8 +46,8 @@ that initializer is lifecycle-resolved, the cell returns to `empty`, and the out
 prevents a reentrant initialization cycle from becoming an indefinite self-wait.
 
 The returned borrow depends on the `Once<T>` owner. When the owner is a product static, that dependency is product-rooted. When it
-is a thread static, it also carries the exact native-thread attachment root. Destroying an initialized `Once<T>` lifecycle-resolves
-the contained `T` exactly once. Destroying an empty or rolled-back value destroys no `T`.
+is a thread-local static, it also carries the exact native-thread attachment root. Destroying an initialized `Once<T>`
+lifecycle-resolves the contained `T` exactly once. Destroying an empty or rolled-back value destroys no `T`.
 
 ## Run and task utilities
 

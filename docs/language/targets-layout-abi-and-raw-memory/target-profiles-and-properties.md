@@ -39,7 +39,7 @@ All target properties used by a product come from that one selected target profi
 The complete target-profile identity participates in every realized static instance identity. A compiler cannot reuse one static
 storage instance across distinct target profiles, even when the currently observed size and initializer bytes happen to match.
 
-Every conforming target provides product-static storage. `thread static` is available exactly when
+Every conforming target provides product-static storage. `@thread_local static` is available exactly when
 `target.platform.native_threads` is true. Such a profile provides target thread-local address identity, per-attachment
 materialization, and exact-thread cleanup support sufficient to satisfy the language lifecycle contract.
 

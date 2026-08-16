@@ -39,7 +39,7 @@ than an ordinary source scope. It catches static cleanup panic or cancellation a
 owned cleanup incident before applying the abnormal abandonment fallback. Synchronous destruction and represented-part destruction
 then complete exactly once, and cleanup continues for independent static nodes.
 
-The same rule applies to thread-static owners at native-thread detachment. Cleanup remains on the exact attached thread.
+The same rule applies to thread-local static owners at native-thread detachment. Cleanup remains on the exact attached thread.
 
 ## Navigation
 

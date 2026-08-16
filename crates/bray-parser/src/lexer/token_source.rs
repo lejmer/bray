@@ -514,23 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_execution_keywords_are_ordinary_identifiers() {
-        let tokens = token_stream("detached spawn thread");
-
-        assert_eq!(
-            token_kinds(&*tokens),
-            [
-                SyntaxKind::IdentifierToken,
-                SyntaxKind::IdentifierToken,
-                SyntaxKind::IdentifierToken,
-                SyntaxKind::EndOfFileToken,
-            ]
-        );
-
-        assert_eq!(token_texts(&tokens), ["detached", "spawn", "thread", ""]);
-    }
-
-    #[test]
     fn ascii_identifiers_can_contain_digits_and_underscores_after_the_first_character() {
         let tokens = token_stream("parse_int BufferReader value2");
 

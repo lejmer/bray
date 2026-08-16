@@ -37,8 +37,8 @@ These include borrow expressions, borrow-typed parameter passing, receiver calls
 A shared borrow of product-static storage depends on the exact owning product and static instance. It can outlive the function that
 formed it when the destination preserves that product dependency.
 
-A shared borrow of thread-static storage additionally depends on the exact native-thread attachment. It cannot be used on another
-native thread, and any retained task is pinned while the dependency is live.
+A shared borrow of thread-local static storage additionally depends on the exact native-thread attachment. It cannot be used on
+another native thread, and any retained task is pinned while the dependency is live.
 
 Static declaration paths provide no direct mutable-borrow capability. A mutable borrow of interior state can be produced only
 through a valid scoped capability and remains dependent on that capability as well as the static roots.

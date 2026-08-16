@@ -173,8 +173,8 @@ thread and process](../async-and-concurrency/standard-library-concurrency.md), a
 exit](../async-and-concurrency/structured-task-scope-exit.md) rules. Each test root resolves every owned child run before that test
 outcome is reported.
 
-All selected test entries in one test-product activation share that product's product-static instances. Thread statics remain per
-exact native-thread attachment. Static cleanup begins only after every test root has resolved, and a static cleanup incident is
+All selected test entries in one test-product activation share that product's product-static instances. Thread-local statics remain
+per exact native-thread attachment. Static cleanup begins only after every test root has resolved, and a static cleanup incident is
 reported as a test-product failure rather than attributed to one test.
 
 Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the ordinary language

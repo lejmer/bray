@@ -153,8 +153,8 @@ After root terminal observation, the host closes new source entries, foreign ent
 the active [teardown set](../declarations/static-storage-declarations.md#entry-closure-and-product-cleanup). It waits for every
 in-flight entry and external root that can reach a domain in that set. A dependency
 owned by a static scheduled for cleanup is an internal lifecycle edge, not an external root. Each eligible attached native thread
-then cleans its thread-static domain on that exact thread and detaches. The host cleans product-static domains after their consumer
-domains and before any retained provider domain.
+then cleans its thread-local static domain on that exact thread and detaches. The host cleans product-static domains after their
+consumer domains and before any retained provider domain.
 
 The mandatory cleanup-report sink, scheduler, required execution lanes, allocator, platform services, loader, and retained provider
 products remain available throughout static cleanup. The host drains static cleanup incidents, shuts down runtime infrastructure,

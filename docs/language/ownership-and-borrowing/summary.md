@@ -16,7 +16,7 @@ Shared borrows can coexist when their capabilities are compatible.
 
 Dependency contracts replace source-level lifetime annotations.
 
-Product-static borrows carry product roots. Thread-static borrows additionally carry exact native-thread attachment roots.
+Product-static borrows carry product roots. Thread-local static borrows additionally carry exact native-thread attachment roots.
 
 Partial moves are allowed only when the remaining partial state is accounted for.
 
