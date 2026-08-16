@@ -870,9 +870,15 @@ constant-modifiers =
     [ visibility-modifier ] ;
 
 static-declaration =
-    static-declaration-modifiers [ "thread" ] "static" identifier
+    static-directives static-declaration-modifiers "static" identifier
     [ generic-parameter-list ] ":" type-expression { with-clause }
     "=" constant-expression ";" ;
+
+static-directives =
+    { thread-local-directive } ;
+
+thread-local-directive =
+    directive-marker "thread_local" ;
 
 static-declaration-modifiers =
     [ visibility-modifier ] ;

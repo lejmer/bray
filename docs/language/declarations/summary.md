@@ -30,8 +30,9 @@ Executable callable and lifecycle bodies remain separate from declaration-owned 
 
 Constant declarations introduce named compile-time values.
 
-Static declarations introduce address-bearing product or exact-thread storage with constant materialization, deterministic closed
-instance identity, inferred dependency roots, and exactly-once cleanup ownership.
+Static declarations introduce address-bearing product storage. The `@thread_local` directive selects exact-thread storage. Both
+forms have constant materialization, deterministic closed instance identity, inferred dependency roots, and exactly-once cleanup
+ownership.
 
 Predicate declarations introduce contract-level relations.
 

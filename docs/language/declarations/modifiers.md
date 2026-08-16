@@ -14,8 +14,6 @@ Common declaration modifiers include:
 - `consume`,
 - `mut`.
 
-`thread` is a declaration-form keyword that precedes `static`. It is not an independently reusable modifier.
-
 Modifier validity depends on the declaration form and declaration context.
 
 `public` and `internal` are visibility modifiers.

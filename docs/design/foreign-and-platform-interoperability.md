@@ -250,9 +250,9 @@ A generated callback trampoline performs these steps in order:
 7. Resolve callback-root lifecycle state, leave the in-flight invocation, and complete the matching outer detach before returning
    to foreign code.
 
-Nested entry reuses one attachment. The outer detach waits for exact-thread dependencies and pinned work, cleans thread statics on
-the same native thread, and only then releases the attachment. Product unload closes new entry and attachment before waiting for
-quiescence.
+Nested entry reuses one attachment. The outer detach waits for exact-thread dependencies and pinned work, cleans thread-local
+statics on the same native thread, and only then releases the attachment. Product unload closes new entry and attachment before
+waiting for quiescence.
 
 Thread initialization is a private platform/runtime mechanism and does not depend on the public `std.thread.Thread<T>` abstraction.
 It establishes only the execution requirements declared by the callback boundary. A callback requiring main-thread, blocking, compute, or

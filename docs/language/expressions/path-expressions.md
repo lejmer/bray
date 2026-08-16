@@ -35,7 +35,7 @@ The result of a path expression can be:
 - a callable declaration,
 - a callable value,
 - a union variant constructor,
-- a product-static or thread-static access path,
+- a product-static or thread-local static access path,
 - a no-payload union variant value,
 - a static function,
 - a method candidate,

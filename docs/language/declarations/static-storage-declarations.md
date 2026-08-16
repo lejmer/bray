@@ -5,15 +5,14 @@ A static declaration introduces address-bearing storage owned by a Bray product 
 ```bray
 static PROCESS_STATE: ProcessState = ProcessState.empty();
 
-thread static THREAD_STATE: ThreadState = ThreadState.empty();
+@thread_local
+static THREAD_STATE: ThreadState = ThreadState.empty();
 ```
 
 `static` declares product-static storage.
 
-`thread static` declares thread-static storage.
-
-`thread` is a contextual declaration keyword only when it immediately precedes `static`. It remains an ordinary identifier in
-other positions.
+`@thread_local` changes a static declaration to thread-local storage with one realized instance for each exact native-thread
+attachment.
 
 A static declaration is valid only at module level. It occupies the ordinary lookup namespace and has ordinary declaration
 visibility.
@@ -25,7 +24,8 @@ A static declaration has a required type and constant initializer.
 ```bray
 internal static METRICS: Metrics = Metrics.empty();
 
-thread static BUFFER<T, const CAPACITY: usize>: Buffer<T, CAPACITY>
+@thread_local
+static BUFFER<T, const CAPACITY: usize>: Buffer<T, CAPACITY>
     with(T: Element) = Buffer<T, CAPACITY>.empty();
 ```
 
@@ -87,7 +87,7 @@ The **canonical static instance identity** is the formally unique tuple containi
 3. the exact selected implementation witnesses required by the declaration type, constraints, initializer, and retained value,
 4. the selected target-profile identity,
 5. the owning product-instance identity,
-6. for thread-static storage, the exact native-thread attachment identity.
+6. for a thread-local static, the exact native-thread attachment identity.
 
 Product-static identity omits the sixth component.
 
@@ -140,8 +140,8 @@ unmaterialized value. Such a cycle must still satisfy the cleanup dependency rul
 
 A static name or qualified static path produces an access path to the selected static instance.
 
-The access path is fully initialized and observable while its product and, for thread statics, exact native-thread attachment remain
-available.
+The access path is fully initialized and observable while its product and, for thread-local statics, exact native-thread attachment
+remain available.
 
 Static storage is an owner. Source expressions cannot move its value out, consume it, replace it, assign to the whole storage, or
 destroy it directly.
@@ -165,8 +165,8 @@ A re-export preserves the static declaration identity. It does not create storag
 product, or perform initialization.
 
 A reachable public static exports its declaration and open instance template through the compiled package interface. Public access
-to a product static carries a dependency on the provider product. Public access to a thread static additionally carries the exact
-native-thread attachment dependency.
+to a product static carries a dependency on the provider product. Public access to a thread-local static additionally carries the
+exact native-thread attachment dependency.
 
 A Bray source export is not an ABI data-symbol export. Importing or exporting native data symbols requires the separate explicit
 ABI declaration form and ownership contract defined for foreign data. No foreign caller can acquire an untracked safe Bray borrow
@@ -201,21 +201,25 @@ order.
 
 ## Exact-thread-rooted dependencies
 
-A thread-static instance belongs to one exact native-thread attachment in one product.
+A thread-local static instance belongs to one exact native-thread attachment in one product.
 
 For a Bray-owned native thread, the attachment spans that thread's Bray entry through its exit cleanup. For a foreign native
 thread, the product attachment begins at the outermost successful attach and ends at its matching detach. Reattaching after a
 completed detach establishes a new exact attachment identity.
 
-A borrow from thread-static storage carries both the owning product root and the exact attachment root. It can escape an accessor
-and survive ordinary calls on that attached thread. It cannot be used from another native thread.
+A borrow from thread-local static storage carries both the owning product root and the exact attachment root. It can escape an
+accessor and survive ordinary calls on that attached thread. It cannot be used from another native thread.
 
 A task retaining an exact-thread-rooted dependency is pinned to that exact thread for every state in which the dependency is live.
 Moving the task or another owning value is valid only when the destination preserves the exact attachment, product, storage,
 synchronization, and cleanup requirements.
 
-A product static cannot retain a thread-static dependency. One thread-static instance can retain a dependency on another instance
-from the same exact attachment or on a product static whose product outlives the attachment.
+A product static cannot retain a thread-local dependency. One thread-local static instance can retain a dependency on another
+instance from the same exact attachment or on a product static whose product outlives the attachment.
+
+Prefer explicit state transfer through `std.thread.start` or `std.thread.run` when the state belongs to one child thread and does
+not need ambient lookup. The creating run transfers the `State` value to the entry callable, which keeps ownership and lifecycle
+visible in ordinary source. Use a thread-local static when independently called code needs the attachment-local storage identity.
 
 ## Product ownership forms
 
@@ -237,7 +241,7 @@ A dynamic-library handle owns or retains the loaded product instance. Exported e
 data views retain that product according to their dependency contracts.
 
 A foreign entry is a run within the entered product, not another static owner. It must acquire the product entry dependency and a
-native-thread attachment before accessing product or thread statics.
+native-thread attachment before accessing product or thread-local statics.
 
 ## Static lifecycle state
 
@@ -252,7 +256,7 @@ demanded
     -> destroyed
 ```
 
-A demanded thread-static instance proceeds through the corresponding states within one exact attachment:
+A demanded thread-local static instance proceeds through the corresponding states within one exact attachment:
 
 ```text
 attached and demanded
@@ -271,7 +275,8 @@ direct cleanup authority over the owned value and can access dependencies declar
 create new static instances, begin new runtime initialization, publish a new escaping static borrow, or reopen product entry.
 
 Each materialized static instance has exactly one cleanup owner. The product host owns product-static cleanup. The exact native
-thread attachment owns its thread-static cleanup, with the product host retaining the attachment obligation until cleanup completes.
+thread attachment owns thread-local static cleanup, with the product host retaining the attachment obligation until cleanup
+completes.
 
 ## Lifecycle dependency graph
 
@@ -294,7 +299,7 @@ that installs a runtime-selected provider dependency must retain that provider a
 dependency becomes reachable.
 
 One **static cleanup domain** contains the statics directly owned by one product instance or one exact native-thread attachment.
-Product statics and each attachment's thread statics therefore belong to separate domains.
+Product statics and each attachment's thread-local statics therefore belong to separate domains.
 
 Within one cleanup domain, cleanup uses a deterministic topological order. When independent nodes are simultaneously eligible, the
 least static cleanup order key runs next. The key is the tuple of the instance identity's declaration identity, normalized closed
@@ -314,7 +319,7 @@ scalar sequences. Floating-point leaves use the IEEE 754 `totalOrder` relation f
 compare lexicographically as unsigned bytes. This order never uses hashes, addresses, demand order, allocation order,
 code-generation order, or emitted symbol spelling.
 
-An edge between domains imposes domain precedence. A thread-static consumer domain completes before a product domain it retains, and
+An edge between domains imposes domain precedence. A thread-local consumer domain completes before a product domain it retains, and
 a consumer-product domain completes before a retained provider-product domain. Independent domains may clean concurrently, so the
 language defines no global execution order between them. Each domain retains its own deterministic node and incident sequence, and
 a host reports concurrent domains as records keyed by exact domain identity rather than by completion arrival order.
@@ -339,7 +344,7 @@ A product with runtime storage follows this order:
 
 1. Materialize demanded product statics and the product host tables needed to own them.
 2. Open source and foreign entry.
-3. Execute roots and allow demand-driven thread-static materialization on attached threads.
+3. Execute roots and allow demand-driven thread-local static materialization on attached threads.
 4. Close new source entry, foreign entry, callback entry, and native-thread attachment for the teardown set.
 5. Resolve every in-flight run and every external root that can reach a domain in the teardown set.
 6. Clean each eligible attachment domain on its exact thread and complete detachment.
@@ -360,13 +365,14 @@ product and is not assigned to an arbitrary test entry.
 ## Thread attachment and detachment
 
 A Bray-owned thread attaches to each entered Bray product before executing product code. Normal or abnormal thread exit closes its
-entries, resolves its runs, and cleans its thread statics before the native thread lifetime ends.
+entries, resolves its runs, and cleans its thread-local statics before the native thread lifetime ends.
 
 An exported ABI trampoline attaches an otherwise foreign native thread before establishing the Bray run. Nested entries reuse the
 same attachment and increment its entry ownership. The matching outer detach can complete only after nested and asynchronous work,
 callbacks, pinned tasks, and exact-thread-rooted dependencies have resolved.
 
-Thread-static cleanup executes on the exact attached native thread. Detach cannot transfer that work to another native thread.
+Thread-local static cleanup executes on the exact attached native thread. Detach cannot transfer that work to another native
+thread.
 
 Product teardown closes new attachments and waits for all existing attachments. If a foreign host abandons an attachment or ends a
 thread without satisfying its detach contract, graceful product unload cannot claim to have completed. Catastrophic process or host

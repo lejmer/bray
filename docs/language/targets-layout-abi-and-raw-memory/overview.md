@@ -9,7 +9,7 @@ They cover:
 - explicit data layout through `@layout(...)`,
 - callable ABI contracts through `@abi(...)`,
 - foreign callable imports and exports,
-- target-specific product and native-thread static representation requirements,
+- target-specific product-static and thread-local static representation requirements,
 - raw pointer values,
 - compiler-known `core.memory` declarations,
 - trusted raw memory conditions and capabilities,

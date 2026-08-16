@@ -21,8 +21,8 @@ Moving a borrow value moves only the borrow value.
 
 Moving a borrow value never moves the reached storage.
 
-A product-static or thread-static value cannot be moved from or consumed through its declaration access path. Moving a borrow or
-copying a copyable subvalue obtained from a static follows the ordinary operation and preserves every product or exact-thread
+A product-static or thread-local static value cannot be moved from or consumed through its declaration access path. Moving a borrow
+or copying a copyable subvalue obtained from a static follows the ordinary operation and preserves every product or exact-thread
 dependency carried by the result.
 
 Moving a mutable borrow transfers its temporary mutation authority to the destination borrow value.

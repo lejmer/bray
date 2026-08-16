@@ -124,12 +124,12 @@ Constant initializers are never evaluated as runtime defaults.
 A static initializer is checked as a constant-expression template with its static declaration.
 
 A non-generic static has one closed template substitution for each target profile and owning product that demands it. A generic
-static can have multiple closed substitutions. Selected implementation witnesses and, for thread statics, the exact native-thread
-attachment complete the instance identity.
+static can have multiple closed substitutions. Selected implementation witnesses and, for thread-local statics, the exact
+native-thread attachment complete the instance identity.
 
 Product formation evaluates each demanded closed initializer template and materializes one initialized storage instance. A
-thread-static template is materialized on its exact thread when that attached thread first demands the instance. Neither operation
-executes a module body or arbitrary runtime initialization code.
+thread-local static template is materialized on its exact thread when that attached thread first demands the instance. Neither
+operation executes a module body or arbitrary runtime initialization code.
 
 Compiled interfaces retain reachable open static templates so a consuming product can realize imported and source-defined statics
 under the same rules.

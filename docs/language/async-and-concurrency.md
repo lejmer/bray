@@ -24,7 +24,7 @@ use ordinary methods on compiler-known owned types.
 - [Cancellation](async-and-concurrency/cancellation.md)
 - [Execution requirements](async-and-concurrency/execution-requirements.md)
 - [Execution roots and product shutdown](async-and-concurrency/execution-roots-and-product-shutdown.md)
-- [Product and thread static lifecycle](declarations/static-storage-declarations.md#entry-closure-and-product-cleanup)
+- [Product and thread-local static lifecycle](declarations/static-storage-declarations.md#entry-closure-and-product-cleanup)
 - [Entrypoints and runtime selection](async-and-concurrency/entrypoints-and-runtime.md)
 - [Cross-run memory model](async-and-concurrency/cross-run-memory-model.md)
 - [Data-race prevention](async-and-concurrency/data-race-prevention.md)

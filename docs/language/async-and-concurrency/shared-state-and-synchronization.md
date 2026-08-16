@@ -2,8 +2,8 @@
 
 Shared mutable state is valid only when access is mediated by a type or declaration contract that defines the synchronization behavior for that state.
 
-This rule applies to product-static and thread-static storage. A static declaration provides stable shared address identity but does
-not provide direct mutation authority or synchronization.
+This rule applies to product-static and thread-local static storage. A static declaration provides stable shared address identity
+but does not provide direct mutation authority or synchronization.
 
 A synchronization contract must identify:
 

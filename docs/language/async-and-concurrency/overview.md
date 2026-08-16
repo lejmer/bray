@@ -28,9 +28,10 @@ Every executable has one host-owned root run. A synchronous entrypoint is that r
 into a host-owned root task with no source-visible `Task<T>`. Child tasks, operating-system threads, and processes remain owned by
 that root or by a checked nested source owner until their terminal outcomes and payload lifecycles resolve.
 
-Product-static storage can outlive every individual run while remaining owned by the product. Thread-static storage is owned by one
-exact native-thread attachment. Dependency contracts retain those roots, constrain run transfer and task migration, and delay
-detachment or product shutdown while storage remains reachable.
+Product-static storage can outlive every individual run while remaining owned by the product. A static carrying `@thread_local` is
+owned by one exact native-thread attachment. Dependency contracts retain those roots, constrain run transfer and task migration,
+and delay detachment or product shutdown while storage remains reachable. State that belongs only to one child thread can instead
+be transferred explicitly through `std.thread.start` or `std.thread.run`.
 
 Operating-system threads, child processes, parallel algorithms, channels, synchronization types, timers, task combinators, and
 other concurrency facilities are ordinary standard-library declarations implemented over private trusted ABI operations. They do

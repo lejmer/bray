@@ -69,8 +69,8 @@ The compiler-provided inherent async member entries are:
 
 ## Static-storage conformance requirements
 
-Product-static and thread-static declarations are language declaration forms. They are not compiler-known declarations and do not
-reserve any standard-library type name.
+Product-static and `@thread_local` static declarations are language declaration forms. They are not compiler-known declarations
+and do not reserve any standard-library type name.
 
 A conforming compiler, compiled-interface implementation, linker, product host, and standard library preserve:
 

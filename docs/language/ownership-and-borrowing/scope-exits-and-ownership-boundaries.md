@@ -35,8 +35,8 @@ If a dependency contract cannot be represented in the destination's declared sem
 Storing into a product static requires every carried dependency to be rooted in the same product or in a retained provider proven
 to outlive that storage. An exact-thread-rooted dependency cannot be stored in product-static storage.
 
-Storing into a thread static requires every carried dependency to be rooted in the same exact attachment, its owning product, or a
-retained provider proven to outlive the attachment.
+Storing into a thread-local static requires every carried dependency to be rooted in the same exact attachment, its owning product,
+or a retained provider proven to outlive the attachment.
 
 Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred dependency contracts.
 

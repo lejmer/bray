@@ -116,8 +116,9 @@ dispatch, depend on address identity, or call a non-const callable.
 
 A static-initializer destination has one narrow address-formation exception. It can form a shared borrow of another demanded static
 instance without observing that instance's value. The borrow records the exact product or exact-thread dependency and the required
-target relocation. A product-static initializer cannot address thread-static storage. A thread-static initializer can address a
-product static or another static from the same exact attachment. Finite address-only cycles follow the static lifecycle rules.
+target relocation. A product-static initializer cannot address thread-local static storage. A thread-local static initializer can
+address a product static or another static from the same exact attachment. Finite address-only cycles follow the static lifecycle
+rules.
 
 Control-flow expressions are valid in constant-evaluation context only when their selected path can be evaluated without runtime storage, runtime effects, or runtime dispatch.
 

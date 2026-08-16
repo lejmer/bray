@@ -14,6 +14,9 @@ struct Header
     ...
 }
 
+@thread_local
+static THREAD_STATE: ThreadState = ThreadState.empty();
+
 @entrypoint
 func main()
 {
@@ -46,6 +49,7 @@ Language-defined directives include:
 - `@abi(...)`,
 - `@layout(...)`,
 - `@copy`,
+- `@thread_local`,
 - `@tag(...)`.
 
 Module directives are defined in [Modules and packages](../modules-and-packages.md).
@@ -53,6 +57,8 @@ Module directives are defined in [Modules and packages](../modules-and-packages.
 Callable ABI, linking, symbols, extern-related directives, target directives, and layout directives are defined in [Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
 
 Copy directives are defined in [Copy contracts](../types/copy-contracts.md).
+
+The thread-local storage directive is defined in [Static storage declarations](static-storage-declarations.md).
 
 Repeated directives, conflicting directives, invalid directive targets, invalid directive arguments, and unsupported directive combinations are rejected.
 

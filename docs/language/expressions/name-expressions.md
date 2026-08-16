@@ -246,12 +246,12 @@ If pattern name resolution is ambiguous, the pattern is rejected.
 
 ## Static name expressions
 
-A name expression can resolve to a visible product-static or thread-static declaration.
+A name expression can resolve to a visible product-static or thread-local static declaration.
 
 The expression produces an access path to the demanded closed static instance. Generic arguments and selected implementation
 witnesses are resolved before the instance is selected.
 
-A product-static path carries its owning product dependency. A thread-static path additionally requires the current exact
+A product-static path carries its owning product dependency. A thread-local static path additionally requires the current exact
 native-thread attachment. The path can be observed or shared-borrowed but cannot be moved from, consumed, assigned as a whole, or
 directly mutably borrowed.
 

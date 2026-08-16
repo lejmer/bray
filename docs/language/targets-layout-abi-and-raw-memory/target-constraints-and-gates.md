@@ -80,7 +80,7 @@ A generic declaration that uses a target-conditional declaration must be valid f
 
 A closed static instance is target-specific. Its canonical identity includes the selected target-profile identity, and its
 initializer, type, constraints, selected witnesses, layout, and storage representation are checked for that profile. A demanded
-thread-static instance additionally requires `target.platform.native_threads`.
+thread-local static instance additionally requires `target.platform.native_threads`.
 
 A target-gated module contribution can prove target availability for declarations inside that contribution.
 
