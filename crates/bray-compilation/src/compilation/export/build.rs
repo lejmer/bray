@@ -733,6 +733,64 @@ mod tests {
     }
 
     #[test]
+    fn library_interfaces_exclude_test_only_block_module_suffixes() {
+        let compilation = compilation(concat!(
+            "module net;\n",
+            "\n",
+            "func parse_packet()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "@test\n",
+            "module net.tests\n",
+            "{\n",
+            "    @test\n",
+            "    func parses_minimal_packet()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let bundle = export(&compilation);
+
+        let package = ExternalSymbolKey::package(
+            PackageIdentity::try_new("example.package")
+                .unwrap_or_else(|| panic!("test package identity must be valid")),
+        );
+
+        let production_module = ExternalSymbolKey::module(
+            package.clone(),
+            ModulePathKey::try_new(["net"])
+                .unwrap_or_else(|| panic!("production module path must be valid")),
+        )
+        .unwrap_or_else(|| panic!("production module key must be valid"));
+
+        let production_function = ExternalSymbolKey::named(
+            production_module,
+            SymbolKind::Function,
+            SymbolName::try_new("parse_packet")
+                .unwrap_or_else(|| panic!("production function name must be valid")),
+        )
+        .unwrap_or_else(|| panic!("production function key must be valid"));
+
+        let test_module = ExternalSymbolKey::module(
+            package,
+            ModulePathKey::try_new(["net", "tests"])
+                .unwrap_or_else(|| panic!("test module path must be valid")),
+        )
+        .unwrap_or_else(|| panic!("test module key must be valid"));
+
+        assert!(
+            bundle
+                .surface()
+                .symbol_by_external_key(&production_function)
+                .is_some()
+        );
+
+        assert!(bundle.surface().symbol_by_external_key(&test_module).is_none());
+    }
+
+    #[test]
     fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
         let compilation = compilation(concat!(
             "module app;\n",

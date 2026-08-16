@@ -16,7 +16,8 @@ The following independent fragments assume referenced support types, traits, cap
 
 ### Module contributions and module body items
 
-A source file starts with either one source-unit module declaration or one or more block module declarations:
+A source file starts with either one source-unit module declaration or one or more block module declarations. A source-unit module
+can own an unbraced production prefix followed by braced module contributions:
 
 ```bray
 @target(target.atomic.U64)

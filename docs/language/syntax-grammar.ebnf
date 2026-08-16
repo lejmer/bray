@@ -15,7 +15,7 @@ compilation-unit =
     { source-unit } ;
 
 source-unit =
-      source-unit-module-declaration { module-item }
+      source-unit-module-declaration { module-item } { block-module-declaration }
     | block-module-declaration { block-module-declaration } ;
 
 source-unit-module-declaration =

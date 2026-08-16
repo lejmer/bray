@@ -83,6 +83,35 @@ fn formats_representative_declarations_and_expressions() {
 }
 
 #[test]
+fn formats_block_module_declarations_after_source_unit_items() {
+    let source = concat!(
+        "module net;",
+        "func parse_packet(){}",
+        "@test module net.tests{@test func parses_minimal_packet(){}}",
+    );
+
+    let output = formatted(source);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module net;\n",
+            "\n",
+            "func parse_packet() {}\n",
+            "\n",
+            "@test\n",
+            "module net.tests\n",
+            "{\n",
+            "    @test\n",
+            "    func parses_minimal_packet() {}\n",
+            "}\n",
+        )
+    );
+
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
 fn separates_multiline_block_items_from_adjacent_items() {
     let source = concat!(
         "module app;func main(){",

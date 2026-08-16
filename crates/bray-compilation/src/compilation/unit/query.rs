@@ -3029,6 +3029,38 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
     }
 
     #[test]
+    fn invalid_target_control_contracts_publish_structured_diagnostics() {
+        let compilation = compilation(concat!(
+            "trusted module app;\n",
+            "trusted func main() -> i32\n",
+            "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+            "{\n",
+            "    return trusted core.target.assembly<((i32, i32), ), (i32, )>(\n",
+            "        template = \"\",\n",
+            "        constraints = \"=reg,reg\",\n",
+            "        clobbers = \"\",\n",
+            "        features = \"\",\n",
+            "        options = 0,\n",
+            "        inputs = ((1, 2),),\n",
+            "    ).0;\n",
+            "}\n",
+        ));
+
+        let operations = compilation
+            .memory_operations(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| {
+                panic!("target-control memory operations must publish: {error:?}")
+            });
+
+        assert!(operations.value().operations().is_empty());
+
+        assert_goal_state_diagnostic_kind(
+            operations.diagnostics(),
+            DiagnosticKind::CheckingInvalidTargetControlContract,
+        );
+    }
+
+    #[test]
     fn invalid_atomic_orders_publish_structured_diagnostics_before_lowering() {
         let compilation = compilation(concat!(
             "module app;\n",

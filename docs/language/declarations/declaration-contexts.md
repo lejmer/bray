@@ -12,7 +12,8 @@ The declaration contexts are:
 - implementation bodies,
 - block expressions.
 
-A source unit begins with either one source-unit module declaration or one or more block module declarations.
+A source unit begins with either one source-unit module declaration or one or more block module declarations. A source-unit module
+contribution can be followed by block module declarations after its unbraced items.
 
 Block module declarations contribute declarations to an explicitly named module.
 

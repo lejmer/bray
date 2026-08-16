@@ -519,6 +519,50 @@ func main()
     }
 
     #[test]
+    fn test_products_discover_entries_from_block_module_suffixes() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module net;\n",
+                "\n",
+                "func parse_packet()\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "@test\n",
+                "module net.tests\n",
+                "{\n",
+                "    using net;\n",
+                "\n",
+                "    @test\n",
+                "    func parses_minimal_packet()\n",
+                "    {\n",
+                "        net.parse_packet();\n",
+                "    }\n",
+                "}\n",
+            ),
+            ProductKind::Test,
+        );
+
+        let semantics = product_semantics(&compilation);
+
+        assert!(
+            semantics.diagnostics().is_empty(),
+            "{:?}",
+            semantics.diagnostics()
+        );
+
+        let [entry] = semantics.value().test_entries() else {
+            panic!(
+                "expected one test entry: {:?}",
+                semantics.value().test_entries()
+            );
+        };
+
+        assert_eq!(entry.module().segments().collect::<Vec<_>>(), ["net", "tests"]);
+        assert_eq!(entry.name().as_str(), "parses_minimal_packet");
+    }
+
+    #[test]
     fn test_products_retain_serial_entry_constraints() {
         let compilation = compilation_with_product(
             "module app;\n\n@test(serial)\nfunc runs_alone()\n{\n}\n",

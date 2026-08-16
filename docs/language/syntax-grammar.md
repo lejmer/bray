@@ -46,15 +46,15 @@ compilation-unit =
 
 Every source unit starts with explicit module syntax.
 
-A source unit can use one unbraced source-unit module declaration followed by items that belong to that module.
-Alternatively, it can use one or more braced block module declarations.
+A source unit can use one unbraced source-unit module declaration followed by items that belong to that module and then zero or
+more braced block module declarations. Alternatively, it can use one or more braced block module declarations.
 
 Loose source-unit items are allowed only after a source-unit module declaration.
-Block module declarations are allowed only as top-level declarations in a block-module-only source unit.
+Once a block module declaration begins, every remaining top-level declaration is another block module declaration.
 
 ```ebnf
 source-unit =
-      source-unit-module-declaration { module-item }
+      source-unit-module-declaration { module-item } { block-module-declaration }
     | block-module-declaration { block-module-declaration } ;
 
 source-unit-module-declaration =
