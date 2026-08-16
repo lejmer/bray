@@ -16,9 +16,9 @@ module counters;
 
 using std.atomic;
 
-func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
+func add(pos counter: &std.atomic.Atomic<u64>, amount: u64) -> u64
 {
-    return std.atomic.add(counter, amount, ordering = std.atomic.Ordering.acq_rel);
+    return std.atomic.fetch_add(counter, amount, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 }
 ```
 
@@ -36,7 +36,8 @@ struct Counter
 func add(pos counter: &mut Counter, amount: u64) -> u64
 {
     let old = counter.value;
-    counter.value = old + amount;
+    counter.value += amount;
+
     return old;
 }
 ```
