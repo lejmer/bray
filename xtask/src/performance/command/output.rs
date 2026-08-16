@@ -2,7 +2,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::super::corpus::ExpectedSideEffects;
 
-pub(in crate::standard_library::performance) fn validate(
+pub(in crate::performance) fn validate(
     execution: &std::process::Output,
     expected_sha256: &str,
     expected_side_effects: ExpectedSideEffects,
@@ -17,7 +17,7 @@ pub(in crate::standard_library::performance) fn validate(
     )
 }
 
-pub(in crate::standard_library::performance) fn validate_parts(
+pub(in crate::performance) fn validate_parts(
     stdout: &[u8],
     stderr: &[u8],
     expected_sha256: &str,

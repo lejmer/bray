@@ -6,14 +6,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use bray_compilation::{
-    CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
-    CompilationRequest, SelectedTarget, WorkerBudget,
+    BuildConfiguration, CompilationOptions, CompilationProfileConfiguration,
+    CompilationProfileMode, CompilationRequest, SelectedTarget, WorkerBudget,
 };
 use bray_emitter::{ArtifactKind as EmittedArtifactKind, resolve_published_artifact};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::StandardLibraryRoot;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
+use bray_tooling::load_llvm_compilation;
 
 use super::super::comparison::compare;
 use super::super::corpus::{
@@ -29,27 +29,30 @@ use super::measurement::{
     ImplementationExecution, ImplementationKey, ImplementationTarget, calibrate_inner_iterations,
     execute_interleaved,
 };
+use super::comparison_build;
 use super::options::Options;
 use super::progress;
 
-const USAGE: &str = "usage: cargo xtask standard-library performance \
+const USAGE: &str = "usage: cargo xtask performance \
     --output <directory> [--baseline <report.json>] [--target <triple>] \
     [--warmup <count>] [--samples <count>] [--workload <identity>]...";
 const MAX_BASELINE_REPORT_BYTES: usize = 16 * 1024 * 1024;
 
-pub(in crate::standard_library) fn run(
+pub(crate) fn run(
     arguments: impl Iterator<Item = String>,
-) -> Result<(), super::super::super::command::BuildError> {
-    let options = Options::parse(arguments).map_err(|detail| {
-        super::super::super::command::BuildError::conformance(
-            "performance",
-            format!("{detail}. {USAGE}"),
-        )
-    })?;
+) -> std::process::ExitCode {
+    let result = Options::parse(arguments)
+        .map_err(|detail| format!("{detail}. {USAGE}"))
+        .and_then(execute);
 
-    execute(options).map_err(|detail| {
-        super::super::super::command::BuildError::conformance("performance", detail)
-    })
+    match result {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+
+            std::process::ExitCode::FAILURE
+        }
+    }
 }
 
 fn execute(mut options: Options) -> Result<(), String> {
@@ -68,6 +71,9 @@ fn execute(mut options: Options) -> Result<(), String> {
     }
 
     let prepared = super::toolchain::prepare(&root, options.target)?;
+    crate::native_toolchain::build_compiler(&root)?;
+
+    let compiler = crate::native_toolchain::compiler_executable(&root, "brayc");
 
     fs::create_dir_all(&options.output)
         .map_err(|error| format!("could not create {}: {error}", options.output.display()))?;
@@ -79,6 +85,30 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     let timer_resolution_nanoseconds = statistics::timer_resolution_nanoseconds()?;
     let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
+    progress::phase("Building matched application peers");
+
+    let application_compilation = comparison_build::build(
+        crate::performance::model::CompilationKind::Application,
+        &root,
+        &compiler,
+        &options.output,
+        options.target,
+        prepared.toolchain(),
+        prepared.runtime(),
+    )?;
+
+    progress::phase("Building matched source library peers");
+
+    let library_compilation = comparison_build::build(
+        crate::performance::model::CompilationKind::Library,
+        &root,
+        &compiler,
+        &options.output,
+        options.target,
+        prepared.toolchain(),
+        prepared.runtime(),
+    )?;
+
     let mut workloads = Vec::with_capacity(selected.len());
 
     progress::plan(selected.len(), options.warmup, options.samples);
@@ -99,6 +129,8 @@ fn execute(mut options: Options) -> Result<(), String> {
     let candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,
         identity,
+        application_compilation,
+        library_compilation,
         workloads,
     };
 
@@ -174,17 +206,11 @@ fn run_workload(
     fs::create_dir_all(&output)
         .map_err(|error| format!("could not create {}: {error}", output.display()))?;
 
-    let ordinary_package = format!("bray.performance.{}", workload.id);
-
-    let package_name = if workload.standard_library_sources.is_empty() {
-        ordinary_package.as_str()
-    } else {
-        "std"
-    };
+    let package_name = format!("bray.performance.{}", workload.id);
 
     let product_name = "application";
 
-    let package = PackageIdentity::try_new(package_name)
+    let package = PackageIdentity::try_new(package_name.as_str())
         .ok_or_else(|| format!("invalid workload package identity: {package_name}"))?;
 
     let product = ProductIdentity::try_new(package.clone(), product_name)
@@ -192,30 +218,16 @@ fn run_workload(
 
     let selected = SelectedTarget::for_native(options.target);
 
-    let mut sources = source_inputs_from_file_arguments(
-        workload
-            .standard_library_sources
-            .iter()
-            .map(|source| crate::workspace::root().map(|root| root.join(source)))
-            .collect::<Result<Vec<_>, _>>()?,
-    )
-    .map_err(|error| format!("could not load workload support sources: {error:?}"))?;
-
-    let source_identity = u32::try_from(sources.len())
-        .map_err(|_| format!("workload {} has too many source inputs", workload.id))?;
-
     let source = SourceInput::virtual_text(
-        SourceIdentity::new(source_identity),
+        SourceIdentity::new(0),
         format!("{}.bray", workload.id),
         SourceVersion::new(0),
         workload.source,
     );
 
-    sources.push(source);
-
     let request = CompilationRequest::with_options(
-        package,
-        sources,
+        package.clone(),
+        vec![source],
         CompilationOptions::new(WorkerBudget::default(), ProductKind::Executable, selected),
     )
     .with_profile(CompilationProfileConfiguration::new(
@@ -223,16 +235,12 @@ fn run_workload(
     ))
     .with_profile_product(product.clone());
 
-    let request = if workload.standard_library_sources.is_empty() {
-        let standard_library = StandardLibraryRoot::try_new(
-            toolchain.join("lib").join("bray").join("standard-library"),
-        )
+    let standard_library_path = toolchain.join("lib").join("bray").join("standard-library");
+
+    let standard_library = StandardLibraryRoot::try_new(standard_library_path.clone())
         .ok_or_else(|| "invalid benchmark standard-library root".to_owned())?;
 
-        request.with_standard_library_root(standard_library)
-    } else {
-        request.with_standard_library_source_authority()
-    };
+    let request = request.with_standard_library_root(standard_library);
 
     progress::workload_phase("Compiling Bray artifacts");
 
@@ -253,7 +261,7 @@ fn run_workload(
     let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone())
         .ok_or_else(|| format!("invalid workload linker-map path: {}", map.display()))?;
 
-    crate::native_product::emit_executable(
+    crate::native_product::emit_executable_with_configuration(
         &compilation,
         product.clone(),
         options.target,
@@ -261,11 +269,12 @@ fn run_workload(
         &output,
         [],
         Some(map_output),
+        BuildConfiguration::Release,
     )?;
 
     audit_retention_contract(workload, &map)?;
 
-    let profile = compilation
+    let compiler_profile = compilation
         .profile_report()
         .ok_or_else(|| format!("workload {} produced no compiler profile", workload.id))?;
 
@@ -386,7 +395,7 @@ fn run_workload(
         units: workload.units.to_owned(),
         expected_output_sha256: output_digest,
         batching: controlled.batching,
-        compilation: profile,
+        compiler_profile,
         process_execution: bray.process,
         bray_execution: bray.controlled,
         artifacts,
@@ -538,7 +547,6 @@ fn peer_reports(
                 toolchain: built.toolchain,
                 build_configuration: built.build_configuration,
                 source_sha256: built.source_sha256,
-                production_compile_link_nanoseconds: built.production_compile_link_nanoseconds,
                 process_execution: measured.process,
                 controlled_execution: measured.controlled,
                 artifacts,

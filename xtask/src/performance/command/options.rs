@@ -120,7 +120,7 @@ fn count(
 }
 
 #[cfg(test)]
-pub(in crate::standard_library::performance) fn parse_for_test(
+pub(in crate::performance) fn parse_for_test(
     arguments: &[&str],
 ) -> Result<(), String> {
     Options::parse(arguments.iter().map(|argument| (*argument).to_owned())).map(|_| ())

@@ -314,6 +314,7 @@ dependencies = [
  "bray-compilation",
  "bray-diagnostics",
  "bray-emitter",
+ "bray-linker",
  "bray-messages",
  "bray-package-interface",
  "bray-profile",

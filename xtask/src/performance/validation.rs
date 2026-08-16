@@ -13,7 +13,7 @@ use super::corpus::{
 use super::model::{
     ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT,
     MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT, Observation, PeerLanguage,
-    PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION, WorkloadBatching,
+    PerformanceReport, RetainedInput, SCHEMA_REVISION, WorkloadBatching,
 };
 
 const MINIMUM_BATCH_INTERVAL_NANOSECONDS: u64 = 10_000_000;
@@ -32,6 +32,35 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
     }
 
     let target = validate_identity(report)?;
+
+    super::compilation::validate(&report.application_compilation, target)?;
+    super::compilation::validate(&report.library_compilation, target)?;
+
+    if report.application_compilation.kind != super::model::CompilationKind::Application {
+        return Err("application compilation report uses the wrong comparison kind".to_owned());
+    }
+
+    if report.library_compilation.kind != super::model::CompilationKind::Library {
+        return Err("library compilation report uses the wrong comparison kind".to_owned());
+    }
+
+    if report.application_compilation.contract
+        != super::compilation::MATCHED_APPLICATION_CONTRACT
+    {
+        return Err("application compilation report uses the wrong source contract".to_owned());
+    }
+
+    if report.library_compilation.contract != super::compilation::MATCHED_LIBRARY_CONTRACT {
+        return Err("library compilation report uses the wrong source contract".to_owned());
+    }
+
+    validate_compiler_profiles(
+        &report.application_compilation,
+        target,
+        "application compilation",
+    )?;
+
+    validate_compiler_profiles(&report.library_compilation, target, "library compilation")?;
 
     let mut identities = BTreeSet::new();
 
@@ -103,14 +132,16 @@ fn validate_workload(
         ));
     }
 
-    workload.compilation.validate().map_err(|error| {
+    let profile = &workload.compiler_profile;
+
+    profile.validate().map_err(|error| {
         format!(
             "workload {} has an invalid compiler profile: {error:?}",
             workload.id
         )
     })?;
 
-    if workload.compilation.context.target != report.identity.target {
+    if profile.context.target != report.identity.target {
         return Err(format!(
             "workload {} compiler target differs from the report",
             workload.id
@@ -242,12 +273,41 @@ fn validate_workload(
     validate_peers(
         workload,
         expected_samples,
-        &report.identity.target,
-        report.identity.runtime_linkage,
         target,
         controlled_inner_iterations,
         report.identity.timer_resolution_nanoseconds,
     )?;
+
+    Ok(())
+}
+
+fn validate_compiler_profiles(
+    comparison: &super::model::CompilationComparisonReport,
+    target: NativeTarget,
+    owner: &str,
+) -> Result<(), String> {
+    for language in [
+        super::model::CompilationLanguage::Bray,
+        super::model::CompilationLanguage::Rust,
+        super::model::CompilationLanguage::Cpp,
+    ] {
+        let build = comparison
+            .builds
+            .get(&language)
+            .ok_or_else(|| format!("{owner} is missing its {language:?} build"))?;
+
+        match (language, build.profile.as_ref()) {
+            (super::model::CompilationLanguage::Bray, Some(profile))
+                if profile.context.target == target.as_str() => {}
+            (super::model::CompilationLanguage::Bray, _) => {
+                return Err(format!("{owner} has an invalid Bray compiler profile"));
+            }
+            (_, None) => {}
+            (_, Some(_)) => {
+                return Err(format!("{owner} attaches a Bray profile to a peer build"));
+            }
+        }
+    }
 
     Ok(())
 }
@@ -324,8 +384,6 @@ fn validate_batching(
 fn validate_peers(
     workload: &super::model::WorkloadReport,
     expected_samples: usize,
-    expected_target: &str,
-    expected_runtime_linkage: RuntimeLinkage,
     target: NativeTarget,
     controlled_inner_iterations: NonZeroU64,
     timer_resolution_nanoseconds: u64,
@@ -352,12 +410,12 @@ fn validate_peers(
         }
 
         if report.toolchain.is_empty()
-            || report.build_configuration.target != expected_target
-            || report.build_configuration.target.is_empty()
+            || report.build_configuration.target != target.as_str()
             || report.build_configuration.production.arguments.is_empty()
             || report.build_configuration.timed.arguments.is_empty()
             || report.build_configuration.linker.is_empty()
-            || report.build_configuration.runtime_linkage != expected_runtime_linkage
+            || report.build_configuration.runtime_linkage
+                != super::peer::runtime_linkage(target)?
             || !super::peer::build_configuration_matches(
                 *language,
                 &workload.id,
@@ -369,7 +427,6 @@ fn validate_peers(
             || report.build_configuration.post_link_actions.is_empty()
             || report.source_sha256.len() != 64
             || !is_lowercase_hex(&report.source_sha256)
-            || report.production_compile_link_nanoseconds == 0
             || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
             || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
             || !execution_is_valid(

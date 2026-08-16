@@ -196,15 +196,17 @@ exact native platform capabilities and direct native dependencies in the manifes
 or overlaps another archive.
 Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
 
-Build, execute, validate, and measure the standard-library performance corpus with:
+Build, execute, validate, and measure the compiler performance corpus with:
 
 ```text
-cargo xtask standard-library performance --output <directory>
+cargo xtask performance --output <directory>
 ```
 
-The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, compiles each
-workload with compiler summary profiling, performs warmups followed by seven measured executions, validates stable output, and
-writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
+The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, performs one
+matched packaged-application compilation and one matched source-library compilation for Bray, Rust, and C++, compiles each runtime
+workload with Bray compiler summary profiling, performs warmups followed by seven measured executions, validates stable output,
+and writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed
+expected-output contract.
 The command writes phase and workload progress to standard error while keeping the `candidate.json` path as its only standard
 output line.
 The first run prepares a target-specific runtime and standard-library toolchain under Cargo's target directory. Later runs reuse
@@ -213,9 +215,19 @@ Changing report options such as `--warmup`, `--samples`, `--workload`, or `--out
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
-Every workload also builds maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
-toolchain, optimization configuration, source digest, compile and link duration, process duration, language-controlled duration,
-artifact size, sections, and dependencies. Process and language-controlled rounds rotate their starting language independently so
+The two compiler comparisons invoke the optimized Bray compiler executable, `rustc`, and `clang++` as external processes. The
+application lane compiles source-equivalent applications against each language's packaged library and runtime. The library lane
+compiles source-equivalent library authority from source. The report records source units and bytes, package and module inputs,
+exact compiler and linker arguments, packaged-library and runtime reuse evidence, toolchains, source digests, and elapsed time.
+Measured compiler invocations do not generate profiles or linker maps. Separate untimed evidence invocations produce those records
+from the same source and release policy. Cross-language syntax may differ in verbosity, so source byte counts remain comparable only
+while the largest source is no more than eight times the smallest. A row with incomplete or different authority is explicitly
+non-comparable, records exact reasons, and cannot publish a winner.
+
+Every workload also builds maintained Rust and C++ runtime peers directly through `rustc` and `clang++`. The report records each
+exact toolchain, optimization configuration, source digest, process duration, language-controlled duration, artifact size,
+sections, and dependencies. These preparation builds are not ranked as compiler comparisons. Process and language-controlled
+rounds rotate their starting language independently so
 Bray, Rust, and C++ do not receive a fixed warm-cache or scheduling advantage. Every execution must produce the same validated
 output digest and side-effect contract. The HTML report states the shared semantic contract for each row. Missing peer sources,
 failed peer builds, mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
@@ -225,7 +237,7 @@ measured samples, the command times three seed intervals for Bray, Rust, and C++
 fastest language median so every implementation targets at least 100 ms. The report retains the seed count, all calibration
 intervals, the target interval, the selected repetition count, the timer resolution, the raw measured intervals, and the adjusted
 picosecond duration for one workload execution. The timed Bray, Rust, and C++ artifacts use that same selected count. Production
-executable size, process duration, and compilation duration continue to measure ordinary single-execution artifacts.
+executable size and process duration continue to measure ordinary single-execution artifacts.
 
 All three production executables use static application and language runtimes. On Windows this means the static MSVC runtime for
 Bray, Rust, and C++. Target operating-system libraries may remain dynamic. The report records the policy and exact compiler flags,
@@ -263,7 +275,7 @@ the ordinary release build.
 Compare an equivalent baseline and candidate with:
 
 ```text
-cargo xtask standard-library performance --output <directory> --baseline <candidate.json>
+cargo xtask performance --output <directory> --baseline <candidate.json>
 ```
 
 Comparison first requires the same schema, corpus digest, target, host, compiler version, LLVM version, warmup count, sample count,

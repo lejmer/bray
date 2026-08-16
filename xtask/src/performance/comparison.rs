@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::model::{
     ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison,
-    Observation, ObservationComparison, ObservationComparisonReport, PeerComparison,
-    PerformanceReport, SCHEMA_REVISION, WorkloadComparison,
+    CompilationComparisonReport, CompilationLanguage, Observation, ObservationComparison,
+    ObservationComparisonReport, PeerComparison, PerformanceReport, SCHEMA_REVISION,
+    WorkloadComparison,
 };
 
 pub(super) fn compare(
@@ -12,7 +13,20 @@ pub(super) fn compare(
 ) -> Result<ComparisonReport, String> {
     super::validation::validate(baseline)?;
     super::validation::validate(candidate)?;
+
     validate_identity(baseline, candidate)?;
+
+    let application_compilation = compare_compilation(
+        &baseline.application_compilation,
+        &candidate.application_compilation,
+        "application compilation",
+    )?;
+
+    let library_compilation = compare_compilation(
+        &baseline.library_compilation,
+        &candidate.library_compilation,
+        "library compilation",
+    )?;
 
     if baseline.workloads.len() != candidate.workloads.len() {
         return Err("baseline and candidate workload counts differ".to_owned());
@@ -32,8 +46,6 @@ pub(super) fn compare(
             || baseline_workload.scale != candidate_workload.scale
             || baseline_workload.units != candidate_workload.units
             || baseline_workload.expected_output_sha256 != candidate_workload.expected_output_sha256
-            || baseline_workload.compilation.schema_revision
-                != candidate_workload.compilation.schema_revision
             || baseline_workload.process_execution.scope
                 != candidate_workload.process_execution.scope
             || baseline_workload.bray_execution.scope != candidate_workload.bray_execution.scope
@@ -82,8 +94,52 @@ pub(super) fn compare(
         schema_revision: SCHEMA_REVISION,
         baseline_identity: baseline.identity.clone(),
         candidate_identity: candidate.identity.clone(),
+        application_compilation,
+        library_compilation,
         workloads,
     })
+}
+
+fn compare_compilation(
+    baseline: &CompilationComparisonReport,
+    candidate: &CompilationComparisonReport,
+    owner: &str,
+) -> Result<BTreeMap<CompilationLanguage, MetricComparison>, String> {
+    if baseline.kind != candidate.kind
+        || baseline.contract != candidate.contract
+        || baseline.comparability != candidate.comparability
+        || baseline.builds.keys().ne(candidate.builds.keys())
+    {
+        return Err(format!("baseline and candidate {owner} contracts differ"));
+    }
+
+    baseline
+        .builds
+        .iter()
+        .map(|(language, baseline)| {
+            let candidate = candidate
+                .builds
+                .get(language)
+                .ok_or_else(|| format!("candidate {owner} omitted {language:?}"))?;
+
+            if baseline.toolchain != candidate.toolchain
+                || baseline.source_sha256 != candidate.source_sha256
+                || baseline.authority != candidate.authority
+            {
+                return Err(format!(
+                    "baseline and candidate {owner} authority differs for {language:?}"
+                ));
+            }
+
+            Ok((
+                *language,
+                observed_metric(
+                    baseline.elapsed_nanoseconds,
+                    candidate.elapsed_nanoseconds,
+                ),
+            ))
+        })
+        .collect()
 }
 
 fn validate_identity(
@@ -135,6 +191,15 @@ fn compare_peers(
 
             if baseline.toolchain != candidate.toolchain
                 || baseline.source_sha256 != candidate.source_sha256
+                || baseline.build_configuration.target != candidate.build_configuration.target
+                || baseline.build_configuration.compiler != candidate.build_configuration.compiler
+                || baseline.build_configuration.production
+                    != candidate.build_configuration.production
+                || baseline.build_configuration.linker != candidate.build_configuration.linker
+                || baseline.build_configuration.runtime_linkage
+                    != candidate.build_configuration.runtime_linkage
+                || baseline.build_configuration.post_link_actions
+                    != candidate.build_configuration.post_link_actions
                 || baseline.process_execution.scope != candidate.process_execution.scope
                 || baseline.controlled_execution.scope != candidate.controlled_execution.scope
             {
@@ -145,10 +210,6 @@ fn compare_peers(
             }
 
             let comparison = PeerComparison {
-                compile_link: observed_metric(
-                    baseline.production_compile_link_nanoseconds,
-                    candidate.production_compile_link_nanoseconds,
-                ),
                 process_execution: noisy_metric(
                     baseline.process_execution.median_picoseconds,
                     candidate.process_execution.median_picoseconds,
@@ -192,13 +253,15 @@ fn compare_compiler_operations(
 }
 
 fn compiler_operations(workload: &super::model::WorkloadReport) -> BTreeMap<String, u64> {
-    workload
-        .compilation
+    let Some(profile) = bray_compiler_profile(workload) else {
+        return BTreeMap::new();
+    };
+
+    profile
         .operations
         .iter()
         .filter_map(|statistics| {
-            workload
-                .compilation
+            profile
                 .operation_descriptor(statistics.id)
                 .map(|descriptor| (descriptor.name.clone(), statistics.self_nanoseconds))
         })
@@ -216,17 +279,25 @@ fn compare_compiler_metrics(
 }
 
 fn compiler_metrics(workload: &super::model::WorkloadReport) -> BTreeMap<String, u64> {
-    workload
-        .compilation
+    let Some(profile) = bray_compiler_profile(workload) else {
+        return BTreeMap::new();
+    };
+
+    profile
         .metrics
         .iter()
         .filter_map(|metric| {
-            workload
-                .compilation
+            profile
                 .metric_descriptor(metric.id)
                 .map(|descriptor| (descriptor.name.clone(), metric.value))
         })
         .collect()
+}
+
+fn bray_compiler_profile(
+    workload: &super::model::WorkloadReport,
+) -> Option<&bray_compilation::CompilationProfileReport> {
+    Some(&workload.compiler_profile)
 }
 
 fn compare_metric_maps(

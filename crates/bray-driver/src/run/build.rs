@@ -81,7 +81,8 @@ pub(crate) fn run_build_command(
     };
 
     let linker = if linked {
-        match native_linker(native_target, None) {
+        // The driver retains its selections while the linker owns its independent output path.
+        match native_linker(native_target, configuration.linker_map_output().cloned()) {
             Ok(linker) => Some(linker),
             Err(error) => {
                 let diagnostics = compilation

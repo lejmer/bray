@@ -2,13 +2,13 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use super::model::{
-    ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison, Observation,
-    ObservationComparison, PerformanceReport, RuntimeLinkage,
+    ArtifactKind, ChangeAssessment, ComparisonReport, CompilationLanguage, MetricComparison,
+    Observation, ObservationComparison, PerformanceReport,
 };
 
 use super::format::{
-    grouped, kibibytes, milliseconds, nanoseconds_title, picoseconds_milliseconds,
-    picoseconds_title, signed_kibibytes, signed_milliseconds, signed_picoseconds_milliseconds,
+    grouped, kibibytes, milliseconds, picoseconds_milliseconds, picoseconds_title,
+    signed_kibibytes, signed_milliseconds, signed_picoseconds_milliseconds,
 };
 use super::html::{BoundedHtml, document_start, escape, finish, write};
 use super::ranking::{CandidateWinners, executable_bytes, observation_value};
@@ -18,9 +18,9 @@ pub(super) fn write_candidate(path: &Path, report: &PerformanceReport) -> Result
 }
 
 fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
-    let mut html = document_start("Standard library performance report");
+    let mut html = document_start("Compiler performance report");
 
-    identity(&mut html, "Candidate", &report.identity);
+    super::presentation::identity(&mut html, "Candidate", &report.identity);
 
     html.push_str(
         "<section><h2>How to read this report</h2>\
@@ -31,11 +31,23 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
         Target operating-system libraries may remain dynamic.</p></section>",
     );
 
+    super::presentation::compilation_comparison(
+        &mut html,
+        "Matched packaged-application compilation",
+        &report.application_compilation,
+    );
+
+    super::presentation::compilation_comparison(
+        &mut html,
+        "Matched source-library compilation",
+        &report.library_compilation,
+    );
+
     html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
         <th>Workload</th><th>Language</th><th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
-        <th>Throughput</th><th>Executable</th><th>Compile and link time</th>\
-        <th>Allocations</th><th>Allocated</th><th>Copied</th></tr></thead><tbody>",
+        <th>Throughput</th><th>Executable</th><th>Allocations</th><th>Allocated</th><th>Copied</th>
+        </tr></thead><tbody>",
     );
 
     for workload in &report.workloads {
@@ -48,7 +60,6 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
             true,
             &workload.bray_execution,
             &workload.process_execution,
-            workload.compilation.elapsed_nanoseconds,
             &workload.artifacts,
             &workload.observations,
             &winners,
@@ -62,7 +73,6 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
                 false,
                 &peer.controlled_execution,
                 &peer.process_execution,
-                peer.production_compile_link_nanoseconds,
                 &peer.artifacts,
                 &peer.observations,
                 &winners,
@@ -90,7 +100,6 @@ fn candidate_row(
     is_bray: bool,
     controlled: &super::model::ExecutionStatistics,
     process: &super::model::ExecutionStatistics,
-    compile_link_nanoseconds: u64,
     artifacts: &[super::model::ArtifactReport],
     observations: &super::model::WorkloadObservations,
     winners: &CandidateWinners,
@@ -104,7 +113,7 @@ fn candidate_row(
     let _ = write!(
         html,
         "<tr{row_class}><th>{}</th><td>{}</td><td {} {}>{}</td><td {} {}>{}</td><td {} {}>{}</td>\
-        <td {}>{} {}/s</td><td {}>{}</td><td {} {}>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td></tr>",
+        <td {}>{} {}/s</td><td {}>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td></tr>",
         escape(&workload.id),
         language,
         winner_class(
@@ -127,12 +136,6 @@ fn candidate_row(
         escape(&workload.units),
         winner_class(executable, winners.executable_bytes),
         executable.map_or_else(|| "Unavailable".to_owned(), kibibytes),
-        winner_class(
-            Some(compile_link_nanoseconds),
-            winners.compile_link_nanoseconds
-        ),
-        nanoseconds_title(compile_link_nanoseconds),
-        milliseconds(compile_link_nanoseconds),
         winner_class(allocation_count, winners.allocation_count),
         observation_count(&observations.allocation_count),
         winner_class(allocated_bytes, winners.allocated_bytes),
@@ -154,11 +157,48 @@ pub(super) fn write_comparison(path: &Path, comparison: &ComparisonReport) -> Re
     write(path, render_comparison(comparison)?)
 }
 
-fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
-    let mut html = document_start("Standard library performance comparison");
+fn compilation_changes(
+    html: &mut BoundedHtml,
+    title: &str,
+    changes: &std::collections::BTreeMap<CompilationLanguage, MetricComparison>,
+) {
+    let _ = write!(
+        html,
+        "<section><h2>{}</h2><div class=\"table-scroll\"><table><thead><tr>\
+        <th>Language</th><th>Baseline</th><th>Candidate</th><th>Change</th></tr></thead><tbody>",
+        escape(title),
+    );
 
-    identity(&mut html, "Baseline", &comparison.baseline_identity);
-    identity(&mut html, "Candidate", &comparison.candidate_identity);
+    for (language, change) in changes {
+        let _ = write!(
+            html,
+            "<tr><th>{language:?}</th><td>{}</td><td>{}</td><td>{}</td></tr>",
+            milliseconds(change.baseline),
+            milliseconds(change.candidate),
+            comparison_metric(*change, MetricUnit::Duration),
+        );
+    }
+
+    html.push_str("</tbody></table></div></section>");
+}
+
+fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
+    let mut html = document_start("Compiler performance comparison");
+
+    super::presentation::identity(&mut html, "Baseline", &comparison.baseline_identity);
+    super::presentation::identity(&mut html, "Candidate", &comparison.candidate_identity);
+
+    compilation_changes(
+        &mut html,
+        "Matched packaged-application compilation changes",
+        &comparison.application_compilation,
+    );
+
+    compilation_changes(
+        &mut html,
+        "Matched source-library compilation changes",
+        &comparison.library_compilation,
+    );
 
     html.push_str(
         "<section><h2>Changes</h2><p>Negative duration and size changes are improvements. \
@@ -293,11 +333,7 @@ fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadC
     for (language, peer) in &workload.peers {
         let language = peer_language(*language);
 
-        let _ = write!(
-            html,
-            "<details><summary>{language} peer changes</summary><dl><dt>Compile and link</dt><dd>{}</dd></dl>",
-            comparison_metric(peer.compile_link, MetricUnit::Duration),
-        );
+        let _ = write!(html, "<details><summary>{language} peer changes</summary>");
 
         artifact_comparison_details(html, &peer.artifacts);
         html.push_str("</details>");
@@ -465,7 +501,8 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     }
 
     html.push_str("</dl>");
-    compiler_details(html, &workload.compilation);
+    super::presentation::compiler_details(html, &workload.compiler_profile);
+
     artifact_details(html, &workload.artifacts);
 
     for (language, peer) in &workload.peers {
@@ -473,20 +510,26 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
 
         let _ = write!(
             html,
-            "<details><summary>{language} peer details</summary><dl>\
-            <dt>Toolchain</dt><dd>{}</dd>\
-            <dt>Source SHA-256</dt><dd><code>{}</code></dd><dt>Compile and link</dt>\
-            <dd {}>{}</dd><dt>Controlled scope</dt><dd>{}</dd></dl>",
-            escape(&peer.toolchain),
-            escape(&peer.source_sha256),
-            nanoseconds_title(peer.production_compile_link_nanoseconds),
-            milliseconds(peer.production_compile_link_nanoseconds),
+            "<details><summary>{language} execution details</summary><dl>\
+            <dt>Controlled scope</dt><dd>{}</dd></dl>",
             escape(&peer.controlled_execution.scope),
         );
 
         measurement_detail(html, language, &peer.controlled_execution);
 
-        peer_configuration(html, &peer.build_configuration);
+        let configuration = &peer.build_configuration;
+
+        super::presentation::compiler_configuration(
+            html,
+            "Production",
+            &configuration.production,
+        );
+
+        super::presentation::compiler_configuration(html, "Timed", &configuration.timed);
+
+        html.push_str("<h5>Post-link actions</h5><ul>");
+        escaped_list(html, &configuration.post_link_actions);
+        html.push_str("</ul>");
 
         html.push_str("<h4>Observed work</h4><dl>");
         observation_detail(html, "Allocations", &peer.observations.allocation_count);
@@ -516,60 +559,6 @@ fn measurement_detail(
         grouped(execution.median_picoseconds),
         grouped(execution.timer_resolution_nanoseconds),
     );
-}
-
-fn peer_configuration(
-    html: &mut BoundedHtml,
-    configuration: &super::model::PeerBuildConfiguration,
-) {
-    let _ = write!(
-        html,
-        "<h4>Build configuration</h4><dl><dt>Target</dt><dd><code>{}</code></dd>\
-        <dt>Compiler</dt><dd><code>{}</code></dd>\
-        <dt>Linker</dt><dd><code>{}</code></dd><dt>Runtime linkage</dt><dd>{}</dd></dl>",
-        escape(&configuration.target),
-        escape(&configuration.compiler),
-        escape(&configuration.linker),
-        runtime_linkage(configuration.runtime_linkage),
-    );
-
-    compiler_configuration(html, "Production", &configuration.production);
-    compiler_configuration(html, "Timed", &configuration.timed);
-
-    html.push_str("<h5>Post-link actions</h5><ul>");
-    escaped_list(html, &configuration.post_link_actions);
-    html.push_str("</ul>");
-}
-
-fn compiler_configuration(
-    html: &mut BoundedHtml,
-    label: &str,
-    configuration: &super::model::PeerCompilerConfiguration,
-) {
-    let batching = match configuration.batching {
-        super::model::PeerBatching::SingleExecution => "single execution".to_owned(),
-        super::model::PeerBatching::Repeated { inner_iterations } => {
-            format!("{} inner iterations", grouped(inner_iterations))
-        }
-    };
-
-    let _ = write!(
-        html,
-        "<h5>{label} compiler invocation</h5><p>Batching: {batching}</p><ul>"
-    );
-
-    escaped_list(html, &configuration.arguments);
-
-    for (name, value) in &configuration.environment {
-        let _ = write!(
-            html,
-            "<li><code>{}={}</code></li>",
-            escape(name),
-            escape(value)
-        );
-    }
-
-    html.push_str("</ul>");
 }
 
 fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactReport]) {
@@ -622,47 +611,6 @@ fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactR
     }
 }
 
-fn compiler_details(html: &mut BoundedHtml, profile: &bray_compilation::CompilationProfileReport) {
-    html.push_str(
-        "<details><summary>Compiler breakdown</summary><h4>Operations</h4><table><thead><tr>\
-        <th>Operation</th><th>Calls</th><th>Self time</th><th>Maximum</th></tr></thead><tbody>",
-    );
-
-    for operation in &profile.operations {
-        let name = profile
-            .operation_descriptor(operation.id)
-            .map_or("Unknown operation", |descriptor| descriptor.name.as_str());
-
-        let _ = write!(
-            html,
-            "<tr><th>{}</th><td>{}</td><td {}>{}</td><td {}>{}</td></tr>",
-            escape(name),
-            grouped(operation.executions),
-            nanoseconds_title(operation.self_nanoseconds),
-            milliseconds(operation.self_nanoseconds),
-            nanoseconds_title(operation.maximum_nanoseconds),
-            milliseconds(operation.maximum_nanoseconds),
-        );
-    }
-
-    html.push_str("</tbody></table><h4>Metrics</h4><dl>");
-
-    for metric in &profile.metrics {
-        let name = profile
-            .metric_descriptor(metric.id)
-            .map_or("Unknown metric", |descriptor| descriptor.name.as_str());
-
-        let _ = write!(
-            html,
-            "<dt>{}</dt><dd>{}</dd>",
-            escape(name),
-            grouped(metric.value)
-        );
-    }
-
-    html.push_str("</dl></details>");
-}
-
 fn observation_detail(html: &mut BoundedHtml, label: &str, observation: &Observation) {
     match observation {
         Observation::Measured { value, scope } => {
@@ -681,36 +629,6 @@ fn observation_detail(html: &mut BoundedHtml, label: &str, observation: &Observa
                 escape(label),
                 escape(reason)
             );
-        }
-    }
-}
-
-fn identity(html: &mut BoundedHtml, label: &str, identity: &super::model::ReportIdentity) {
-    let _ = write!(
-        html,
-        "<section><h2>{label}</h2><dl class=\"identity\"><dt>Target</dt><dd>{}</dd>\
-        <dt>Host</dt><dd>{}</dd><dt>Compiler</dt><dd>{}</dd><dt>Source revision</dt>\
-        <dd><code>{}</code></dd><dt>LLVM</dt><dd>{}</dd><dt>Runtime linkage</dt><dd>{}</dd>\
-        <dt>Corpus SHA-256</dt>\
-        <dd><code>{}</code></dd><dt>Samples</dt><dd>{} warmup and {} measured</dd>\
-        <dt>Timer resolution</dt><dd>{} ns</dd></dl></section>",
-        escape(&identity.target),
-        escape(&identity.host),
-        escape(&identity.compiler_version),
-        escape(&identity.source_revision),
-        escape(&identity.llvm_version),
-        runtime_linkage(identity.runtime_linkage),
-        escape(&identity.corpus_sha256),
-        identity.warmup_iterations,
-        identity.sample_iterations,
-        grouped(identity.timer_resolution_nanoseconds),
-    );
-}
-
-const fn runtime_linkage(linkage: RuntimeLinkage) -> &'static str {
-    match linkage {
-        RuntimeLinkage::StaticApplicationRuntime => {
-            "application and language runtimes linked into each executable"
         }
     }
 }
@@ -840,11 +758,11 @@ mod tests {
         assert!(first.contains("2.500 ms"));
         assert!(first.contains("0.10 KiB (100 bytes)"));
         assert!(first.contains("Shared comparison contract"));
-        assert!(first.contains("Rust peer details"));
-        assert!(first.contains("C++ peer details"));
+        assert!(first.contains("Rust execution details"));
+        assert!(first.contains("C++ execution details"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(first.contains("<tr class=\"bray-row\">"));
-        assert_eq!(first.matches("class=\"metric-best\"").count(), 17);
+        assert_eq!(first.matches("class=\"metric-best\"").count(), 20);
         assert!(!first.contains("<artifact>"));
     }
 

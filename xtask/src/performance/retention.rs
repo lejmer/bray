@@ -211,7 +211,7 @@ fn is_native_input(value: &str) -> bool {
 fn is_archive(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
 
-    value.ends_with(".a") || value.ends_with(".lib")
+    value.ends_with(".a") || value.ends_with(".lib") || value.ends_with(".rlib")
 }
 
 fn parse_number(value: &str) -> Option<u64> {
