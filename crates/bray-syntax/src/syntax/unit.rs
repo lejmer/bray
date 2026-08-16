@@ -1074,6 +1074,35 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_source_unit_and_block_module_declarations_together() {
+        let snapshot = test_snapshot("syntax-test", "module main;module main {}");
+        let source_declaration = source_unit_module_declaration(snapshot.clone());
+        let block_declaration = block_module_declaration_at(snapshot.clone(), 12);
+        let eof = SyntaxToken::end_of_file(TextSize::new(26));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .source_unit_module_declaration(source_declaration)
+            .block_module_declaration(block_declaration)
+            .tokens([eof])
+            .build();
+
+        let source_declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let block_declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [block_declaration] = block_declarations.as_slice() else {
+            panic!("expected one block module declaration: {block_declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "module main;module main {}");
+        assert_eq!(source_declaration.full_text(), "module main;");
+        assert_eq!(block_declaration.full_text(), "module main {}");
+    }
+
+    #[test]
     fn source_units_expose_using_and_export_declaration_children() {
         let snapshot = test_snapshot("syntax-test", "using core; export api;");
         let using_declaration = using_declaration(snapshot.clone(), 0);
@@ -1435,19 +1464,33 @@ mod tests {
     }
 
     fn block_module_declaration(snapshot: SourceSnapshot) -> BlockModuleDeclarationSyntax {
-        let mut builder = BlockModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+        block_module_declaration_at(snapshot, 0)
+    }
+
+    fn block_module_declaration_at(
+        snapshot: SourceSnapshot,
+        start: u32,
+    ) -> BlockModuleDeclarationSyntax {
+        let mut builder =
+            BlockModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::new(start));
 
         builder.push_module_directives(
-            ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+            ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::new(start)).build(),
         );
 
         builder.push_module_modifiers(
-            ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+            ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::new(start)).build(),
         );
 
-        builder.push_module_keyword(module_keyword());
-        builder.push_module_path(identifier_path_with_trailing_space(snapshot.clone(), 7, 11));
-        builder.push_module_body(module_body(snapshot));
+        builder.push_module_keyword(module_keyword_at(start));
+
+        builder.push_module_path(identifier_path_with_trailing_space(
+            snapshot.clone(),
+            start + 7,
+            start + 11,
+        ));
+
+        builder.push_module_body(module_body_at(snapshot, start + 12));
 
         builder.build()
     }
@@ -1736,27 +1779,31 @@ mod tests {
     }
 
     fn module_keyword() -> SyntaxToken {
+        module_keyword_at(0)
+    }
+
+    fn module_keyword_at(start: u32) -> SyntaxToken {
         SyntaxToken::new(
             SyntaxKind::ModuleKeyword,
-            TextRange::new(TextSize::ZERO, TextSize::new(6)),
+            TextRange::new(TextSize::new(start), TextSize::new(start + 6)),
         )
         .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-            TextSize::new(6),
-            TextSize::new(7),
+            TextSize::new(start + 6),
+            TextSize::new(start + 7),
         ))])
     }
 
-    fn module_body(snapshot: SourceSnapshot) -> ModuleBodySyntax {
-        let mut builder = ModuleBodySyntax::builder(snapshot, TextSize::new(12));
+    fn module_body_at(snapshot: SourceSnapshot, start: u32) -> ModuleBodySyntax {
+        let mut builder = ModuleBodySyntax::builder(snapshot, TextSize::new(start));
 
         builder.push_open_brace_token(SyntaxToken::new(
             SyntaxKind::OpenBraceToken,
-            TextRange::new(TextSize::new(12), TextSize::new(13)),
+            TextRange::new(TextSize::new(start), TextSize::new(start + 1)),
         ));
 
         builder.push_close_brace_token(SyntaxToken::new(
             SyntaxKind::CloseBraceToken,
-            TextRange::new(TextSize::new(13), TextSize::new(14)),
+            TextRange::new(TextSize::new(start + 1), TextSize::new(start + 2)),
         ));
 
         builder.build()

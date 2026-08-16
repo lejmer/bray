@@ -219,6 +219,8 @@ Modules are logical containers with one or more source parts.
 A source-unit module declaration contributes a module part whose body is the loose module-level declarations in that source
 unit.
 A block module declaration contributes a module part whose body is the braced module body.
+One source unit can contribute both forms when its unbraced source-unit items are followed by a suffix of block module declarations.
+Discovery assigns each declaration to the module part that owns its source context.
 
 Multiple source units can contribute to the same logical module path.
 Multiple top-level block module declarations can also contribute to the same logical module path.
@@ -320,6 +322,7 @@ Declaration discovery tests should validate the published declaration surface.
 Important tests:
 
 - one source-unit module with module-level declarations,
+- one source-unit module followed by independently gated block module contributions,
 - multiple source units contributing to one partial module,
 - multiple block module declarations contributing to one partial module,
 - type, trait, and implementation declarations introducing child containers,

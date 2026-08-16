@@ -216,8 +216,14 @@ mod tests {
     }
 
     #[test]
-    fn disabled_block_modules_do_not_remove_sibling_contributions() {
+    fn disabled_block_module_suffixes_do_not_remove_source_unit_prefixes() {
         let source = concat!(
+            "module app;\n",
+            "\n",
+            "func ordinary()\n",
+            "{\n",
+            "}\n",
+            "\n",
             "@test\n",
             "module app.tests\n",
             "{\n",
@@ -226,7 +232,43 @@ mod tests {
             "    }\n",
             "}\n",
             "\n",
-            "module app\n",
+            "@target(false)\n",
+            "module app.disabled\n",
+            "{\n",
+            "    func unavailable()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        );
+
+        let library = compilation(&[source], ProductKind::Library);
+        let test = compilation(&[source], ProductKind::Test);
+
+        let library_graph = source_graph(&library);
+        let test_graph = source_graph(&test);
+
+        assert!(has_declaration(library_graph, "ordinary"));
+        assert!(!has_declaration(library_graph, "only_test"));
+        assert!(!has_declaration(library_graph, "unavailable"));
+        assert_eq!(library_graph.declarations().module_parts().len(), 1);
+
+        assert!(has_declaration(test_graph, "ordinary"));
+        assert!(has_declaration(test_graph, "only_test"));
+        assert!(!has_declaration(test_graph, "unavailable"));
+        assert_eq!(test_graph.declarations().module_parts().len(), 2);
+    }
+
+    #[test]
+    fn disabled_source_unit_prefixes_do_not_remove_block_module_suffixes() {
+        let source = concat!(
+            "@test\n",
+            "module app;\n",
+            "\n",
+            "func only_test()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "module app.production\n",
             "{\n",
             "    func ordinary()\n",
             "    {\n",
@@ -235,10 +277,18 @@ mod tests {
         );
 
         let library = compilation(&[source], ProductKind::Library);
-        let graph = source_graph(&library);
+        let test = compilation(&[source], ProductKind::Test);
 
-        assert!(has_declaration(graph, "ordinary"));
-        assert!(!has_declaration(graph, "only_test"));
+        let library_graph = source_graph(&library);
+        let test_graph = source_graph(&test);
+
+        assert!(!has_declaration(library_graph, "only_test"));
+        assert!(has_declaration(library_graph, "ordinary"));
+        assert_eq!(library_graph.declarations().module_parts().len(), 1);
+
+        assert!(has_declaration(test_graph, "only_test"));
+        assert!(has_declaration(test_graph, "ordinary"));
+        assert_eq!(test_graph.declarations().module_parts().len(), 2);
     }
 
     #[test]

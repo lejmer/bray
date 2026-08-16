@@ -252,7 +252,7 @@ impl Parser {
         }
     }
 
-    fn parse_module_item(
+    pub(super) fn parse_module_item(
         &mut self,
         builder: &mut impl ModuleItemSyntaxSink,
         terminators: &[SyntaxKind],
@@ -856,7 +856,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_reports_missing_source_unit_module_semicolon_before_module_start() {
+    fn parser_recovers_missing_source_unit_module_semicolon_before_block_module_start() {
         let source = "module main\nmodule extra {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -868,20 +868,20 @@ mod tests {
             None => panic!("expected source-unit module declaration"),
         };
 
-        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+        let block_declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
 
         let insertion = marker_offset(source, "module extra");
 
-        let [skipped] = skipped_syntax.as_slice() else {
-            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        let [block_declaration] = block_declarations.as_slice() else {
+            panic!("expected one block module declaration: {block_declarations:?}");
         };
 
         let semicolon_token = declaration.semicolon_token();
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(declaration.full_text(), "module main\n");
-        assert_eq!(skipped.full_text(), "module extra {}");
-        assert_eq!(source_unit.block_module_declarations().count(), 0);
+        assert_eq!(block_declaration.full_text(), "module extra {}");
+        assert!(source_unit.skipped_syntax().next().is_none());
 
         assert!(semicolon_token.is_missing());
         assert_eq!(semicolon_token.kind(), SyntaxKind::SemicolonToken);
@@ -894,6 +894,83 @@ mod tests {
             "module",
             &[DiagnosticKind::SyntaxExpectedToken],
         );
+    }
+
+    #[test]
+    fn parser_parses_block_module_declarations_after_source_unit_items() {
+        let source = concat!(
+            "module net;\n",
+            "func parse_packet(pos bytes: &[u8]) -> Packet { return parse_packet_bytes(bytes); }\n",
+            "@test module net.tests { @test func parses_minimal_packet() {} }",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let source_declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let functions = source_unit.function_declarations().collect::<Vec<_>>();
+        let blocks = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [production_function] = functions.as_slice() else {
+            panic!("expected one source-unit function: {functions:?}");
+        };
+
+        let [test_module] = blocks.as_slice() else {
+            panic!("expected one block module declaration: {blocks:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(source_declaration.module_path().full_text(), "net");
+
+        assert_eq!(
+            production_function.identifier_token().text(source),
+            Some("parse_packet")
+        );
+
+        assert_eq!(test_module.module_path().full_text(), "net.tests ");
+        assert_eq!(test_module.module_directives().test_directives().count(), 1);
+        assert_eq!(test_module.module_body().function_declarations().count(), 1);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_recovers_unbraced_items_after_block_module_suffixes() {
+        let source = concat!(
+            "module main;\n",
+            "func before() {}\n",
+            "module extra {}\n",
+            "func after() {}",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let functions = source_unit.function_declarations().collect::<Vec<_>>();
+        let blocks = source_unit.block_module_declarations().collect::<Vec<_>>();
+        let skipped = source_unit.skipped_syntax().collect::<Vec<_>>();
+
+        let [before] = functions.as_slice() else {
+            panic!("expected one source-unit function: {functions:?}");
+        };
+
+        let [block] = blocks.as_slice() else {
+            panic!("expected one block module declaration: {blocks:?}");
+        };
+
+        let [after] = skipped.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped:?}");
+        };
+
+        assert_eq!(before.identifier_token().text(source), Some("before"));
+        assert_eq!(block.module_path().full_text(), "extra ");
+        assert_eq!(after.full_text(), "func after() {}");
+        assert_eq!(source_unit.full_text(), source);
     }
 
     #[test]

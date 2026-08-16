@@ -25,8 +25,12 @@ A small module should initially live in a single `<name>.bray` source file.
 
 Source files use `snake_case` names. A file should normally be named after the central concept it owns.
 
-Prefer one logical module contribution per source file. Use a source module declaration for that contribution unless the file
-genuinely needs to contain top-level braced module declarations.
+Prefer one production module contribution per source file and use a source module declaration for it. A closely related test or
+support module can follow the production items as a braced module declaration when keeping that contribution beside the code it
+exercises makes the source easier to maintain.
+
+After the first top-level braced module declaration, keep every remaining top-level contribution braced. Do not move the production
+prefix into a braced module solely to colocate a later test module.
 
 ### Splitting modules
 

@@ -407,6 +407,39 @@ mod tests {
     }
 
     #[test]
+    fn source_unit_discovery_separates_source_and_block_module_contributions() {
+        let sources = source_store([concat!(
+            "module net;\n",
+            "func parse_packet() {}\n",
+            "@test module net.tests { @test func parses_minimal_packet() {} }",
+        )]);
+
+        let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
+        let result = discover_source_unit_declarations(&source_unit);
+        let chunk = result.chunk();
+
+        let [production, tests] = chunk.module_parts() else {
+            panic!("expected two module parts: {:?}", chunk.module_parts());
+        };
+
+        assert_eq!(production.path().dotted(), "net");
+        assert_eq!(production.syntax_kind(), SyntaxKind::SourceUnitModuleDeclaration);
+        assert_eq!(identifier_names(production.declarations()), ["parse_packet"]);
+        assert!(production.surface().directives().is_empty());
+
+        assert_eq!(tests.path().dotted(), "net.tests");
+        assert_eq!(tests.syntax_kind(), SyntaxKind::BlockModuleDeclaration);
+        assert_eq!(identifier_names(tests.declarations()), ["parses_minimal_packet"]);
+
+        let [test_directive] = tests.surface().directives() else {
+            panic!("expected one test directive: {:?}", tests.surface().directives());
+        };
+
+        assert_eq!(test_directive.syntax_kind(), SyntaxKind::TestDirective);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
     fn source_unit_discovery_records_container_members_in_source_order() {
         let sources = source_store([concat!(
             "module core;\n",

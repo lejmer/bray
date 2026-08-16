@@ -67,7 +67,9 @@ A source-declared path is relative to the current package. If this package decla
 
 ## Module declarations and split modules
 
-A source unit uses either one semicolon-form module declaration followed by unbraced items, or one or more braced module declarations. The two source-unit shapes remain separate.
+A source unit can use one semicolon-form module declaration followed by unbraced items and then braced module contributions. It can
+also contain only braced module contributions. After the first braced contribution, every remaining top-level contribution stays
+braced.
 
 The thin root `src/codec.bray` declares the logical module:
 
@@ -99,7 +101,25 @@ func decode(pos source: &[u8]) -> Result<Packet, DecodeError>
 {
     return decode_packet(source);
 }
+
+@test
+module codec.tests
+{
+    using codec;
+
+    @test
+    func decodes_empty_packet() -> Result<unit, DecodeError>
+    {
+        let _: codec.Packet = try codec.decode(empty_packet_bytes());
+
+        return Ok(unit);
+    }
+}
 ```
+
+The unbraced declarations contribute to `codec`. The later block contributes independently to `codec.tests`, so its `@test` gate
+does not gate the production prefix. A block suffix names complete package-level module paths and does not inherit the source-unit
+path, directives, visibility, or trusted state.
 
 [Split module declarations](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/split-modules.md) merge into one logical declaration scope. File paths organize source but do not name modules, and source enumeration order does not affect lookup. Every source unit remains understandable on its own.
 
@@ -351,7 +371,8 @@ Only functions carrying `@test` form entries. Bare `@test` entries may run in pa
 ## Checks to make
 
 - Keep package identity, version, product selection, targets, and dependency selection in the package and build layer.
-- Give every source unit an explicit module contribution and keep semicolon-form and block-form source shapes separate.
+- Give every source unit an explicit module contribution. Keep unbraced items before any braced suffix, and give each braced
+  contribution its complete module path and its own directives.
 - Repeat the logical module path in every split source file and give each file the `using` declarations it needs.
 - Omit `public` for ordinary public modules and declarations, and acknowledge internal access exactly where it is used.
 - Keep every split module contribution consistent in visibility and trusted-module state.
