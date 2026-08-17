@@ -226,12 +226,12 @@ where
         diagnostics.push(
             Diagnostic::new(
                 diagnostic_id(diagnostics.len()),
-                DiagnosticKind::CheckingRangeBoundTypeMustBeInteger,
+                DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
                 SeverityKind::Error,
             )
             .with_primary_span(span)
             .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::InvalidRangeBoundType,
+                DiagnosticLabelKind::InvalidRangeElementType,
                 span,
             ))
             .with_arg(DiagnosticArg::actual_type(actual)),

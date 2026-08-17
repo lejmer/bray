@@ -1,8 +1,56 @@
 catalog compiler_known revision 1;
 
 scope Ambient at ambient {
+    declaration I8RangeElementImplementation {
+        surface { impl I8RangeElement = i8(RangeElement) {} }
+    }
+
+    declaration I16RangeElementImplementation {
+        surface { impl I16RangeElement = i16(RangeElement) {} }
+    }
+
+    declaration I32RangeElementImplementation {
+        surface { impl I32RangeElement = i32(RangeElement) {} }
+    }
+
+    declaration I64RangeElementImplementation {
+        surface { impl I64RangeElement = i64(RangeElement) {} }
+    }
+
+    declaration I128RangeElementImplementation {
+        surface { impl I128RangeElement = i128(RangeElement) {} }
+    }
+
+    declaration U8RangeElementImplementation {
+        surface { impl U8RangeElement = u8(RangeElement) {} }
+    }
+
+    declaration U16RangeElementImplementation {
+        surface { impl U16RangeElement = u16(RangeElement) {} }
+    }
+
+    declaration U32RangeElementImplementation {
+        surface { impl U32RangeElement = u32(RangeElement) {} }
+    }
+
+    declaration U64RangeElementImplementation {
+        surface { impl U64RangeElement = u64(RangeElement) {} }
+    }
+
+    declaration U128RangeElementImplementation {
+        surface { impl U128RangeElement = u128(RangeElement) {} }
+    }
+
+    declaration IsizeRangeElementImplementation {
+        surface { impl IsizeRangeElement = isize(RangeElement) {} }
+    }
+
+    declaration UsizeRangeElementImplementation {
+        surface { impl UsizeRangeElement = usize(RangeElement) {} }
+    }
+
     declaration RangeIteratorImplementation {
-        surface { impl RangeIterator = Range<T>(Iterator) {} }
+        surface { impl RangeIterator = Range<T>(Iterator) with(T: RangeElement) {} }
     }
 
     declaration RangeIteratorElement {
@@ -19,7 +67,7 @@ scope Ambient at ambient {
     }
 
     declaration RangeSharedIterableImplementation {
-        surface { impl RangeSharedIterable = &Range<T>(Iterable) {} }
+        surface { impl RangeSharedIterable = &Range<T>(Iterable) with(T: RangeElement) {} }
     }
 
     declaration RangeSharedIterableElement {
@@ -42,7 +90,7 @@ scope Ambient at ambient {
     }
 
     declaration RangeMoveIterableImplementation {
-        surface { impl RangeMoveIterable = Range<T>(Iterable) {} }
+        surface { impl RangeMoveIterable = Range<T>(Iterable) with(T: RangeElement) {} }
     }
 
     declaration RangeMoveIterableElement {

@@ -876,7 +876,7 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::TypeInferenceNeedsConstraint
                 ),
             ),
-            Self::CheckingRangeBoundTypeMustBeInteger => {
+            Self::CheckingRangeElementTypeMustBeInteger => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
             }
             Self::CheckingInvalidConstantExpression => Self::quality_source(

@@ -130,7 +130,7 @@ scope Ambient at ambient {
     declaration Range {
         representation Range;
 
-        surface { struct Range<T> with(true) {} }
+        surface { struct Range<T> with(T: RangeElement) {} }
     }
 
     declaration RangeStart {

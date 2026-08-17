@@ -157,6 +157,7 @@ impl Compilation {
                     binding_context.semantic_values(),
                     selection.source(),
                     selection.source_type(),
+                    self.selected_target().target().integer_width_bits().get(),
                 )?;
 
                 Some(match exact_count {
@@ -348,6 +349,7 @@ fn iteration_exact_count(
     values: &bray_symbols::SemanticValueStore,
     source_expression: BoundExpressionId,
     source_type: TypeId,
+    usize_width_bits: u16,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let source = values
         .type_data(source_type)
@@ -355,7 +357,13 @@ fn iteration_exact_count(
 
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
-        TypeData::Named { .. } => range_literal_count(unit, literals, values, source_expression),
+        TypeData::Named { .. } => range_literal_count(
+            unit,
+            literals,
+            values,
+            source_expression,
+            usize_width_bits,
+        ),
         _ => Ok(None),
     }
 }
@@ -365,6 +373,7 @@ fn range_literal_count(
     literals: &CheckedLiteralValues,
     values: &bray_symbols::SemanticValueStore,
     source: BoundExpressionId,
+    usize_width_bits: u16,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let Some(BoundExpression::Structured(range)) = unit.view().expression(source) else {
         return Ok(None);
@@ -390,10 +399,14 @@ fn range_literal_count(
         return Ok(None);
     };
 
+    if !count_fits_target_usize(count, usize_width_bits) {
+        return Ok(None);
+    }
+
     values
         .intern_constant_term(ConstantTermData::IntegerLiteral {
             ty: TargetSizedIntegerType::Usize,
-            value: count,
+            value: IntegerConstant::new(IntegerSign::NonNegative, count.to_be_bytes()),
         })
         .map(Some)
         .map_err(|_| FactQueryError::InfrastructureFailure)
@@ -448,7 +461,7 @@ fn range_literal_integer(
 fn half_open_integer_count(
     start: &IntegerConstant,
     end: &IntegerConstant,
-) -> Option<IntegerConstant> {
+) -> Option<u128> {
     let magnitude = |integer: &IntegerConstant| {
         integer.magnitude().iter().try_fold(0_u128, |value, byte| {
             value.checked_mul(256)?.checked_add(u128::from(*byte))
@@ -471,10 +484,11 @@ fn half_open_integer_count(
         (IntegerSign::NonNegative, IntegerSign::Negative) => 0,
     };
 
-    Some(IntegerConstant::new(
-        IntegerSign::NonNegative,
-        count.to_be_bytes(),
-    ))
+    Some(count)
+}
+
+fn count_fits_target_usize(count: u128, usize_width_bits: u16) -> bool {
+    usize_width_bits >= u128::BITS as u16 || count < (1_u128 << usize_width_bits)
 }
 
 fn iteration_subject_type(
@@ -506,7 +520,7 @@ fn iteration_source(
 ) -> Result<(BoundExpressionId, IterationSourceMode), FactQueryError> {
     unit.view()
         .expression(expression)
-        .and_then(bray_bound_tree::BoundExpression::iteration_source)
+        .and_then(BoundExpression::iteration_source)
         .ok_or(FactQueryError::InfrastructureFailure)
 }
 
@@ -861,22 +875,47 @@ mod tests {
 
         assert_goal_state_diagnostic_kind(
             non_integer.check_diagnostics(),
-            DiagnosticKind::CheckingRangeBoundTypeMustBeInteger,
+            DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
         );
 
         let mismatched = compilation(concat!(
             "module app;\n",
             "func main()\n",
             "{\n",
-            "    let range = 0..4u32;\n",
+            "    let start: i32 = 0;\n",
+            "    let end: u32 = 4;\n",
+            "    let range = start..end;\n",
             "}\n",
         ));
 
-        assert!(!mismatched.check_diagnostics().is_empty());
+        assert_goal_state_diagnostic_kind(
+            mismatched.check_diagnostics(),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        );
+
+        let invalid_type = compilation(concat!(
+            "module app;\n",
+            "struct InvalidRange\n",
+            "{\n",
+            "    value: Range<bool>;\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            invalid_type.check_diagnostics(),
+            DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
+        );
     }
 
     #[test]
     fn empty_literal_ranges_publish_zero_exact_cardinality() {
+        assert!(super::count_fits_target_usize(u64::MAX.into(), 64));
+
+        assert!(!super::count_fits_target_usize(
+            u128::from(u64::MAX) + 1,
+            64,
+        ));
+
         for (bounds, expected) in [("4..4", 0), ("4..0", 0), ("-2..2", 4), ("2..(-2)", 0)] {
             let source = format!(
                 "module app;\nfunc main()\n{{\n    for value in {bounds}\n    {{\n    }}\n}}\n"

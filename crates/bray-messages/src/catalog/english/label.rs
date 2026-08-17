@@ -79,8 +79,8 @@ const DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
 
 const MODULE_EXPORT: &[MessageTemplatePart] = &[MessageTemplatePart::Text("module export")];
 
-const INVALID_RANGE_BOUND_TYPE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("this range uses a non-integer bound type"),
+const INVALID_RANGE_ELEMENT_TYPE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("this range uses a non-integer element type"),
 ];
 
 const INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
@@ -248,8 +248,8 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::UnconstrainedExpression => {
             MessageTemplate::new(UNCONSTRAINED_EXPRESSION)
         }
-        DiagnosticLabelKind::InvalidRangeBoundType => {
-            MessageTemplate::new(INVALID_RANGE_BOUND_TYPE)
+        DiagnosticLabelKind::InvalidRangeElementType => {
+            MessageTemplate::new(INVALID_RANGE_ELEMENT_TYPE)
         }
         DiagnosticLabelKind::InvalidConstantExpression => {
             MessageTemplate::new(INVALID_CONSTANT_EXPRESSION)

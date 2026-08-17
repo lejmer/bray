@@ -122,7 +122,7 @@ pub enum DiagnosticLabelKind {
     /// Label for an expression without enough type constraints.
     UnconstrainedExpression,
     /// Label for a half-open range whose bound type is not an integer type.
-    InvalidRangeBoundType,
+    InvalidRangeElementType,
     /// Label for an expression rejected during compile-time evaluation.
     InvalidConstantExpression,
     /// Label for a layout, tag, or copy declaration rejected during representation checking.
@@ -214,7 +214,7 @@ impl DiagnosticLabelKind {
             Self::SelectionFailure => "selection_failure",
             Self::TraitFulfillment => "trait_fulfillment",
             Self::UnconstrainedExpression => "unconstrained_expression",
-            Self::InvalidRangeBoundType => "invalid_range_bound_type",
+            Self::InvalidRangeElementType => "invalid_range_element_type",
             Self::InvalidConstantExpression => "invalid_constant_expression",
             Self::InvalidTypeRepresentationContract => "invalid_type_representation_contract",
             Self::IncompatiblePropagationBoundary => "incompatible_propagation_boundary",

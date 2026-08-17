@@ -591,11 +591,33 @@ mod tests {
     const RANGE_LOWERING_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
+        "struct RangeSource\n",
+        "{\n",
+        "}\n",
+        "\n",
+        "impl &RangeSource(Iterable)\n",
+        "{\n",
+        "    type Element = i32;\n",
+        "    type Cursor = Range<i32>;\n",
+        "\n",
+        "    consume func iterate() -> Range<i32>\n",
+        "    {\n",
+        "        return 1..3;\n",
+        "    }\n",
+        "}\n",
+        "\n",
         "func main() -> i32\n",
         "{\n",
         "    let mut total: i32 = 0;\n",
         "\n",
         "    for value in (0..4)\n",
+        "    {\n",
+        "        total += value;\n",
+        "    }\n",
+        "\n",
+        "    let source: RangeSource = RangeSource {};\n",
+        "\n",
+        "    for value in source\n",
         "    {\n",
         "        total += value;\n",
         "    }\n",
@@ -674,6 +696,11 @@ mod tests {
             MirOperationKind::Aggregate(aggregate)
                 if aggregate.kind() == MirAggregateKind::Range
         )));
+
+        assert!(mir
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_))));
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),

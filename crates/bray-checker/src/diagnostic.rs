@@ -291,7 +291,7 @@ fn diagnostic_named_representation(
         .and_then(diagnostic_representation)
 }
 
-const fn diagnostic_representation(role: RepresentationRole) -> Option<DiagnosticType> {
+pub(crate) const fn diagnostic_representation(role: RepresentationRole) -> Option<DiagnosticType> {
     match role {
         RepresentationRole::ScalarBool => Some(DiagnosticType::Boolean),
         RepresentationRole::ScalarChar => Some(DiagnosticType::Character),

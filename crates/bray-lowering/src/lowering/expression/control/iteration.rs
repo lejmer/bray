@@ -31,9 +31,7 @@ impl Lowerer<'_> {
         selection: &SelectedCall,
     ) -> Result<Option<LoweredExpression>, LoweringError> {
         match selection.implementation_hook() {
-            Some(
-                ImplementationHook::RangeSharedIterate | ImplementationHook::RangeMoveIterate,
-            ) => {
+            hook if is_range_iterate_hook(hook) => {
                 let receiver = selection
                     .receiver()
                     .ok_or(LoweringError::MissingSemanticSelection(id))?;
@@ -335,9 +333,15 @@ impl Lowerer<'_> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(id)?.clone();
         let source = self.expression_source(id)?;
-        let is_range = self.is_range_type(selection.cursor_type())?;
+        let range_cursor = self.is_range_type(selection.cursor_type())?;
 
-        let source_value = if is_range {
+        let direct_range_source = is_range_iterate_hook(
+            self.input
+                .available_compiler_known_symbols()
+                .symbol_implementation(selection.iterate().definition().symbol()),
+        );
+
+        let source_value = if direct_range_source {
             self.lower_range_iteration_source(source_expression, selection.mode(), current)?
         } else {
             self.lower_iteration_source(
@@ -356,7 +360,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(source_expression));
         };
 
-        let cursor_value = if is_range {
+        let cursor_value = if direct_range_source {
             source_operand
         } else {
             let cursor_value = self.builder.push_operation(
@@ -430,7 +434,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
         )?;
 
-        let terminator = if is_range {
+        let terminator = if range_cursor {
             MirTerminatorKind::RangeIterate {
                 cursor: Self::retained_place(&cursor),
                 element_type: selection.element_type(),
@@ -777,4 +781,11 @@ impl Lowerer<'_> {
             ty,
         }
     }
+}
+
+const fn is_range_iterate_hook(hook: Option<ImplementationHook>) -> bool {
+    matches!(
+        hook,
+        Some(ImplementationHook::RangeSharedIterate | ImplementationHook::RangeMoveIterate)
+    )
 }
