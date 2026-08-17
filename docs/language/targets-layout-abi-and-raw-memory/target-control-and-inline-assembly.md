@@ -44,12 +44,12 @@ The clobber literal is a comma-separated list of target registers and the portab
 
 The option value is a literal bit set:
 
-| Bit | Contract |
-| --- | --- |
+| Bit | Contract                                                    |
+|-----|-------------------------------------------------------------|
 | `1` | Pure assembly with no side effects outside its typed result |
-| `2` | The assembly requires an aligned stack |
-| `4` | Use the Intel assembly dialect on targets that support it |
-| `8` | Assembly may unwind |
+| `2` | The assembly requires an aligned stack                      |
+| `4` | Use the Intel assembly dialect on targets that support it   |
+| `8` | Assembly may unwind                                         |
 
 Unknown option bits are rejected. Pure assembly cannot declare a memory clobber. Assembly cannot unwind through Bray frames, so a set unwind bit is rejected deterministically. Local assembler labels remain within the template. A `label` operand is available only through `branching_assembly` and carries an alternate external transfer target.
 
