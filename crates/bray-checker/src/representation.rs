@@ -1,7 +1,8 @@
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-    NamedTypeSymbolId, StructSymbolId, SymbolProvider, TypeData, TypeId, UnionSymbolId,
+    AvailableCompilerKnownSymbols, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, NamedTypeSymbolId, SemanticValueStore, StructSymbolId, SymbolProvider,
+    TypeData, TypeId, UnionSymbolId,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -23,8 +24,19 @@ pub(crate) fn type_representation_for_context<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
+    type_representation_for_values(
+        request.semantic_values(),
+        request.available_compiler_known_symbols(),
+        ty,
+    )
+}
+
+pub(crate) fn type_representation_for_values(
+    values: &SemanticValueStore,
+    available: &AvailableCompilerKnownSymbols,
+    ty: TypeId,
+) -> Result<Option<RepresentationRole>, CheckerInfrastructureError> {
+    let data = values
         .type_data(ty)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
@@ -33,12 +45,8 @@ where
     };
 
     let representation = match definition {
-        NamedTypeSymbolId::Struct(definition) => request
-            .available_compiler_known_symbols()
-            .symbol_representation(*definition),
-        NamedTypeSymbolId::Union(definition) => request
-            .available_compiler_known_symbols()
-            .symbol_representation(*definition),
+        NamedTypeSymbolId::Struct(definition) => available.symbol_representation(*definition),
+        NamedTypeSymbolId::Union(definition) => available.symbol_representation(*definition),
     };
 
     Ok(representation)

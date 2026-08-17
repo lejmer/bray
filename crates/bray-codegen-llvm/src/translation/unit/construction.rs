@@ -37,7 +37,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut value = self.types.map(result)?.const_zero();
 
         match aggregate.kind() {
-            MirAggregateKind::Tuple => {
+            MirAggregateKind::Tuple | MirAggregateKind::Range => {
                 let CodegenTypeKind::Aggregate(fields) = &kind else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 };

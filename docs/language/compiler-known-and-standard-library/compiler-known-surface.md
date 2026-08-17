@@ -20,6 +20,7 @@ The compiler-known surface consists of:
 - compiler-known indexing traits `ElementIndex<Selector>`, `MutableElementIndex<Selector>`, `SliceIndex<Bound>`, and
   `MutableSliceIndex<Bound>`,
 - the compiler-known `Copyable` contract used by static constraints,
+- the compiler-known `RangeElement` marker implemented only by target-available integer scalar types,
 - the compiler-known operator traits defined by the type rules, including `Add<Rhs>`, `Equatable<Rhs>`, and `Comparable<Rhs>`,
 - the compiler-known `Ordering` result used by relational comparison,
 - the compiler-known literals and special values `true`, `false`, `unit`, and `none`.

@@ -192,6 +192,7 @@ where
                                 | bray_compiler_known::RepresentationRole::Unit
                                 | bray_compiler_known::RepresentationRole::Never
                                 | bray_compiler_known::RepresentationRole::String
+                                | bray_compiler_known::RepresentationRole::Range
                                 | bray_compiler_known::RepresentationRole::RawPointer
                                 | bray_compiler_known::RepresentationRole::DevicePointer
                         ));

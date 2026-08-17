@@ -43,7 +43,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
 
     while written < length
     {
-        let remaining: &[u8] = &source[written.. length];
+        let remaining: &[u8] = &source[written..length];
         let result: Result<usize, IoError> = sink.write(remaining);
 
         let advanced: Result<usize, IoError> = advance_write_all(
@@ -71,7 +71,7 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
 
     while written < length
     {
-        let remaining: &[u8] = &source[written.. length];
+        let remaining: &[u8] = &source[written..length];
         let result: Result<usize, IoError> = await sink.write_async(remaining);
 
         let advanced: Result<usize, IoError> = advance_write_all(
@@ -98,7 +98,7 @@ internal func write_standard_output_all(pos source: &[u8]) -> Result<usize, IoEr
 
     while written < length
     {
-        let remaining: &[u8] = &source[written.. length];
+        let remaining: &[u8] = &source[written..length];
         let result: Result<usize, IoError> = trusted write_standard_output_unlocked(remaining);
 
         let advanced: Result<usize, IoError> = advance_write_all(

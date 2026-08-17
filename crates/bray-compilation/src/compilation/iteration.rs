@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
-    BoundExpressionId, BoundIterationSource, BoundUnit, BoundUnitKey, IterationSourceMode,
+    BoundExpression, BoundExpressionId, BoundIterationSource, BoundOperator,
+    BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedLiteralValues,
+    IterationSourceMode,
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };
 use bray_checker::{
@@ -11,8 +13,10 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    BorrowKind, ImplementationCandidate, ImplementationInstanceData, ImplementationRequirementKey,
-    TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TypeData, TypeId,
+    BorrowKind, ConstantTermData, ConstantValueKind, ImplementationCandidate,
+    ImplementationInstanceData, ImplementationRequirementKey, IntegerConstant, IntegerSign,
+    TargetSizedIntegerType, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TypeData,
+    TypeId,
 };
 
 use super::Compilation;
@@ -148,8 +152,12 @@ impl Compilation {
         let selected = match selection {
             CandidateSelection::Selected(selection) => {
                 let exact_count = iteration_exact_count(
+                    bound.result().value(),
+                    &semantics.result().value().2,
                     binding_context.semantic_values(),
+                    selection.source(),
                     selection.source_type(),
+                    self.selected_target().target().integer_width_bits().get(),
                 )?;
 
                 Some(match exact_count {
@@ -336,8 +344,12 @@ impl Compilation {
 }
 
 fn iteration_exact_count(
+    unit: &BoundUnit,
+    literals: &CheckedLiteralValues,
     values: &bray_symbols::SemanticValueStore,
+    source_expression: BoundExpressionId,
     source_type: TypeId,
+    usize_width_bits: u16,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let source = values
         .type_data(source_type)
@@ -345,8 +357,138 @@ fn iteration_exact_count(
 
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
+        TypeData::Named { .. } => range_literal_count(
+            unit,
+            literals,
+            values,
+            source_expression,
+            usize_width_bits,
+        ),
         _ => Ok(None),
     }
+}
+
+fn range_literal_count(
+    unit: &BoundUnit,
+    literals: &CheckedLiteralValues,
+    values: &bray_symbols::SemanticValueStore,
+    source: BoundExpressionId,
+    usize_width_bits: u16,
+) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
+    let Some(BoundExpression::Structured(range)) = unit.view().expression(source) else {
+        return Ok(None);
+    };
+
+    if range.kind() != BoundStructuredExpressionKind::Range {
+        return Ok(None);
+    }
+
+    let [start, end] = range.operands() else {
+        return Ok(None);
+    };
+
+    let Some(start) = range_literal_integer(unit, literals, values, *start)? else {
+        return Ok(None);
+    };
+
+    let Some(end) = range_literal_integer(unit, literals, values, *end)? else {
+        return Ok(None);
+    };
+
+    let Some(count) = half_open_integer_count(&start, &end) else {
+        return Ok(None);
+    };
+
+    if !count_fits_target_usize(count, usize_width_bits) {
+        return Ok(None);
+    }
+
+    values
+        .intern_constant_term(ConstantTermData::IntegerLiteral {
+            ty: TargetSizedIntegerType::Usize,
+            value: IntegerConstant::new(IntegerSign::NonNegative, count.to_be_bytes()),
+        })
+        .map(Some)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
+fn range_literal_integer(
+    unit: &BoundUnit,
+    literals: &CheckedLiteralValues,
+    values: &bray_symbols::SemanticValueStore,
+    expression: BoundExpressionId,
+) -> Result<Option<IntegerConstant>, FactQueryError> {
+    if let Some(value) = literals.expression(expression) {
+        let value = values
+            .constant_value_data(value)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        return Ok(match value.kind() {
+            ConstantValueKind::Integer(integer) => Some(integer.clone()),
+            _ => None,
+        });
+    }
+
+    let Some(BoundExpression::Unary(unary)) = unit.view().expression(expression) else {
+        return Ok(None);
+    };
+
+    let [operand] = unary.operands() else {
+        return Ok(None);
+    };
+
+    let Some(integer) = range_literal_integer(unit, literals, values, *operand)? else {
+        return Ok(None);
+    };
+
+    match unary.operator() {
+        BoundOperator::Add => Ok(Some(integer)),
+        BoundOperator::Subtract => {
+            let sign = match integer.sign() {
+                IntegerSign::NonNegative => IntegerSign::Negative,
+                IntegerSign::Negative => IntegerSign::NonNegative,
+            };
+
+            Ok(Some(IntegerConstant::new(
+                sign,
+                integer.magnitude().iter().copied(),
+            )))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn half_open_integer_count(
+    start: &IntegerConstant,
+    end: &IntegerConstant,
+) -> Option<u128> {
+    let magnitude = |integer: &IntegerConstant| {
+        integer.magnitude().iter().try_fold(0_u128, |value, byte| {
+            value.checked_mul(256)?.checked_add(u128::from(*byte))
+        })
+    };
+
+    let start_magnitude = magnitude(start)?;
+    let end_magnitude = magnitude(end)?;
+
+    let count = match (start.sign(), end.sign()) {
+        (IntegerSign::NonNegative, IntegerSign::NonNegative) => {
+            end_magnitude.saturating_sub(start_magnitude)
+        }
+        (IntegerSign::Negative, IntegerSign::Negative) => {
+            start_magnitude.saturating_sub(end_magnitude)
+        }
+        (IntegerSign::Negative, IntegerSign::NonNegative) => {
+            start_magnitude.checked_add(end_magnitude)?
+        }
+        (IntegerSign::NonNegative, IntegerSign::Negative) => 0,
+    };
+
+    Some(count)
+}
+
+fn count_fits_target_usize(count: u128, usize_width_bits: u16) -> bool {
+    usize_width_bits >= u128::BITS as u16 || count < (1_u128 << usize_width_bits)
 }
 
 fn iteration_subject_type(
@@ -378,7 +520,7 @@ fn iteration_source(
 ) -> Result<(BoundExpressionId, IterationSourceMode), FactQueryError> {
     unit.view()
         .expression(expression)
-        .and_then(bray_bound_tree::BoundExpression::iteration_source)
+        .and_then(BoundExpression::iteration_source)
         .ok_or(FactQueryError::InfrastructureFailure)
 }
 
@@ -498,14 +640,16 @@ mod tests {
     use bray_binder::{BindingQueryContext, SymbolQueryProvider};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundExpression, BoundStructuredExpressionKind, BoundWalkControl,
-        BoundWalkEvent, BoundWalkOutcome, IterationSourceMode, SemanticSelection,
+        BoundWalkEvent, BoundWalkOutcome, IterationSourceMode, SelectedIterationSource,
+        SemanticSelection,
         walk_bound_unit_view,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind};
     use bray_symbols::{
-        BorrowKind, ImplementationCoherenceQuery, ImplementationSymbolId, NamedTypeSymbolId,
-        SemanticValueStore, StructSymbolId, SymbolKind, SymbolOrigin, SymbolQueryRequest, TypeData,
+        BorrowKind, ConstantTermData, ImplementationCoherenceQuery, ImplementationSymbolId,
+        NamedTypeSymbolId, SemanticValueStore, StructSymbolId, SymbolKind, SymbolOrigin,
+        SymbolQueryRequest, TypeData,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -617,6 +761,204 @@ mod tests {
             first.diagnostics(),
             DiagnosticKind::CheckingNoApplicableCandidate,
         );
+    }
+
+    #[test]
+    fn range_iteration_selects_i32_protocols_and_exact_literal_cardinality() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    for value in 0..4\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("range unit must bind: {error:?}"));
+
+        let range = find_expression(bound.value(), |expression| {
+            matches!(
+                expression,
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::Range
+            )
+        });
+
+        let types = compilation
+            .expression_types(key.clone())
+            .unwrap_or_else(|error| panic!("range types must publish: {error:?}"));
+
+        let range_type = types
+            .value()
+            .expression(range)
+            .map(|result| result.ty())
+            .unwrap_or_else(|| panic!("range expression must have a type"));
+
+        let element = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                compilation
+                    .semantic_value_store()
+                    .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}")),
+                RepresentationRole::Range,
+                range_type,
+            )
+            .unwrap_or_else(|| panic!("range type must retain its element"));
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .symbol_representation(
+                    match compilation
+                        .semantic_value_store()
+                        .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"))
+                        .type_data(element)
+                        .unwrap_or_else(|error| panic!("element type must publish: {error:?}"))
+                        .as_ref()
+                    {
+                        TypeData::Named {
+                            definition: NamedTypeSymbolId::Struct(definition),
+                            ..
+                        } => *definition,
+                        _ => panic!("range element must be a named integer"),
+                    },
+                ),
+            Some(RepresentationRole::ScalarI32)
+        );
+
+        let iteration = iteration_expression(bound.value());
+
+        let selection = compilation
+            .iteration_source(key, iteration)
+            .unwrap_or_else(|error| panic!("range iteration must select: {error:?}"));
+
+        let count = selection
+            .value()
+            .as_ref()
+            .and_then(SelectedIterationSource::exact_count)
+            .unwrap_or_else(|| panic!("literal range must have an exact cardinality"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
+        let count = values
+            .constant_term_data(count)
+            .unwrap_or_else(|error| panic!("range cardinality must publish: {error:?}"));
+
+        assert!(matches!(
+            count.as_ref(),
+            ConstantTermData::IntegerLiteral { value, .. } if value.to_u64() == Some(4)
+        ));
+    }
+
+    #[test]
+    fn range_bounds_require_one_integer_type() {
+        let non_integer = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let range: Range<bool> = false..true;\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            non_integer.check_diagnostics(),
+            DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
+        );
+
+        let mismatched = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let start: i32 = 0;\n",
+            "    let end: u32 = 4;\n",
+            "    let range = start..end;\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            mismatched.check_diagnostics(),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        );
+
+        let invalid_type = compilation(concat!(
+            "module app;\n",
+            "struct InvalidRange\n",
+            "{\n",
+            "    value: Range<bool>;\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            invalid_type.check_diagnostics(),
+            DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
+        );
+    }
+
+    #[test]
+    fn empty_literal_ranges_publish_zero_exact_cardinality() {
+        assert!(super::count_fits_target_usize(u64::MAX.into(), 64));
+
+        assert!(!super::count_fits_target_usize(
+            u128::from(u64::MAX) + 1,
+            64,
+        ));
+
+        for (bounds, expected) in [("4..4", 0), ("4..0", 0), ("-2..2", 4), ("2..(-2)", 0)] {
+            let source = format!(
+                "module app;\nfunc main()\n{{\n    for value in {bounds}\n    {{\n    }}\n}}\n"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{bounds}: {:#?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_callable_body_key(&compilation);
+
+            let bound = compilation
+                .bound_unit(key.clone())
+                .unwrap_or_else(|error| panic!("{bounds} must bind: {error:?}"));
+
+            let selection = compilation
+                .iteration_source(key, iteration_expression(bound.value()))
+                .unwrap_or_else(|error| panic!("{bounds} must select: {error:?}"));
+
+            let count = selection
+                .value()
+                .as_ref()
+                .and_then(SelectedIterationSource::exact_count)
+                .unwrap_or_else(|| panic!("{bounds} must have an exact cardinality"));
+
+            let values = compilation
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("{bounds} values must publish: {error:?}"));
+
+            let count = values
+                .constant_term_data(count)
+                .unwrap_or_else(|error| panic!("{bounds} cardinality must publish: {error:?}"));
+
+            assert!(matches!(
+                count.as_ref(),
+                ConstantTermData::IntegerLiteral { value, .. }
+                    if value.to_u64() == Some(expected)
+            ));
+        }
     }
 
     #[test]

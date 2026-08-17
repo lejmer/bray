@@ -205,11 +205,11 @@ impl MirSwitchCase {
 /// Completed, panicked, and cancelled successors of a run-result forwarding operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirRunResultEdges {
-    completed_variant: bray_symbols::UnionVariantSymbolId,
+    completed_variant: UnionVariantSymbolId,
     completed: MirEdge,
-    panicked_variant: bray_symbols::UnionVariantSymbolId,
+    panicked_variant: UnionVariantSymbolId,
     panicked: MirCleanupEdge,
-    cancelled_variant: bray_symbols::UnionVariantSymbolId,
+    cancelled_variant: UnionVariantSymbolId,
     cancelled: MirCleanupEdge,
 }
 
@@ -235,9 +235,9 @@ impl MirSuspensionKind {
 impl MirRunResultEdges {
     /// Creates the three distinct run-result successors.
     pub fn new(
-        completed: (bray_symbols::UnionVariantSymbolId, MirEdge),
-        panicked: (bray_symbols::UnionVariantSymbolId, MirCleanupEdge),
-        cancelled: (bray_symbols::UnionVariantSymbolId, MirCleanupEdge),
+        completed: (UnionVariantSymbolId, MirEdge),
+        panicked: (UnionVariantSymbolId, MirCleanupEdge),
+        cancelled: (UnionVariantSymbolId, MirCleanupEdge),
     ) -> Self {
         Self {
             completed_variant: completed.0,
@@ -250,7 +250,7 @@ impl MirRunResultEdges {
     }
 
     /// Returns the completed variant selected by checked lowering.
-    pub const fn completed_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+    pub const fn completed_variant(&self) -> UnionVariantSymbolId {
         self.completed_variant
     }
 
@@ -260,7 +260,7 @@ impl MirRunResultEdges {
     }
 
     /// Returns the panicked variant selected by checked lowering.
-    pub const fn panicked_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+    pub const fn panicked_variant(&self) -> UnionVariantSymbolId {
         self.panicked_variant
     }
 
@@ -270,7 +270,7 @@ impl MirRunResultEdges {
     }
 
     /// Returns the cancelled variant selected by checked lowering.
-    pub const fn cancelled_variant(&self) -> bray_symbols::UnionVariantSymbolId {
+    pub const fn cancelled_variant(&self) -> UnionVariantSymbolId {
         self.cancelled_variant
     }
 
@@ -314,6 +314,17 @@ pub enum MirTerminatorKind {
         /// Exact implementation supplying the cursor-advance callable.
         witness: bray_symbols::ImplementationInstanceId,
         /// Checked element type produced on the item edge.
+        element_type: TypeId,
+        /// Item block receiving the produced element as its sole parameter.
+        item: MirBlockId,
+        /// Destination reached on natural exhaustion.
+        exhausted: MirEdge,
+    },
+    /// Advance one compiler-known half-open range cursor.
+    RangeIterate {
+        /// Mutable range cursor storage retained across iteration steps.
+        cursor: MirPlace,
+        /// Checked integer element type produced on the item edge.
         element_type: TypeId,
         /// Item block receiving the produced element as its sole parameter.
         item: MirBlockId,
@@ -432,6 +443,9 @@ impl MirTerminatorKind {
             }
             Self::Iterate {
                 item, exhausted, ..
+            }
+            | Self::RangeIterate {
+                item, exhausted, ..
             } => {
                 visit(*item);
                 visit(exhausted.target());
@@ -488,7 +502,7 @@ impl MirTerminatorKind {
     }
 
     /// Returns the canonical typed value tested by a literal pattern branch.
-    pub const fn pattern_literal_value(&self) -> Option<bray_symbols::ConstantValueId> {
+    pub const fn pattern_literal_value(&self) -> Option<ConstantValueId> {
         match self {
             Self::PatternBranch {
                 predicate: MirPatternPredicate::Literal(literal),
@@ -499,7 +513,7 @@ impl MirTerminatorKind {
     }
 
     /// Returns the closed constant term tested by a pattern branch, when present.
-    pub const fn pattern_constant_term(&self) -> Option<bray_symbols::ConstantTermId> {
+    pub const fn pattern_constant_term(&self) -> Option<ConstantTermId> {
         match self {
             Self::PatternBranch {
                 predicate: MirPatternPredicate::Constant(term),
@@ -509,6 +523,7 @@ impl MirTerminatorKind {
             | Self::Branch { .. }
             | Self::PatternBranch { .. }
             | Self::Iterate { .. }
+            | Self::RangeIterate { .. }
             | Self::Switch { .. }
             | Self::InlineAssembly(_)
             | Self::Return(_)

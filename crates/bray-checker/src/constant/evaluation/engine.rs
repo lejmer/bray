@@ -661,7 +661,7 @@ where
             BoundStructuredExpressionKind::Absence => {
                 self.intern_value_term(ty, ConstantValueKind::NullableAbsent)
             }
-            BoundStructuredExpressionKind::Tuple => {
+            BoundStructuredExpressionKind::Tuple | BoundStructuredExpressionKind::Range => {
                 let terms = self.evaluate_elements(expression, operands)?;
 
                 match self.closed_elements(&terms)? {
@@ -1398,7 +1398,7 @@ mod tests {
         assert_eq!(resolver.requests().len(), 1);
 
         let transitive_resolver = CapturingCallResolver::new(result_value)
-            .with_usage(crate::ConstantEvaluationUsage::new(100, 0, 0));
+            .with_usage(ConstantEvaluationUsage::new(100, 0, 0));
 
         let transitive_input = ConstantEvaluationInput::new(&types, &selections)
             .with_call_resolver(&transitive_resolver)
@@ -1444,7 +1444,7 @@ mod tests {
 
     struct CapturingCallResolver {
         result: bray_symbols::ConstantValueId,
-        usage: crate::ConstantEvaluationUsage,
+        usage: ConstantEvaluationUsage,
         requests: Mutex<Vec<ConstantCallRequest>>,
     }
 
@@ -1452,12 +1452,12 @@ mod tests {
         fn new(result: bray_symbols::ConstantValueId) -> Self {
             Self {
                 result,
-                usage: crate::ConstantEvaluationUsage::default(),
+                usage: ConstantEvaluationUsage::default(),
                 requests: Mutex::new(Vec::new()),
             }
         }
 
-        fn with_usage(mut self, usage: crate::ConstantEvaluationUsage) -> Self {
+        fn with_usage(mut self, usage: ConstantEvaluationUsage) -> Self {
             self.usage = usage;
 
             self
@@ -1490,7 +1490,7 @@ mod tests {
 
             Ok(ConstantCallResolution::Evaluated(
                 bray_diagnostics::DiagnosticResult::without_diagnostics(
-                    crate::EvaluatedConstantCall::new(self.result, self.usage),
+                    EvaluatedConstantCall::new(self.result, self.usage),
                 ),
             ))
         }

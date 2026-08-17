@@ -161,7 +161,7 @@ struct Path
 
         if prefix_length > 0
         {
-            try append_bytes(&mut output, &source[0.. prefix_length]);
+            try append_bytes(&mut output, &source[0..prefix_length]);
         }
 
         if rooted
@@ -712,7 +712,7 @@ internal func append_segment(
         next_length += native_unit_bytes();
     }
 
-    try append_bytes(&mut output, &source[start.. end]);
+    try append_bytes(&mut output, &source[start..end]);
 
     return Ok(next_length + end - start);
 }

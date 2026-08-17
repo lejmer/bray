@@ -43,8 +43,8 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
 
     if accepted > 0
     {
-        let accepted_source: &[u8] = &source[0.. accepted];
-        let available_destination: &mut [u8] = &mut destination[writer.length.. writer.length + accepted];
+        let accepted_source: &[u8] = &source[0..accepted];
+        let available_destination: &mut [u8] = &mut destination[writer.length..writer.length + accepted];
         let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available_destination);
 
         trusted internal std.memory.byte_slice_copy(source = accepted_source, destination = destination_pointer);
@@ -70,7 +70,7 @@ impl BufferedWriter<Sink>
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
-                let pending: &[u8] = &bytes[self.start.. self.length];
+                let pending: &[u8] = &bytes[self.start..self.length];
 
                 yield self.sink.write(pending);
             };
@@ -151,7 +151,7 @@ impl BufferedWriter<Sink>
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
-                let pending: &[u8] = &bytes[self.start.. self.length];
+                let pending: &[u8] = &bytes[self.start..self.length];
 
                 yield await self.sink.write_async(pending);
             };

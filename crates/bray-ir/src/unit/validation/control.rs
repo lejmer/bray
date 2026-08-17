@@ -40,6 +40,13 @@ pub(super) fn validate_terminator(
             item,
             exhausted,
             ..
+        }
+        | MirTerminatorKind::RangeIterate {
+            cursor,
+            element_type,
+            item,
+            exhausted,
+            ..
         } => {
             super::operation::validate_place(unit, cursor, block_id, None)?;
             validate_iteration_item(unit, *item, *element_type)?;

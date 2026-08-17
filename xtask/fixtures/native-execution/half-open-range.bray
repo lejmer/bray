@@ -1,0 +1,37 @@
+module range_execution;
+
+func main() -> i32
+{
+    let mut total: i32 = 0;
+
+    for value in 0..4
+    {
+        total += value;
+    }
+
+    for value in 4..4
+    {
+        total += value;
+    }
+
+    for value in 4..0
+    {
+        total += value;
+    }
+
+    let mut iteration_count: i32 = 0;
+    let unsigned_start: u32 = 0;
+    let unsigned_end: u32 = 4;
+
+    for value in unsigned_start..unsigned_end
+    {
+        iteration_count += 1;
+    }
+
+    for value in unsigned_end..unsigned_start
+    {
+        iteration_count += 1;
+    }
+
+    return total + iteration_count;
+}

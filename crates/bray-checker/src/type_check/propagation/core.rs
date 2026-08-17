@@ -15,8 +15,8 @@ use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::ExpressionTypeRegions;
 use super::aggregate::{
-    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_repeated_array,
-    infer_tuple,
+    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_range,
+    infer_repeated_array, infer_tuple,
 };
 
 pub(crate) fn propagate_dynamic_constraints<C>(
@@ -108,6 +108,13 @@ where
                 inference,
             )?,
             BoundStructuredExpressionKind::RepeatedArray => infer_repeated_array(
+                request,
+                expression_id,
+                expression.operands(),
+                variables,
+                inference,
+            )?,
+            BoundStructuredExpressionKind::Range => infer_range(
                 request,
                 expression_id,
                 expression.operands(),
@@ -363,7 +370,7 @@ where
                         kind: operand_kind,
                         target,
                     } if target == expected_target
-                        && (*operand_kind == kind || kind == bray_symbols::BorrowKind::Shared)
+                        && (*operand_kind == kind || kind == BorrowKind::Shared)
                 )
             }
             None => false,

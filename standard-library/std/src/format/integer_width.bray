@@ -83,7 +83,7 @@ internal func write_unsigned_native_digits<Destination, Failure>(
     start -= 1;
     digits[start] = native_digit_byte(remaining, uppercase);
 
-    return destination.write(&digits[start.. 64]);
+    return destination.write(&digits[start..64]);
 }
 
 internal func write_signed_native_digits<Destination, Failure>(
@@ -109,7 +109,7 @@ internal func write_signed_native_digits<Destination, Failure>(
     start -= 1;
     digits[start] = signed_native_digit_byte(-remaining, uppercase);
 
-    return destination.write(&digits[start.. 64]);
+    return destination.write(&digits[start..64]);
 }
 
 internal func write_unsigned_native_integer<Destination, Failure>(

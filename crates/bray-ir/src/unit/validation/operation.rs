@@ -84,7 +84,9 @@ pub(super) fn validate_operation(
         MirOperationKind::Aggregate(aggregate) => {
             let valid_arity = match aggregate.kind() {
                 MirAggregateKind::Tuple | MirAggregateKind::Array => true,
-                MirAggregateKind::RepeatedArray => aggregate.operands().len() == 2,
+                MirAggregateKind::RepeatedArray | MirAggregateKind::Range => {
+                    aggregate.operands().len() == 2
+                }
                 MirAggregateKind::NullablePresent => aggregate.operands().len() == 1,
             };
 
@@ -716,7 +718,7 @@ fn validate_generator_operation(
             validate_runtime_role(
                 unit,
                 *runtime,
-                bray_runtime_interface::RuntimeAbiRole::GeneratorCleanupBroadcast,
+                RuntimeAbiRole::GeneratorCleanupBroadcast,
             )?;
 
             destination
@@ -729,7 +731,7 @@ fn validate_generator_operation(
             validate_runtime_role(
                 unit,
                 *runtime,
-                bray_runtime_interface::RuntimeAbiRole::GeneratorDestruction,
+                RuntimeAbiRole::GeneratorDestruction,
             )?;
 
             destination

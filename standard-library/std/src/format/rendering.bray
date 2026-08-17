@@ -229,7 +229,7 @@ internal func write_unsigned_digits<Destination, Failure>(
     start -= 1;
     digits[start] = digit_byte(remaining, uppercase);
 
-    return destination.write(&digits[start.. 128]);
+    return destination.write(&digits[start..128]);
 }
 
 internal func write_signed_digits<Destination, Failure>(
@@ -255,7 +255,7 @@ internal func write_signed_digits<Destination, Failure>(
     start -= 1;
     digits[start] = signed_digit_byte(-remaining, uppercase);
 
-    return destination.write(&digits[start.. 128]);
+    return destination.write(&digits[start..128]);
 }
 
 internal func write_requested_sign<Destination, Failure>(
@@ -420,7 +420,7 @@ internal func write_escaped_string<Destination, Failure>(
         {
             if segment_start < index
             {
-                try destination.write(&content[segment_start.. index]);
+                try destination.write(&content[segment_start..index]);
             }
 
             try write_escape<Destination, Failure>(&mut destination, escaped);
@@ -432,7 +432,7 @@ internal func write_escaped_string<Destination, Failure>(
 
     if segment_start < count
     {
-        try destination.write(&content[segment_start.. count]);
+        try destination.write(&content[segment_start..count]);
     }
 
     return destination.write(&quote[..]);
@@ -529,7 +529,7 @@ internal func write_raw_character<Destination, Failure>(
         index += 1;
     }
 
-    return destination.write(&encoded[0.. length]);
+    return destination.write(&encoded[0..length]);
 }
 
 internal func write_character_value<Destination, Failure>(

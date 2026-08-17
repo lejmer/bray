@@ -17,7 +17,7 @@ struct BorrowedNarrowString
     {
         let count: usize = std.bytes.slice_length(self.units);
 
-        return &self.units[0.. count - 1];
+        return &self.units[0..count - 1];
     }
 
     func bytes_with_nul() -> &[u8]

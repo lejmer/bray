@@ -40,6 +40,7 @@ pub(crate) const fn expression_category(
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
             | BoundStructuredExpressionKind::RepeatedArray
+            | BoundStructuredExpressionKind::Range
             | BoundStructuredExpressionKind::Unit
             | BoundStructuredExpressionKind::Absence => DiagnosticExpressionCategory::Aggregate,
             BoundStructuredExpressionKind::ElementIndex
@@ -290,7 +291,7 @@ fn diagnostic_named_representation(
         .and_then(diagnostic_representation)
 }
 
-const fn diagnostic_representation(role: RepresentationRole) -> Option<DiagnosticType> {
+pub(crate) const fn diagnostic_representation(role: RepresentationRole) -> Option<DiagnosticType> {
     match role {
         RepresentationRole::ScalarBool => Some(DiagnosticType::Boolean),
         RepresentationRole::ScalarChar => Some(DiagnosticType::Character),
@@ -318,6 +319,7 @@ const fn diagnostic_representation(role: RepresentationRole) -> Option<Diagnosti
         RepresentationRole::Never => Some(DiagnosticType::Never),
         RepresentationRole::String => Some(DiagnosticType::String),
         RepresentationRole::RawPointer
+        | RepresentationRole::Range
         | RepresentationRole::DevicePointer
         | RepresentationRole::Atomic
         | RepresentationRole::Uninit

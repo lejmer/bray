@@ -79,9 +79,9 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     let mut reader: std.io.BufferedReader<std.fs.File> = try std.io.BufferedReader<std.fs.File>(writable, capacity = 2);
     let mut destination: [u8; 3] = [0; 3];
 
-    let first_read: usize = try reader(std.io.Reader).read(&mut destination[0.. 1]);
-    let second_read: usize = try reader(std.io.Reader).read(&mut destination[1.. 3]);
-    let third_read: usize = try reader(std.io.Reader).read(&mut destination[2.. 3]);
+    let first_read: usize = try reader(std.io.Reader).read(&mut destination[0..1]);
+    let second_read: usize = try reader(std.io.Reader).read(&mut destination[1..3]);
+    let third_read: usize = try reader(std.io.Reader).read(&mut destination[2..3]);
 
     let mut readable: std.fs.File = reader.into_source();
 

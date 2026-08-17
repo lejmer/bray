@@ -7,6 +7,7 @@ mod effect;
 mod generator;
 mod memory;
 mod place;
+mod range;
 mod scalar;
 mod support;
 mod text;

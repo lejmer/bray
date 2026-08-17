@@ -48,7 +48,8 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
-            | BoundStructuredExpressionKind::RepeatedArray => {
+            | BoundStructuredExpressionKind::RepeatedArray
+            | BoundStructuredExpressionKind::Range => {
                 self.lower_aggregate(id, expression, current)
             }
             BoundStructuredExpressionKind::ArrayGenerator => self.lower_generator_region(

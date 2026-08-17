@@ -266,7 +266,7 @@ impl ListSliceIndex = List<T>(SliceIndex<usize>)
         let lower: usize = slice_start(start);
         let upper: usize = slice_end(end, self.storage.initialized);
 
-        return &values[lower.. upper];
+        return &values[lower..upper];
     }
 }
 

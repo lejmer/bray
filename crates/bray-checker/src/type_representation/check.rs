@@ -536,6 +536,20 @@ where
                     self.context.available_compiler_known_symbols(),
                     *definition,
                 ) {
+                    if role == RepresentationRole::Range {
+                        let element = self
+                            .context
+                            .available_compiler_known_symbols()
+                            .unary_representation_argument(
+                                self.context.semantic_values(),
+                                RepresentationRole::Range,
+                                ty,
+                            )
+                            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+                        self.validate_range_element_type(element, origin)?;
+                    }
+
                     if role == RepresentationRole::Uninit {
                         let element = self
                             .context
@@ -662,6 +676,55 @@ where
                 recovered: false,
             }),
         }
+    }
+
+    fn validate_range_element_type(
+        &mut self,
+        element: TypeId,
+        origin: Option<SourceSpan>,
+    ) -> CheckerQueryResult<()> {
+        let role = crate::representation::type_representation_for_values(
+            self.context.semantic_values(),
+            self.context.available_compiler_known_symbols(),
+            element,
+        )?;
+
+        if role.and_then(RepresentationRole::integer_representation).is_some() {
+            return Ok(());
+        }
+
+        let data = self.context.semantic_values().type_data(element).map_err(|_| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
+
+        let actual = match data.as_ref() {
+            TypeData::TypeParameter(_) => return Ok(()),
+            _ => role
+                .and_then(crate::diagnostic::diagnostic_representation)
+                .unwrap_or(bray_diagnostics::DiagnosticType::Unknown),
+        };
+
+        let Some(span) = origin else {
+            return Ok(());
+        };
+
+        let id = u32::try_from(self.diagnostics.len()).unwrap_or(u32::MAX);
+
+        self.diagnostics.add(
+            Diagnostic::new(
+                DiagnosticId::new(id),
+                DiagnosticKind::CheckingRangeElementTypeMustBeInteger,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidRangeElementType,
+                span,
+            ))
+            .with_arg(DiagnosticArg::actual_type(actual)),
+        );
+
+        Ok(())
     }
 
     fn add_limit_diagnostic(
@@ -913,6 +976,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
 
     match role {
         RepresentationRole::String
+        | RepresentationRole::Range
         | RepresentationRole::RawPointer
         | RepresentationRole::DevicePointer => MemberRepresentation {
             finite: true,

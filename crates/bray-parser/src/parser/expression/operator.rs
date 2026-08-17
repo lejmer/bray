@@ -164,6 +164,7 @@ fn at_assignment_operator(kind: SyntaxKind) -> bool {
 
 fn infix_operator(kind: SyntaxKind) -> Option<InfixOperator> {
     let (left_binding_power, right_binding_power, associativity) = match kind {
+        SyntaxKind::DotDotToken => (0, 1, OperatorAssociativity::None),
         SyntaxKind::PipePipeToken => (1, 2, OperatorAssociativity::Left),
         SyntaxKind::AmpersandAmpersandToken => (3, 4, OperatorAssociativity::Left),
         SyntaxKind::EqualsEqualsToken
@@ -346,6 +347,57 @@ mod tests {
         let diagnostics = parser.finish();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_half_open_range_below_logical_or() {
+        let sources = source_store(["left || middle..right || tail;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let operands = expression.expressions().collect::<Vec<_>>();
+
+        let [left, right] = operands.as_slice() else {
+            panic!("expected range expression operands: {operands:?}");
+        };
+
+        assert_eq!(expression.full_text(), "left || middle..right || tail");
+
+        assert_eq!(
+            expression.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::DotDotToken)
+        );
+
+        assert_eq!(
+            left.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::PipePipeToken)
+        );
+
+        assert_eq!(
+            right.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::PipePipeToken)
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_leaves_second_range_for_recovery() {
+        let sources = source_store(["start..middle..end;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), "start..middle");
+        assert_eq!(parser.peek().kind(), SyntaxKind::DotDotToken);
+        assert!(parser.finish().is_empty());
     }
 
     #[test]

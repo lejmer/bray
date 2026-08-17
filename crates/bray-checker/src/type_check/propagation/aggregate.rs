@@ -144,6 +144,92 @@ where
     Ok(())
 }
 
+pub(super) fn infer_range<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    operands: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let [start, end] = operands else {
+        return Ok(());
+    };
+
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let expected = inference.try_unique_matching_expectation(variable, |ty| {
+        type_representation(request, ty).map(|role| role == Some(RepresentationRole::Range))
+    })?;
+
+    if let Some(range) = expected {
+        let Some(element) = request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(),
+                RepresentationRole::Range,
+                range,
+            )
+        else {
+            return Ok(());
+        };
+
+        if let Some(start) = variables.get(start).copied() {
+            inference.add_expectation(start, element, expression_id);
+        }
+
+        if let Some(end) = variables.get(end).copied() {
+            inference.add_expectation(end, element, expression_id);
+        }
+
+        inference.add_evidence(variable, range, expression_id);
+
+        return Ok(());
+    }
+
+    let Some(start_variable) = variables.get(start).copied() else {
+        return Ok(());
+    };
+
+    let Some(end_variable) = variables.get(end).copied() else {
+        return Ok(());
+    };
+
+    inference.unify(start_variable, end_variable, expression_id);
+
+    let Some(element) = inference
+        .evidence(start_variable)
+        .or_else(|| inference.evidence(end_variable))
+    else {
+        return Ok(());
+    };
+
+    let Some(range) = request
+        .available_compiler_known_symbols()
+        .unary_representation_type(
+            request.semantic_values(),
+            RepresentationRole::Range,
+            element,
+        )
+    else {
+        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
+            role: RepresentationRole::Range,
+        });
+    };
+
+    inference.add_evidence(variable, range, expression_id);
+
+    if inference.is_recovered(start_variable) || inference.is_recovered(end_variable) {
+        inference.mark_recovered(variable);
+    }
+
+    Ok(())
+}
+
 pub(super) fn infer_general_generator<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,

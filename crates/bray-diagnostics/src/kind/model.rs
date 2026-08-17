@@ -303,6 +303,8 @@ define_diagnostic_kinds! {
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
+    /// A half-open range uses an element type outside the integer representations.
+    CheckingRangeElementTypeMustBeInteger,
     /// No enclosing boundary accepts the propagated value.
     CheckingNoCompatiblePropagationBoundary,
     /// An expression is not permitted in compile-time constant context.
@@ -737,6 +739,7 @@ impl DiagnosticKind {
             Self::BindingMalformedDirectiveArgument => 6015,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
+            Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,
             Self::CheckingInvalidConstantOperation => 7013,
@@ -1060,6 +1063,9 @@ impl DiagnosticKind {
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
+            Self::CheckingRangeElementTypeMustBeInteger => {
+                "checking_range_element_type_must_be_integer"
+            }
             Self::CheckingNoCompatiblePropagationBoundary => CHECKING_PROPAGATION_BOUNDARY_KEY,
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
             Self::CheckingInvalidConstantOperation => "checking_invalid_constant_operation",

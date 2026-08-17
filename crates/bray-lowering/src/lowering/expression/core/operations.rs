@@ -639,7 +639,7 @@ impl Lowerer<'_> {
             .type_data(destination_type)
             .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
-        if matches!(destination_data.as_ref(), bray_symbols::TypeData::Nullable(element) if *element == value_type)
+        if matches!(destination_data.as_ref(), TypeData::Nullable(element) if *element == value_type)
         {
             let commit = self.builder.push_operation(
                 current,
@@ -779,6 +779,10 @@ impl Lowerer<'_> {
         if let Some(lowered) =
             self.lower_numeric_call(id, current, Self::retained_source(&source), &selection)?
         {
+            return Ok(lowered);
+        }
+
+        if let Some(lowered) = self.lower_range_call(id, current, &selection)? {
             return Ok(lowered);
         }
 

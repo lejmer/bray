@@ -3175,6 +3175,25 @@ impl Compilation {
             RepresentationRole::String => self
                 .codegen_string_type(ty, target, cancellation, mappings, pending)
                 .map(Some),
+            RepresentationRole::Range => {
+                let element = self
+                    .available_compiler_known_symbols()
+                    .unary_representation_argument(self.semantic_value_store()?, role, ty)
+                    .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+
+                self.codegen_aggregate_type(
+                    ty,
+                    [(None, element), (None, element)],
+                    TargetLayoutContract::Default,
+                    None,
+                    None,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )
+                .map(Some)
+            }
             RepresentationRole::PanicReport => scalar_mapping(
                 self,
                 ty,
@@ -4622,7 +4641,7 @@ fn signature_types(signature: &CodegenCallableSignature) -> impl Iterator<Item =
 }
 
 pub(super) fn closed_array_length(
-    values: &bray_symbols::SemanticValueStore,
+    values: &SemanticValueStore,
     term_id: bray_symbols::ConstantTermId,
 ) -> Result<u64, CodegenPreparationError> {
     let term = values
@@ -4831,7 +4850,7 @@ fn lifecycle_operation_block_kind(
 }
 
 fn receiver_codegen_type(
-    values: &bray_symbols::SemanticValueStore,
+    values: &SemanticValueStore,
     ty: TypeId,
     mode: ReceiverMode,
 ) -> Result<TypeId, FactQueryError> {

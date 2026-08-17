@@ -66,6 +66,10 @@ scope Ambient at ambient {
         surface { trait Copyable {} }
     }
 
+    declaration RangeElement {
+        surface { trait RangeElement {} }
+    }
+
     declaration UnaryCallable {
         surface { callable UnaryCallable<T> = func(value: T) -> T; }
     }

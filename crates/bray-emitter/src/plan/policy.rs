@@ -147,7 +147,10 @@ mod tests {
             panic!("test emission backend must be valid");
         };
 
-        assert_eq!(backend.units(), &[first.clone(), second]);
+        let mut expected = [first.clone(), second];
+        expected.sort();
+
+        assert_eq!(backend.units(), &expected);
 
         assert_eq!(
             EmissionBackend::try_new(

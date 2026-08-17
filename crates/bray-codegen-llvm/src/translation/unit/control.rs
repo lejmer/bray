@@ -159,6 +159,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 self.translate_iteration(block, cursor, *element_type, *item, exhausted)?;
             }
+            MirTerminatorKind::RangeIterate {
+                cursor,
+                element_type,
+                item,
+                exhausted,
+            } => {
+                self.translate_range_iteration(cursor, *element_type, *item, exhausted)?;
+            }
             MirTerminatorKind::Suspend {
                 kind,
                 resume_state,

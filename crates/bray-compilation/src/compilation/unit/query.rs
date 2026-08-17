@@ -3544,6 +3544,42 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         );
     }
 
+    #[test]
+    fn fixed_array_generators_use_literal_range_cardinality() {
+        let matching = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let generated: [i32; 4] = [each item in 0..4\n",
+            "    {\n",
+            "        yield item;\n",
+            "    }];\n",
+            "}\n",
+        ));
+
+        assert!(
+            matching.check_diagnostics().is_empty(),
+            "{:#?}",
+            matching.check_diagnostics()
+        );
+
+        let mismatched = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let generated: [i32; 3] = [each item in 0..4\n",
+            "    {\n",
+            "        yield item;\n",
+            "    }];\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            mismatched.check_diagnostics(),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+        );
+    }
+
     fn array_generator_compilation(body: &str) -> Compilation {
         let mut source = String::from(concat!(
             "module app;\n",

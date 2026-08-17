@@ -127,6 +127,24 @@ scope Ambient at ambient {
         surface { struct string {} }
     }
 
+    declaration Range {
+        representation Range;
+
+        surface { struct Range<T> with(T: RangeElement) {} }
+    }
+
+    declaration RangeStart {
+        owner Range;
+
+        surface { internal start: T; }
+    }
+
+    declaration RangeEnd {
+        owner Range;
+
+        surface { internal end: T; }
+    }
+
     declaration RawPointer {
         representation RawPointer;
 

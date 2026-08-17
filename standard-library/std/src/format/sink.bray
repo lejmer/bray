@@ -181,7 +181,7 @@ impl FixedSinkFormatting = FixedSink(Sink<FixedSinkError>)
         try ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = count);
 
         let next_length: usize = self.length + count;
-        let available: &mut [u8] = &mut self.destination[self.length.. next_length];
+        let available: &mut [u8] = &mut self.destination[self.length..next_length];
         let pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available);
 
         trusted internal std.memory.byte_slice_copy(source = source, destination = pointer);
@@ -197,7 +197,7 @@ impl FixedSinkFormatting = FixedSink(Sink<FixedSinkError>)
         try ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = count);
 
         let next_length: usize = self.length + count;
-        let available: &mut [u8] = &mut self.destination[self.length.. next_length];
+        let available: &mut [u8] = &mut self.destination[self.length..next_length];
         let pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available);
 
         trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = count);

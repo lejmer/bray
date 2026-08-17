@@ -9,7 +9,7 @@ struct BorrowedWideString
     {
         let count: usize = std.memory.slice_length<WideChar>(self.units_value);
 
-        return &self.units_value[0.. count - 1];
+        return &self.units_value[0..count - 1];
     }
 
     func units_with_nul() -> &[WideChar]
