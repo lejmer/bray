@@ -11,7 +11,6 @@
 - [Recognized standard-library declarations](#recognized-standard-library-declarations)
 - [Target-conditional availability](#target-conditional-availability)
 - [Choose the declaration category](#choose-the-declaration-category)
-- [Common mistakes](#common-mistakes)
 
 ## Identity and ambient availability
 
@@ -179,21 +178,4 @@ See [target-conditional declarations](https://github.com/lejmer/bray/blob/develo
 | Recognized standard-library declaration | Ordinary `std` package, path, and visibility rules | Exact stable declaration identity and specified behavior       |
 | Ordinary source declaration             | Ordinary scope, path, import, and visibility rules | Only its checked source contract                               |
 
-## Common mistakes
-
-- Copying a bodyless specification declaration into source
-- Assuming a familiar name, signature, field layout, or module path creates compiler-known behavior
-- Placing a supposed compiler-known declaration under `std`
-- Importing, shadowing, replacing, re-exporting, or versioning a compiler-known declaration
-- Treating a recognized standard-library declaration as ambient
-- Assuming a same-named user or dependency declaration receives recognized behavior
-- Assuming package dependencies automatically activate compiler-known trait implementations
-- Inspecting or constructing a protected representation through guessed fields or layout
-- Assuming protected representation makes ordinary movement, borrowing, passing, or storage illegal
-- Using a target-conditional declaration without proving its selected-target availability
-- Treating compiler lowering strategy as source-visible semantics
-- Assuming every useful standard-library concurrency or platform declaration is compiler-recognized
-
-## Remember
-
-Compiler-known means exact language identity, not special spelling. Compiler-provided means the compiler supplies the implementation while source uses only its ordinary declaration surface. Protected representation hides invariant-bearing storage, not the public type. Recognized `std` declarations remain ordinary visible package declarations, and target availability is established before source uses them.
+**Remember:** Compiler-known means exact language identity, not special spelling. Compiler-provided means the compiler supplies the implementation while source uses only its ordinary declaration surface. Protected representation hides invariant-bearing storage, not the public type. Recognized `std` declarations remain ordinary visible package declarations, and target availability is established before source uses them.

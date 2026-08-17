@@ -6,11 +6,10 @@
 
 - [Declaration surfaces](#declaration-surfaces)
 - [Choose the declaration by intent](#choose-the-declaration-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Declaration surfaces
 
-**Core model:** Every declaration is checked in its declaration context. Module, type, trait, implementation, and block contexts deliberately accept different declaration forms, members, bodies, and modifiers.
+**Core model:** Every declaration is checked in its declaration context. Module, type, trait, implementation, and block contexts deliberately accept different declaration forms, members, bodies, and modifiers. [Source order](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-order-and-checking.md) does not affect identity or lookup.
 
 The following independent fragments assume referenced support types, traits, capabilities, and helper callables are in scope. Bodies retain required result exits but abbreviate behavior that does not affect the declaration surface.
 
@@ -384,7 +383,7 @@ overload Resource(Inspect) =
 
 ### Block-level declarations
 
-Ordinary blocks admit local bindings and constants. Use a lambda value for local callable behavior:
+Ordinary blocks admit local bindings and constants. Use a [lambda value](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-contexts.md) for local callable behavior:
 
 ```bray
 func adjusted(pos value: usize) -> usize
@@ -402,8 +401,6 @@ func adjusted(pos value: usize) -> usize
 }
 ```
 
-**Remember:** Visibility-capable declarations are public by default. An `internal` use outside its intended scope requires lexical acknowledgement. Every source name shares one ordinary lookup namespace. Generic callable arguments are explicit. Overload families are declared explicitly.
-
 ## Choose the declaration by intent
 
 | Intent                                     | Bray declaration                                                                                                                                            | Decisive rule                                                                                                                    |
@@ -417,17 +414,10 @@ func adjusted(pos value: usize) -> usize
 | Limit ordinary reachability                | [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/visibility-and-reachability.md)                                         | External access remains possible through explicit, path-specific internal-use acknowledgement.                                   |
 | Parameterize a declaration                 | [Type or `const` generics plus `with(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/generic-declarations-and-constraints.md) | Generic callable arguments are explicit. Implementation generics are inferred from unresolved header names instead.              |
 | Name a compile-time value                  | [`const`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/constant-declarations.md)                                                  | Constants have no runtime storage identity and must be freely materializable.                                                    |
-| Own persistent runtime storage             | [`static` or `@thread_local static`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md)                | Statics have address-bearing instances, demand-driven materialization, and product-owned or exact-thread lifecycle ownership.    |
+| Own persistent runtime storage             | [`static` or `@thread_local static`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md)                 | Statics have address-bearing instances, demand-driven materialization, and product-owned or exact-thread lifecycle ownership.    |
 | Name a contract relation                   | [`predicate`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/predicate-declarations.md)                                             | A predicate defines a checked relation, not one eagerly evaluated Boolean value.                                                 |
 | Share one overloaded surface               | [`overload`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/overload-declarations.md)                                               | Same-name declarations never form an overload set automatically, and expected result types do not select arms.                   |
 | Attach compile-time policy                 | [A directive](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/directives.md)                                                         | `@name` attaches only where that directive's contract permits and uses constant arguments.                                       |
 | Change a declaration surface               | [A modifier](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/modifiers.md)                                                           | Modifier validity and meaning depend on the declaration form and context.                                                        |
 
-## Common mistakes
-
-- Omit redundant [`public`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/visibility-and-reachability.md). Write it only when an API benefits from deliberate emphasis.
-- Treat [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/visibility-and-reachability.md) as acknowledged restricted reachability. External access remains possible through an explicit `internal` acknowledgement.
-- Do not [shadow or reuse a spelling](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-names-and-identity.md) across type, value, trait, predicate, member, parameter, or local categories in one scope.
-- Use a [lambda-bound local value](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-contexts.md) for local callable behavior. Named callable declarations are not block-level declarations.
-- Do not rely on [source-file order](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-order-and-checking.md) for identity or lookup, or on expected/result types to infer generic arguments or select overloads.
-- Use [modifiers](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/modifiers.md) and [directives](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/directives.md) only on declaration forms that define them.
+**Remember:** Visibility-capable declarations are public by default, `internal` access requires lexical acknowledgement, every [source name](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-names-and-identity.md) shares one ordinary lookup namespace, generic callable arguments are explicit, and overload families are declared explicitly.

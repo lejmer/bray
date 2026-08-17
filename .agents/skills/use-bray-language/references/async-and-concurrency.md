@@ -13,11 +13,10 @@
 - [Atomic storage and ordering](#atomic-storage-and-ordering)
 - [Standard-library concurrency](#standard-library-concurrency)
 - [Choose the boundary](#choose-the-boundary)
-- [Common mistakes](#common-mistakes)
 
 ## Async computations
 
-**Core model:** An async call evaluates its receiver and arguments, then returns an inactive owned `Future<T>`. Await consumes that future inside the current run, while start consumes it into an independently executing structured task whose owner must preserve every captured dependency and eventually resolve the task obligation.
+**Core model:** An async call evaluates its receiver and arguments, then returns an inactive owned `Future<T>`. Its owner carries every captured dependency and lifecycle obligation until the computation is driven or resolved.
 
 The examples assume suitable application types, ordinary imports, and the helper functions named in their bodies.
 
@@ -221,6 +220,8 @@ async func process(pos items: &mut Queue<Item>) -> Result<unit, ProcessError>
 
 `std.run.cancellation_requested()` and `std.task.cancellation_requested()` observe the current logical run. `std.run.checkpoint()` is synchronous. The task checkpoint and yield operations are async and therefore must be awaited.
 
+A cancellation request proves neither completion nor memory visibility.
+
 See [cancellation](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/cancellation.md) and [cancellation and memory visibility](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/cancellation-and-memory-visibility.md).
 
 ## Cross-run state and synchronization
@@ -246,7 +247,7 @@ async func record_both(pos journal: &SynchronizedJournal, pos first: Entry, pos 
 }
 ```
 
-The `with` expression guarantees the guard exits on normal return, early return, panic, and cancellation cleanup. The synchronization semantics come from the guard type's contract, not from `with` itself.
+The `with` expression guarantees the guard exits on normal return, early return, panic, and cancellation cleanup. The synchronization semantics come from the guard type's contract, not from `with` itself. A blocking guard may cross suspension only when its contract explicitly permits it.
 
 Starting a task synchronizes parent writes before child execution. Successful completion observation synchronizes child writes before the observer continues. Raw pointers, internal visibility acknowledgements, and trusted syntax do not create exceptions to cross-run memory validity.
 
@@ -405,7 +406,7 @@ async func budgeted(pos budget: &Budget<TaskDomain>) -> RunResult<Report>
 }
 ```
 
-`Once<T>` publishes one initialized value and retries after initializer failure. Bounded channels make backpressure explicit. `first` cancels and resolves losers before returning, while `all` returns every run result in input order. Threads and processes remain structured owners. Child processes communicate through codecs and expose both transport failure and child `RunResult`. Budgets provide domain-specific admission permits but do not automatically charge `.start()`.
+`Once<T>` publishes one initialized value and retries after initializer failure. Bounded channels make backpressure explicit. `first` cancels and resolves losers before returning, while `all` returns every run result in input order. Threads and processes remain structured owners. Child processes communicate through codecs and expose both transport failure and child `RunResult`. Budgets provide domain-specific admission rather than global execution authority, and they do not automatically charge `.start()`.
 
 See [standard-library concurrency](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/standard-library-concurrency.md) and [low-level runtime](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/low-level-runtime.md).
 
@@ -422,22 +423,4 @@ See [standard-library concurrency](https://github.com/lejmer/bray/blob/develop/d
 | Share mutable state across runs                        | Synchronization owner or atomics               | Guarded access or atomic operation result                    |
 | Bound resource admission                               | `std.parallel.Budget<D>`                       | `Permit<D>`                                                  |
 
-## Common mistakes
-
-- Expecting an async call to start running before its future is awaited or started
-- Writing an ordinary `func(...) -> Future<T>` when the callable itself must be async
-- Starting a task when direct `await` expresses the intended sequencing
-- Treating `join()` or `cancel()` as immediate actions without driving their returned future
-- Assuming cancellation interrupts pure computation immediately
-- Letting a task escape an owner that cannot preserve its dependencies or async cleanup
-- Treating copyable data, raw pointers, or trusted code as automatically valid across runs
-- Using a cancellation request as proof of completion or memory visibility
-- Holding a blocking synchronization guard across suspension without an explicit contract that permits it
-- Using atomics with an unsupported representation or operation-illegal memory order
-- Assuming atomic notification publishes memory or prevents spurious wakeups
-- Reaching for threads or processes when a structured task is the correct boundary
-- Treating a budget as global execution authority or assuming task start automatically consumes a permit
-
-## Remember
-
-Async calls create inactive owned futures. Await composes one future into the current run. Start creates a structured task whose owner must eventually join, cancel, transfer, or resolve it at scope exit. Cross-run state must remain valid for the whole run, and visibility comes from task boundaries or explicit synchronization contracts rather than scheduling accidents.
+**Remember:** Async calls create inactive owned futures. Await composes one future into the current run. Start creates a structured task whose owner must eventually join, cancel, transfer, or resolve it at scope exit. Cross-run state must remain valid for the whole run, and visibility comes from task boundaries or explicit synchronization contracts rather than scheduling accidents.

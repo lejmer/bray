@@ -6,7 +6,6 @@
 
 - [Pattern forms](#pattern-forms)
 - [Choose the pattern by intent](#choose-the-pattern-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Pattern forms
 
@@ -130,7 +129,7 @@ func status_pattern(pos status: Status)
 }
 ```
 
-A bare name first resolves to an in-scope constant or union variant that is valid as a pattern. It introduces a new binding only when no such declaration resolves. The `_` pattern always discards without binding.
+[Pattern resolution](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/pattern-resolution.md) first treats a bare name as an in-scope constant or union variant that is valid as a pattern. It introduces a new binding only when no such declaration resolves. The `_` pattern always discards without binding.
 
 ### Products and union variants
 
@@ -244,7 +243,7 @@ func context_patterns(
 }
 ```
 
-Local declarations, `with`, `for`, and generator binders require irrefutable patterns. A `match` accepts refutable patterns. The enclosing construct, not punctuation inside the pattern, selects observe, shared-borrow, mutable-borrow, copy, or consume behavior.
+[Local declarations, `with`, `for`, and generator binders](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/refutability.md) require irrefutable patterns. A `match` accepts refutable patterns. The enclosing construct selects the observe, shared-borrow, mutable-borrow, copy, or consume [operation mode](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/pattern-operation-modes.md), not punctuation inside the pattern.
 
 ### Guards, consuming matches, and partial moves
 
@@ -274,8 +273,6 @@ func consume_message(pos message: Message) -> Payload
 
 Structural matching runs before a guard. A guard may only observe its pattern bindings and subject. It cannot mutate, consume, suspend, transfer control, or perform another effect. Moving selected fields from an owned subject leaves the remainder partially initialized and destroys only the fields still initialized when the scope exits.
 
-**Remember:** Patterns are structural and effect-free. Contexts determine refutability and access mode. A `mut name` makes a new owned binding mutable rather than mutating the subject. Successful matches refine variants, literals, initialization state, shape, nullability, and box contents.
-
 ## Choose the pattern by intent
 
 | Intent                          | Pattern form                                                                                                                                   | Decisive rule                                                                                                         |
@@ -288,15 +285,8 @@ Structural matching runs before a guard. A guard may only observe its pattern bi
 | Split tuples or arrays          | [Tuple or array pattern](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/tuple-and-array-patterns.md)                       | Tuple arity is exact. An array `..` accepts an unbound middle remainder.                                              |
 | Distinguish nullable states     | [`none` or `?pattern`](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/nullable-patterns.md)                                | `?pattern` matches the present value and recursively checks its payload.                                              |
 | Destructure owned boxed storage | [`box(pattern)`](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/box-patterns.md)                                           | The nested pattern applies to the box contents under the context's operation mode.                                    |
-| Share one arm across shapes     | [`left                                                                                                                                         | right`](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/alternative-patterns.md)                   | All alternatives must establish the same binding environment. |
+| Share one arm across shapes     | [An alternative pattern with two branches](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/alternative-patterns.md)         | All alternatives must establish the same binding environment.                                                         |
 | Add an observed condition       | [`case pattern when condition`](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/guards.md)                                  | Guards exist only on match arms, run after structural success, and count toward exhaustiveness only when proven true. |
 | Move selected components        | A pattern in a [consuming context](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/partial-moves-through-patterns.md)       | Partial moves require ownership and preserve destruction obligations for components that remain initialized.          |
 
-## Common mistakes
-
-- Do not use a refutable pattern in a [local declaration, `with`, `for`, or generator binder](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/refutability.md). Use `match` when failure is part of the control flow.
-- Do not assume a bare name always creates a binding. [Pattern resolution](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/pattern-resolution.md) prefers an in-scope constant or union variant that is valid in that position.
-- Do not use `mut name` to request a mutable borrow. [Pattern operation mode](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/pattern-operation-modes.md) comes from the enclosing construct.
-- Do not omit product or payload fields silently. List them, bind them by shorthand, or account for them with `..`.
-- Do not give [alternative patterns](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/alternative-patterns.md) different bindings, types, modes, lifetimes, or capabilities.
-- Do not put effects or control transfer in a [guard](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/guards.md). Guards are observe-only and do not make a match exhaustive unless the compiler proves them true.
+**Remember:** Patterns are structural and effect-free, contexts determine refutability and access mode, and `mut name` makes a new owned binding mutable rather than mutating the subject. Successful matches refine variants, literals, initialization state, shape, nullability, and box contents.

@@ -10,7 +10,6 @@
 - [Partial moves and reinitialization](#partial-moves-and-reinitialization)
 - [Dependency contracts and ownership boundaries](#dependency-contracts-and-ownership-boundaries)
 - [Choose the ownership operation by intent](#choose-the-ownership-operation-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Ownership operations and states
 
@@ -93,7 +92,7 @@ func call_modes(pos mut parcel: Parcel, pos replacement: Contents) -> Contents
 }
 ```
 
-A plain parameter receives ownership. `&T` observes reached storage, `&mut T` grants temporary exclusive mutation authority, and a consuming receiver ends ordinary use through the old receiver path. `mut` before an owned parameter or binding grants local mutation authority. `mut` after `&` belongs to that borrow layer.
+A plain parameter receives ownership. `&T` observes reached storage, `&mut T` grants temporary exclusive mutation authority, and a consuming receiver ends ordinary use through the old receiver path. `mut` before an owned parameter or binding grants local mutation authority. `mut` after `&` belongs to that borrow layer. Field mutation also requires every reached declaration and type-form layer to permit it.
 
 ### Explicit consuming contexts
 
@@ -184,7 +183,7 @@ func borrow_pair(pos mut pair: CounterPair)
 
 Shared borrows can be copied and can coexist when their capabilities are compatible. Mutable borrows are not copyable. The two field borrows coexist because the compiler proves `left` and `right` disjoint. Passing `left` repeatedly to a mutable-borrow parameter reborrows it for each call. Assigning it to `transferred` moves the borrow value and its temporary mutation authority, not the reached `Counter`.
 
-Borrowing suspends conflicting observation, mutation, movement, replacement, reinitialization, finalization, and destruction of the reached storage until the borrow's last required use. If overlap cannot be proven, Bray treats access paths as conflicting.
+[Borrowing](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/borrow-rules.md) suspends conflicting observation, mutation, movement, replacement, reinitialization, finalization, and destruction of the reached storage until the borrow's last required use. If overlap cannot be proven, Bray treats access paths as conflicting.
 
 ## Reborrowing and nested borrow layers
 
@@ -304,7 +303,7 @@ func thread_context() -> &ThreadContext
 }
 ```
 
-A product-static borrow carries its exact static and provider-product roots. A thread-local static borrow also carries the exact native-thread attachment root, cannot be used on another native thread, and pins a retained task while that dependency remains live.
+A product-static borrow carries its exact static and provider-product roots. A thread-local static borrow also carries the exact native-thread attachment root, cannot be used on another native thread, and pins a retained task while that dependency remains live. Static access exposes shared storage. A product-static or thread-local value cannot be moved, replaced, or directly mutably borrowed, and interior mutation requires a valid scoped capability.
 
 ### Explicit callable state
 
@@ -322,9 +321,7 @@ func write_message(pos mut output: File, pos message: string)
 
 Lambdas do not capture enclosing local state. Pass borrowed or owned context explicitly so the callable value's dependency contract remains representable.
 
-Values cross return, yield, call, storage, async, task, trait-view, package, and export boundaries only when the destination preserves every carried dependency. Expected types do not create missing lifetimes or capabilities. Mutation, movement, destruction, reinitialization, finalization, variant replacement, assigning `none`, or capability loss invalidates borrows and guarantees that depend on the changed state.
-
-**Remember:** Moves transfer obligations, copies require a copy contract, mutable borrows carry exclusive temporary authority, shared borrows are copyable, and every returned, stored, or transferred value must preserve its inferred storage and capability dependencies.
+Values cross return, yield, call, storage, async, task, trait-view, package, and export boundaries only when the destination preserves every carried dependency. Composite values preserve the transitive dependencies of their borrows, futures, tasks, callable values, trait views, boxes, and aggregates. Expected types do not create missing lifetimes or capabilities. Mutation, movement, destruction, reinitialization, finalization, variant replacement, assigning `none`, or capability loss invalidates borrows and guarantees that depend on the changed state.
 
 ## Choose the ownership operation by intent
 
@@ -342,14 +339,4 @@ Values cross return, yield, call, storage, async, task, trait-view, package, and
 | Return or store a borrow            | A borrow-bearing result or field whose [dependency contract](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/scope-exits-and-ownership-boundaries.md) reaches valid source storage | Storing a borrow never extends its source lifetime or scoped capability.                                     |
 | Share ambient persistent storage    | A borrow from [`static` or `@thread_local static`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md)                                                            | The result carries product identity and, for thread-local storage, exact attachment identity.                |
 
-## Common mistakes
-
-- Let the receiving context select [movement or copying](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/moves-copies-and-consumption.md), except where a language form such as consuming iteration explicitly marks its access mode.
-- Do not confuse `mut name: T` with `name: &mut T`. The first grants mutation authority over an owned local binding, while the second is a mutable borrow of reached storage.
-- Do not assume a mutable binding makes immutable fields mutable. Mutation requires authority over the access path and permission from every reached declaration and type-form layer.
-- Do not treat access-path spelling as proof of disjointness. [Borrow compatibility](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/borrow-rules.md) follows the storage the paths can actually reach.
-- Do not copy a mutable borrow. Move it or create a shorter reborrow whose authority remains bounded by the original.
-- Do not use a partially moved value as a complete value. Reinitialize every moved part first, or let a valid partial-state operation resolve the initialized remainder.
-- Do not return or store a borrow of local storage that ends before the destination. [Dependency checking](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/scope-exits-and-ownership-boundaries.md) does not use expected types to invent a valid source root.
-- Do not expect a stored borrow, future, task, callable, trait view, box, or aggregate to erase dependencies carried by its contents. Composite values preserve their transitive dependency contracts.
-- Do not assume a product-static or thread-local static value can be moved, replaced, or directly mutably borrowed. Static access exposes shared storage, with interior mutation available only through a valid scoped capability.
+**Remember:** Moves transfer obligations, copies require a copy contract, mutable borrows carry exclusive temporary authority, shared borrows are copyable, and every returned, stored, or transferred value must preserve its inferred storage and capability dependencies.

@@ -6,7 +6,6 @@
 
 - [Expression forms](#expression-forms)
 - [Choose the direct form](#choose-the-direct-form)
-- [Common mistakes](#common-mistakes)
 
 ## Expression forms
 
@@ -107,6 +106,8 @@ impl Counter
 
 An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components, while an unconstrained complex literal defaults to `c128`. Literal components adapt directly, but already typed real and imaginary components form a complex value through explicit tuple conversion.
 
+Plain [`as`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conversion-expressions.md) is only for total, value-preserving conversion. Use an explicit fallible conversion operation otherwise.
+
 ### Operators and assignment
 
 ```bray
@@ -152,6 +153,8 @@ func operator_forms(
     matrix @= other;
 }
 ```
+
+Conditions require `bool`. Combine individual [comparisons](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/unary-and-binary-expressions.md) explicitly with short-circuiting `&&` or `||`.
 
 ### Generators and boolean folds
 
@@ -436,8 +439,6 @@ func unit_exits()
 }
 ```
 
-**Remember:** Semicolons sequence expressions. A `yield` supplies the nearest value-producing region. A `return` exits the callable. A `break` supplies a loop result. Arguments are named unless their parameters are `pos`. A `try` unwraps one `Result` or `RunResult` layer. Evaluation otherwise follows source order.
-
 ## Choose the direct form
 
 | Intent                                    | Bray form                                                                                                                                                                                                                                                                                                                           | Decisive rule                                                                                                                                  |
@@ -455,10 +456,4 @@ func unit_exits()
 | Construct with known context              | [Expected-type construction](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/expression-context.md)                                                                                                                                                                                                           | Context may guide literals, variants, structs, arrays, tuples, and boxes, but does not select overloads.                                       |
 | Call an operation                         | [Named arguments, with a positional `pos` prefix](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/arguments.md)                                                                                                                                                                                               | Binding is by parameter identity, while runtime evaluation remains caller source order.                                                        |
 
-## Common mistakes
-
-- [Conditions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conditional-expressions.md) require `bool`.
-- Combine individual [comparisons](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/unary-and-binary-expressions.md) explicitly with short-circuiting `&&` or `||`.
-- `try` propagates `Result` or `RunResult` through the enclosing callable.
-- Plain [`as`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conversion-expressions.md) is only for total, value-preserving conversion. Use an explicit fallible conversion operation otherwise.
-- [Block-shaped expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/sequenced-expressions.md) are self-delimiting as block items. Other sequenced expressions require semicolons.
+**Remember:** [Block-shaped expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/sequenced-expressions.md) are self-delimiting, while other sequenced expressions require semicolons. A `yield` supplies the nearest value-producing region, a `return` exits the callable, and a `break` supplies a loop result. A `try` unwraps one `Result` or `RunResult` layer. Evaluation otherwise follows source order.

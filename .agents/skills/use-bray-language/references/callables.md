@@ -6,7 +6,6 @@
 
 - [Callable surfaces](#callable-surfaces)
 - [Choose the callable by intent](#choose-the-callable-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Callable surfaces
 
@@ -16,7 +15,7 @@ The following independent fragments assume referenced support types, predicates,
 
 ### Functions, parameters, defaults, and calls
 
-Parameters are named by default. An initial `pos` run permits positional arguments, `mut` before a name makes an owned parameter binding mutable, and borrow types express shared or exclusive access:
+Parameters are named by default. An initial `pos` run permits positional arguments, and callers may still name those parameters. `mut` before a name makes an owned parameter binding mutable, and borrow types express shared or exclusive access:
 
 ```bray
 module callable_example;
@@ -157,7 +156,7 @@ async func execution_forms(pos request: Request, pos pointer: RawPointer<u8>) ->
 }
 ```
 
-An async call produces an inactive `Future<T>` whose execution obligations remain attached to it. `const` exposes constant-evaluation eligibility, while `trusted` and `uses(...)` describe exact trusted declaration and implementation capability boundaries.
+An async call produces an inactive `Future<T>` whose execution obligations remain attached to it. `const` exposes constant-evaluation eligibility, while `trusted` and `uses(...)` describe exact trusted declaration and implementation capability boundaries. Callable declarations are public by default. External use of [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/visibility-and-paths.md) behavior requires path-specific acknowledgement. `uses(...)` lists trusted capabilities, not ordinary safe mutation, allocation, or I/O.
 
 ### Generics and explicit overloads
 
@@ -361,37 +360,25 @@ func fail(pos message: string) -> never
 }
 ```
 
-Lambdas are capture-free callable values with their own execution scope, so their `return` exits the lambda rather than an enclosing callable. A `unit` callable may complete normally. Every normal path from a non-`unit` callable must return a compatible value, while a `never` callable has no normal completion.
-
-**Remember:** Parameters are named unless marked `pos`. Generic arguments are explicit. Callable values preserve the full contract. Async calls produce `Future<T>`. Methods receive `self` through call syntax. Lambdas capture nothing. A `return` exits only the nearest callable execution scope.
+Lambdas are capture-free callable values with their own execution scope, so their `return` exits the lambda rather than an enclosing callable. Pass a receiver explicitly when local callable behavior needs one. A `yield` supplies only the nearest yield-capable expression region. A `unit` callable may complete normally. Every normal path from a non-`unit` callable must return a compatible value, while a `never` callable has no normal completion.
 
 ## Choose the callable by intent
 
-| Intent                                  | Bray form                                                                                                                                        | Decisive rule                                                                                          |
-|-----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
-| Define module behavior                  | [A function declaration](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-declarations.md)                           | Omitted result type means `unit`. Every normal non-`unit` path returns explicitly.                     |
-| Attach behavior to a type or trait      | [An instance method or `static func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/methods.md)                            | Receiver modifiers select receiver authority. A static function has no receiver.                       |
-| Permit positional arguments             | [An initial `pos` parameter run](https://github.com/lejmer/bray/blob/develop/docs/language/callables/parameters.md)                              | Parameters remain named bindings, and callers may still supply `pos` parameters by name.               |
-| Omit a routine argument                 | [A parameter default](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/defaulted-arguments.md)                              | Defaults run only after callable selection and all explicit arguments.                                 |
-| Parameterize behavior                   | [Type and `const` generic parameters plus `with(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/generic-functions.md) | Calls always supply generic arguments explicitly.                                                      |
-| Share one call name                     | [An explicit `overload`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-overloading.md)                            | Selection must find exactly one arm and ignores defaults, result type, and expected type.              |
-| Pass behavior as a value                | [A callable type](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-types-and-values.md)                              | The target type must preserve every caller-visible obligation of the value.                            |
-| Name a reusable callable contract       | [`callable`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-types-and-values.md#named-callable-contracts)          | It names a callable type only and creates neither a value nor an adapter.                              |
-| Define block-local behavior             | [A lambda](https://github.com/lejmer/bray/blob/develop/docs/language/callables/lambda-expressions-and-anonymous-callables.md)                    | Lambdas create callable values but cannot capture locals, `self`, or scoped capabilities.              |
-| Permit compile-time evaluation          | [`const func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/const-functions.md)                                           | The body must be deterministic, total for valid inputs, terminating, effect-free, and allocation-free. |
-| Define suspendable execution            | [`async func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/async-functions-and-computations.md)                          | Calling creates an inactive `Future<T>`. Body effects and postconditions arise only through execution. |
-| Cross a trusted implementation boundary | [`trusted` with exact `uses(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/trusted-functions.md)                     | Trusted implementation capabilities and caller obligations are distinct parts of the contract.         |
-| Cross a callable ABI boundary           | [`@abi(...)`, optionally with `extern`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-abi-and-ffi.md)             | ABI is part of callable identity. An `extern` declaration receives its body from another linked artifact.            |
-| State caller and completion conditions  | [`requires(...)` and `ensures(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/contract-clauses-on-functions.md)       | `requires` constrains entry, while `ensures` can refer to the compiler-introduced `result`.            |
+| Intent                                  | Bray form                                                                                                                                        | Decisive rule                                                                                             |
+|-----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Define module behavior                  | [A function declaration](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-declarations.md)                           | Omitted result type means `unit`. Every normal non-`unit` path returns explicitly.                        |
+| Attach behavior to a type or trait      | [An instance method or `static func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/methods.md)                            | Receiver modifiers select receiver authority. A static function has no receiver.                          |
+| Permit positional arguments             | [An initial `pos` parameter run](https://github.com/lejmer/bray/blob/develop/docs/language/callables/parameters.md)                              | Parameters remain named bindings, and callers may still supply `pos` parameters by name.                  |
+| Omit a routine argument                 | [A parameter default](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/defaulted-arguments.md)                              | Defaults run only after callable selection and all explicit arguments.                                    |
+| Parameterize behavior                   | [Type and `const` generic parameters plus `with(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/generic-functions.md) | Calls always supply generic arguments explicitly.                                                         |
+| Share one call name                     | [An explicit `overload`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-overloading.md)                            | Selection must find exactly one arm and ignores defaults, result type, and expected type.                 |
+| Pass behavior as a value                | [A callable type](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-types-and-values.md)                              | The target type must preserve every caller-visible obligation of the value.                               |
+| Name a reusable callable contract       | [`callable`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-types-and-values.md#named-callable-contracts)          | It names a callable type only and creates neither a value nor an adapter.                                 |
+| Define block-local behavior             | [A lambda](https://github.com/lejmer/bray/blob/develop/docs/language/callables/lambda-expressions-and-anonymous-callables.md)                    | Lambdas create callable values but cannot capture locals, `self`, or scoped capabilities.                 |
+| Permit compile-time evaluation          | [`const func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/const-functions.md)                                           | The body must be deterministic, total for valid inputs, terminating, effect-free, and allocation-free.    |
+| Define suspendable execution            | [`async func`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/async-functions-and-computations.md)                          | Calling creates an inactive `Future<T>`. Body effects and postconditions arise only through execution.    |
+| Cross a trusted implementation boundary | [`trusted` with exact `uses(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/trusted-functions.md)                     | Trusted implementation capabilities and caller obligations are distinct parts of the contract.            |
+| Cross a callable ABI boundary           | [`@abi(...)`, optionally with `extern`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-abi-and-ffi.md)             | ABI is part of callable identity. An `extern` declaration receives its body from another linked artifact. |
+| State caller and completion conditions  | [`requires(...)` and `ensures(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/contract-clauses-on-functions.md)       | `requires` constrains entry, while `ensures` can refer to the compiler-introduced `result`.               |
 
-## Common mistakes
-
-- Omit redundant `public`. Callable declarations are public by default, while external use of [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/visibility-and-paths.md) behavior requires path-specific acknowledgement.
-- Do not pass a positional argument to an unmarked parameter, or place a `pos` parameter after the named-only suffix.
-- Do not infer [generic callable arguments](https://github.com/lejmer/bray/blob/develop/docs/language/callables/generic-functions.md) from ordinary arguments or expected results.
-- Do not use defaults, preconditions, effects, or expected result type to disambiguate an [overload](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-overloading.md).
-- Do not treat an [async invocation](https://github.com/lejmer/bray/blob/develop/docs/language/callables/async-functions-and-computations.md) as completed body execution. It creates a computation whose effects and guarantees remain deferred.
-- Method-call syntax supplies `self` to an instance method. Pass a receiver explicitly to a lambda when local callable behavior needs one.
-- Do not expect a [lambda](https://github.com/lejmer/bray/blob/develop/docs/language/callables/lambda-expressions-and-anonymous-callables.md) to capture an enclosing local, receiver, or scoped capability.
-- Keep trusted implementation capability use exact in `uses(...)`. Ordinary safe mutation, allocation, and I/O are not blanket trusted capabilities.
-- Use `return` for the callable result and `yield` only for the nearest yield-capable expression region.
+**Remember:** Parameters and generic arguments are explicit, callable values preserve the complete contract, async calls return inactive futures, receiver modes select method authority, and lambdas capture nothing.

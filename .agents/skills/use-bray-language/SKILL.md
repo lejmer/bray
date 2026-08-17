@@ -1,26 +1,22 @@
 ---
 name: use-bray-language
 description: >
-  Bray language feature and idiom guide. Trigger: writing or reviewing Bray code, designing a Bray API, or exploring
-  which Bray feature or idiom to use in a given situation.
+  Bray feature and idiom guide. Use when writing or reviewing Bray code, designing Bray APIs, or choosing Bray
+  features or idioms.
 ---
 
 # Use Bray Language
 
-Use Bray's own language model deliberately. Verify the relevant language surface before choosing syntax, an API shape, or an implementation pattern.
+Verify Bray's language surface before choosing syntax, APIs, or implementation patterns.
 
 ## Work from authoritative sources
 
-Use the [specification concepts](https://github.com/lejmer/bray/blob/develop/docs/language/concepts.md) as the vocabulary key for terms used throughout the language specification. It defines shared terms rather than a feature surface, so consult it when terminology is unfamiliar.
+Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop/docs/language/concepts.md) only when terminology is unfamiliar. It defines shared terms, not features.
 
-1. Identify the language domains involved in the task.
-2. Use the routing table below and read only the reference files needed for those domains.
-3. When the compact summary or example does not settle your question, use the links to the Bray language specification to learn more.
-4. Check compiler tests and representative Bray source before relying on memory when syntax or behavior remains uncertain.
-5. Derive Bray behavior from the specification instead of filling gaps by analogy.
-6. If the sources disagree or leave a gap, surface the uncertainty and resolve it before encoding a new convention.
-
-Do not read every reference by default. Read another reference only when the task crosses into that domain.
+1. Identify the relevant domains and read only their routed references.
+2. Follow specification links when a summary or example is insufficient.
+3. If syntax or behavior remains uncertain, check compiler tests and representative Bray source.
+4. Surface and resolve source conflicts or gaps before establishing a convention. Never fill them by analogy.
 
 ## Load the relevant specification chapters
 
@@ -43,6 +39,5 @@ Do not read every reference by default. Read another reference only when the tas
 
 ## Verify the result
 
-- Compare new Bray code with the relevant language documentation and representative repository examples.
-- Search for existing uses of the selected feature and for competing patterns before introducing a new idiom.
+- Compare new Bray code with relevant documentation and repository examples, then search for selected and competing patterns before introducing an idiom.
 - Run `bray fmt` to format the code, `bray check` to verify the code, and `bray test` to run tests.
