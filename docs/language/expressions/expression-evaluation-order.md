@@ -10,6 +10,8 @@ Runtime subexpressions are evaluated in the order they are written unless a more
 
 Unary and binary operands are evaluated left to right.
 
+Range bounds are evaluated once, from start to end.
+
 For `&&` and `||`, the left operand is evaluated first, and the right operand is evaluated only when required by short-circuit boolean semantics.
 
 Tuple elements are evaluated left to right.

@@ -140,4 +140,4 @@ Effects and finalization obligations of the repeated element expression and repe
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
 - Previous: [Tuple expressions](tuple-expressions.md)
-- Next: [Iteration source resolution](iteration-source-resolution.md)
+- Next: [Range expressions](range-expressions.md)

@@ -19,6 +19,7 @@ Expected type can guide:
 
 - numeric literal typing,
 - imaginary literal typing,
+- range bound typing,
 - tuple element typing,
 - array element typing,
 - struct construction shorthand,

@@ -11,6 +11,10 @@
 
 **Core model:** Every declaration is checked in its declaration context. Module, type, trait, implementation, and block contexts deliberately accept different declaration forms, members, bodies, and modifiers. [Source order](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-order-and-checking.md) does not affect identity or lookup.
 
+Give every visible declaration, generic parameter, callable parameter, pattern binding, and local binding a fresh name while another [ordinary name](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-names-and-identity.md) with that spelling is visible.
+
+[Declaration-owned expressions](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-owned-expressions.md) are checked with their declarations. Runtime defaults evaluate when omitted, and an explicit value selects the supplied expression while declaration checking still validates the default. Parameter defaults can use the receiver and earlier parameters. Each struct field and union payload default is independent of the represented object and sibling fields. Static initializers are constant templates materialized for each demanded closed instance.
+
 The following independent fragments assume referenced support types, traits, capabilities, and helper callables are in scope. Bodies retain required result exits but abbreviate behavior that does not affect the declaration surface.
 
 ### Module contributions and module body items
@@ -420,4 +424,4 @@ func adjusted(pos value: usize) -> usize
 | Attach compile-time policy                 | [A directive](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/directives.md)                                                         | `@name` attaches only where that directive's contract permits and uses constant arguments.                                       |
 | Change a declaration surface               | [A modifier](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/modifiers.md)                                                           | Modifier validity and meaning depend on the declaration form and context.                                                        |
 
-**Remember:** Visibility-capable declarations are public by default, `internal` access requires lexical acknowledgement, every [source name](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/declaration-names-and-identity.md) shares one ordinary lookup namespace, generic callable arguments are explicit, and overload families are declared explicitly.
+**Remember:** Visibility-capable declarations are public by default, `internal` access requires lexical acknowledgement, generic callable arguments are explicit, and overload families are declared explicitly.

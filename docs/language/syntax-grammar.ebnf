@@ -115,6 +115,12 @@ assignment-operator =
     "&=" | "|=" | "^=" | "<<=" | ">>=" | "**=" ;
 
 non-assignment-expression =
+    range-expression ;
+
+range-expression =
+    range-bound-expression [ ".." range-bound-expression ] ;
+
+range-bound-expression =
     logical-or-expression ;
 
 condition-expression =
@@ -188,7 +194,7 @@ member-selector =
     | tuple-element-index ;
 
 element-index-operation =
-    "[" expression "]" ;
+    "[" range-bound-expression "]" ;
 
 primary-expression =
       literal-expression
@@ -241,7 +247,7 @@ slice-index-operation =
     "[" slice-selector "]" ;
 
 slice-selector =
-    [ expression ] ".." [ expression ] ;
+    [ range-bound-expression ] ".." [ range-bound-expression ] ;
 
 nullable-propagation-operation =
     "?" ;

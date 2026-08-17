@@ -70,6 +70,7 @@ The following type categories have language-defined copy contracts:
 
 - scalar types with values,
 - `string`,
+- `Range<T>`,
 - `RawPointer<T>`,
 - shared borrow values,
 - nullable values whose contained type is copyable,

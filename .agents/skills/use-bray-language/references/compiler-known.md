@@ -33,6 +33,11 @@ func transfer_pointer<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
     return consume pointer;
 }
 
+func retain_range(pos range: Range<i32>) -> Range<i32>
+{
+    return range;
+}
+
 func transfer_future<T>(pos pending: Future<T>) -> Future<T>
 {
     return consume pending;
@@ -50,7 +55,7 @@ func blocking_operation()
 }
 ```
 
-The ambient surface includes scalar and structural type forms, `string`, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, `core.memory`, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
+The ambient surface includes scalar and structural type forms, `string`, integer ranges, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, `core.memory`, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
 
 Use the closed [conformance catalog](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/conformance-catalog.md) when exact membership is needed.
 
@@ -72,7 +77,7 @@ See [compiler-provided declarations](https://github.com/lejmer/bray/blob/develop
 
 Protected representation keeps compiler-owned invariants out of source-visible storage. It does not make a type unusable. When its public contract permits, source can name, move, borrow, pass, return, and store the value, and can match only through explicitly exposed patterns.
 
-`Future<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected support types use protected representation where their owning rules require it. Their hidden fields, layout metadata, async frames, operation metadata, and representation-only generic details do not become source members, reflection results, or layout promises.
+`Range<T>`, `Future<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected support types use protected representation where their owning rules require it. Their public contracts supply their source operations while the compiler owns their representation invariants.
 
 The pointer, future, and task operations in the first example use only public contracts. A source struct literal cannot construct those representations, field access cannot inspect them, and a same-shaped source type cannot substitute for them. Copying is available only when the type's owning language rule defines a copy contract.
 

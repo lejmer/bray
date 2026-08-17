@@ -185,7 +185,7 @@ trusted module native_math
 }
 ```
 
-An `extern` declaration has no Bray body and ends with a semicolon. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol. A foreign callback is an ABI-qualified capture-free callable. Stateful callbacks pass an explicit context pointer or ABI-laid-out context product.
+An `extern` declaration introduces a linked callable surface and ends with a semicolon. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol. A foreign callback is an ABI-qualified capture-free callable. Pass state as an ABI-laid-out context product, or own stable-address state with `std.ffi.CallbackContext<State>`, pass its opaque context pointer, and borrow the state inside the matching exported entry through trusted `std.ffi.callback_state<State>(context)`.
 
 By-value foreign parameters and results are restricted to representations accepted by the selected ABI. Typical accepted forms are scalars, unit results, raw pointers, same-ABI callables, `@layout(c)` aggregates, and compatible transparent wrappers. Borrows, slices, trait views, boxes, tasks, async computations, default-layout aggregates, and default-ABI callables need an explicit boundary representation.
 

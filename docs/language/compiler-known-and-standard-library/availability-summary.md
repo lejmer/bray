@@ -4,6 +4,7 @@
 | --- | --- | --- | --- |
 | Compiler-known scalar types | yes | yes, when target-available | no |
 | `string` | yes | yes | no |
+| `Range<T>` | yes | yes for target-available integer `T` | no |
 | `RawPointer<T>` | yes | yes | no |
 | Compiler-known type forms | yes | yes, when target-available | no |
 | `Result<T, E>`, `RunResult<T>` | yes | yes | no |
