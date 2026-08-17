@@ -30,6 +30,7 @@ The always-available compiler-known type entries are:
 - `usize`,
 - `isize`,
 - `string`,
+- `Range<T>`,
 - `Result<T, E>`,
 - `RunResult<T>`,
 - `PanicReport`,
@@ -128,6 +129,15 @@ The compiler-known default storage policy is `Heap`.
 The compiler provides the named generic implementation
 `impl HeapStorage = Heap(Storage<T>)` with the exact `Storage<T>` members and contracts defined by
 [type forms](../types/type-forms.md).
+
+For each target-available integer scalar type `T`, the compiler provides exact implementations for:
+
+- `Range<T>(Iterator)`,
+- `&Range<T>(Iterable)`,
+- `Range<T>(Iterable)`.
+
+Their associated types, cursor behavior, order, finiteness, and cardinality follow the
+[range-expression contract](../expressions/range-expressions.md).
 
 ## Compiler-known paths
 

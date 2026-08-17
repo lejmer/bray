@@ -1138,8 +1138,8 @@ The completion boundary is based on semantic ownership rather than syntax shape:
 | constant initializer        | checked constant definition template           | concrete constant-instance evaluation       |
 | trait constant default      | checked selected-value template                | evaluation after implementation selection   |
 | predicate body              | checked semantic predicate definition          | application or proof for concrete arguments |
-| constraints and contracts   | checked semantic predicates                            | use during checking and inference           |
-| default trait callable body | body presence only                                     | ordinary executable-body checking           |
+| constraints and contracts   | checked semantic predicates                    | use during checking and inference           |
+| default trait callable body | body presence only                             | ordinary executable-body checking           |
 
 #### Crate Ownership
 

@@ -44,14 +44,14 @@ Foreign interoperability follows these rules:
 
 The public surface belongs to the `std` package:
 
-| Module | Responsibility |
-| --- | --- |
-| `std.ffi` | Shared foreign failures, resource-boundary helpers, callback ownership, and explicit raw-boundary operations |
-| `std.ffi.c` | C scalar wrappers, NUL-terminated strings, C-compatible status helpers, and C conversion utilities |
-| `std.dynamic` | Target-aware dynamic-library ownership and lifetime-bound typed symbol lookup |
-| `std.os.windows` | Windows-only low-level handles, constants, and direct system facilities |
-| `std.os.linux` | Linux-only low-level descriptors, constants, and direct system facilities |
-| `std.os.darwin` | Darwin-only low-level descriptors, constants, and direct system facilities |
+| Module           | Responsibility                                                                                               |
+|------------------|--------------------------------------------------------------------------------------------------------------|
+| `std.ffi`        | Shared foreign failures, resource-boundary helpers, callback ownership, and explicit raw-boundary operations |
+| `std.ffi.c`      | C scalar wrappers, NUL-terminated strings, C-compatible status helpers, and C conversion utilities           |
+| `std.dynamic`    | Target-aware dynamic-library ownership and lifetime-bound typed symbol lookup                                |
+| `std.os.windows` | Windows-only low-level handles, constants, and direct system facilities                                      |
+| `std.os.linux`   | Linux-only low-level descriptors, constants, and direct system facilities                                    |
+| `std.os.darwin`  | Darwin-only low-level descriptors, constants, and direct system facilities                                   |
 
 These are ordinary Bray modules. None becomes ambient or compiler-known merely because it wraps a foreign mechanism. The compiler
 recognizes only the language-owned ABI, layout, pointer, capability, target-property, and runtime-role identities already assigned

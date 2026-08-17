@@ -14,5 +14,6 @@ Consult the syntax grammar for parsing, formatting, syntax recovery, and propose
   suffix begins, every remaining top-level declaration is another braced module declaration.
 - `expression` accepts every expression form, while restricted expression roots deliberately accept less in particular contexts so the parser can produce a precise tree.
 - Precedence and associativity follow the grammar structure. Binary levels use repetition for left association, right-associative and prefix forms use right recursion, and postfix forms use repetition.
+- A range expression supplies both bounds around one top-level `..`. Inside square brackets, a top-level `..` selects slicing and a grouped range is an ordinary element selector.
 
 **Remember:** Use the formal grammar for exhaustive parser or formatter work, and use feature references for ordinary authoring, semantics, and validity.

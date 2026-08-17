@@ -43,6 +43,7 @@ func value_forms()
     let pair: (i32, r64) = (integer, real);
     let array: [i32; 3] = [1, 2, 3];
     let repeated: [i32; 4] = [0; 4];
+    let indices: Range<i32> = 0..4;
 
     let name: i32 = integer;
     let qualified: r64 = math.pi;
@@ -80,6 +81,9 @@ func value_forms()
     let full_variant: Shape = Shape.Circle(center = sample_point(), radius = 1.0);
     let dotted_variant: Shape = .Circle(center = sample_point(), radius = 2.0);
     let contextual_variant: Shape = Circle(center = sample_point(), radius = 3.0);
+    let full_empty_variant: Shape = Shape.Empty;
+    let dotted_empty_variant: Shape = .Empty;
+    let contextual_empty_variant: Shape = Empty;
 
     let default_box: box Point = box(full);
     let heap_box: box[Heap] Point = box[Heap](expected);
@@ -104,7 +108,7 @@ impl Counter
 }
 ```
 
-An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components, while an unconstrained complex literal defaults to `c128`. Literal components adapt directly, but already typed real and imaginary components form a complex value through explicit tuple conversion.
+Unconstrained integer, real, and complex literals default to `i32`, `r64`, and `c128`. An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components. Literal components adapt directly, while already typed real and imaginary components form a complex value through explicit tuple conversion. A bounded [`start..end`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/range-expressions.md) expression produces an ascending half-open `Range<T>`.
 
 Plain [`as`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conversion-expressions.md) is only for total, value-preserving conversion. Use an explicit fallible conversion operation otherwise.
 
@@ -160,14 +164,13 @@ Conditions require `bool`. Combine individual [comparisons](https://github.com/l
 
 ```bray
 func generated_forms(
-    pos doubled_values: [i32; 4],
     pos groups: [[i32; 2]; 2],
     pos tested_values: [i32; 4],
 )
 {
     let doubled: [i32; 4] =
     [
-        each value in move doubled_values
+        each value in 0..4
         {
             yield value * 2;
         }
@@ -196,6 +199,8 @@ func generated_forms(
     let any_zero: bool = any([false, true, false]);
 }
 ```
+
+A fixed-array generator produces one element per iteration and a statically provable total of `N` elements. Constant ranges provide their exact half-open cardinality. General generators can produce a variable count according to their control flow.
 
 ### Blocks, conditions, matching, and loops
 
@@ -309,6 +314,8 @@ func consuming_match(pos shape: Shape) -> r64
     };
 }
 ```
+
+Matches over closed unions and nullable values receive coverage checking. Unguarded arms contribute their pattern regions, and guarded arms contribute the regions where the guard is statically proven true.
 
 ### Propagation, panic boundaries, trust, and async execution
 

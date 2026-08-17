@@ -234,6 +234,12 @@ assignment-operator =
     "&=" | "|=" | "^=" | "<<=" | ">>=" | "**=" ;
 
 non-assignment-expression =
+    range-expression ;
+
+range-expression =
+    range-bound-expression [ ".." range-bound-expression ] ;
+
+range-bound-expression =
     logical-or-expression ;
 
 condition-expression =
@@ -242,6 +248,11 @@ condition-expression =
 assignable-expression =
     access-expression ;
 ```
+
+The range level accepts one bounded top-level `..` operator. Its operands are logical-or expressions, so the range operator has
+lower precedence than every binary operator and higher precedence than assignment.
+
+Inside square brackets, a top-level `..` selects the slice form. Parentheses make a range expression a grouped element selector.
 
 The expression before an `assignment-continuation` must be an `assignable-expression`. This is a syntactic classification once the
 access-expression forms are defined. Name resolution and capability checking still decide whether that syntactic access can
@@ -313,7 +324,7 @@ member-selector =
     | tuple-element-index ;
 
 element-index-operation =
-    "[" expression "]" ;
+    "[" range-bound-expression "]" ;
 
 primary-expression =
       literal-expression
@@ -366,7 +377,7 @@ slice-index-operation =
     "[" slice-selector "]" ;
 
 slice-selector =
-    [ expression ] ".." [ expression ] ;
+    [ range-bound-expression ] ".." [ range-bound-expression ] ;
 
 nullable-propagation-operation =
     "?" ;

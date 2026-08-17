@@ -5,6 +5,7 @@ The compiler-known surface consists of:
 - the built-in scalar type names `bool`, `char`, `unit`, and `never`, together with the integer, real, complex, and machine-sized
   integer type families defined by the scalar-type rules,
 - the compiler-known text type `string`,
+- the compiler-known half-open integer range type `Range<T>`,
 - the compiler-known raw pointer type `RawPointer<T>`,
 - the structural tuple, fixed-size array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms,
 - the compiler-known `Heap` storage-policy type used by default-storage owned indirection,

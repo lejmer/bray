@@ -26,6 +26,8 @@ No-payload union variants construct without parentheses.
 
 Function calls and method calls are governed by [callable contracts](../callables.md).
 
+`start..end` constructs a finite ascending half-open `Range<T>` over one integer scalar type.
+
 Assignment returns `unit` on normal completion.
 
 Patterns are their own grammar category and are defined in [Patterns](../patterns.md).

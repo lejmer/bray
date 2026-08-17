@@ -92,6 +92,8 @@ async func concurrent(pos first: Request, pos second: Request) -> (Response, Res
 
 Call `.start()` in an active async context to begin a task. The selected execution lane must satisfy the async callable's requirements.
 
+Write recursive async calls directly. The compiler supplies stable frame storage for suspended recursive depth, and `start()` establishes task-owned storage before the first resume.
+
 See [await expressions](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/await-expressions.md) and [starting tasks](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/starting-tasks.md).
 
 ## Task results and obligations

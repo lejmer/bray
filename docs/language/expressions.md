@@ -28,6 +28,7 @@ language checks.
 - [Static function call expressions](expressions/static-function-call-expressions.md)
 - [Tuple expressions](expressions/tuple-expressions.md)
 - [Array expressions](expressions/array-expressions.md)
+- [Range expressions](expressions/range-expressions.md)
 - [Iteration source resolution](expressions/iteration-source-resolution.md)
 - [Array generator expressions](expressions/array-generator-expressions.md)
 - [General generator expressions](expressions/general-generator-expressions.md)

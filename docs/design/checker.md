@@ -190,14 +190,14 @@ borrow or effect analysis merely because those outputs may later be needed by lo
 
 The semantic unit category selects contextual inputs, not a list of analyses:
 
-| Bound unit kind       | Semantic context                                                                                                      |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        |
-| `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                      |
-| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             |
-| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target properties                            |
-| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 |
-| `Constraint`          | Generic parameters and propositions available before the constraint being defined                                     |
+| Bound unit kind       | Semantic context                                                                                                             |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context               |
+| `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                             |
+| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context                    |
+| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target properties                                   |
+| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                        |
+| `Constraint`          | Generic parameters and propositions available before the constraint being defined                                            |
 | `ContractClause`      | Callable parameters and clause-specific propositions, with `result` present only for a value-producing `ensures(...)` clause |
 
 Runtime defaults record requirements without imposing them on calls or constructions that supply an explicit value. Constant

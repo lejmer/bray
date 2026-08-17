@@ -57,16 +57,16 @@ Trusted raw memory conditions are invalidated by deallocation, reallocation, mov
 
 Raw memory operations use trusted capabilities according to the operation they perform.
 
-| Operation kind | Required trusted capability |
-| --- | --- |
-| Raw read, write, and copy | `raw_memory` |
-| Manual initialization or uninitialized storage handling | `unchecked_init` |
-| Pointer reinterpretation across element types | `layout_reinterpret` |
-| Manual allocation and deallocation | `manual_alloc` |
-| Aliasing beyond ordinary proof power | `unchecked_alias` |
-| Foreign memory or calls outside ordinary Bray semantics | `foreign_call` |
-| Device-owned or accelerator-owned memory | `device_memory` |
-| Compiler-recognized target operations | `intrinsic` |
+| Operation kind                                          | Required trusted capability |
+|---------------------------------------------------------|-----------------------------|
+| Raw read, write, and copy                               | `raw_memory`                |
+| Manual initialization or uninitialized storage handling | `unchecked_init`            |
+| Pointer reinterpretation across element types           | `layout_reinterpret`        |
+| Manual allocation and deallocation                      | `manual_alloc`              |
+| Aliasing beyond ordinary proof power                    | `unchecked_alias`           |
+| Foreign memory or calls outside ordinary Bray semantics | `foreign_call`              |
+| Device-owned or accelerator-owned memory                | `device_memory`             |
+| Compiler-recognized target operations                   | `intrinsic`                 |
 
 A trusted declaration must declare exactly the trusted capabilities it uses.
 

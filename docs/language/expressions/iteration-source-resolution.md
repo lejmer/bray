@@ -88,9 +88,12 @@ For shared and mutable iteration, the source borrow ends when the cursor is dest
 Iteration order, cardinality conditions, finiteness conditions, element borrowing behavior, and element ownership behavior come from the
 selected `Iterable` implementation, the selected `Iterator` implementation, and conditions established for the source expression.
 
+The compiler-known [`Range<T>`](range-expressions.md) type provides shared and consuming finite iteration with exact cardinality when
+its bounds are known.
+
 ## Navigation
 
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
-- Previous: [Array expressions](array-expressions.md)
+- Previous: [Range expressions](range-expressions.md)
 - Next: [Array generator expressions](array-generator-expressions.md)

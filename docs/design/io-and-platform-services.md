@@ -32,14 +32,14 @@ The design does not require one operating system, object format, runtime impleme
 
 The public surface belongs to the `std` package:
 
-| Module | Responsibility |
-| --- | --- |
-| `std.io` | Byte reader and writer contracts, standard streams, buffering, flushing, and common I/O failures |
-| `std.path` | Lossless target-native path values, path composition, normalization, comparison, and explicit text conversion |
-| `std.fs` | Files, open policy, seeking, metadata, directories, traversal, and filesystem mutation |
+| Module        | Responsibility                                                                                                |
+|---------------|---------------------------------------------------------------------------------------------------------------|
+| `std.io`      | Byte reader and writer contracts, standard streams, buffering, flushing, and common I/O failures              |
+| `std.path`    | Lossless target-native path values, path composition, normalization, comparison, and explicit text conversion |
+| `std.fs`      | Files, open policy, seeking, metadata, directories, traversal, and filesystem mutation                        |
 | `std.process` | Process arguments and environment snapshots, raw child processes, and higher-level typed Bray child processes |
-| `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timer adapters |
-| `std.random` | System entropy and deterministic pseudorandom generators |
+| `std.time`    | Durations, monotonic instants, wall-clock values, deadlines, and timer adapters                               |
+| `std.random`  | System entropy and deterministic pseudorandom generators                                                      |
 
 The declaration names, parameter modes, owner types, error types, blocking requirements, asynchronous variants, and
 result shapes are defined by the [I/O and platform standard-library surface](io-and-platform-surface.md). Standard-library source
@@ -157,18 +157,18 @@ Each role has:
 
 The minimum role families are:
 
-| Role family | Required mechanisms |
-| --- | --- |
-| Process context | Import the immutable process identity, startup arguments, environment, and working directory |
-| Standard streams | Read standard input and write, flush, and serialize standard output or standard error through distinct operations |
-| File streams | Read, write, flush, seek, and close a typed file owner |
-| Process pipes | Read child output, write and flush child input, and close a typed pipe owner |
-| Filesystems | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles |
-| Child processes | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
-| Clocks | Read monotonic and wall clocks and expose target resolution |
-| Temporal data | Interpret calendar values and named timezone rules through the pinned native provider |
-| Entropy | Fill caller-owned mutable bytes from the target entropy source |
-| Wait integration | Expose waitable completion sources that the runtime reactor can register and wake |
+| Role family      | Required mechanisms                                                                                                 |
+|------------------|---------------------------------------------------------------------------------------------------------------------|
+| Process context  | Import the immutable process identity, startup arguments, environment, and working directory                        |
+| Standard streams | Read standard input and write, flush, and serialize standard output or standard error through distinct operations   |
+| File streams     | Read, write, flush, seek, and close a typed file owner                                                              |
+| Process pipes    | Read child output, write and flush child input, and close a typed pipe owner                                        |
+| Filesystems      | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles           |
+| Child processes  | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
+| Clocks           | Read monotonic and wall clocks and expose target resolution                                                         |
+| Temporal data    | Interpret calendar values and named timezone rules through the pinned native provider                               |
+| Entropy          | Fill caller-owned mutable bytes from the target entropy source                                                      |
+| Wait integration | Expose waitable completion sources that the runtime reactor can register and wake                                   |
 
 The role set is intentionally mechanism-oriented. Path normalization, buffering, text conversion, directory sorting, command
 policy, typed process protocols, random algorithms, cancellation policy, and public error composition remain Bray code.
@@ -177,60 +177,60 @@ policy, typed process protocols, random algorithms, cancellation policy, and pub
 
 Every role descriptor uses the following closed schema fields:
 
-| Field | Contract |
-| --- | --- |
-| `role` | Stable `u32` role identity from the catalog below |
-| `parameters` | Ordered parameter descriptors using the closed ABI shapes below |
-| `results` | Ordered output descriptors committed according to the role's status contract |
-| `call_mode` | `nonblocking`, `may_block`, or `starts_operation` |
-| `statuses` | Exact allowed `PlatformStatusCategory` set |
-| `handle_effects` | Handle class, input ownership, and success, failure, or terminal transition |
-| `buffer_effects` | Call-only or operation-retained lifetime for every borrowed byte range |
-| `completion` | Immediate completion or the required operation completion contract |
-| `cancellation` | `not_applicable`, `request_only`, or `request_and_complete` |
-| `capability` | One closed trusted platform capability required to bind the role |
+| Field            | Contract                                                                     |
+|------------------|------------------------------------------------------------------------------|
+| `role`           | Stable `u32` role identity from the catalog below                            |
+| `parameters`     | Ordered parameter descriptors using the closed ABI shapes below              |
+| `results`        | Ordered output descriptors committed according to the role's status contract |
+| `call_mode`      | `nonblocking`, `may_block`, or `starts_operation`                            |
+| `statuses`       | Exact allowed `PlatformStatusCategory` set                                   |
+| `handle_effects` | Handle class, input ownership, and success, failure, or terminal transition  |
+| `buffer_effects` | Call-only or operation-retained lifetime for every borrowed byte range       |
+| `completion`     | Immediate completion or the required operation completion contract           |
+| `cancellation`   | `not_applicable`, `request_only`, or `request_and_complete`                  |
+| `capability`     | One closed trusted platform capability required to bind the role             |
 
 The ABI shape vocabulary is:
 
-| Shape | Binary contract |
-| --- | --- |
-| `u32`, `u64`, `i64` | Fixed-width scalar in the selected target ABI |
-| `status` | `PlatformStatus` record |
-| `const_bytes(call)` | Pointer plus `u64` length, readable only until the call returns |
-| `mut_bytes(call)` | Pointer plus `u64` length, writable only until the call returns |
-| `const_bytes(operation)` | Pointer plus `u64` length retained read-only until operation completion |
-| `mut_bytes(operation)` | Pointer plus `u64` length retained writable until operation completion |
-| `path` | Call-only bytes in the target-native path encoding named by the target contract |
-| `native_text` | Call-only units in the target-native process-text encoding named by the target contract |
-| `raw_address` | One target-width non-owning address. Zero is invalid for a successful symbol lookup |
-| `span_list` | Call-only pointer plus count of call-only byte spans |
-| `environment_list` | Call-only pointer plus count of key and value byte-span pairs |
-| `handle_ref<K>` | Borrowed nonzero `u64` opaque handle of class `K` |
-| `handle_owner<K>` | Owned nonzero `u64` opaque handle of class `K` |
-| `handle_owner<K>?` | Optional owned handle result. Zero means absent and nonzero transfers ownership |
-| `out<T>` | Caller-owned aligned storage for one `T`, valid for the declared output statuses |
-| `child_request` | Call-only `AbiChildRequest` record |
-| `file_options` | `AbiFileOptions` record |
-| `file_metadata` | `AbiFileMetadata` record |
-| `exit_status` | `AbiExitStatus` record |
-| `start_result` | `AbiStartResult` record |
-| `operation_result` | `AbiOperationResult` record |
+| Shape                    | Binary contract                                                                         |
+|--------------------------|-----------------------------------------------------------------------------------------|
+| `u32`, `u64`, `i64`      | Fixed-width scalar in the selected target ABI                                           |
+| `status`                 | `PlatformStatus` record                                                                 |
+| `const_bytes(call)`      | Pointer plus `u64` length, readable only until the call returns                         |
+| `mut_bytes(call)`        | Pointer plus `u64` length, writable only until the call returns                         |
+| `const_bytes(operation)` | Pointer plus `u64` length retained read-only until operation completion                 |
+| `mut_bytes(operation)`   | Pointer plus `u64` length retained writable until operation completion                  |
+| `path`                   | Call-only bytes in the target-native path encoding named by the target contract         |
+| `native_text`            | Call-only units in the target-native process-text encoding named by the target contract |
+| `raw_address`            | One target-width non-owning address. Zero is invalid for a successful symbol lookup     |
+| `span_list`              | Call-only pointer plus count of call-only byte spans                                    |
+| `environment_list`       | Call-only pointer plus count of key and value byte-span pairs                           |
+| `handle_ref<K>`          | Borrowed nonzero `u64` opaque handle of class `K`                                       |
+| `handle_owner<K>`        | Owned nonzero `u64` opaque handle of class `K`                                          |
+| `handle_owner<K>?`       | Optional owned handle result. Zero means absent and nonzero transfers ownership         |
+| `out<T>`                 | Caller-owned aligned storage for one `T`, valid for the declared output statuses        |
+| `child_request`          | Call-only `AbiChildRequest` record                                                      |
+| `file_options`           | `AbiFileOptions` record                                                                 |
+| `file_metadata`          | `AbiFileMetadata` record                                                                |
+| `exit_status`            | `AbiExitStatus` record                                                                  |
+| `start_result`           | `AbiStartResult` record                                                                 |
+| `operation_result`       | `AbiOperationResult` record                                                             |
 
 The defined descriptor encoding uses these closed ordinal tables:
 
-| Descriptor field | Ordinals |
-| --- | --- |
-| Direction | `input = 0`, `output = 1` |
-| Shape | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14`, `native_text = 15`, `date_time = 16`, `temporal_observation = 17`, `temporal_resolution = 18`, `temporal_value = 19`, `raw_address = 20` |
-| Byte access | `not_applicable = 0`, `immutable = 1`, `mutable = 2` |
-| Lifetime | `not_applicable = 0`, `call = 1`, `operation = 2` |
-| Presence | `required = 0`, `optional = 1` |
-| Handle class | `not_applicable = 0`, `process_pipe = 1`, `file_stream = 2`, `directory = 3`, `child = 4`, `operation = 5`, `wait_source = 6`, `time_zone = 7`, `dynamic_library = 8` |
-| Handle state | `not_applicable = 0`, `absent = 1`, `borrowed = 2`, `owned = 3`, `retained_borrow = 4`, `retained_owner = 5`, `consumed = 6` |
-| Call mode | `nonblocking = 0`, `may_block = 1`, `starts_operation = 2` |
-| Completion | `immediate = 0`, `status_only = 1`, `byte_transfer = 2`, `child_wait = 3`, `timer = 4`, `operation_dispatch = 5` |
-| Cancellation | `not_applicable = 0`, `request_only = 1`, `request_and_complete = 2` |
-| Capability | `process_context = 0`, `streams = 1`, `filesystem = 2`, `child_processes = 3`, `clocks = 4`, `entropy = 5`, `wait_integration = 6`, `temporal = 7`, `dynamic_loading = 8` |
+| Descriptor field | Ordinals                                                                                                                                                                                                                                                                                                                                                                                                  |
+|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Direction        | `input = 0`, `output = 1`                                                                                                                                                                                                                                                                                                                                                                                 |
+| Shape            | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14`, `native_text = 15`, `date_time = 16`, `temporal_observation = 17`, `temporal_resolution = 18`, `temporal_value = 19`, `raw_address = 20` |
+| Byte access      | `not_applicable = 0`, `immutable = 1`, `mutable = 2`                                                                                                                                                                                                                                                                                                                                                      |
+| Lifetime         | `not_applicable = 0`, `call = 1`, `operation = 2`                                                                                                                                                                                                                                                                                                                                                         |
+| Presence         | `required = 0`, `optional = 1`                                                                                                                                                                                                                                                                                                                                                                            |
+| Handle class     | `not_applicable = 0`, `process_pipe = 1`, `file_stream = 2`, `directory = 3`, `child = 4`, `operation = 5`, `wait_source = 6`, `time_zone = 7`, `dynamic_library = 8`                                                                                                                                                                                                                                     |
+| Handle state     | `not_applicable = 0`, `absent = 1`, `borrowed = 2`, `owned = 3`, `retained_borrow = 4`, `retained_owner = 5`, `consumed = 6`                                                                                                                                                                                                                                                                              |
+| Call mode        | `nonblocking = 0`, `may_block = 1`, `starts_operation = 2`                                                                                                                                                                                                                                                                                                                                                |
+| Completion       | `immediate = 0`, `status_only = 1`, `byte_transfer = 2`, `child_wait = 3`, `timer = 4`, `operation_dispatch = 5`                                                                                                                                                                                                                                                                                          |
+| Cancellation     | `not_applicable = 0`, `request_only = 1`, `request_and_complete = 2`                                                                                                                                                                                                                                                                                                                                      |
+| Capability       | `process_context = 0`, `streams = 1`, `filesystem = 2`, `child_processes = 3`, `clocks = 4`, `entropy = 5`, `wait_integration = 6`, `temporal = 7`, `dynamic_loading = 8`                                                                                                                                                                                                                                 |
 
 `const_bytes` and `mut_bytes` both encode as `bytes`. Byte access and lifetime distinguish them. `handle_ref` and `handle_owner`
 both encode as `handle`. Handle class, presence, and the initial handle state distinguish them. `out<T>` encodes `T` with output
@@ -254,19 +254,19 @@ alignment is its greatest field alignment, trailing padding extends the record t
 This rule and the selected target's pointer width determine all target-dependent offsets without using an implementation-language
 object layout. Scalar fields use the selected target's byte order.
 
-| Record | Ordered fields |
-| --- | --- |
-| `AbiByteSpan` | `address: pointer`, `length: u64` |
-| `AbiSpanList` | `entries: pointer<AbiByteSpan>`, `count: u64` |
-| `AbiEnvironmentEntry` | `key: AbiByteSpan`, `value: AbiByteSpan` |
-| `AbiEnvironmentList` | `entries: pointer<AbiEnvironmentEntry>`, `count: u64` |
-| `PlatformStatus` | `category: u32`, `reserved: u32`, `native_code: i64` |
-| `AbiStartResult` | `state: u32`, `reserved: u32`, `value: u64`, `operation: u64` |
-| `AbiOperationResult` | `state: u32`, `reserved: u32`, `status: PlatformStatus`, `value0: u64`, `value1: u64` |
-| `AbiFileOptions` | `access: u32`, `creation: u32`, `reserved: u64` |
-| `AbiFileMetadata` | `kind: u32`, `present: u32`, `bytes: u64`, `modified_seconds: i64`, `modified_nanoseconds: u32`, `reserved: u32` |
-| `AbiExitStatus` | `tag: u32`, `reserved: u32`, `payload: i64` |
-| `AbiChildRequest` | `executable: AbiByteSpan`, `working_directory: AbiByteSpan`, `arguments: AbiSpanList`, `environment: AbiEnvironmentList`, `standard_input: u32`, `standard_output: u32`, `standard_error: u32`, `reserved: u32` |
+| Record                | Ordered fields                                                                                                                                                                                                  |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AbiByteSpan`         | `address: pointer`, `length: u64`                                                                                                                                                                               |
+| `AbiSpanList`         | `entries: pointer<AbiByteSpan>`, `count: u64`                                                                                                                                                                   |
+| `AbiEnvironmentEntry` | `key: AbiByteSpan`, `value: AbiByteSpan`                                                                                                                                                                        |
+| `AbiEnvironmentList`  | `entries: pointer<AbiEnvironmentEntry>`, `count: u64`                                                                                                                                                           |
+| `PlatformStatus`      | `category: u32`, `reserved: u32`, `native_code: i64`                                                                                                                                                            |
+| `AbiStartResult`      | `state: u32`, `reserved: u32`, `value: u64`, `operation: u64`                                                                                                                                                   |
+| `AbiOperationResult`  | `state: u32`, `reserved: u32`, `status: PlatformStatus`, `value0: u64`, `value1: u64`                                                                                                                           |
+| `AbiFileOptions`      | `access: u32`, `creation: u32`, `reserved: u64`                                                                                                                                                                 |
+| `AbiFileMetadata`     | `kind: u32`, `present: u32`, `bytes: u64`, `modified_seconds: i64`, `modified_nanoseconds: u32`, `reserved: u32`                                                                                                |
+| `AbiExitStatus`       | `tag: u32`, `reserved: u32`, `payload: i64`                                                                                                                                                                     |
+| `AbiChildRequest`     | `executable: AbiByteSpan`, `working_directory: AbiByteSpan`, `arguments: AbiSpanList`, `environment: AbiEnvironmentList`, `standard_input: u32`, `standard_output: u32`, `standard_error: u32`, `reserved: u32` |
 
 `pointer<T>` is an address in the selected target address space, not an opaque handle. A zero address is valid only when the paired
 count or length is zero. Lists are contiguous arrays of the named record. All nested child-request spans and lists have call-only
@@ -274,21 +274,21 @@ lifetime.
 
 `PlatformStatus` is a 16-byte record containing `category: u32`, `reserved: u32`, and `native_code: i64`. The closed categories are:
 
-| Value | Category | Meaning |
-| ---: | --- | --- |
-| `0` | `Success` | The operation satisfied its success contract |
-| `1` | `Unsupported` | The target service cannot perform this operation |
-| `2` | `PermissionDenied` | The platform denied the requested authority |
-| `3` | `NotFound` | The named resource does not exist |
-| `4` | `AlreadyExists` | Exclusive creation found an existing resource |
-| `5` | `InvalidInput` | An otherwise well-formed ABI value violates operation policy |
-| `6` | `Interrupted` | The platform interrupted the operation before normal completion |
-| `7` | `Exhausted` | Capacity or another finite platform resource is unavailable |
-| `8` | `BrokenStream` | The peer or backing stream cannot continue the transfer |
-| `9` | `TimedOut` | The requested deadline expired |
-| `10` | `InsufficientBuffer` | The supplied output buffer is too small and the required length is available |
-| `11` | `Cancelled` | A pending operation reached terminal cancellation |
-| `12` | `Other` | A target failure has no more specific stable category |
+| Value | Category             | Meaning                                                                      |
+|------:|----------------------|------------------------------------------------------------------------------|
+|   `0` | `Success`            | The operation satisfied its success contract                                 |
+|   `1` | `Unsupported`        | The target service cannot perform this operation                             |
+|   `2` | `PermissionDenied`   | The platform denied the requested authority                                  |
+|   `3` | `NotFound`           | The named resource does not exist                                            |
+|   `4` | `AlreadyExists`      | Exclusive creation found an existing resource                                |
+|   `5` | `InvalidInput`       | An otherwise well-formed ABI value violates operation policy                 |
+|   `6` | `Interrupted`        | The platform interrupted the operation before normal completion              |
+|   `7` | `Exhausted`          | Capacity or another finite platform resource is unavailable                  |
+|   `8` | `BrokenStream`       | The peer or backing stream cannot continue the transfer                      |
+|   `9` | `TimedOut`           | The requested deadline expired                                               |
+|  `10` | `InsufficientBuffer` | The supplied output buffer is too small and the required length is available |
+|  `11` | `Cancelled`          | A pending operation reached terminal cancellation                            |
+|  `12` | `Other`              | A target failure has no more specific stable category                        |
 
 `native_code` is zero when the provider has no target code. It is inspection data and cannot redefine the stable category.
 
@@ -318,21 +318,21 @@ returns.
 The platform provider owns one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
 little-endian integers at these byte offsets. Process-root standard streams are separate resources and are not encoded in the block:
 
-| Offset | Field |
-| ---: | --- |
-| `0` | platform ABI major as `u16` |
-| `2` | platform ABI minor as `u16` |
-| `4` | native text unit width in bits as `u8` |
-| `5` | environment key comparison kind as `u8` |
-| `6` | zero reserved `u16` |
-| `8` | process identity as `u64` |
-| `16` | startup working-directory payload offset as `u64` |
-| `24` | startup working-directory byte length as `u64` |
-| `32` | argument count as `u64` |
-| `40` | argument table offset as `u64` |
-| `48` | environment entry count as `u64` |
-| `56` | environment table offset as `u64` |
-| `64` | complete block byte length as `u64` |
+| Offset | Field                                             |
+|-------:|---------------------------------------------------|
+|    `0` | platform ABI major as `u16`                       |
+|    `2` | platform ABI minor as `u16`                       |
+|    `4` | native text unit width in bits as `u8`            |
+|    `5` | environment key comparison kind as `u8`           |
+|    `6` | zero reserved `u16`                               |
+|    `8` | process identity as `u64`                         |
+|   `16` | startup working-directory payload offset as `u64` |
+|   `24` | startup working-directory byte length as `u64`    |
+|   `32` | argument count as `u64`                           |
+|   `40` | argument table offset as `u64`                    |
+|   `48` | environment entry count as `u64`                  |
+|   `56` | environment table offset as `u64`                 |
+|   `64` | complete block byte length as `u64`               |
 
 Each argument table entry is a 16-byte payload offset and length pair. Each environment entry is a 32-byte key offset, key length,
 value offset, and value length tuple. Every range is within the complete block and ranges cannot overlap either table. Arguments
@@ -355,54 +355,54 @@ transfer status and required lengths are valid for `InsufficientBuffer`.
 The catalog uses these exact status sets. Each hexadecimal value is the `u64` mask whose bit is the corresponding
 `PlatformStatusCategory` numeric value:
 
-| Set | Mask | Categories |
-| --- | ---: | --- |
-| `context` | `0x1003` | `Success`, `Unsupported`, `Other` |
-| `context_indexed` | `0x100b` | `Success`, `Unsupported`, `NotFound`, `Other` |
-| `stream` | `0x1363` | `Success`, `Unsupported`, `InvalidInput`, `Interrupted`, `BrokenStream`, `TimedOut`, `Other` |
-| `filesystem` | `0x10ff` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `AlreadyExists`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other` |
-| `filesystem_buffer` | `0x14ff` | `filesystem` plus `InsufficientBuffer` |
-| `child` | `0x13ff` | `filesystem` plus `BrokenStream` and `TimedOut` |
-| `clock` | `0x1043` | `Success`, `Unsupported`, `Interrupted`, `Other` |
-| `entropy` | `0x10c3` | `Success`, `Unsupported`, `Interrupted`, `Exhausted`, `Other` |
-| `operation_control` | `0x1021` | `Success`, `InvalidInput`, `Other` |
-| `dynamic_loading` | `0x10ef` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other` |
+| Set                 |     Mask | Categories                                                                                                                     |
+|---------------------|---------:|--------------------------------------------------------------------------------------------------------------------------------|
+| `context`           | `0x1003` | `Success`, `Unsupported`, `Other`                                                                                              |
+| `context_indexed`   | `0x100b` | `Success`, `Unsupported`, `NotFound`, `Other`                                                                                  |
+| `stream`            | `0x1363` | `Success`, `Unsupported`, `InvalidInput`, `Interrupted`, `BrokenStream`, `TimedOut`, `Other`                                   |
+| `filesystem`        | `0x10ff` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `AlreadyExists`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other` |
+| `filesystem_buffer` | `0x14ff` | `filesystem` plus `InsufficientBuffer`                                                                                         |
+| `child`             | `0x13ff` | `filesystem` plus `BrokenStream` and `TimedOut`                                                                                |
+| `clock`             | `0x1043` | `Success`, `Unsupported`, `Interrupted`, `Other`                                                                               |
+| `entropy`           | `0x10c3` | `Success`, `Unsupported`, `Interrupted`, `Exhausted`, `Other`                                                                  |
+| `operation_control` | `0x1021` | `Success`, `InvalidInput`, `Other`                                                                                             |
+| `dynamic_loading`   | `0x10ef` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other`                  |
 
 #### Process context
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0001` | `platform.context.identity` | none | `u64 identity` | none | `nonblocking`. Returns an infallible product-lifetime scalar |
-| `0x0002` | `platform.context.native_text_width` | none | `u32 width` | none | `nonblocking`. Returns an infallible product-lifetime scalar |
-| `0x0003` | `platform.context.working_directory` | none | `out<raw_address> address`, `out<u64> length` | `context` | `nonblocking`. Returns a product-lifetime borrowed view |
-| `0x0004` | `platform.context.argument_count` | none | `out<u64> count` | `context` | `nonblocking`. No ownership change |
-| `0x0005` | `platform.context.argument` | `u64 index` | `out<raw_address> address`, `out<u64> length` | `context_indexed` | `nonblocking`. Returns a product-lifetime borrowed view |
-| `0x0006` | `platform.context.environment_count` | none | `out<u64> count` | `context` | `nonblocking`. No ownership change |
-| `0x0007` | `platform.context.environment_entry` | `u64 index` | two `out<raw_address, u64>` views | `context_indexed` | `nonblocking`. Returns product-lifetime borrowed key and value views |
-| `0x0008` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`. No ownership change |
+|       ID | Role                                      | Parameters                              | Results                                       | Status set        | Mode and effects                                                     |
+|---------:|-------------------------------------------|-----------------------------------------|-----------------------------------------------|-------------------|----------------------------------------------------------------------|
+| `0x0001` | `platform.context.identity`               | none                                    | `u64 identity`                                | none              | `nonblocking`. Returns an infallible product-lifetime scalar         |
+| `0x0002` | `platform.context.native_text_width`      | none                                    | `u32 width`                                   | none              | `nonblocking`. Returns an infallible product-lifetime scalar         |
+| `0x0003` | `platform.context.working_directory`      | none                                    | `out<raw_address> address`, `out<u64> length` | `context`         | `nonblocking`. Returns a product-lifetime borrowed view              |
+| `0x0004` | `platform.context.argument_count`         | none                                    | `out<u64> count`                              | `context`         | `nonblocking`. No ownership change                                   |
+| `0x0005` | `platform.context.argument`               | `u64 index`                             | `out<raw_address> address`, `out<u64> length` | `context_indexed` | `nonblocking`. Returns a product-lifetime borrowed view              |
+| `0x0006` | `platform.context.environment_count`      | none                                    | `out<u64> count`                              | `context`         | `nonblocking`. No ownership change                                   |
+| `0x0007` | `platform.context.environment_entry`      | `u64 index`                             | two `out<raw_address, u64>` views             | `context_indexed` | `nonblocking`. Returns product-lifetime borrowed key and value views |
+| `0x0008` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal`                              | `context`         | `nonblocking`. No ownership change                                   |
 
 #### Resource-specific streams
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0101` | `platform.standard_input.read` | `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root input identity is implicit |
-| `0x0111` | `platform.standard_output.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root output identity is implicit |
-| `0x0112` | `platform.standard_output.flush` | none | none | `stream` | `may_block`. Output identity is implicit |
-| `0x0113` | `platform.standard_output.lock` | none | none | `stream` | `may_block`. Acquires product-wide output serialization |
-| `0x0114` | `platform.standard_output.unlock` | none | none | `stream` | `nonblocking`. Releases product-wide output serialization |
-| `0x0121` | `platform.standard_error.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root error identity is implicit |
-| `0x0122` | `platform.standard_error.flush` | none | none | `stream` | `may_block`. Error identity is implicit |
-| `0x0123` | `platform.standard_error.lock` | none | none | `stream` | `may_block`. Acquires product-wide error serialization |
-| `0x0124` | `platform.standard_error.unlock` | none | none | `stream` | `nonblocking`. Releases product-wide error serialization |
-| `0x0201` | `platform.file.read` | `handle_ref<file_stream>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. File owner retained |
-| `0x0202` | `platform.file.write` | `handle_ref<file_stream>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. File owner retained |
-| `0x0203` | `platform.file.flush` | `handle_ref<file_stream>` | none | `stream` | `may_block`. File owner retained |
-| `0x0204` | `platform.file.seek` | `handle_ref<file_stream>`, `u64 offset_bits`, `u32 origin` | `out<u64> position` | `stream` | `may_block`. File owner retained |
-| `0x0205` | `platform.file.close` | `handle_owner<file_stream>` | none | `stream` | `may_block`. Consumes the file owner |
-| `0x0301` | `platform.process_pipe.read` | `handle_ref<process_pipe>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Pipe owner retained |
-| `0x0302` | `platform.process_pipe.write` | `handle_ref<process_pipe>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Pipe owner retained |
-| `0x0303` | `platform.process_pipe.flush` | `handle_ref<process_pipe>` | none | `stream` | `may_block`. Pipe owner retained |
-| `0x0304` | `platform.process_pipe.close` | `handle_owner<process_pipe>` | none | `stream` | `may_block`. Consumes the pipe owner |
+|       ID | Role                              | Parameters                                                 | Results                | Status set | Mode and effects                                          |
+|---------:|-----------------------------------|------------------------------------------------------------|------------------------|------------|-----------------------------------------------------------|
+| `0x0101` | `platform.standard_input.read`    | `mut_bytes(call)`                                          | `out<u64> transferred` | `stream`   | `may_block`. Process-root input identity is implicit      |
+| `0x0111` | `platform.standard_output.write`  | `const_bytes(call)`                                        | `out<u64> transferred` | `stream`   | `may_block`. Process-root output identity is implicit     |
+| `0x0112` | `platform.standard_output.flush`  | none                                                       | none                   | `stream`   | `may_block`. Output identity is implicit                  |
+| `0x0113` | `platform.standard_output.lock`   | none                                                       | none                   | `stream`   | `may_block`. Acquires product-wide output serialization   |
+| `0x0114` | `platform.standard_output.unlock` | none                                                       | none                   | `stream`   | `nonblocking`. Releases product-wide output serialization |
+| `0x0121` | `platform.standard_error.write`   | `const_bytes(call)`                                        | `out<u64> transferred` | `stream`   | `may_block`. Process-root error identity is implicit      |
+| `0x0122` | `platform.standard_error.flush`   | none                                                       | none                   | `stream`   | `may_block`. Error identity is implicit                   |
+| `0x0123` | `platform.standard_error.lock`    | none                                                       | none                   | `stream`   | `may_block`. Acquires product-wide error serialization    |
+| `0x0124` | `platform.standard_error.unlock`  | none                                                       | none                   | `stream`   | `nonblocking`. Releases product-wide error serialization  |
+| `0x0201` | `platform.file.read`              | `handle_ref<file_stream>`, `mut_bytes(call)`               | `out<u64> transferred` | `stream`   | `may_block`. File owner retained                          |
+| `0x0202` | `platform.file.write`             | `handle_ref<file_stream>`, `const_bytes(call)`             | `out<u64> transferred` | `stream`   | `may_block`. File owner retained                          |
+| `0x0203` | `platform.file.flush`             | `handle_ref<file_stream>`                                  | none                   | `stream`   | `may_block`. File owner retained                          |
+| `0x0204` | `platform.file.seek`              | `handle_ref<file_stream>`, `u64 offset_bits`, `u32 origin` | `out<u64> position`    | `stream`   | `may_block`. File owner retained                          |
+| `0x0205` | `platform.file.close`             | `handle_owner<file_stream>`                                | none                   | `stream`   | `may_block`. Consumes the file owner                      |
+| `0x0301` | `platform.process_pipe.read`      | `handle_ref<process_pipe>`, `mut_bytes(call)`              | `out<u64> transferred` | `stream`   | `may_block`. Pipe owner retained                          |
+| `0x0302` | `platform.process_pipe.write`     | `handle_ref<process_pipe>`, `const_bytes(call)`            | `out<u64> transferred` | `stream`   | `may_block`. Pipe owner retained                          |
+| `0x0303` | `platform.process_pipe.flush`     | `handle_ref<process_pipe>`                                 | none                   | `stream`   | `may_block`. Pipe owner retained                          |
+| `0x0304` | `platform.process_pipe.close`     | `handle_owner<process_pipe>`                               | none                   | `stream`   | `may_block`. Consumes the pipe owner                      |
 
 Standard input, standard output, standard error, files, and process pipes have separate callable and artifact boundaries. A value's
 resource kind is established when its public owner or process-root environment is constructed. Ordinary calls never rediscover the
@@ -417,18 +417,18 @@ Read and write starts use `byte_transfer`. Flush starts use `status_only`. Child
 
 #### Filesystems
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0211` | `platform.file.open` | `path`, `file_options` | `out<handle_owner<file_stream>>` | `filesystem` | `may_block`. Creates owner only on success |
-| `0x0212` | `platform.file.metadata` | `handle_ref<file_stream>` | `out<file_metadata>` | `filesystem` | `may_block`. Handle retained |
-| `0x0213` | `platform.path.metadata` | `path` | `out<file_metadata>` | `filesystem` | `may_block`. No handle transition |
-| `0x0221` | `platform.directory.open` | `path` | `out<handle_owner<directory>>` | `filesystem` | `may_block`. Creates owner only on success |
-| `0x0222` | `platform.directory.next` | `handle_ref<directory>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> end`, `out<file_metadata>` | `filesystem_buffer` | `may_block`. Advances only on success |
-| `0x0223` | `platform.directory.close` | `handle_owner<directory>` | none | `filesystem` | `may_block`. Consumes owner on every terminal status |
-| `0x0230` | `platform.path.create_directory` | `path` | none | `filesystem` | `may_block`. No handle transition |
-| `0x0231` | `platform.path.remove_file` | `path` | none | `filesystem` | `may_block`. No handle transition |
-| `0x0232` | `platform.path.remove_directory` | `path` | none | `filesystem` | `may_block`. No handle transition |
-| `0x0233` | `platform.path.rename` | `path source`, `path destination` | none | `filesystem` | `may_block`. No handle transition |
+|       ID | Role                             | Parameters                                 | Results                                                              | Status set          | Mode and effects                                     |
+|---------:|----------------------------------|--------------------------------------------|----------------------------------------------------------------------|---------------------|------------------------------------------------------|
+| `0x0211` | `platform.file.open`             | `path`, `file_options`                     | `out<handle_owner<file_stream>>`                                     | `filesystem`        | `may_block`. Creates owner only on success           |
+| `0x0212` | `platform.file.metadata`         | `handle_ref<file_stream>`                  | `out<file_metadata>`                                                 | `filesystem`        | `may_block`. Handle retained                         |
+| `0x0213` | `platform.path.metadata`         | `path`                                     | `out<file_metadata>`                                                 | `filesystem`        | `may_block`. No handle transition                    |
+| `0x0221` | `platform.directory.open`        | `path`                                     | `out<handle_owner<directory>>`                                       | `filesystem`        | `may_block`. Creates owner only on success           |
+| `0x0222` | `platform.directory.next`        | `handle_ref<directory>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> end`, `out<file_metadata>` | `filesystem_buffer` | `may_block`. Advances only on success                |
+| `0x0223` | `platform.directory.close`       | `handle_owner<directory>`                  | none                                                                 | `filesystem`        | `may_block`. Consumes owner on every terminal status |
+| `0x0230` | `platform.path.create_directory` | `path`                                     | none                                                                 | `filesystem`        | `may_block`. No handle transition                    |
+| `0x0231` | `platform.path.remove_file`      | `path`                                     | none                                                                 | `filesystem`        | `may_block`. No handle transition                    |
+| `0x0232` | `platform.path.remove_directory` | `path`                                     | none                                                                 | `filesystem`        | `may_block`. No handle transition                    |
+| `0x0233` | `platform.path.rename`           | `path source`, `path destination`          | none                                                                 | `filesystem`        | `may_block`. No handle transition                    |
 
 `platform.directory.next` sets `end` to one only for `Success` with no entry. `InsufficientBuffer` reports the required native path
 byte length and does not advance. Public asynchronous filesystem operations deliberately dispatch these same roles to a checked
@@ -437,13 +437,13 @@ cancellation, borrowing, and scheduling contracts are already expressed by the r
 
 #### Child processes
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0311` | `platform.child.spawn` | `child_request` | `out<handle_owner<child>>`, three `out<handle_owner<process_pipe>?>` pipe slots | `child` | `may_block`. Outputs exist only on success |
-| `0x0312` | `platform.child.wait` | `handle_ref<child>` | `out<u32> terminal`, `out<exit_status>` | `child` | `may_block`. Child owner retained |
-| `0x0313` | `platform.child.terminate` | `handle_ref<child>`, `u32 mode` | none | `child` | `may_block`. Requests termination and retains owner |
-| `0x0314` | `platform.child.reap` | `handle_owner<child>` | `out<exit_status>` | `child` | `may_block`. Consumes owner only on success |
-| `0x0315` | `platform.child.dispose` | `handle_owner<child>` | none | `child` | `may_block`. Resolves and consumes the owner |
+|       ID | Role                       | Parameters                      | Results                                                                         | Status set | Mode and effects                                    |
+|---------:|----------------------------|---------------------------------|---------------------------------------------------------------------------------|------------|-----------------------------------------------------|
+| `0x0311` | `platform.child.spawn`     | `child_request`                 | `out<handle_owner<child>>`, three `out<handle_owner<process_pipe>?>` pipe slots | `child`    | `may_block`. Outputs exist only on success          |
+| `0x0312` | `platform.child.wait`      | `handle_ref<child>`             | `out<u32> terminal`, `out<exit_status>`                                         | `child`    | `may_block`. Child owner retained                   |
+| `0x0313` | `platform.child.terminate` | `handle_ref<child>`, `u32 mode` | none                                                                            | `child`    | `may_block`. Requests termination and retains owner |
+| `0x0314` | `platform.child.reap`      | `handle_owner<child>`           | `out<exit_status>`                                                              | `child`    | `may_block`. Consumes owner only on success         |
+| `0x0315` | `platform.child.dispose`   | `handle_owner<child>`           | none                                                                            | `child`    | `may_block`. Resolves and consumes the owner        |
 
 An unused pipe slot is zero. A successful spawn transfers every nonzero pipe owner to the trusted wrapper. A failed spawn commits no
 handle. `platform.child.wait` never reaps. `platform.child.terminate` never claims terminal completion. Reap is valid only after a
@@ -458,13 +458,13 @@ separate `TerminationPolicy` through these roles.
 
 #### Clocks and entropy
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0401` | `platform.clock.monotonic_now` | none | `out<u64> ticks`, `out<u64> frequency`, `out<u64> clock_identity` | `clock` | `nonblocking`. No ownership change |
-| `0x0402` | `platform.clock.wall_now` | none | `out<i64> seconds`, `out<u32> nanoseconds` | `clock` | `nonblocking`. No ownership change |
-| `0x0403` | `platform.clock.sleep` | `u64 seconds`, `u32 nanoseconds` | none | `clock` | `may_block`. No ownership change |
-| `0x0411` | `platform.timer.start` | `u64 ticks`, `u64 clock_identity` | `out<start_result>` | `clock` | `starts_operation`. Terminal completion has no payload |
-| `0x0501` | `platform.entropy.fill` | `mut_bytes(call)` | `out<u64> transferred` | `entropy` | `may_block`. Initializes exactly the reported prefix |
+|       ID | Role                           | Parameters                        | Results                                                           | Status set | Mode and effects                                       |
+|---------:|--------------------------------|-----------------------------------|-------------------------------------------------------------------|------------|--------------------------------------------------------|
+| `0x0401` | `platform.clock.monotonic_now` | none                              | `out<u64> ticks`, `out<u64> frequency`, `out<u64> clock_identity` | `clock`    | `nonblocking`. No ownership change                     |
+| `0x0402` | `platform.clock.wall_now`      | none                              | `out<i64> seconds`, `out<u32> nanoseconds`                        | `clock`    | `nonblocking`. No ownership change                     |
+| `0x0403` | `platform.clock.sleep`         | `u64 seconds`, `u32 nanoseconds`  | none                                                              | `clock`    | `may_block`. No ownership change                       |
+| `0x0411` | `platform.timer.start`         | `u64 ticks`, `u64 clock_identity` | `out<start_result>`                                               | `clock`    | `starts_operation`. Terminal completion has no payload |
+| `0x0501` | `platform.entropy.fill`        | `mut_bytes(call)`                 | `out<u64> transferred`                                            | `entropy`  | `may_block`. Initializes exactly the reported prefix   |
 
 `platform.clock.monotonic_now` readings with one clock identity use one stable frequency and never decrease. `wall_now` nanoseconds
 are below one billion. Public async entropy dispatches the blocking role to a checked blocking lane. Timer cancellation uses the
@@ -478,19 +478,19 @@ authoritative catalog before a trusted binding can use it.
 
 #### Civil time and time zones
 
-| ID | Role | Parameters | Results | Mode and effects |
-| ---: | --- | --- | --- | --- |
-| `0x0701` | `platform.time.date_validate` | `i32 year`, `u32 month`, `u32 day` | `out<u32> outcome` | `nonblocking`. No ownership change |
-| `0x0702` | `platform.time.date_add` | `date_time`, `i32 years`, `i32 months`, `i32 days`, `u32 adjustment` | `out<date_time>`, `out<u32> outcome` | `nonblocking`. No ownership change |
-| `0x0710` | `platform.time.zone_load` | `native_text(call)` | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`. Creates an owner on success |
-| `0x0711` | `platform.time.zone_local` | none | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`. Creates an owner on success |
-| `0x0712` | `platform.time.zone_retain` | `handle_ref<time_zone>` | none | `nonblocking`. Creates one additional owner |
-| `0x0713` | `platform.time.zone_close` | `handle_owner<time_zone>` | none | `nonblocking`. Consumes one owner |
-| `0x0714` | `platform.time.zone_name` | `handle_ref<time_zone>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
-| `0x0720` | `platform.time.observe` | `handle_ref<time_zone> or zero`, fixed offset, timestamp, `mut_bytes(call)` | `out<temporal_observation>`, `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
-| `0x0721` | `platform.time.resolve` | `handle_ref<time_zone> or zero`, fixed offset, `date_time` | `out<temporal_resolution>`, `out<u32> outcome` | `nonblocking`. No ownership change |
-| `0x0730` | `platform.time.parse` | `u32 kind`, `native_text(call)` | `out<temporal_value>`, `out<u64> invalid_offset`, `out<u32> outcome` | `nonblocking`. No ownership change |
-| `0x0731` | `platform.time.format` | `u32 kind`, `temporal_value`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
+|       ID | Role                          | Parameters                                                                  | Results                                                                         | Mode and effects                               |
+|---------:|-------------------------------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------------|------------------------------------------------|
+| `0x0701` | `platform.time.date_validate` | `i32 year`, `u32 month`, `u32 day`                                          | `out<u32> outcome`                                                              | `nonblocking`. No ownership change             |
+| `0x0702` | `platform.time.date_add`      | `date_time`, `i32 years`, `i32 months`, `i32 days`, `u32 adjustment`        | `out<date_time>`, `out<u32> outcome`                                            | `nonblocking`. No ownership change             |
+| `0x0710` | `platform.time.zone_load`     | `native_text(call)`                                                         | `out<handle_owner<time_zone>>`, `out<u32> outcome`                              | `may_block`. Creates an owner on success       |
+| `0x0711` | `platform.time.zone_local`    | none                                                                        | `out<handle_owner<time_zone>>`, `out<u32> outcome`                              | `may_block`. Creates an owner on success       |
+| `0x0712` | `platform.time.zone_retain`   | `handle_ref<time_zone>`                                                     | none                                                                            | `nonblocking`. Creates one additional owner    |
+| `0x0713` | `platform.time.zone_close`    | `handle_owner<time_zone>`                                                   | none                                                                            | `nonblocking`. Consumes one owner              |
+| `0x0714` | `platform.time.zone_name`     | `handle_ref<time_zone>`, `mut_bytes(call)`                                  | `out<u64> written_or_required`, `out<u32> outcome`                              | `nonblocking`. Initializes the reported prefix |
+| `0x0720` | `platform.time.observe`       | `handle_ref<time_zone> or zero`, fixed offset, timestamp, `mut_bytes(call)` | `out<temporal_observation>`, `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
+| `0x0721` | `platform.time.resolve`       | `handle_ref<time_zone> or zero`, fixed offset, `date_time`                  | `out<temporal_resolution>`, `out<u32> outcome`                                  | `nonblocking`. No ownership change             |
+| `0x0730` | `platform.time.parse`         | `u32 kind`, `native_text(call)`                                             | `out<temporal_value>`, `out<u64> invalid_offset`, `out<u32> outcome`            | `nonblocking`. No ownership change             |
+| `0x0731` | `platform.time.format`        | `u32 kind`, `temporal_value`, `mut_bytes(call)`                             | `out<u64> written_or_required`, `out<u32> outcome`                              | `nonblocking`. Initializes the reported prefix |
 
 The `0x07xx` role family is backed by the static temporal provider described in [Time library](time.md). The roles exchange
 fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque process-local timezone identities. They do not
@@ -499,12 +499,12 @@ loading named-zone data.
 
 #### Dynamic libraries
 
-| ID | Role | Parameters | Results | Status set | Mode and effects |
-| ---: | --- | --- | --- | --- | --- |
-| `0x0801` | `platform.dynamic_library.open_path` | `path`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
-| `0x0802` | `platform.dynamic_library.open_system` | `u32 identity`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
-| `0x0803` | `platform.dynamic_library.symbol` | `handle_ref<dynamic_library>`, `const_bytes(call) name` | `out<raw_address>` | `dynamic_loading` | `may_block`, retains the library owner and creates no ownership |
-| `0x0804` | `platform.dynamic_library.close` | `handle_owner<dynamic_library>` | none | `dynamic_loading` | `may_block`, consumes the owner on every terminal status |
+|       ID | Role                                   | Parameters                                              | Results                              | Status set        | Mode and effects                                                |
+|---------:|----------------------------------------|---------------------------------------------------------|--------------------------------------|-------------------|-----------------------------------------------------------------|
+| `0x0801` | `platform.dynamic_library.open_path`   | `path`, `u32 policy`                                    | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success                   |
+| `0x0802` | `platform.dynamic_library.open_system` | `u32 identity`, `u32 policy`                            | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success                   |
+| `0x0803` | `platform.dynamic_library.symbol`      | `handle_ref<dynamic_library>`, `const_bytes(call) name` | `out<raw_address>`                   | `dynamic_loading` | `may_block`, retains the library owner and creates no ownership |
+| `0x0804` | `platform.dynamic_library.close`       | `handle_owner<dynamic_library>`                         | none                                 | `dynamic_loading` | `may_block`, consumes the owner on every terminal status        |
 
 All four roles use immediate completion and `not_applicable` cancellation. Policy values are `0` for local visibility with
 immediate resolution, `1` for local visibility with lazy resolution, `2` for global visibility with immediate resolution, and `3`

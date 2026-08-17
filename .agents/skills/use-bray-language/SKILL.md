@@ -20,18 +20,18 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 
 ## Load the relevant specification chapters
 
-- **Tokens, comments, literals, or identifiers:** [references/lexical-grammar.md](references/lexical-grammar.md)
+- **Tokens, comments, literal spelling, or identifiers:** [references/lexical-grammar.md](references/lexical-grammar.md)
 - **Source forms or parsing:** [references/syntax-grammar.md](references/syntax-grammar.md)
 - **Modules, packages, products, imports, or availability:** [references/modules-and-packages.md](references/modules-and-packages.md)
 - **Declarations, modifiers, names, visibility, or generics:** [references/declarations.md](references/declarations.md)
-- **Type forms, traits, or implementations:** [references/types.md](references/types.md)
+- **Type forms, traits, operator implementations, or language-integration implementations:** [references/types.md](references/types.md)
 - **Binding, matching, destructuring, or guards:** [references/patterns.md](references/patterns.md)
 - **Functions, parameters, arguments, methods, overloading, or effects:** [references/callables.md](references/callables.md)
-- **Operators, assignment, construction, control flow, iteration, or propagation:** [references/expressions.md](references/expressions.md)
-- **Literal adaptation, plain conversion, fallible conversion, or numeric conversion policy:** [references/conversions.md](references/conversions.md)
+- **Operator use, ranges, assignment, construction, control flow, iteration, or propagation:** [references/expressions.md](references/expressions.md)
+- **Literal typing, adaptation, plain conversion, fallible conversion, or numeric conversion policy:** [references/conversions.md](references/conversions.md)
 - **Ownership, borrowing, movement, copying, or consumption:** [references/ownership-and-borrowing.md](references/ownership-and-borrowing.md)
 - **Requirements, guarantees, predicates, trust, or capabilities:** [references/contracts-and-trust.md](references/contracts-and-trust.md)
-- **Construction, destruction, finalization, or partial values:** [references/lifecycle.md](references/lifecycle.md)
+- **Construction, destruction, finalization, scoped use, or partial values:** [references/lifecycle.md](references/lifecycle.md)
 - **Async functions, tasks, cancellation, synchronization, or atomics:** [references/async-and-concurrency.md](references/async-and-concurrency.md)
 - **Compiler-known declarations, protected representations, or recognized operations:** [references/compiler-known.md](references/compiler-known.md)
 - **Standard-library modules, APIs, I/O, or platform services:** [references/standard-library.md](references/standard-library.md)

@@ -158,7 +158,7 @@ The initializer is evaluated once. The selected [`enter`](https://github.com/lej
 
 `exit` has no receiver. Its single parameter receives the capability produced by the matching `enter`, and it can reach the original value only through access carried by that capability. Both declarations can be synchronous or asynchronous. `enter` requires a result clause, while `exit` can omit `-> unit`.
 
-The `with` body is a block expression. In value-producing context it yields exactly one result, which remains pending until `exit` completes. `exit` runs on every path leaving an entered body, including normal completion, `yield`, `return`, loop control, propagation, panic, and cancellation. If `enter` fails, the pattern and body are skipped and `exit` does not run.
+The `with` body runs after successful `enter`. In value-producing context it yields exactly one result, which remains pending until `exit` completes. `exit` runs on every path leaving an entered body, including normal completion, `yield`, `return`, loop control, propagation, panic, and cancellation. The matching `exit` runs before body-local destruction, expression completion, and propagation of the body's control-flow outcome. An `enter` failure completes the `with` expression before capability binding and body evaluation.
 
 An irrefutable pattern can unpack the capability:
 

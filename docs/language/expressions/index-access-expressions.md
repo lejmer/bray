@@ -21,6 +21,9 @@ An element selector contains one index expression.
 
 A slice selector uses `..` and denotes a half-open range.
 
+Within brackets, a top-level `..` selects slicing directly. Parentheses make a
+[`Range<T>` expression](range-expressions.md) an element selector for a matching custom indexing contract.
+
 The supported slice selector forms are:
 
 ```bray

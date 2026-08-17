@@ -8,6 +8,7 @@
 - [Named types, generics, and copying](#named-types-generics-and-copying)
 - [Traits](#traits)
 - [Implementations and member selection](#implementations-and-member-selection)
+- [Language-integration contracts](#language-integration-contracts)
 - [Operator contracts](#operator-contracts)
 - [Choose the type form by intent](#choose-the-type-form-by-intent)
 
@@ -32,6 +33,7 @@ func scalar_types(
     character: char,
     text: string,
     done: unit,
+    range: Range<i32>,
     pointer: RawPointer<u8>,
     result: Result<Value, Error>,
     run_result: RunResult<Value>,
@@ -47,7 +49,9 @@ func stop() -> never
 }
 ```
 
-Scalars with values are copyable and have no partial state. `never` has no values, `string` is a protected named value type rather than a scalar, and `RawPointer<T>`, result unions, futures, and tasks each follow their compiler-known contracts.
+Scalars with values are copyable and have no partial state. `never` has no values. `string` is a protected named value type. `Range<T>` is a protected named copyable value type for target-available integer `T` and carries language-defined iteration. `RawPointer<T>`, result unions, futures, and tasks each follow their compiler-known contracts.
+
+The target-available scalar forms [`r16`, `r128`, `c32`, and `c256`](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/conformance-catalog.md#target-available-compiler-known-entries) enter the usable surface when their matching `target.scalar.*` properties hold.
 
 ### Core type forms and composition
 
@@ -158,6 +162,8 @@ A union has one active variant from a closed declared set. Payload fields are na
 `@copy` requests compiler-derived copying for a product or union representation. Every represented part of a concrete copyable instantiation must itself be copyable. Source code never implements `Copyable`, and copy behavior never runs user code or performs fallible or resource-duplicating work. A type with `@copy` cannot declare `finalize`, `destruct`, `enter`, or `exit` lifecycle behavior.
 
 [Named types retain declaration identity](https://github.com/lejmer/bray/blob/develop/docs/language/types/type-identity.md) even when their representations match. Structural forms derive identity from their form, subject types, and compile-time arguments. Named types, fields, traits, and inherent members are public by default.
+
+Use a named `struct` or `union` for module-level type identity. Use `type Name;` for a trait-selected type output and `type Name = Value;` for the associated binding in an implementation.
 
 ## Traits
 
@@ -271,6 +277,16 @@ impl Point(Equatable<Point>)
     }
 }
 
+impl BorrowedSequenceCursorIterator = BorrowedSequenceCursor<T>(Iterator)
+{
+    type Element = &T;
+
+    mut func next() -> Element?
+    {
+        return none;
+    }
+}
+
 impl BorrowedSequenceIterable = &Sequence<T>(Iterable)
 {
     type Element = &T;
@@ -344,6 +360,19 @@ func read_byte(pos mut buffer: Buffer) -> u8?
 
 Trait satisfaction requires an explicit participating implementation for the exact `(ImplementingSubject, TraitApplication)` key. Multiple applications of one generic trait for a subject require named implementations and an explicit implementation overload family. Overlapping keys are rejected, and Bray never ranks one implementation as more specific. Expected types, result types, ownership availability, and apparently narrower constraints never select an implementation, conversion, operator, or overload arm.
 
+## Language-integration contracts
+
+Compiler-known traits connect ordinary implementations to selected language forms:
+
+| Surface           | Exact contract                                                                                                                                                                                                                                                                                              |
+|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Owned indirection | [`Storage<T>`](https://github.com/lejmer/bray/blob/develop/docs/language/types/type-forms.md#owned-indirection-type-form) supplies creation, shared and mutable projection, destruction, and release for `box[S] T`. Pass storage construction arguments after the contained value in `box[S](value, ...)`. |
+| Iteration         | [`Iterable`](https://github.com/lejmer/bray/blob/develop/docs/language/types/implementations.md#iteration-traits) selects `Element` and `Cursor`, and that cursor satisfies `Iterator` with the same `Element`. `iterate` consumes the selected source access into the cursor.                              |
+| Element indexing  | [`ElementIndex<Selector>` and `MutableElementIndex<Selector>`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/index-access-expressions.md) select shared or mutable element projection and their associated `Output`.                                                                |
+| Slice indexing    | [`SliceIndex<Bound>` and `MutableSliceIndex<Bound>`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/index-access-expressions.md) select shared or mutable range projection and their associated `Output`.                                                                            |
+
+Indexing selects an exact contract from the subject type, requested access capability, selector shape, and selector expression types, then takes the reached type from the selected `Output`.
+
 ## Operator contracts
 
 ```bray
@@ -362,7 +391,7 @@ impl Vec2Add = Vec2(Add<Vec2>)
 }
 ```
 
-Overloadable tokens use a closed compiler-known trait set whose shared-receiver operations use non-consuming shared access.
+Overloadable tokens use a closed compiler-known trait set whose shared-receiver operations preserve both operands. `==` calls `Equatable<Rhs>.equals`, `!=` uses its Boolean inverse, and `<`, `<=`, `>`, and `>=` derive from `Comparable<Rhs>.compare` and its `Ordering` result.
 
 ## Choose the type form by intent
 
