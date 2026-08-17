@@ -11,7 +11,6 @@
 - [Conditional module contributions](#conditional-module-contributions)
 - [Executable and test entries](#executable-and-test-entries)
 - [Choose the boundary by intent](#choose-the-boundary-by-intent)
-- [Checks to make](#checks-to-make)
 
 ## Packages, products, and source graphs
 
@@ -355,30 +354,17 @@ Only functions carrying `@test` form entries. Bare `@test` entries may run in pa
 
 ## Choose the boundary by intent
 
-| Intent | Surface | Decisive rule |
-|---|---|---|
-| Define distribution and dependency identity | [Package manifest](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/package-versions.md) | Identity, version, source graphs, products, targets, and dependencies come from the package and build layer. |
-| Define a declaration namespace | [`module path;` or `module path { ... }`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/module-declarations.md) | Source explicitly declares module identity independent of its file path. |
-| Organize one module across files | [Repeated split module declarations](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/split-modules.md) | Every contribution names the same logical module and carries its own source-unit context. |
-| Record an intentional dependency | [`using path;`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/using-declarations.md) | The declaration participates in checking without importing unqualified names. |
-| Expose an existing declaration through another module | [`export path;`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/re-exports.md) | Re-exporting preserves the declaration's name, identity, visibility, and runtime ownership. |
-| Acknowledge internal access | [`using internal path;` or local `internal` access](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/module-visibility.md) | Acknowledgement grants access at that lexical use without making the declaration public. |
-| Select source by product kind | [`@test` on a module](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/conditional-module-contributions.md) | The whole contribution exists only in selected test products. |
-| Select source by target | [`@target(condition)` on a module](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/target-constraints-and-gates.md) | The selected target evaluates the compile-time condition before semantic checking. |
-| Form a program root | [`@entrypoint` or one conforming `main`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/library-and-executable-products.md) | An executable product resolves exactly one synchronous or asynchronous root. |
-| Form a test entry | [`@test` or `@test(serial)` on a function](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/test-products-and-entries.md) | Each enabled function becomes one independently reported test entry. |
-
-## Checks to make
-
-- Keep package identity, version, product selection, targets, and dependency selection in the package and build layer.
-- Give every source unit an explicit module contribution. Keep unbraced items before any braced suffix, and give each braced
-  contribution its complete module path and its own directives.
-- Repeat the logical module path in every split source file and give each file the `using` declarations it needs.
-- Omit `public` for ordinary public modules and declarations, and acknowledge internal access exactly where it is used.
-- Keep every split module contribution consistent in visibility and trusted-module state.
-- Use qualified paths after `using`, and use wrappers when a public contract must hide internal representation.
-- Apply `@test` and `@target(...)` to a module when the complete contribution is conditional.
-- Match `@entrypoint` and `@test` functions to the callable contracts of their selected product kind.
-- Treat module paths as declaration namespaces rather than runtime objects or initialization boundaries.
+| Intent                                                | Surface                                                                                                                                                     |
+|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Define distribution and dependency identity           | [Package manifest](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/package-versions.md)                                      |
+| Define a declaration namespace                        | [`module path;` or `module path { ... }`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/module-declarations.md)            |
+| Organize one module across files                      | [Repeated split module declarations](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/split-modules.md)                       |
+| Record an intentional dependency                      | [`using path;`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/using-declarations.md)                                       |
+| Expose an existing declaration through another module | [`export path;`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/re-exports.md)                                              |
+| Acknowledge internal access                           | [`using internal path;` or local `internal` access](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/module-visibility.md)    |
+| Select source by product kind                         | [`@test` on a module](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/conditional-module-contributions.md)                   |
+| Select source by target                               | [`@target(condition)` on a module](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/target-constraints-and-gates.md)          |
+| Form a program root                                   | [`@entrypoint` or one conforming `main`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/library-and-executable-products.md) |
+| Form a test entry                                     | [`@test` or `@test(serial)` on a function](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/test-products-and-entries.md)     |
 
 **Remember:** The build layer selects package and product graphs, source declares explicit logical modules, `using` records qualified dependencies, exports preserve identity, and directives select whole contributions or product entries without changing ordinary module semantics.

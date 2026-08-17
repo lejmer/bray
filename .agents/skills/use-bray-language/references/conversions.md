@@ -2,7 +2,7 @@
 
 **Specifications:** [Conversion expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conversion-expressions.md), [literal expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/literal-expressions.md), and [conversion traits](https://github.com/lejmer/bray/blob/develop/docs/language/types/traits.md#conversion-traits)
 
-**Core model:** Literal adaptation types an untyped literal from context. Plain `as` is explicit, total, and value-preserving. `std.convert<Target>(source)` represents fallible conversion, while named numeric-policy operations make deliberate information loss explicit.
+**Core model:** Literal adaptation is contextual. Every conversion is explicit and names its target.
 
 ```bray
 module conversion_example;

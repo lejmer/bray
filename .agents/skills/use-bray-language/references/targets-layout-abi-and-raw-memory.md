@@ -13,7 +13,6 @@
 - [Target control](#target-control)
 - [Inline assembly](#inline-assembly)
 - [Choose the boundary by intent](#choose-the-boundary-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Selected targets and gated source
 
@@ -459,7 +458,7 @@ A compiler fence restricts optimizer movement but creates no hardware synchroniz
 
 ## Inline assembly
 
-Inline assembly is a checked trusted target operation with typed tuple inputs and outputs, literal templates and descriptors, target-validated constraints and clobbers, and explicit continuing, diverging, or branching control flow.
+Inline assembly is a checked trusted target operation with typed tuple inputs and outputs, literal templates and descriptors, target-validated constraints and clobbers, and explicit continuing, diverging, or branching control flow. A one-element input, output, or label tuple keeps its trailing comma.
 
 ```bray
 trusted module assembly_example;
@@ -524,47 +523,22 @@ See [target control and inline assembly](https://github.com/lejmer/bray/blob/dev
 
 ## Choose the boundary by intent
 
-| Need | Use |
-|---|---|
-| Select source for a target capability | `@target(...)` on a module contribution |
-| Observe a target property at compile time | `target.*` |
-| Stabilize Bray data layout | `@layout(stable)` |
-| Match C aggregate layout | `@layout(c)` |
-| Preserve one field's layout and ABI | `@layout(transparent)` |
-| Select a foreign calling convention | `@abi(c)` or `@abi(system)` |
-| Import a linked callable | `extern` with `@link`, `@symbol`, ABI, trust, and `foreign_call` |
-| Export a Bray callable as a native symbol | A Bray body with `@symbol` and `@abi` |
-| Observe size or allocate typed storage | `std.memory` layout helpers and owners |
-| Address storage without borrow semantics | `RawPointer<T>` plus explicit operations |
-| Build a value in protected storage | `Uninit<T>`, `Output<T>`, or `InPlace<T>` |
-| Borrow foreign or mapped storage | Anchored borrow conversion with exact authority |
-| Access a non-host address space | `DevicePointer<T>` and `device_memory` contracts |
-| Control optimizer or target instructions | `core.target` operations |
-| Express checked machine instructions | Typed inline assembly |
+| Need                                      | Use                                                              |
+|-------------------------------------------|------------------------------------------------------------------|
+| Select source for a target capability     | `@target(...)` on a module contribution                          |
+| Observe a target property at compile time | `target.*`                                                       |
+| Stabilize Bray data layout                | `@layout(stable)`                                                |
+| Match C aggregate layout                  | `@layout(c)`                                                     |
+| Preserve one field's layout and ABI       | `@layout(transparent)`                                           |
+| Select a foreign calling convention       | `@abi(c)` or `@abi(system)`                                      |
+| Import a linked callable                  | `extern` with `@link`, `@symbol`, ABI, trust, and `foreign_call` |
+| Export a Bray callable as a native symbol | A Bray body with `@symbol` and `@abi`                            |
+| Observe size or allocate typed storage    | `std.memory` layout helpers and owners                           |
+| Address storage without borrow semantics  | `RawPointer<T>` plus explicit operations                         |
+| Build a value in protected storage        | `Uninit<T>`, `Output<T>`, or `InPlace<T>`                        |
+| Borrow foreign or mapped storage          | Anchored borrow conversion with exact authority                  |
+| Access a non-host address space           | `DevicePointer<T>` and `device_memory` contracts                 |
+| Control optimizer or target instructions  | `core.target` operations                                         |
+| Express checked machine instructions      | Typed inline assembly                                            |
 
-## Common mistakes
-
-- Treating `@target(...)` as runtime branching
-- Assuming target properties come from the build host rather than the selected product target
-- Treating default physical layout as stable or externally visible
-- Assuming a callable `@abi(...)` also fixes aggregate data layout
-- Passing a default-layout aggregate, borrow, slice, box, task, or default-ABI callable across a foreign ABI
-- Adding `extern` to a Bray function that has a body
-- Treating `@link` as dependency discovery or package acquisition
-- Letting panic or cancellation unwind into foreign code
-- Treating `RawPointer<T>` as a reference, owner, lifetime, or proof of readable storage
-- Reinterpreting a pointer and assuming the target value is initialized
-- Copying a raw pointer and assuming allocation ownership or anchored authority was copied
-- Using representation copy for values whose lifecycle behavior must run
-- Reading padding bytes as values
-- Treating host and device pointers as interchangeable
-- Treating volatile access as atomic or synchronized
-- Reconstructing a pointer address and assuming provenance or validity was restored
-- Using `Relaxed` for a fence
-- Computing an inline-assembly template, constraint, clobber, feature, or option dynamically
-- Forgetting the trailing comma in one-element assembly tuples
-- Assuming immediate or symbol assembly inputs occupy runtime tuple positions
-
-## Remember
-
-The selected target decides availability and representation. Layout directives govern data, ABI directives govern calls, raw pointers carry no authority, trusted memory operations require explicit proofs and capabilities, anchored borrows retain exact authority, device pointers remain separate from host pointers, and target control remains explicit in source and observable behavior.
+**Remember:** The selected target decides availability and representation. Layout directives govern data, ABI directives govern calls, raw pointers carry no authority, trusted memory operations require explicit proofs and capabilities, anchored borrows retain exact authority, device pointers remain separate from host pointers, and target control remains explicit in source and observable behavior.

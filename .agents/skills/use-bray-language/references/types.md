@@ -10,7 +10,6 @@
 - [Implementations and member selection](#implementations-and-member-selection)
 - [Operator contracts](#operator-contracts)
 - [Choose the type form by intent](#choose-the-type-form-by-intent)
-- [Common mistakes](#common-mistakes)
 
 ## Type categories and forms
 
@@ -158,7 +157,7 @@ A union has one active variant from a closed declared set. Payload fields are na
 
 `@copy` requests compiler-derived copying for a product or union representation. Every represented part of a concrete copyable instantiation must itself be copyable. Source code never implements `Copyable`, and copy behavior never runs user code or performs fallible or resource-duplicating work. A type with `@copy` cannot declare `finalize`, `destruct`, `enter`, or `exit` lifecycle behavior.
 
-Named types retain declaration identity even when their representations match. Structural forms derive identity from their form, subject types, and compile-time arguments.
+[Named types retain declaration identity](https://github.com/lejmer/bray/blob/develop/docs/language/types/type-identity.md) even when their representations match. Structural forms derive identity from their form, subject types, and compile-time arguments. Named types, fields, traits, and inherent members are public by default.
 
 ## Traits
 
@@ -202,7 +201,7 @@ trait Managed<Lease>
 }
 ```
 
-Trait parameters are application inputs. Constant-valued and type-valued members are implementation-selected outputs. Callable and constant members may be required or defaulted, predicate members may be required or trait-defined, and lifecycle requirements use `finalize`, `destruct`, or paired `enter` and `exit` declarations.
+Trait parameters are application inputs. Constant-valued and type-valued members are implementation-selected outputs. Type-valued members are usable only through their defined associated-type surfaces. Callable and constant members may be required or defaulted, predicate members may be required or trait-defined, and lifecycle requirements use `finalize`, `destruct`, or paired `enter` and `exit` declarations.
 
 ### Trait views and static constraints
 
@@ -343,7 +342,7 @@ func read_byte(pos mut buffer: Buffer) -> u8?
 }
 ```
 
-Trait satisfaction requires an explicit participating implementation for the exact `(ImplementingSubject, TraitApplication)` key. Multiple applications of one generic trait for a subject require named implementations and an explicit implementation overload family. Overlapping keys are rejected, and Bray never ranks one implementation as more specific.
+Trait satisfaction requires an explicit participating implementation for the exact `(ImplementingSubject, TraitApplication)` key. Multiple applications of one generic trait for a subject require named implementations and an explicit implementation overload family. Overlapping keys are rejected, and Bray never ranks one implementation as more specific. Expected types, result types, ownership availability, and apparently narrower constraints never select an implementation, conversion, operator, or overload arm.
 
 ## Operator contracts
 
@@ -365,8 +364,6 @@ impl Vec2Add = Vec2(Add<Vec2>)
 
 Overloadable tokens use a closed compiler-known trait set whose shared-receiver operations use non-consuming shared access.
 
-**Remember:** Named types preserve identity, generic arguments are explicit and invariant, structural forms carry their own ownership and storage rules, traits require explicit implementations, views require an indirection boundary, and operators exist only through their exact compiler-known contracts.
-
 ## Choose the type form by intent
 
 | Intent                                | Bray type surface                                                                                                                                          | Decisive rule                                                                                                                |
@@ -386,15 +383,4 @@ Overloadable tokens use a closed compiler-known trait set whose shared-receiver 
 | Request implicit value copying        | [`@copy`](https://github.com/lejmer/bray/blob/develop/docs/language/types/copy-contracts.md)                                                               | Copying is compiler-derived, infallible, and available only when the concrete representation has no conflicting obligations. |
 | Attach whole-value lifecycle behavior | [`construct`, `finalize`, `destruct`, `enter`, or `exit`](https://github.com/lejmer/bray/blob/develop/docs/language/types/lifecycle-declarations.md)       | Lifecycle declarations belong to the named type surface and interact with every represented value obligation.                |
 
-## Common mistakes
-
-- Do not treat two named types with matching fields or layout as interchangeable. [Named identity](https://github.com/lejmer/bray/blob/develop/docs/language/types/type-identity.md) survives representational similarity.
-- Supply generic arguments in declaration order and treat generic type identity as invariant.
-- Do not write redundant `public` on types, fields, traits, or inherent members unless deliberate emphasis improves the API. Public visibility is the default.
-- Do not store a bare trait name. Use a generic constraint when the concrete type remains known, or place an exact `view` behind a borrow or box for dynamic dispatch.
-- Use trait type-valued members and inherent type-valued bindings only for their defined associated type surfaces.
-- Do not assume a `with(...)` clause introduces type parameters or activates implementations. Parameters come from declarations or implementation subjects, and implementations participate through visibility and coherence rules.
-- Do not expect expected types, result types, ownership availability, or apparently narrower constraints to choose an implementation, conversion, operator, or overload arm.
-- Do not confuse a mutable local binding with a mutable field. Post-initialization field mutation requires both access authority and a field declared `mut`.
-- Use `@copy` for compiler-derived copying. Use a named duplication operation when behavior can fail, allocate, preserve identity, or duplicate resources.
-- Do not place recursive owned storage inline through a nullable, tuple, array, payload, or generic wrapper. Every recursive ownership cycle must cross `box`.
+**Remember:** Named types preserve identity, generic arguments are explicit and invariant, structural forms carry their own ownership and storage rules, traits require explicit implementations, views require an indirection boundary, and operators exist only through their exact compiler-known contracts.

@@ -12,7 +12,6 @@
 - [Partial values and replacement](#partial-values-and-replacement)
 - [Scope exit, cancellation, and static cleanup](#scope-exit-cancellation-and-static-cleanup)
 - [Choose the lifecycle mechanism by intent](#choose-the-lifecycle-mechanism-by-intent)
-- [Checks to make](#checks-to-make)
 
 ## Lifecycle model and order
 
@@ -26,11 +25,9 @@ construct -> ordinary use -> enter -> with body -> exit -> finalize -> destruct 
 
 Only applicable stages run. `enter` and `exit` belong to `with`, finalization belongs to values with finalization obligations, destruction belongs to fully initialized values with destruction behavior, and represented-part destruction resolves remaining initialized fields or the active union payload.
 
-Lifecycle declarations can live in an eligible type body or inherent implementation. The type body and all inherent implementations share one typed slot for the primary constructor, finalizer, destructor, scope enter, and scope exit. Named constructors use ordinary type-associated names.
+Lifecycle declarations can live in an eligible type body or inherent implementation. The type body and all inherent implementations share one typed slot for the primary constructor, finalizer, destructor, scope enter, and scope exit. Named constructors use ordinary type-associated names. Lifecycle declarations, ordering, contracts, execution mode, and result shape are part of public API compatibility.
 
 ## Construction
-
-**Why:** [Constructors](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/construction.md) establish a complete `Self` value and its obligations without exposing a partially initialized identity.
 
 ```bray
 struct Connection
@@ -74,13 +71,11 @@ func create_connections(pos endpoint: &Endpoint, pos handle: Handle) -> Result<C
 }
 ```
 
-`construct(...)` is the primary constructor and is selected through `Connection(...)`. `construct detached(...)` is a named constructor and is selected through `Connection.detached(...)`. A constructor is synchronous, has no receiver or `self` binding, and returns `Self` or `Result<Self, E>`.
+`construct(...)` is the primary [constructor](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/construction.md) and is selected through `Connection(...)`. `construct detached(...)` is a named constructor and is selected through `Connection.detached(...)`. A constructor is synchronous, has no receiver or `self` binding, and returns `Self` or `Result<Self, E>`.
 
 Defaults and represented parts are initialized before the value becomes observable as a complete value. If construction exits through `Result.Error`, panic, or cancellation, Bray resolves only the temporaries, capabilities, and represented parts that were initialized before the exit.
 
 ## Finalization and destruction
-
-**Why:** [Finalization](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md) completes fallible or asynchronous obligations before ownership ends, while [destruction](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/destruction.md) provides the synchronous infallible teardown that runs before remaining represented parts are destroyed.
 
 ```bray
 struct BufferedLog
@@ -122,15 +117,13 @@ impl Connection
 
 A `BufferedLog` flush can fail but does not suspend, so its finalizer is synchronous. A `Connection` close can suspend, so its finalizer is asynchronous.
 
-A finalizer receives an implicit mutable `self`, can be synchronous or asynchronous, and returns `unit` or `Result<unit, E>`. It leaves the value fully initialized. Returning `Result.Error` leaves the finalization obligation unresolved, so ordinary execution must handle, transfer, or explicitly represent that obligation before ownership can end.
+A [finalizer](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md) receives an implicit mutable `self`, can be synchronous or asynchronous, and returns `unit` or `Result<unit, E>`. It leaves the value fully initialized. Returning `Result.Error` leaves the finalization obligation unresolved, so ordinary execution must handle, transfer, or explicitly represent that obligation before ownership can end.
 
-A destructor receives an implicit consuming mutable `self`, is synchronous and infallible, and returns `unit`. It can consume or destroy represented parts. Any represented parts still initialized when it returns are then destroyed in their type-defined order.
+A [destructor](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/destruction.md) receives an implicit consuming mutable `self`, is synchronous and infallible, and returns `unit`. It can consume or destroy represented parts. Any represented parts still initialized when it returns are then destroyed in their type-defined order.
 
 Finalization and destruction are selected from the concrete value. A trait view does not replace the type-wide lifecycle behavior.
 
 ## Scoped use
-
-**Why:** [`enter`, `exit`, and `with`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/scoped-use.md) turn temporary access authority or a resource token into a capability whose lifetime and cleanup are tied to one lexical body.
 
 ```bray
 struct Database
@@ -161,7 +154,7 @@ async func update_record(pos database: &mut Database, pos record: Record) -> Res
 }
 ```
 
-The initializer is evaluated once. The selected `enter` declaration receives access according to its receiver mode and produces the scoped capability matched by the binding pattern. A default receiver is shared. `mut`, `consume`, and `consume mut` select mutable, consuming, and consuming-mutable entry.
+The initializer is evaluated once. The selected [`enter`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/scoped-use.md) declaration receives access according to its receiver mode and produces the scoped capability matched by the binding pattern. A default receiver is shared. `mut`, `consume`, and `consume mut` select mutable, consuming, and consuming-mutable entry.
 
 `exit` has no receiver. Its single parameter receives the capability produced by the matching `enter`, and it can reach the original value only through access carried by that capability. Both declarations can be synchronous or asynchronous. `enter` requires a result clause, while `exit` can omit `-> unit`.
 
@@ -182,8 +175,6 @@ func read_snapshot(pos store: &Store) -> Snapshot
 The annotation describes the capability value produced by `enter`. It does not select the lifecycle declaration.
 
 ## Lifecycle requirements in traits
-
-**Why:** [Lifecycle requirements](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/lifecycle-requirements-in-traits.md) let generic code require concrete finalization, destruction, or paired scoped-use behavior without replacing the concrete type's lifecycle owner.
 
 ```bray
 trait DurableResource<Lease>
@@ -213,13 +204,11 @@ impl File(DurableResource<FileLease>)
 }
 ```
 
-Trait lifecycle requirements end with a semicolon. Traits can require `finalize`, `destruct`, and paired `enter` plus `exit`. Constructor requirements use static callable members returning `Self` or `Result<Self, E>`.
+[Trait lifecycle requirements](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/lifecycle-requirements-in-traits.md) end with a semicolon. Traits can require `finalize`, `destruct`, and paired `enter` plus `exit`. Constructor requirements use static callable members returning `Self` or `Result<Self, E>`.
 
 The concrete subject supplies compatible type-wide finalization and destruction. A trait implementation can define only the `enter` and `exit` bodies required by that exact trait, as shown above.
 
 ## Partial values and replacement
-
-**Why:** [Partial-value rules](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md) let code move and rebuild represented parts while preventing whole-value lifecycle behavior from observing incomplete state.
 
 ```bray
 struct Packet
@@ -251,7 +240,7 @@ func take_receipt(pos packet: Packet) -> Receipt
 }
 ```
 
-Moving `packet.payload` makes `packet` partial. Reinitializing that field restores a complete value before returning it. In `take_receipt`, the whole-product destructor does not run because the value is partial. Only represented parts that remain initialized are resolved.
+Under the [partial-value rules](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md), moving `packet.payload` makes `packet` partial. Reinitializing that field restores a complete value before returning it. In `take_receipt`, the whole-product destructor does not run because the value is partial. Only represented parts that remain initialized are resolved.
 
 Whole-value replacement first resolves the old complete value through finalization, destruction, and represented-part destruction, then initializes the new value at that access path. Union replacement does the same for the old active payload. Assigning `none` resolves the old present value before making a nullable access path absent.
 
@@ -267,25 +256,14 @@ Panic and cancellation preserve ordinary lifecycle order. Cleanup that can suspe
 
 ## Choose the lifecycle mechanism by intent
 
-| Intent                                    | Bray surface                                                                                                                            | Decisive rule                                                                                                                              |
-|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| Establish a complete value                | [`construct(...) -> Self` or `Result<Self, E>`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/construction.md)    | A primary or named constructor is synchronous and exposes no partially initialized `self`.                                                 |
-| Complete fallible or asynchronous cleanup | [`finalize`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md)                                       | The obligation must succeed, move to another owner, or enter an explicit fallback form before ordinary ownership ends.                     |
-| Perform universal synchronous teardown    | [`destruct`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/destruction.md)                                        | Destruction is infallible and runs before remaining represented parts are destroyed.                                                       |
-| Grant temporary scoped authority          | [`enter` plus `exit`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/scoped-use.md)                                | The capability produced by entry controls access and is resolved by the matching exit.                                                     |
-| Use a scoped capability                   | [`with pattern = initializer { ... }`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/with-expressions.md)         | The initializer runs once and every path out of an entered body runs `exit`.                                                               |
-| Require lifecycle behavior generically    | [Trait lifecycle requirements](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/lifecycle-requirements-in-traits.md) | Concrete type-wide finalization and destruction satisfy requirements, while exact trait implementations can fulfill paired entry and exit. |
-| Move one represented part                 | [Partial values](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md)                 | Restore completeness before any whole-value operation, or resolve only the initialized remainder.                                          |
-
-## Checks to make
-
-- Keep construction synchronous and return a fully initialized `Self` on every success path.
-- Put cleanup that can fail or suspend in `finalize`, and keep `destruct` synchronous and infallible.
-- Leave a finalized value fully initialized so destruction and represented-part cleanup still have valid state.
-- Carry every access needed by `exit` inside the scoped capability because `exit` has no `self` receiver.
-- Treat a successful `enter` and its `exit` as one matched obligation across every control-flow path.
-- Restore every moved represented part before using a value as complete or allowing whole-value lifecycle behavior to run.
-- Preserve finalization, capability, task, and dependency obligations when moving values across owners or scope boundaries.
-- Treat lifecycle declarations, ordering, contracts, execution mode, and result shape as part of public API compatibility.
+| Intent                                    | Bray surface                                                                                                                            |
+|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| Establish a complete value                | [`construct(...) -> Self` or `Result<Self, E>`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/construction.md)    |
+| Complete fallible or asynchronous cleanup | [`finalize`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md)                                       |
+| Perform universal synchronous teardown    | [`destruct`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/destruction.md)                                        |
+| Grant temporary scoped authority          | [`enter` plus `exit`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/scoped-use.md)                                |
+| Use a scoped capability                   | [`with pattern = initializer { ... }`](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/with-expressions.md)         |
+| Require lifecycle behavior generically    | [Trait lifecycle requirements](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/lifecycle-requirements-in-traits.md) |
+| Move one represented part                 | [Partial values](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md)                 |
 
 **Remember:** Construct complete values, finalize obligations that can fail or suspend, destruct synchronously and infallibly, pair scoped entry with exit, and run whole-value lifecycle behavior only while the value is fully initialized.

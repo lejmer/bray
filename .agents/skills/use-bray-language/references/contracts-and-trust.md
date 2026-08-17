@@ -12,7 +12,6 @@
 - [Trust boundaries and witness values](#trust-boundaries-and-witness-values)
 - [Obligation propagation](#obligation-propagation)
 - [Choose the contract mechanism](#choose-the-contract-mechanism)
-- [Common mistakes](#common-mistakes)
 
 ## Contract clauses
 
@@ -235,8 +234,6 @@ The first function uses single-expression boundaries. The second uses a block op
 
 A witness value is an ordinary value whose live contract carries trusted guarantees. Its guarantees move with the value and remain available only while the value and every dependency named by those guarantees remain valid. Mutation, movement from the old path, destruction, finalization, replacement, partial separation, borrow expiry, or dependency invalidation removes affected guarantees.
 
-The `ReadableByte` returned above carries the guarantees stated in `assume_readable_byte` and lets `read_byte` discharge matching requirements without another boundary. The boundary created the acknowledgement at the call site, while the returned value's `ensures(...)` contract carries the lasting evidence.
-
 See [trust boundaries](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/trust-boundaries.md), [trust boundary expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/trust-boundary-expressions.md), and [trusted witness values](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/trusted-witness-values.md).
 
 ## Obligation propagation
@@ -272,32 +269,17 @@ See [obligation propagation](https://github.com/lejmer/bray/blob/develop/docs/la
 
 ## Choose the contract mechanism
 
-| Intent                                         | Mechanism                          | Decisive rule                                                                                 |
-|------------------------------------------------|------------------------------------|-----------------------------------------------------------------------------------------------|
-| Require a checkable value condition            | `requires(...)`                    | The caller proves it through available reasoning or the permitted runtime check.              |
-| Publish a normal-completion guarantee          | `ensures(...)`                     | Use `result` for the returned value and preserve every dependency named by the guarantee.     |
-| Restrict a generic declaration                 | `with(...)`                        | Establish trait applications before referring to their selected type-valued members.          |
-| Name a reusable contract relation              | `predicate name(...) = expression` | Keep the body pure, deterministic, total, terminating, and observational.                     |
-| Name an opaque trusted relation                | `trusted predicate name(...);`     | Declare it in a trusted module and use it as a trusted condition.                             |
-| Declare trusted body authority                 | `uses(...)`                        | List exactly the trusted implementation capabilities exercised by that declaration body.      |
-| Expose a compiler-unprovable caller condition  | `requires(trusted predicate(...))` | Preserve the condition through every wrapper and callable surface.                            |
-| Accept trusted obligations at one use site     | `trusted expression`               | Scope the acknowledgement to the smallest operand that requires it.                           |
-| Check and retain an ordinary runtime condition | `assert(condition[, message])`     | Successful completion makes the condition available while its referenced state remains valid. |
-| Carry trusted guarantees with a value          | A value-returning `ensures(...)`   | Keep the witness and every transitive dependency live and valid.                              |
+| Intent                                         | Mechanism                          |
+|------------------------------------------------|------------------------------------|
+| Require a checkable value condition            | `requires(...)`                    |
+| Publish a normal-completion guarantee          | `ensures(...)`                     |
+| Restrict a generic declaration                 | `with(...)`                        |
+| Name a reusable contract relation              | `predicate name(...) = expression` |
+| Name an opaque trusted relation                | `trusted predicate name(...);`     |
+| Declare trusted body authority                 | `uses(...)`                        |
+| Expose a compiler-unprovable caller condition  | `requires(trusted predicate(...))` |
+| Accept trusted obligations at one use site     | `trusted expression`               |
+| Check and retain an ordinary runtime condition | `assert(condition[, message])`     |
+| Carry trusted guarantees with a value          | A value-returning `ensures(...)`   |
 
-## Common mistakes
-
-- Keep `uses(...)` for implementation authority and trusted `requires(...)` for caller obligations.
-- Declare only capabilities the trusted body actually exercises.
-- Put `result` only in a value-producing declaration's `ensures(...)` clause.
-- Establish an exact trait application before using its type-valued members in `with(...)`.
-- Keep predicate expressions observational and use ordinary execution for mutation, allocation, I/O, and async work.
-- Preserve trusted obligations in wrappers, callable contracts, implementation surfaces, and lifecycle declarations until they are discharged.
-- Use a trust boundary only around an operand with trusted caller obligations and keep its scope as small as the acknowledgement requires.
-- Treat assertions as ordinary runtime checks and trusted boundaries as explicit acknowledgements of trusted obligations.
-- Keep witness values and all referenced storage, borrows, capabilities, resources, epochs, and versions valid for as long as their guarantees are needed.
-- Re-establish conditions after any operation that can invalidate the values or state they describe.
-
-## Remember
-
-Requirements belong to callers, guarantees belong to successful completion, static constraints belong to generic checking, capabilities belong to trusted implementations, and trusted obligations must remain visible until proof, a live witness, or an explicit boundary discharges them.
+**Remember:** Requirements belong to callers, guarantees belong to successful completion, static constraints belong to generic checking, capabilities belong to trusted implementations, and trusted obligations must remain visible until proof, a live witness, or an explicit boundary discharges them.
