@@ -268,6 +268,9 @@ where
         | ImplementationHook::CharacterIsNumeric
         | ImplementationHook::CharacterIsWhitespace
         | ImplementationHook::NumericTruncate
+        | ImplementationHook::RangeSharedIterate
+        | ImplementationHook::RangeMoveIterate
+        | ImplementationHook::RangeNext
         | ImplementationHook::TestingFail => return Ok(None),
     };
 

@@ -33,7 +33,7 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
 
         while written < length
         {
-            let remaining: &[u8] = &source[written.. length];
+            let remaining: &[u8] = &source[written..length];
             let result: Result<usize, std.io.IoError> = self.destination(std.io.Writer).write(remaining);
 
             match consume advance_write_all(result = result, written = written, remaining = length - written)
@@ -60,7 +60,7 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
 
             while chunk_written < chunk_length
             {
-                let remaining: &[u8] = &chunk[chunk_written.. chunk_length];
+                let remaining: &[u8] = &chunk[chunk_written..chunk_length];
                 let result: Result<usize, std.io.IoError> = self.destination(std.io.Writer).write(remaining);
 
                 match consume advance_write_all(

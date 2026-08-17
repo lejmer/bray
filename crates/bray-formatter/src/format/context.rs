@@ -39,7 +39,16 @@ pub(super) fn token_spacing(
         });
     }
 
-    if matches!(previous, SyntaxKind::DotDotToken) || matches!(current, SyntaxKind::DotDotToken) {
+    if previous == SyntaxKind::DotDotToken
+        && matches!(current, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+    {
+        return Some(TokenSpacing {
+            rule: FormatterRule::RangeSpacing,
+            uses_space: true,
+        });
+    }
+
+    if previous == SyntaxKind::DotDotToken || current == SyntaxKind::DotDotToken {
         return Some(no_space(FormatterRule::RangeSpacing));
     }
 

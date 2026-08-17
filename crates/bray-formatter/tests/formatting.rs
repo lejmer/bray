@@ -189,24 +189,38 @@ fn formatting_is_idempotent_across_representative_grammar() {
 #[test]
 fn repository_programs_remain_valid_and_idempotent() {
     let sources = [
-        include_str!("../../../examples/hello_world/src/main.bray"),
-        include_str!("../../../xtask/fixtures/native-execution/control-flow.bray"),
-        include_str!("../../../xtask/fixtures/native-execution/abi-primitive.bray"),
+        (
+            "hello_world",
+            include_str!("../../../examples/hello_world/src/main.bray"),
+        ),
+        (
+            "control_flow",
+            include_str!("../../../xtask/fixtures/native-execution/control-flow.bray"),
+        ),
+        (
+            "half_open_range",
+            include_str!("../../../xtask/fixtures/native-execution/half-open-range.bray"),
+        ),
+        (
+            "abi_primitive",
+            include_str!("../../../xtask/fixtures/native-execution/abi-primitive.bray"),
+        ),
     ];
 
-    for source in sources {
+    for (name, source) in sources {
         let output = formatted(source);
         let snapshot = test_source_snapshot(output.text());
         let parsed = parse_source_unit(&snapshot);
 
         assert!(
             parsed.diagnostics().is_empty(),
-            "formatted repository program produced diagnostics"
+            "formatted repository program {name} produced diagnostics: {:#?}",
+            parsed.diagnostics()
         );
 
         assert!(
             !parsed.source_unit().is_recovered(),
-            "formatted repository program required recovery"
+            "formatted repository program {name} required recovery"
         );
 
         assert!(!formatted(output.text()).changed());
@@ -316,6 +330,46 @@ fn separates_binary_operators_from_prefix_operands() {
 
     assert!(output.text().contains("left & &right"));
     assert!(output.text().contains("left + -right"));
+
+    let snapshot = test_source_snapshot(output.text());
+    let parsed = parse_source_unit(&snapshot);
+
+    assert!(parsed.diagnostics().is_empty());
+    assert!(!parsed.source_unit().is_recovered());
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
+fn formats_half_open_ranges_and_slices_without_spaces() {
+    let source = concat!(
+        "module app;",
+        "func main(){",
+        "let range=(0 .. 4);",
+        "let descending=2 .. -2;",
+        "let values:[i32;4]=[0,1,2,3];",
+        "let slice=values[0 .. 4];",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output.text().contains("let range = (0..4);"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains("let slice = values[0..4];"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains("let descending = 2.. -2;"),
+        "{}",
+        output.text()
+    );
 
     let snapshot = test_source_snapshot(output.text());
     let parsed = parse_source_unit(&snapshot);

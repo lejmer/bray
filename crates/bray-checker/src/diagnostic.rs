@@ -40,6 +40,7 @@ pub(crate) const fn expression_category(
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
             | BoundStructuredExpressionKind::RepeatedArray
+            | BoundStructuredExpressionKind::Range
             | BoundStructuredExpressionKind::Unit
             | BoundStructuredExpressionKind::Absence => DiagnosticExpressionCategory::Aggregate,
             BoundStructuredExpressionKind::ElementIndex
@@ -318,6 +319,7 @@ const fn diagnostic_representation(role: RepresentationRole) -> Option<Diagnosti
         RepresentationRole::Never => Some(DiagnosticType::Never),
         RepresentationRole::String => Some(DiagnosticType::String),
         RepresentationRole::RawPointer
+        | RepresentationRole::Range
         | RepresentationRole::DevicePointer
         | RepresentationRole::Atomic
         | RepresentationRole::Uninit

@@ -98,6 +98,8 @@ pub enum MirAggregateKind {
     Array,
     /// A fixed array produced by repeating one value a checked number of times.
     RepeatedArray,
+    /// A bounded half-open range with lower and upper operands.
+    Range,
     /// The present state of a nullable value.
     NullablePresent,
 }
@@ -638,7 +640,7 @@ pub enum MirOperationKind {
         /// Right input.
         right: MirOperand,
     },
-    /// Construct a tuple or fixed-array value.
+    /// Construct a tuple, fixed-array, or range value.
     Aggregate(MirAggregate),
     /// Construct a declared or compiler-known value.
     Construct(MirConstruction),

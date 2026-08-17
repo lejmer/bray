@@ -761,6 +761,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirAggregateKind::Array),
             2 => Ok(MirAggregateKind::RepeatedArray),
             3 => Ok(MirAggregateKind::NullablePresent),
+            4 => Ok(MirAggregateKind::Range),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1322,7 +1323,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 },
             }),
             33 => {
-                let compiler_only = super::support::read_bool(&mut self.reader)?;
+                let compiler_only = read_bool(&mut self.reader)?;
 
                 let Some(order) = MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
                 else {
@@ -1416,8 +1417,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
     fn atomic_order(
         &mut self,
-    ) -> Result<bray_bound_tree::MemoryOrder, ExecutableTemplateDecodeError> {
-        bray_bound_tree::MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
+    ) -> Result<MemoryOrder, ExecutableTemplateDecodeError> {
+        MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
             .ok_or(ExecutableTemplateDecodeError::Malformed)
     }
 
@@ -1864,6 +1865,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     ),
                 ))
             }
+            16 => Ok(MirTerminatorKind::RangeIterate {
+                cursor: self.place()?,
+                element_type: self.ty()?,
+                item: self.block_id()?,
+                exhausted: self.edge()?,
+            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

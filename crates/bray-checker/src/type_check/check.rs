@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry,
-    SelectedIterationSource,
+    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
+    ExpressionTypeEntry, SelectedIterationSource,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticNote, DiagnosticNoteKind, DiagnosticType, SeverityKind,
@@ -11,6 +12,7 @@ use bray_diagnostics::{
 use bray_symbols::TypeId;
 
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
+use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
@@ -171,6 +173,68 @@ where
             .with_note(DiagnosticNote::new(
                 DiagnosticNoteKind::TypeInferenceNeedsConstraint,
             )),
+        );
+    }
+
+    for (expression, result) in &finished.results {
+        if result.is_recovered() {
+            continue;
+        }
+
+        let Some(BoundExpression::Structured(range)) = request.view().expression(*expression)
+        else {
+            continue;
+        };
+
+        if range.kind() != BoundStructuredExpressionKind::Range {
+            continue;
+        }
+
+        let Some(element) = request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(),
+                RepresentationRole::Range,
+                result.ty(),
+            )
+        else {
+            continue;
+        };
+
+        let role = match type_representation(request, element) {
+            Ok(role) => role,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        if role
+            .and_then(RepresentationRole::integer_representation)
+            .is_some()
+        {
+            continue;
+        }
+
+        let span = match expression_span(request, *expression) {
+            Ok(span) => span,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        let actual = match diagnostic_type(request, element) {
+            Ok(actual) => actual,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingRangeBoundTypeMustBeInteger,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidRangeBoundType,
+                span,
+            ))
+            .with_arg(DiagnosticArg::actual_type(actual)),
         );
     }
 

@@ -115,92 +115,70 @@ impl Lowerer<'_> {
             purpose == StorageAccessPurpose::Borrow(kind)
         })?;
 
-        let temporary = self
-            .input
-            .storage_plan()
-            .root_identity(decision.access())
-            .filter(|identity| !self.storages.contains_key(identity))
-            .and_then(|identity| {
-                self.input
-                    .storage_plan()
-                    .identity(identity)
-                    .and_then(|model| match model {
-                        StorageIdentity::Temporary(owner) if owner == initialization_expression => {
-                            Some(owner)
-                        }
-                        _ => None,
-                    })
-            });
-
-        let current = if let Some(temporary) = temporary {
-            let lowered = self.lower_expression(temporary, current)?;
-            let lowered = self.materialize_for_later_evaluation(temporary, lowered)?;
-
-            let Some(current) = lowered.block else {
-                return Ok(lowered);
-            };
-
-            current
-        } else {
-            current
-        };
-
-        let (current, place) =
-            match self.lower_access_place(initialization_expression, decision.access(), current)? {
-                LoweredPlace::Continuing { block, place } => (block, place),
-                LoweredPlace::Terminated(completion) => return Ok(completion),
-            };
-
-        let mut projections = place.projections().to_vec();
-        let mut place_type = place.ty();
-
-        let parameter_borrow = self
-            .input
-            .storage_plan()
-            .root_identity(decision.access())
-            .and_then(|identity| self.input.storage_plan().storage_type(identity))
-            .and_then(|ty| {
-                self.input
-                    .semantic_values()
-                    .type_data(ty)
-                    .ok()
-                    .and_then(|data| match data.as_ref() {
-                        TypeData::Borrow { target, .. } => Some((ty, *target)),
-                        _ => None,
-                    })
-            });
-
-        let already_dereferenced = projections
-            .first()
-            .is_some_and(|projection| projection.kind() == &MirProjectionKind::Dereference);
-
-        if let Some((parameter_type, reached_type)) = parameter_borrow
-            && !already_dereferenced
-        {
-            projections.insert(
-                0,
-                MirProjection::new(MirProjectionKind::Dereference, parameter_type, reached_type),
-            );
-
-            place_type = reached_type;
-        }
-
-        place_type = self.append_reached_dereference(place_type, target, &mut projections)?;
-        let place = MirPlace::new(place.storage(), projections, place_type);
-
-        let commit = self.builder.push_operation(
+        self.lower_materialized_access_place_with(
+            initialization_expression,
+            decision.access(),
             current,
-            Self::retained_source(&source),
-            MirOperationKind::Borrow { kind, place },
-            Some(result_type),
-        )?;
+            |lowerer, current, place| {
+                let mut projections = place.projections().to_vec();
+                let mut place_type = place.ty();
 
-        let value = commit
-            .result()
-            .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(access_expression))?;
+                let parameter_borrow = lowerer
+                    .input
+                    .storage_plan()
+                    .root_identity(decision.access())
+                    .and_then(|identity| lowerer.input.storage_plan().storage_type(identity))
+                    .and_then(|ty| {
+                        lowerer
+                            .input
+                            .semantic_values()
+                            .type_data(ty)
+                            .ok()
+                            .and_then(|data| match data.as_ref() {
+                                TypeData::Borrow { target, .. } => Some((ty, *target)),
+                                _ => None,
+                            })
+                    });
 
-        Ok(LoweredExpression::continuing(current, Some(value), source))
+                let already_dereferenced = projections.first().is_some_and(|projection| {
+                    projection.kind() == &MirProjectionKind::Dereference
+                });
+
+                if let Some((parameter_type, reached_type)) = parameter_borrow
+                    && !already_dereferenced
+                {
+                    projections.insert(
+                        0,
+                        MirProjection::new(
+                            MirProjectionKind::Dereference,
+                            parameter_type,
+                            reached_type,
+                        ),
+                    );
+
+                    place_type = reached_type;
+                }
+
+                place_type =
+                    lowerer.append_reached_dereference(place_type, target, &mut projections)?;
+
+                let place = MirPlace::new(place.storage(), projections, place_type);
+
+                let commit = lowerer.builder.push_operation(
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Borrow { kind, place },
+                    Some(result_type),
+                )?;
+
+                let value = commit
+                    .result()
+                    .map(MirOperand::Value)
+                    .ok_or(LoweringError::MissingOperationResult(access_expression))?;
+
+                Ok(LoweredExpression::continuing(current, Some(value), source))
+            },
+        )
     }
 
     pub(super) fn lower_implicit_shared_borrow(
@@ -391,6 +369,65 @@ impl Lowerer<'_> {
             block: current,
             place: MirPlace::new(storage, lowered, source_type),
         })
+    }
+
+    pub(in crate::lowering) fn lower_access_place_with(
+        &mut self,
+        expression: BoundExpressionId,
+        id: StorageAccessId,
+        current: MirBlockId,
+        continuation: impl FnOnce(
+            &mut Self,
+            MirBlockId,
+            MirPlace,
+        ) -> Result<LoweredExpression, LoweringError>,
+    ) -> Result<LoweredExpression, LoweringError> {
+        match self.lower_access_place(expression, id, current)? {
+            LoweredPlace::Continuing { block, place } => continuation(self, block, place),
+            LoweredPlace::Terminated(completion) => Ok(completion),
+        }
+    }
+
+    pub(in crate::lowering) fn lower_materialized_access_place_with(
+        &mut self,
+        expression: BoundExpressionId,
+        id: StorageAccessId,
+        current: MirBlockId,
+        continuation: impl FnOnce(
+            &mut Self,
+            MirBlockId,
+            MirPlace,
+        ) -> Result<LoweredExpression, LoweringError>,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let temporary = self
+            .input
+            .storage_plan()
+            .root_identity(id)
+            .filter(|identity| !self.storages.contains_key(identity))
+            .and_then(|identity| {
+                self.input
+                    .storage_plan()
+                    .identity(identity)
+                    .and_then(|model| match model {
+                        StorageIdentity::Temporary(owner) if owner == expression => Some(owner),
+                        _ => None,
+                    })
+            });
+
+        let current = if let Some(temporary) = temporary {
+            let lowered = self.lower_expression(temporary, current)?;
+            let lowered = self.materialize_for_later_evaluation(temporary, lowered)?;
+
+            let Some(current) = lowered.block else {
+                return Ok(lowered);
+            };
+
+            current
+        } else {
+            current
+        };
+
+        self.lower_access_place_with(expression, id, current, continuation)
     }
 
     fn initialize_access_root(

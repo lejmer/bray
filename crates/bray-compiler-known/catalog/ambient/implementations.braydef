@@ -1,6 +1,69 @@
 catalog compiler_known revision 1;
 
 scope Ambient at ambient {
+    declaration RangeIteratorImplementation {
+        surface { impl RangeIterator = Range<T>(Iterator) {} }
+    }
+
+    declaration RangeIteratorElement {
+        owner RangeIteratorImplementation;
+
+        surface { type Element = T; }
+    }
+
+    declaration RangeIteratorNext {
+        owner RangeIteratorImplementation;
+        implementation RangeNext;
+
+        surface { mut func next() -> T? {} }
+    }
+
+    declaration RangeSharedIterableImplementation {
+        surface { impl RangeSharedIterable = &Range<T>(Iterable) {} }
+    }
+
+    declaration RangeSharedIterableElement {
+        owner RangeSharedIterableImplementation;
+
+        surface { type Element = T; }
+    }
+
+    declaration RangeSharedIterableCursor {
+        owner RangeSharedIterableImplementation;
+
+        surface { type Cursor = Range<T>; }
+    }
+
+    declaration RangeSharedIterableIterate {
+        owner RangeSharedIterableImplementation;
+        implementation RangeSharedIterate;
+
+        surface { consume func iterate() -> Range<T> {} }
+    }
+
+    declaration RangeMoveIterableImplementation {
+        surface { impl RangeMoveIterable = Range<T>(Iterable) {} }
+    }
+
+    declaration RangeMoveIterableElement {
+        owner RangeMoveIterableImplementation;
+
+        surface { type Element = T; }
+    }
+
+    declaration RangeMoveIterableCursor {
+        owner RangeMoveIterableImplementation;
+
+        surface { type Cursor = Range<T>; }
+    }
+
+    declaration RangeMoveIterableIterate {
+        owner RangeMoveIterableImplementation;
+        implementation RangeMoveIterate;
+
+        surface { consume func iterate() -> Range<T> {} }
+    }
+
     declaration HeapStorageImplementation {
         surface { impl HeapStorage = Heap(Storage<T>) {} }
     }

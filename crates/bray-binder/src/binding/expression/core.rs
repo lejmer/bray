@@ -102,7 +102,17 @@ impl ExpressionBinder {
                 .iter()
                 .any(|operand| binder.expression_is_recovered(*operand));
 
-        let expression = if let Some(operator) = classify_assignment_operator(operator_kind) {
+        let expression = if operator_kind == SyntaxKind::DotDotToken {
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Range,
+                operands,
+                [],
+                [],
+                None,
+                recovered,
+            ))
+        } else if let Some(operator) = classify_assignment_operator(operator_kind) {
             BoundExpression::Assignment(BoundAssignmentExpression::new(
                 origin, operator, operands, None, recovered,
             ))
@@ -514,6 +524,8 @@ mod tests {
             "    size as i32;\n",
             "    [size, size];\n",
             "    [size; 2];\n",
+            "    (size..size);\n",
+            "    size[size..size];\n",
             "    size[..size];\n",
             "    size[size..];\n",
             "    if size {}\n",
@@ -597,6 +609,8 @@ mod tests {
         let mut saw_named_member = false;
         let mut saw_array = false;
         let mut saw_repeated_array = false;
+        let mut saw_range = false;
+        let mut saw_bounded_slice = false;
         let mut saw_omitted_lower_slice_bound = false;
         let mut saw_omitted_upper_slice_bound = false;
         let mut saw_integer_literal = false;
@@ -674,6 +688,11 @@ mod tests {
                     saw_repeated_array = true;
                 }
                 BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::Range =>
+                {
+                    saw_range = true;
+                }
+                BoundExpression::Structured(expression)
                     if expression.kind() == BoundStructuredExpressionKind::SliceIndex =>
                 {
                     let Some(bounds) = expression.slice_bounds() else {
@@ -685,6 +704,8 @@ mod tests {
 
                     saw_omitted_upper_slice_bound |=
                         bounds.lower().is_some() && bounds.upper().is_none();
+
+                    saw_bounded_slice |= bounds.lower().is_some() && bounds.upper().is_some();
                 }
                 BoundExpression::Literal(expression)
                     if expression.kind() == BoundLiteralKind::Integer =>
@@ -761,6 +782,8 @@ mod tests {
         assert!(saw_named_member);
         assert!(saw_array);
         assert!(saw_repeated_array);
+        assert!(saw_range);
+        assert!(saw_bounded_slice);
         assert!(saw_omitted_lower_slice_bound);
         assert!(saw_omitted_upper_slice_bound);
         assert!(saw_integer_literal);

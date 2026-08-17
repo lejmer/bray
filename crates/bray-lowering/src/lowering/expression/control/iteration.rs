@@ -1,14 +1,15 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundForExpression, BoundGeneratorExpression,
-    BoundStructuredExpression, BoundStructuredExpressionKind, IterationSourceMode,
+    BoundStructuredExpression, BoundStructuredExpressionKind, IterationSourceMode, SelectedCall,
     SemanticSelection, StorageAccessPurpose, StorageIdentity,
 };
+use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
-    MirGeneratorKind, MirGeneratorOperation, MirOperand, MirOperationKind, MirPlace,
-    MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirAggregate, MirAggregateKind, MirBlockId, MirBlockKind, MirCall, MirCallTarget,
+    MirCallableReference, MirEdge, MirGeneratorKind, MirGeneratorOperation, MirImmediateValue,
+    MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
-use bray_symbols::{BorrowKind, CallableAbi};
+use bray_symbols::{BorrowKind, CallableAbi, ReceiverMode};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -23,6 +24,38 @@ struct Iteration {
 }
 
 impl Lowerer<'_> {
+    pub(in crate::lowering::expression) fn lower_range_call(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        selection: &SelectedCall,
+    ) -> Result<Option<LoweredExpression>, LoweringError> {
+        match selection.implementation_hook() {
+            Some(
+                ImplementationHook::RangeSharedIterate | ImplementationHook::RangeMoveIterate,
+            ) => {
+                let receiver = selection
+                    .receiver()
+                    .ok_or(LoweringError::MissingSemanticSelection(id))?;
+
+                let mode = match receiver.mode() {
+                    ReceiverMode::Shared => IterationSourceMode::Shared,
+                    ReceiverMode::Mutable => IterationSourceMode::Mutable,
+                    ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
+                        IterationSourceMode::Move
+                    }
+                };
+
+                self.lower_range_iteration_source(receiver.expression(), mode, current)
+                    .map(Some)
+            }
+            Some(ImplementationHook::RangeNext) => {
+                self.lower_range_next_call(id, current, selection).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub(in crate::lowering::expression) fn lower_for(
         &mut self,
         id: BoundExpressionId,
@@ -302,13 +335,18 @@ impl Lowerer<'_> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(id)?.clone();
         let source = self.expression_source(id)?;
+        let is_range = self.is_range_type(selection.cursor_type())?;
 
-        let source_value = self.lower_iteration_source(
-            source_expression,
-            selection.mode(),
-            selection.source_type(),
-            current,
-        )?;
+        let source_value = if is_range {
+            self.lower_range_iteration_source(source_expression, selection.mode(), current)?
+        } else {
+            self.lower_iteration_source(
+                source_expression,
+                selection.mode(),
+                selection.source_type(),
+                current,
+            )?
+        };
 
         let Some(current) = source_value.block else {
             return Err(LoweringError::UnsupportedExpression(id));
@@ -318,26 +356,31 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(source_expression));
         };
 
-        let cursor_value = self.builder.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::protocol(
-                MirCallTarget::Direct(MirCallableReference::new(
-                    selection.iterate(),
-                    CallableAbi::Bray,
+        let cursor_value = if is_range {
+            source_operand
+        } else {
+            let cursor_value = self.builder.push_operation(
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Call(MirCall::protocol(
+                    MirCallTarget::Direct(MirCallableReference::new(
+                        selection.iterate(),
+                        CallableAbi::Bray,
+                    )),
+                    bray_bound_tree::BoundCallResult::Immediate(selection.cursor_type()),
+                    [source_operand],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        selection.iterable_requirement(),
+                        selection.iterable_witness(),
+                    )],
                 )),
-                bray_bound_tree::BoundCallResult::Immediate(selection.cursor_type()),
-                [source_operand],
-                [bray_bound_tree::SelectedImplementationWitness::new(
-                    selection.iterable_requirement(),
-                    selection.iterable_witness(),
-                )],
-            )),
-            Some(selection.cursor_type()),
-        )?;
+                Some(selection.cursor_type()),
+            )?;
 
-        let Some(cursor_value) = cursor_value.result().map(MirOperand::Value) else {
-            return Err(LoweringError::MissingOperationResult(id));
+            cursor_value
+                .result()
+                .map(MirOperand::Value)
+                .ok_or(LoweringError::MissingOperationResult(id))?
         };
 
         let cursor = self.iteration_place(
@@ -387,9 +430,14 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
         )?;
 
-        self.builder.set_terminator(
-            header,
-            Self::retained_source(&source),
+        let terminator = if is_range {
+            MirTerminatorKind::RangeIterate {
+                cursor: Self::retained_place(&cursor),
+                element_type: selection.element_type(),
+                item,
+                exhausted: MirEdge::new(exhausted, []),
+            }
+        } else {
             MirTerminatorKind::Iterate {
                 cursor: Self::retained_place(&cursor),
                 next: MirCallableReference::new(selection.next(), CallableAbi::Bray),
@@ -397,8 +445,11 @@ impl Lowerer<'_> {
                 element_type: selection.element_type(),
                 item,
                 exhausted: MirEdge::new(exhausted, []),
-            },
-        )?;
+            }
+        };
+
+        self.builder
+            .set_terminator(header, Self::retained_source(&source), terminator)?;
 
         self.builder.push_operation(
             item,
@@ -441,29 +492,205 @@ impl Lowerer<'_> {
             purpose == StorageAccessPurpose::Borrow(kind)
         })?;
 
-        let (current, place) =
-            match self.lower_access_place(expression, decision.access(), current)? {
-                super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
-                super::super::access::LoweredPlace::Terminated(completion) => {
-                    return Ok(completion);
-                }
-            };
-
-        let source = self.expression_source(expression)?;
-
-        let commit = self.builder.push_operation(
+        self.lower_access_place_with(
+            expression,
+            decision.access(),
             current,
+            |lowerer, current, place| {
+                let source = lowerer.expression_source(expression)?;
+
+                let commit = lowerer.builder.push_operation(
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Borrow { kind, place },
+                    Some(ty),
+                )?;
+
+                let value = commit
+                    .result()
+                    .map(MirOperand::Value)
+                    .ok_or(LoweringError::MissingOperationResult(expression))?;
+
+                Ok(LoweredExpression::continuing(current, Some(value), source))
+            },
+        )
+    }
+
+    fn lower_range_iteration_source(
+        &mut self,
+        expression: BoundExpressionId,
+        mode: IterationSourceMode,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        if mode == IterationSourceMode::Move {
+            return self.lower_expression(expression, current);
+        }
+
+        let kind = match mode {
+            IterationSourceMode::Shared => BorrowKind::Shared,
+            IterationSourceMode::Mutable => BorrowKind::Mutable,
+            IterationSourceMode::Move => return self.lower_expression(expression, current),
+        };
+
+        let decision = self.storage_decision(expression, |purpose| {
+            purpose == StorageAccessPurpose::Borrow(kind)
+        })?;
+
+        self.lower_materialized_access_place_with(
+            expression,
+            decision.access(),
+            current,
+            |lowerer, current, place| {
+                let source = lowerer.expression_source(expression)?;
+
+                Ok(LoweredExpression::continuing(
+                    current,
+                    Some(MirOperand::Copy(place)),
+                    source,
+                ))
+            },
+        )
+    }
+
+    fn lower_range_next_call(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        selection: &SelectedCall,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let receiver = selection
+            .receiver()
+            .ok_or(LoweringError::MissingSemanticSelection(id))?;
+
+        let decision = self.storage_decision(receiver.expression(), |purpose| {
+            purpose == StorageAccessPurpose::Borrow(BorrowKind::Mutable)
+        })?;
+
+        self.lower_access_place_with(
+            receiver.expression(),
+            decision.access(),
+            current,
+            |lowerer, current, cursor| {
+                lowerer.lower_range_next_from_cursor(id, current, cursor, receiver.target_type())
+            },
+        )
+    }
+
+    fn lower_range_next_from_cursor(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        cursor: MirPlace,
+        cursor_type: bray_symbols::TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+
+        let element_type = self
+            .input
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                self.input.semantic_values(),
+                RepresentationRole::Range,
+                cursor_type,
+            )
+            .ok_or(LoweringError::MissingSemanticSelection(id))?;
+
+        let result_type = self.expression_type(id)?;
+        let source = self.expression_source(id)?;
+
+        let item = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let exhausted = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let join = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let item_value = self.builder.push_block_parameter(
+            item,
             Self::retained_source(&source),
-            MirOperationKind::Borrow { kind, place },
-            Some(ty),
+            element_type,
         )?;
 
-        let value = commit
+        let result = self.builder.push_block_parameter(
+            join,
+            Self::retained_source(&source),
+            result_type,
+        )?;
+
+        self.builder.set_terminator(
+            current,
+            Self::retained_source(&source),
+            MirTerminatorKind::RangeIterate {
+                cursor,
+                element_type,
+                item,
+                exhausted: MirEdge::new(exhausted, []),
+            },
+        )?;
+
+        let present = self.builder.push_operation(
+            item,
+            Self::retained_source(&source),
+            MirOperationKind::Aggregate(MirAggregate::new(
+                MirAggregateKind::NullablePresent,
+                [MirOperand::Value(item_value)],
+            )),
+            Some(result_type),
+        )?;
+
+        let present = present
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(expression))?;
+            .ok_or(LoweringError::MissingOperationResult(id))?;
 
-        Ok(LoweredExpression::continuing(current, Some(value), source))
+        self.builder.set_terminator(
+            item,
+            Self::retained_source(&source),
+            MirTerminatorKind::Goto(MirEdge::new(join, [present])),
+        )?;
+
+        let absent = Self::immediate_operand(result_type, MirImmediateValue::NullableAbsent);
+
+        self.builder.set_terminator(
+            exhausted,
+            Self::retained_source(&source),
+            MirTerminatorKind::Goto(MirEdge::new(join, [absent])),
+        )?;
+
+        Ok(LoweredExpression::continuing(
+            join,
+            Some(MirOperand::Value(result)),
+            source,
+        ))
+    }
+
+    fn is_range_type(&self, ty: bray_symbols::TypeId) -> Result<bool, LoweringError> {
+        let data = self
+            .input
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
+            return Ok(false);
+        };
+
+        let role = match definition {
+            bray_symbols::NamedTypeSymbolId::Struct(definition) => self
+                .input
+                .available_compiler_known_symbols()
+                .symbol_representation(*definition),
+            bray_symbols::NamedTypeSymbolId::Union(definition) => self
+                .input
+                .available_compiler_known_symbols()
+                .symbol_representation(*definition),
+        };
+
+        Ok(role == Some(RepresentationRole::Range))
     }
 
     fn iteration_selection(
@@ -546,7 +773,7 @@ impl Lowerer<'_> {
         value: bool,
     ) -> MirOperand {
         MirOperand::Immediate {
-            value: bray_ir::MirImmediateValue::Boolean(value),
+            value: MirImmediateValue::Boolean(value),
             ty,
         }
     }

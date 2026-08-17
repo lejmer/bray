@@ -1498,6 +1498,11 @@ const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
 ];
 
+const CHECKING_RANGE_BOUND_TYPE_MUST_BE_INTEGER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("range bounds must use one integer type, but found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
+
 const CHECKING_NO_COMPATIBLE_PROPAGATION_BOUNDARY: &[MessageTemplatePart] =
     &[MessageTemplatePart::Arg(
         DiagnosticArgName::PropagationProblem,
@@ -2200,6 +2205,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)
+        }
+        DiagnosticKind::CheckingRangeBoundTypeMustBeInteger => {
+            MessageTemplate::new(CHECKING_RANGE_BOUND_TYPE_MUST_BE_INTEGER)
         }
         DiagnosticKind::CheckingNoCompatiblePropagationBoundary => {
             MessageTemplate::new(CHECKING_NO_COMPATIBLE_PROPAGATION_BOUNDARY)

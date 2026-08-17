@@ -332,6 +332,8 @@ pub enum BoundStructuredExpressionKind {
     Array,
     /// An array that repeats one value by a constant count.
     RepeatedArray,
+    /// A bounded half-open integer range.
+    Range,
     /// A fixed-size array produced by one generator iteration.
     ArrayGenerator,
     /// A lazy sequence produced by one generator iteration.
@@ -446,6 +448,7 @@ impl BoundStructuredExpressionKind {
             Self::Tuple => "tuple",
             Self::Array => "array",
             Self::RepeatedArray => "repeated_array",
+            Self::Range => "range",
             Self::ArrayGenerator => "array_generator",
             Self::GeneralGenerator => "general_generator",
             Self::Conditional => "conditional",

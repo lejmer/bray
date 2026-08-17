@@ -758,6 +758,7 @@ impl SyntaxKind {
                 | Self::LessLessEqualsToken
                 | Self::GreaterGreaterEqualsToken
                 | Self::StarStarEqualsToken
+                | Self::DotDotToken
                 | Self::PipePipeToken
                 | Self::AmpersandAmpersandToken
                 | Self::EqualsEqualsToken
@@ -1328,7 +1329,7 @@ mod tests {
         assert!(SyntaxKind::EqualsToken.is_expression_operator());
         assert!(SyntaxKind::PlusToken.is_expression_operator());
         assert!(!SyntaxKind::ArrowToken.is_expression_operator());
-        assert!(!SyntaxKind::DotDotToken.is_expression_operator());
+        assert!(SyntaxKind::DotDotToken.is_expression_operator());
 
         assert!(SyntaxKind::BlockExpression.is_block_shaped_expression());
         assert!(SyntaxKind::ConditionalExpression.is_block_shaped_expression());

@@ -9,7 +9,6 @@ use bray_symbols::{AnySymbolId, TypeData};
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
-use super::access::LoweredPlace;
 
 impl Lowerer<'_> {
     pub(super) fn lower_member_access(
@@ -67,99 +66,103 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(expression)?;
 
-        let (block, mut place) =
-            match self.lower_access_place(expression, decision.access(), current)? {
-                LoweredPlace::Continuing { block, place } => (block, place),
-                LoweredPlace::Terminated(completion) => return Ok(completion),
-            };
+        self.lower_access_place_with(
+            expression,
+            decision.access(),
+            current,
+            |lowerer, block, mut place| {
+                let entry_borrow = lowerer
+                    .input
+                    .storage_plan()
+                    .root_identity(decision.access())
+                    .and_then(|identity| lowerer.input.storage_plan().identity(identity))
+                    .is_some_and(|identity| {
+                        matches!(
+                            identity,
+                            StorageIdentity::Parameter(_)
+                                | StorageIdentity::Receiver(_)
+                                | StorageIdentity::AnonymousParameter(_)
+                                | StorageIdentity::PredicateParameter(_)
+                        )
+                    });
 
-        let entry_borrow = self
-            .input
-            .storage_plan()
-            .root_identity(decision.access())
-            .and_then(|identity| self.input.storage_plan().identity(identity))
-            .is_some_and(|identity| {
-                matches!(
-                    identity,
-                    StorageIdentity::Parameter(_)
-                        | StorageIdentity::Receiver(_)
-                        | StorageIdentity::AnonymousParameter(_)
-                        | StorageIdentity::PredicateParameter(_)
-                )
-            });
+                if entry_borrow && place.projections().is_empty() {
+                    let expression_type = lowerer.expression_type(expression)?;
 
-        if entry_borrow && place.projections().is_empty() {
-            let expression_type = self.expression_type(expression)?;
+                    let place_data = lowerer
+                        .input
+                        .semantic_values()
+                        .type_data(place.ty())
+                        .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
-            let place_data = self
-                .input
-                .semantic_values()
-                .type_data(place.ty())
-                .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                    if let TypeData::Borrow { kind, target } = place_data.as_ref()
+                        && expression_type == place.ty()
+                    {
+                        let target = MirPlace::new(
+                            place.storage(),
+                            [MirProjection::new(
+                                MirProjectionKind::Dereference,
+                                place.ty(),
+                                *target,
+                            )],
+                            *target,
+                        );
 
-            if let TypeData::Borrow { kind, target } = place_data.as_ref()
-                && expression_type == place.ty()
-            {
-                let target = MirPlace::new(
-                    place.storage(),
-                    [MirProjection::new(
-                        MirProjectionKind::Dereference,
-                        place.ty(),
-                        *target,
-                    )],
-                    *target,
+                        let value = lowerer.push_value_operation(
+                            expression,
+                            block,
+                            Self::retained_source(&source),
+                            MirOperationKind::Borrow {
+                                kind: *kind,
+                                place: target,
+                            },
+                        )?;
+
+                        return Ok(LoweredExpression::continuing(block, Some(value), source));
+                    }
+
+                    if let TypeData::Borrow { target, .. } = place_data.as_ref()
+                        && expression_type == *target
+                    {
+                        place = MirPlace::new(
+                            place.storage(),
+                            [MirProjection::new(
+                                MirProjectionKind::Dereference,
+                                place.ty(),
+                                *target,
+                            )],
+                            *target,
+                        );
+                    }
+                }
+
+                let borrowed = matches!(
+                    lowerer
+                        .input
+                        .semantic_values()
+                        .type_data(place.ty())
+                        .map_err(|_| LoweringError::SemanticValueUnavailable)?
+                        .as_ref(),
+                    TypeData::Borrow { .. }
                 );
 
-                let value = self.push_value_operation(
-                    expression,
-                    block,
-                    Self::retained_source(&source),
-                    MirOperationKind::Borrow {
-                        kind: *kind,
-                        place: target,
-                    },
-                )?;
+                let operand = match decision.purpose() {
+                    StorageAccessPurpose::Move if borrowed => MirOperand::Copy(place),
+                    StorageAccessPurpose::Move => MirOperand::Move(place),
+                    StorageAccessPurpose::Read
+                    | StorageAccessPurpose::Copy
+                    | StorageAccessPurpose::ValueTransfer
+                    | StorageAccessPurpose::Member
+                    | StorageAccessPurpose::Index
+                    | StorageAccessPurpose::Slice
+                    | StorageAccessPurpose::Projection => MirOperand::Copy(place),
+                    _ => {
+                        return Err(LoweringError::UnsupportedStorageAccess(decision.access()));
+                    }
+                };
 
-                return Ok(LoweredExpression::continuing(block, Some(value), source));
-            }
-
-            if let TypeData::Borrow { target, .. } = place_data.as_ref()
-                && expression_type == *target
-            {
-                place = MirPlace::new(
-                    place.storage(),
-                    [MirProjection::new(
-                        MirProjectionKind::Dereference,
-                        place.ty(),
-                        *target,
-                    )],
-                    *target,
-                );
-            }
-        }
-
-        let borrowed = matches!(
-            self.input
-                .semantic_values()
-                .type_data(place.ty())
-                .map_err(|_| LoweringError::SemanticValueUnavailable)?
-                .as_ref(),
-            TypeData::Borrow { .. }
-        );
-
-        let operand = match decision.purpose() {
-            StorageAccessPurpose::Move if borrowed => MirOperand::Copy(place),
-            StorageAccessPurpose::Move => MirOperand::Move(place),
-            StorageAccessPurpose::Read
-            | StorageAccessPurpose::Copy
-            | StorageAccessPurpose::ValueTransfer
-            | StorageAccessPurpose::Member
-            | StorageAccessPurpose::Index
-            | StorageAccessPurpose::Slice
-            | StorageAccessPurpose::Projection => MirOperand::Copy(place),
-            _ => return Err(LoweringError::UnsupportedStorageAccess(decision.access())),
-        };
-
-        Ok(LoweredExpression::continuing(block, Some(operand), source))
+                Ok(LoweredExpression::continuing(block, Some(operand), source))
+            },
+        )
     }
 }

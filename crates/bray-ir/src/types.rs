@@ -223,6 +223,12 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             element_type,
             exhausted,
             ..
+        }
+        | MirTerminatorKind::RangeIterate {
+            cursor,
+            element_type,
+            exhausted,
+            ..
         } => {
             collect_place_types(cursor, types);
             types.insert(*element_type);

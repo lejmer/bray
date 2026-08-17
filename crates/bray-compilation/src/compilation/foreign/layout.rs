@@ -93,7 +93,11 @@ fn named_alignment(
             return atomic_alignment(compilation, substitution, cancellation);
         }
 
-        if role == bray_compiler_known::RepresentationRole::Uninit {
+        if matches!(
+            role,
+            bray_compiler_known::RepresentationRole::Uninit
+                | bray_compiler_known::RepresentationRole::Range
+        ) {
             let values = compilation.semantic_value_store()?;
 
             let wrapper = values
@@ -329,6 +333,9 @@ fn representation_alignment(
         | RepresentationRole::NoneValue => NonZeroU64::MIN,
         RepresentationRole::Uninit => {
             unreachable!("uninitialized storage alignment resolves from its element type")
+        }
+        RepresentationRole::Range => {
+            unreachable!("range alignment resolves from its element type")
         }
         RepresentationRole::ScalarBool
         | RepresentationRole::ScalarChar

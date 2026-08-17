@@ -11,6 +11,7 @@ use super::buffer::{
 use super::hello::audit_standard_hello_world;
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
+const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
 const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
 const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
 const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-linux.s";
@@ -144,6 +145,10 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     crate::progress::run("Checking native startup", || {
         audit_startup(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking half-open range execution", || {
+        audit_half_open_ranges(root, target, &runtime)
     })?;
 
     crate::progress::run("Checking native entry results", || {
@@ -352,6 +357,19 @@ fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<()
         STARTUP_FIXTURE,
         0,
         "generated Bray startup",
+        &[],
+    )
+}
+
+fn audit_half_open_ranges(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
+    audit_repeatable_fixture(
+        root,
+        target,
+        runtime,
+        "bray-native-range-",
+        RANGE_FIXTURE,
+        10,
+        "half-open ranges",
         &[],
     )
 }

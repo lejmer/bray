@@ -1614,6 +1614,26 @@ fn inspection_terminator(
 
             "iterate"
         }
+        MirTerminatorKind::RangeIterate {
+            cursor,
+            element_type,
+            item,
+            exhausted,
+        } => {
+            parts.place("cursor", cursor, &context)?;
+            parts.r#type("element", *element_type, &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("item"),
+                target: item.slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            parts.edge("exhausted", exhausted, None, &context)?;
+
+            "range_iterate"
+        }
         MirTerminatorKind::Switch {
             discriminant,
             cases,
@@ -2508,6 +2528,7 @@ fn aggregate_kind(kind: MirAggregateKind) -> &'static str {
         MirAggregateKind::Array => "array",
         MirAggregateKind::RepeatedArray => "repeated_array",
         MirAggregateKind::NullablePresent => "nullable_present",
+        MirAggregateKind::Range => "range",
     }
 }
 

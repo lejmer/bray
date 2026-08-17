@@ -171,6 +171,9 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
         }
         MirTerminatorKind::Iterate {
             cursor, exhausted, ..
+        }
+        | MirTerminatorKind::RangeIterate {
+            cursor, exhausted, ..
         } => {
             collect_place_values(cursor, demands);
             collect_edge_values(exhausted, demands);

@@ -31,6 +31,7 @@ impl Lowerer<'_> {
             BoundStructuredExpressionKind::Tuple => MirAggregateKind::Tuple,
             BoundStructuredExpressionKind::Array => MirAggregateKind::Array,
             BoundStructuredExpressionKind::RepeatedArray => MirAggregateKind::RepeatedArray,
+            BoundStructuredExpressionKind::Range => MirAggregateKind::Range,
             _ => return Err(LoweringError::UnsupportedExpression(id)),
         };
 

@@ -206,6 +206,12 @@ define_catalog_enum! {
         CharacterIsWhitespace => "CharacterIsWhitespace",
         /// Truncates a numeric value to the selected target representation.
         NumericTruncate => "NumericTruncate",
+        /// Copies a shared range into its iteration cursor.
+        RangeSharedIterate => "RangeSharedIterate",
+        /// Moves a range into its iteration cursor.
+        RangeMoveIterate => "RangeMoveIterate",
+        /// Advances a range cursor by one element.
+        RangeNext => "RangeNext",
         /// Fails the current test root with one owned message.
         TestingFail => "TestingFail",
     }
@@ -336,6 +342,9 @@ mod tests {
             ImplementationHook::CharacterIsNumeric,
             ImplementationHook::CharacterIsWhitespace,
             ImplementationHook::NumericTruncate,
+            ImplementationHook::RangeSharedIterate,
+            ImplementationHook::RangeMoveIterate,
+            ImplementationHook::RangeNext,
             ImplementationHook::TestingFail,
         ];
 

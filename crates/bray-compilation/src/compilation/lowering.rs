@@ -588,6 +588,28 @@ mod tests {
         "}\n",
     );
 
+    const RANGE_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main() -> i32\n",
+        "{\n",
+        "    let mut total: i32 = 0;\n",
+        "\n",
+        "    for value in (0..4)\n",
+        "    {\n",
+        "        total += value;\n",
+        "    }\n",
+        "\n",
+        "    let mut cursor: Range<i32> = 4..4;\n",
+        "    let exhausted: i32? = cursor(Iterator).next();\n",
+        "    let range: Range<i32> = 0..4;\n",
+        "    let shared_cursor: Range<i32> = range(Iterable).iterate();\n",
+        "    let moved_cursor: Range<i32> = (0..4)(Iterable).iterate();\n",
+        "\n",
+        "    return total;\n",
+        "}\n",
+    );
+
     const ASYNC_LOWERING_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -629,6 +651,39 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
 
         assert_eq!(compilation.state.lowered_units.is_published(&key), Ok(true));
+    }
+
+    #[test]
+    fn half_open_ranges_lower_to_aggregate_cursors_and_direct_advancement() {
+        let compilation = compilation(RANGE_LOWERING_SOURCE);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("range MIR must be available: {error:?}"));
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Aggregate(aggregate)
+                if aggregate.kind() == MirAggregateKind::Range
+        )));
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::RangeIterate { .. }
+        )));
+
+        assert!(!mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::Iterate { .. }
+        )));
     }
 
     #[test]

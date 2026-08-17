@@ -41,7 +41,7 @@ struct Generator
             requires(blocking_execution())
         {
             let mut seed: [u8; 32] = [0; 32];
-            let seed_bytes: &mut [u8] = &mut seed[0.. SEED_BYTES];
+            let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
 
             try fill_entropy(seed_bytes);
 
@@ -52,7 +52,7 @@ struct Generator
             requires(blocking_execution())
         {
             let mut seed: [u8; 32] = [0; 32];
-            let seed_bytes: &mut [u8] = &mut seed[0.. SEED_BYTES];
+            let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
 
             try await fill_entropy_async(seed_bytes);
 

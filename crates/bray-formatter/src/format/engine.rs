@@ -620,6 +620,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 self.writer.request_newlines(1);
             }
             kind if is_operator(kind)
+                && kind != SyntaxKind::DotDotToken
                 && !operator_is_prefix
                 && !generic_delimiter
                 && self.configuration.is_enabled(FormatterRule::LineWrapping) =>

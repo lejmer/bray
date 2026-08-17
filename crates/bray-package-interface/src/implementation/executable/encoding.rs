@@ -939,6 +939,18 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
                 self.callable_references(assembly.symbols())?;
             }
+            MirTerminatorKind::RangeIterate {
+                cursor,
+                element_type,
+                item,
+                exhausted,
+            } => {
+                self.wire.write_u32(16);
+                self.place(cursor)?;
+                self.ty(*element_type)?;
+                self.wire.write_u32(item.slot());
+                self.edge(exhausted)?;
+            }
         }
 
         Ok(())
@@ -1070,6 +1082,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirAggregateKind::Array => 1,
             MirAggregateKind::RepeatedArray => 2,
             MirAggregateKind::NullablePresent => 3,
+            MirAggregateKind::Range => 4,
         });
     }
 

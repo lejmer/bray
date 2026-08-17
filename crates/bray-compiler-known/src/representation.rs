@@ -55,6 +55,8 @@ define_catalog_enum! {
         Never => "Never",
         /// The compiler-known string type.
         String => "String",
+        /// A bounded half-open integer range.
+        Range => "Range",
         /// A compiler-controlled raw pointer.
         RawPointer => "RawPointer",
         /// A compiler-controlled pointer in the selected target's device address space.
@@ -202,6 +204,7 @@ mod tests {
             ),
             (RepresentationRole::ScalarBool, None),
             (RepresentationRole::Future, None),
+            (RepresentationRole::Range, None),
         ];
 
         for (role, expected) in cases {

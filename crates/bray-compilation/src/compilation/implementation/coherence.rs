@@ -107,14 +107,29 @@ impl Compilation {
                 for right in &trait_headers[index + 1..] {
                     cancellation.check()?;
 
+                    let left_participant = participants.get(&left.implementation()).copied();
+                    let right_participant = participants.get(&right.implementation()).copied();
+
+                    if [left_participant, right_participant]
+                        .into_iter()
+                        .all(|participant| {
+                            participant.is_some_and(|participant| {
+                                participant.evidence().kind()
+                                    == ImplementationParticipationKind::CompilerKnown
+                            })
+                        })
+                    {
+                        continue;
+                    }
+
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
                         let attempted = comparisons
                             .checked_add(1)
                             .ok_or(FactQueryError::InfrastructureFailure)?;
 
                         diagnostics.add(coherence_limit_diagnostic(
-                            participants.get(&left.implementation()).copied(),
-                            participants.get(&right.implementation()).copied(),
+                            left_participant,
+                            right_participant,
                             symbols,
                             attempted,
                             maximum_comparisons,
@@ -126,9 +141,6 @@ impl Compilation {
                     if implementation_headers_overlap(left, right, values)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?
                     {
-                        let left_participant = participants.get(&left.implementation()).copied();
-                        let right_participant = participants.get(&right.implementation()).copied();
-
                         let left_context = self.implementation_diagnostic_context(
                             left,
                             symbols,

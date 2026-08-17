@@ -913,6 +913,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
 
     match role {
         RepresentationRole::String
+        | RepresentationRole::Range
         | RepresentationRole::RawPointer
         | RepresentationRole::DevicePointer => MemberRepresentation {
             finite: true,
