@@ -324,6 +324,10 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
+        | MirOperationKind::Host(
+            MirHostOperation::MaterializeStatic { .. }
+            | MirHostOperation::BeginStaticCleanup,
+        )
         | MirOperationKind::Async(
             MirAsyncOperation::CreateFrame { .. }
             | MirAsyncOperation::MoveInactiveFrame { .. }

@@ -132,7 +132,7 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     write_count(&mut encoder.wire, unit.storages().len());
 
     for storage in unit.storages() {
-        encoder.storage_kind(storage.kind());
+        encoder.storage_kind(storage.kind())?;
         encoder.ty(storage.ty())?;
     }
 
@@ -299,9 +299,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         });
     }
 
-    fn storage_kind(&mut self, kind: MirStorageKind) {
+    fn storage_kind(
+        &mut self,
+        kind: &MirStorageKind,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let (tag, ordinal) = match kind {
-            MirStorageKind::Parameter(ordinal) => (0, Some(ordinal)),
+            MirStorageKind::Parameter(ordinal) => (0, Some(*ordinal)),
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
             MirStorageKind::Return => (3, None),
@@ -309,6 +312,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::CurrentFrame => (5, None),
             MirStorageKind::CurrentTask => (6, None),
             MirStorageKind::ChildTask => (7, None),
+            MirStorageKind::Static(_) => (8, None),
         };
 
         self.wire.write_u32(tag);
@@ -316,6 +320,29 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         if let Some(ordinal) = ordinal {
             self.wire.write_u32(ordinal);
         }
+
+        if let MirStorageKind::Static(reference) = kind {
+            self.symbol(reference.template().declaration().into())?;
+            self.substitution(reference.substitution())?;
+
+            let witnesses: &[ImplementationInstanceId] = match &reference {
+                bray_symbols::StaticReferenceSelection::Open {
+                    selected_witnesses,
+                    ..
+                } => selected_witnesses,
+                bray_symbols::StaticReferenceSelection::Closed(instance) => {
+                    instance.selected_witnesses()
+                }
+            };
+
+            write_count(&mut self.wire, witnesses.len());
+
+            for witness in witnesses {
+                self.implementation(*witness)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn operation(

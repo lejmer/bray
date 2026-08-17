@@ -142,7 +142,7 @@ impl MirOperationKind {
                 }
                 MirGeneratorOperation::CleanupBroadcast { element, .. } => {
                     helpers.push(MirHelperReference::Cleanup {
-                        phase: crate::MirCleanupPhase::TaskCancellation,
+                        phase: MirCleanupPhase::TaskCancellation,
                         ty: *element,
                     });
                 }
@@ -157,7 +157,7 @@ impl MirOperationKind {
                     memory.kind()
                 {
                     helpers.push(MirHelperReference::Cleanup {
-                        phase: crate::MirCleanupPhase::LifecycleResolution,
+                        phase: MirCleanupPhase::LifecycleResolution,
                         ty: element,
                     });
                 }

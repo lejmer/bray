@@ -1,8 +1,7 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticPackageInterfaceFailure, SeverityKind,
+    Diagnostic, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticBag,
+    DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticIoErrorKind, DiagnosticPackageInterfaceFailure,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
 use bray_package_interface::{
@@ -17,7 +16,9 @@ use super::common::{
     diagnostic_backend_artifact, emission_failure_diagnostic, emission_failure_diagnostics,
 };
 use super::model::ProductEmissionErrorKind;
-use crate::compilation::product::codegen_preparation_failure_kind;
+use crate::compilation::product::{
+    codegen_preparation_failure_kind, native_product_preparation_diagnostic,
+};
 use crate::compilation::{
     CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind,
     PackageInterfaceExportError,
@@ -55,14 +56,7 @@ pub(super) fn codegen_failure_diagnostics(
                 .unwrap_or_else(|| unreachable!("query and diagnostic failures return above"));
 
             return DiagnosticBag::single(
-                Diagnostic::new(
-                    DiagnosticId::new(0),
-                    DiagnosticKind::NativeProductPreparationFailed,
-                    SeverityKind::Error,
-                )
-                .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
-                .with_arg(DiagnosticArg::target_triple(target.as_str()))
-                .with_arg(DiagnosticArg::native_product_failure_kind(failure)),
+                native_product_preparation_diagnostic(failure, product, target.as_str()),
             );
         }
         EmissionCodegenErrorKind::Generation { unit, .. } => {

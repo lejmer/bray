@@ -1,0 +1,15 @@
+module static_storage_execution;
+
+static ANSWER: i32 = 42;
+
+@thread_local static THREAD_ANSWER: i32 = 42;
+
+func read_answer() -> i32
+{
+    return ANSWER;
+}
+
+func main() -> i32
+{
+    return ANSWER + read_answer() + THREAD_ANSWER - 84;
+}

@@ -171,7 +171,7 @@ impl Parser {
     }
 
     fn consume_type_directives_for_scan(&mut self) {
-        self.consume_directives_for_scan(&TYPE_DECLARATION_START_KINDS, |directive_name| {
+        self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
             match directive_name {
                 LAYOUT_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
                 COPY_DIRECTIVE_NAME => DirectiveScanKind::Bare,

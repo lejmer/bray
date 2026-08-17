@@ -9,6 +9,7 @@ use super::buffer::{
     standard_library_compilation,
 };
 use super::hello::audit_standard_hello_world;
+use super::static_storage::audit_static_storage;
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
 const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
@@ -125,6 +126,10 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     let runtime = crate::progress::run("Building native readiness runtime artifacts", || {
         crate::runtime_artifact::build_for_readiness(target, runtime.path())
+    })?;
+
+    crate::progress::run("Checking native static storage", || {
+        audit_static_storage(root, target, &runtime)
     })?;
 
     crate::progress::run("Checking standard-library hello world execution", || {
@@ -435,7 +440,7 @@ fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     )
 }
 
-fn audit_repeatable_fixture(
+pub(super) fn audit_repeatable_fixture(
     root: &Path,
     target: NativeTarget,
     runtime: &Path,

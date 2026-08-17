@@ -709,12 +709,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn storage(
-        &self,
+        &mut self,
         storage: MirStorageId,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        self.storages
-            .get(&storage)
-            .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        if let Some(pointer) = self.storages.get(&storage).copied() {
+            return Ok(pointer);
+        }
+
+        let model = self
+            .unit
+            .storage(storage)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if !matches!(model.kind(), bray_ir::MirStorageKind::Static(_)) {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let pointer = self.static_storage_pointer(storage)?;
+
+        self.storages.insert(storage, pointer);
+
+        Ok(pointer)
     }
 }

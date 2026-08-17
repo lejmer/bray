@@ -5,6 +5,23 @@ use bray_ir::{
 };
 use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 
+/// One demanded product-static instance owned by a generated product host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableHostStatic {
+    reference: bray_symbols::StaticReferenceSelection,
+    ty: bray_symbols::TypeId,
+}
+
+impl ExecutableHostStatic {
+    /// Creates one closed product-static host entry.
+    pub const fn new(
+        reference: bray_symbols::StaticReferenceSelection,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        Self { reference, ty }
+    }
+}
+
 /// Complete synthetic input for lowering a compiler-generated executable host stub.
 ///
 /// The host is not represented as a bound source unit. Its validated contract already names the
@@ -15,6 +32,7 @@ pub struct ExecutableHostLoweringInput {
     roots: Vec<BoundUnitKey>,
     contract: ExecutableHostContract,
     target: MirTargetContract,
+    statics: Vec<ExecutableHostStatic>,
 }
 
 impl ExecutableHostLoweringInput {
@@ -30,7 +48,18 @@ impl ExecutableHostLoweringInput {
             roots: roots.into_iter().collect(),
             contract,
             target,
+            statics: Vec::new(),
         }
+    }
+
+    /// Supplies product statics in deterministic cleanup order.
+    pub fn with_statics(
+        mut self,
+        statics: impl IntoIterator<Item = ExecutableHostStatic>,
+    ) -> Self {
+        self.statics = statics.into_iter().collect();
+
+        self
     }
 }
 
@@ -43,6 +72,7 @@ pub fn lower_executable_host(
         roots,
         contract,
         target,
+        statics,
     } = input;
 
     // The generated source anchor owns the same immutable product identity as the host contract.
@@ -57,6 +87,33 @@ pub fn lower_executable_host(
     let mut builder = MirUnitBuilder::for_executable_host(unit, contract.clone(), target);
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
+
+    let mut static_places = Vec::with_capacity(statics.len());
+
+    for static_instance in statics {
+        let storage = builder.push_storage(
+            source.clone(),
+            bray_ir::MirStorageKind::Static(static_instance.reference),
+            static_instance.ty,
+        )?;
+
+        static_places.push(bray_ir::MirPlace::new(
+            storage,
+            [],
+            static_instance.ty,
+        ));
+    }
+
+    for place in static_places.iter().rev() {
+        builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Host(MirHostOperation::MaterializeStatic {
+                place: place.clone(),
+            }),
+            None,
+        )?;
+    }
 
     for (index, (root, contract_entry)) in
         roots.into_iter().zip(contract.entries().iter()).enumerate()
@@ -122,9 +179,6 @@ pub fn lower_executable_host(
                     runtime_abi,
                 ),
             },
-            MirHostOperation::ReportCleanupIncidents {
-                runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
-            },
         ] {
             builder.push_operation(
                 entry,
@@ -134,6 +188,31 @@ pub fn lower_executable_host(
             )?;
         }
     }
+
+    builder.push_operation(
+        entry,
+        source.clone(),
+        MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
+        None,
+    )?;
+
+    for place in static_places {
+        for operation in [
+            MirOperationKind::Finalize(place.clone()),
+            MirOperationKind::Destroy(place),
+        ] {
+            builder.push_operation(entry, source.clone(), operation, None)?;
+        }
+    }
+
+    builder.push_operation(
+        entry,
+        source.clone(),
+        MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents {
+            runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
+        }),
+        None,
+    )?;
 
     builder.push_operation(
         entry,
@@ -196,8 +275,8 @@ mod tests {
 
         assert!(matches!(
             unit.operations().first().map(bray_ir::MirOperation::kind),
-            Some(bray_ir::MirOperationKind::Host(
-                bray_ir::MirHostOperation::ExecuteRoot {
+            Some(MirOperationKind::Host(
+                MirHostOperation::ExecuteRoot {
                     root: actual,
                     ..
                 }
@@ -216,6 +295,7 @@ mod tests {
                 MirOperationKind::Host(MirHostOperation::ExecuteRoot { .. }),
                 MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
                 MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
                 MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
             ]

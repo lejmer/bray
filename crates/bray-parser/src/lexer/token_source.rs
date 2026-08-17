@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn generic_application_close_is_separate_from_member_access() {
-        let tokens = token_stream("Argument<u32>.with_options");
+        let tokens = token_stream("Argument<u32>.with_options Generic<T>: T");
 
         assert_eq!(
             token_kinds(&*tokens),
@@ -615,6 +615,12 @@ mod tests {
                 SyntaxKind::IdentifierToken,
                 SyntaxKind::GreaterToken,
                 SyntaxKind::DotToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::LessToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::GreaterToken,
+                SyntaxKind::ColonToken,
                 SyntaxKind::IdentifierToken,
                 SyntaxKind::EndOfFileToken,
             ]

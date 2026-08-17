@@ -4,7 +4,6 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::MirUnitBuildError;
-use bray_symbols::StaticSymbolId;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,8 +48,6 @@ pub enum LoweringError {
     MissingIterationStorage(BoundExpressionId),
     /// The synchronous core does not yet cover this storage path.
     UnsupportedStorageAccess(StorageAccessId),
-    /// A static storage root reached lowering before product realization.
-    StaticStorageRequiresRealization(StaticSymbolId),
     /// A value-producing MIR operation did not publish its required result.
     MissingOperationResult(BoundExpressionId),
     /// A required compiler-known representation is unavailable for the selected target.

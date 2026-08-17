@@ -551,6 +551,11 @@ pub enum MirAsyncOperation {
 /// Explicit compiler-generated product-host operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirHostOperation {
+    /// Materialize one demanded static before product entry opens.
+    MaterializeStatic {
+        /// Exact static place whose initializer must complete.
+        place: MirPlace,
+    },
     /// Select one catalog entry admitted by the test runner.
     SelectTestEntry {
         /// Position of this source entry in the host contract.
@@ -589,6 +594,8 @@ pub enum MirHostOperation {
         /// Selected private recoverable-entry-failure reporting ABI role.
         entry_failure: MirRuntimeReference,
     },
+    /// Close root selection and begin product-static cleanup.
+    BeginStaticCleanup,
     /// Report and destroy cleanup incidents transferred to the host.
     ReportCleanupIncidents {
         /// Selected private cleanup-reporting ABI role.

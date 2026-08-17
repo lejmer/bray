@@ -15,7 +15,8 @@ use bray_runtime_interface::{
     RuntimeArtifact, RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeCapability,
 };
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ProductIdentity, ProductKind,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, ProductIdentity,
+    ProductKind, StaticSymbolId,
 };
 
 use super::super::super::Compilation;
@@ -183,6 +184,15 @@ impl Compilation {
                 Some(reachability)
             };
 
+            let host_statics = match source_reachability.as_ref() {
+                Some(reachability) => self.product_static_host_entries(
+                    reachability,
+                    &target,
+                    cancellation,
+                )?,
+                None => Vec::new(),
+            };
+
             let host = self.executable_host(
                 &product,
                 semantic.value().kind(),
@@ -217,7 +227,8 @@ impl Compilation {
                                 .collect::<Result<Vec<_>, _>>()?,
                             host.clone(),
                             host_target,
-                        ),
+                        )
+                        .with_statics(host_statics),
                     )
                     .map_err(NativeProductPlanningError::InvalidHostMir)?;
 
@@ -456,6 +467,17 @@ impl Compilation {
                 continue;
             }
 
+            if let Some(declaration) = StaticSymbolId::try_from_any(symbol) {
+                roots.push(self.product_root_static(
+                    declaration,
+                    &binding_context,
+                    target,
+                    cancellation,
+                )?);
+
+                continue;
+            }
+
             let Some(definition) = CallableDefinitionId::try_new(symbol) else {
                 continue;
             };
@@ -483,6 +505,51 @@ impl Compilation {
         }
 
         Ok(roots)
+    }
+
+    fn product_root_static(
+        &self,
+        declaration: StaticSymbolId,
+        binding_context: &super::super::super::binder::CompilationBindingContext<'_>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, NativeProductPlanningError> {
+        let initializer = self
+            .static_initializer_key(declaration)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let substitution = empty_substitution(
+            binding_context.semantic_values(),
+            AnySymbolId::Static(declaration),
+        )?;
+
+        let (witnesses, diagnostics) = self.static_instance_witnesses(
+            declaration,
+            substitution,
+            cancellation,
+            binding_context,
+            initializer.source().syntax(),
+        )?;
+
+        if diagnostics.has_errors() {
+            return Err(super::super::super::CodegenPreparationError::Diagnostics(diagnostics)
+                .into());
+        }
+
+        let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
+        let specialization = self.codegen_specialization(substitution)?;
+
+        Ok(ConcreteCodegenInstance::static_initializer(
+            MirUnitKey::Bound(initializer),
+            declaration,
+            substitution,
+            specialization,
+            &witnesses,
+            bray_ir::MirTargetContract::new(
+                target.profile().clone(),
+                self.selected_target().target().runtime_abi(),
+            ),
+        ))
     }
 
     fn product_root_callable(
@@ -762,7 +829,7 @@ mod tests {
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
         NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity,
-        ProductKind, SymbolOrigin, TraitApplicationData, TypeData,
+        ProductKind, StaticStorageDuration, SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
@@ -3046,9 +3113,15 @@ mod tests {
 
         assert!(matches!(
             host_mir.operations(),
-            [operation]
+            [begin, report, shutdown]
                 if matches!(
-                    operation.kind(),
+                    begin.kind(),
+                    MirOperationKind::Host(MirHostOperation::BeginStaticCleanup)
+                ) && matches!(
+                    report.kind(),
+                    MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. })
+                ) && matches!(
+                    shutdown.kind(),
                     MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. })
                 )
         ));
@@ -3058,6 +3131,136 @@ mod tests {
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn generic_static_instances_have_distinct_realizations_and_one_host_owner() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "static GENERIC_VALUE<const N: i32>: i32 = N;\n",
+            "\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return GENERIC_VALUE<1> + GENERIC_VALUE<2> - 3;\n",
+            "}\n",
+        );
+
+        let (backend, compilation) = codegen_compilation(source);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("static native plan must resolve: {error:?}"));
+
+        let static_mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .collect::<Vec<_>>();
+
+        assert!(static_mappings.len() >= 4);
+
+        let instances = static_mappings
+            .iter()
+            .map(|mapping| mapping.instance())
+            .collect::<BTreeSet<_>>();
+
+        let symbols = static_mappings
+            .iter()
+            .map(|mapping| mapping.symbol())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(instances.len(), 2);
+        assert_eq!(symbols.len(), instances.len());
+
+        let product_instances = instances
+            .iter()
+            .filter(|instance| {
+                instance.duration() == bray_symbols::StaticStorageDuration::Product
+            })
+            .count();
+
+        let thread_instances = instances
+            .iter()
+            .filter(|instance| {
+                instance.duration() == bray_symbols::StaticStorageDuration::ExactThread
+            })
+            .count();
+
+        assert_eq!(product_instances, 2);
+        assert_eq!(thread_instances, 0);
+
+        let host = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
+            .unwrap_or_else(|| panic!("static native plan must retain host MIR"));
+
+        assert_eq!(
+            host.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Host(MirHostOperation::MaterializeStatic { .. })
+                ))
+                .count(),
+            product_instances
+        );
+
+        assert_eq!(
+            host.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                ))
+                .count(),
+            product_instances * 2
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn public_library_static_is_a_retained_native_root() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "public static EXPORTED_VALUE: i32 = 42;\n",
+        );
+
+        let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("library static plan must resolve: {error:?}"));
+
+        let mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .collect::<Vec<_>>();
+
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(mappings[0].instance().duration(), StaticStorageDuration::Product);
+        assert!(plan.host.is_none());
     }
 
     fn codegen_compilation_for_product(
@@ -3195,10 +3398,10 @@ mod tests {
         let product_archive = directory.join("libbray_runtime_product.a");
         let test_archive = directory.join("libbray_runtime_test.a");
 
-        std::fs::copy(archive, &product_archive)
+        fs::copy(archive, &product_archive)
             .unwrap_or_else(|error| panic!("test product runtime archive must copy: {error}"));
 
-        std::fs::copy(archive, &test_archive)
+        fs::copy(archive, &test_archive)
             .unwrap_or_else(|error| panic!("test runner runtime archive must copy: {error}"));
 
         RuntimeArtifact::try_new(
@@ -3568,7 +3771,7 @@ mod tests {
         malformed_templates: bool,
         fixture: GenericDependencyFixture,
     ) -> DependencyInterfaceInput {
-        let package = bray_symbols::PackageIdentity::try_new("example.dependency")
+        let package = PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
         let product = InterfaceProductIdentity::try_new("library")

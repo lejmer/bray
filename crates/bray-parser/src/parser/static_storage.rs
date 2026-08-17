@@ -117,7 +117,7 @@ impl Parser {
         }
 
         self.scan_ahead(|scan| {
-            scan.consume_directives_for_scan(&STATIC_DECLARATION_START_KINDS, |name| {
+            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| {
                 match name {
                     THREAD_LOCAL_DIRECTIVE_NAME => DirectiveScanKind::Bare,
                     _ => DirectiveScanKind::Unknown,
@@ -197,5 +197,17 @@ mod tests {
         assert!(declarations[0].expression().is_none());
         assert_eq!(declarations[1].full_text(), "static Second: u32 = 2;");
         assert!(!result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn function_scanning_preserves_a_thread_local_static() {
+        let source = "module app; @thread_local static THREAD_VALUE: i32 = 42; func read() {}";
+        let sources = test_source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        assert_eq!(source_unit.static_declarations().count(), 1);
+        assert_eq!(source_unit.function_declarations().count(), 1);
+        assert!(result.diagnostics().is_empty());
     }
 }

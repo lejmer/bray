@@ -1015,7 +1015,7 @@ fn validate_storage_kind(
 ) -> Result<(), MirUnitBuildError> {
     validate_storage(unit, storage)?;
 
-    if unit.storage(storage).map(MirStorage::kind) != Some(expected) {
+    if unit.storage(storage).map(MirStorage::kind) != Some(&expected) {
         return Err(MirUnitBuildError::StorageKindMismatch(storage));
     }
 

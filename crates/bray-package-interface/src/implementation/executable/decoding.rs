@@ -74,6 +74,7 @@ pub fn decode_executable_template(
         owner,
         identity: template.identity(),
         family_size: template.family_size(),
+        target: target.profile().identity().clone(),
     };
 
     if read_u32(&mut decoder.reader)? != FORMAT_VERSION {
@@ -354,6 +355,7 @@ struct Decoder<'data, 'semantics, R> {
     owner: AnySymbolId,
     identity: MirExecutableTemplateId,
     family_size: u32,
+    target: bray_target::TargetIdentity,
 }
 
 fn operation_owners(
@@ -2033,6 +2035,25 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             5 => Ok(MirStorageKind::CurrentFrame),
             6 => Ok(MirStorageKind::CurrentTask),
             7 => Ok(MirStorageKind::ChildTask),
+            8 => {
+                let declaration = self.exact_symbol::<bray_symbols::StaticSymbolId>()?;
+                let substitution = self.substitution()?;
+                let witness_count = self.count()?;
+                let mut witnesses = self.items(witness_count)?;
+
+                for _ in 0..witness_count {
+                    witnesses.push(self.implementation()?);
+                }
+
+                Ok(MirStorageKind::Static(
+                    bray_symbols::StaticReferenceSelection::open(
+                        bray_symbols::StaticInstanceTemplateId::new(declaration),
+                        substitution,
+                        witnesses,
+                        self.target.clone(),
+                    ),
+                ))
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

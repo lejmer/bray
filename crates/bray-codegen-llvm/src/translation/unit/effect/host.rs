@@ -16,6 +16,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every host operation requires an explicit translation.
         match operation {
+            MirHostOperation::MaterializeStatic { place } => {
+                let _ = self.place(place)?;
+
+                Ok(None)
+            }
             MirHostOperation::SelectTestEntry { entry, runtime } => {
                 self.begin_test_entry_selection(*entry, *runtime)?;
 
@@ -168,7 +173,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         })?;
 
                     let started = llvm(self.builder.build_int_compare(
-                        inkwell::IntPredicate::EQ,
+                        IntPredicate::EQ,
                         status,
                         status.get_type().const_zero(),
                         "root.started",
@@ -216,6 +221,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
+            MirHostOperation::BeginStaticCleanup => {
+                self.finish_test_entry_selection()?;
+
+                Ok(None)
+            }
             MirHostOperation::ReportCleanupIncidents { runtime } => {
                 if self.host_role_implementation(*runtime)?
                     == RuntimeRoleImplementation::CompilerLowering
@@ -226,8 +236,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirHostOperation::StructuredShutdown { runtime } => {
-                self.finish_test_entry_selection()?;
-
                 let status = self
                     .host_status
                     .take()
@@ -289,7 +297,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .const_int(u64::from(entry.slot()), false)
                     .into()],
             )?
-            .and_then(super::super::support::int_value)
+            .and_then(int_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let selected = llvm(self.builder.build_int_compare(

@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
+use bray_symbols::{
+    StaticReferenceSelection, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+};
 
 use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 
 /// Semantic role of one MIR storage allocation.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirStorageKind {
     /// Caller-supplied parameter storage at its semantic ABI position.
     Parameter(u32),
@@ -24,6 +26,8 @@ pub enum MirStorageKind {
     CurrentTask,
     /// Stable storage owned by one child task control record.
     ChildTask,
+    /// One open or closed Bray-owned static instance selected by checked semantics.
+    Static(StaticReferenceSelection),
 }
 
 /// One typed storage allocation owned by a MIR unit.
@@ -45,8 +49,8 @@ impl MirStorage {
     }
 
     /// Returns the storage's semantic role.
-    pub const fn kind(&self) -> MirStorageKind {
-        self.kind
+    pub const fn kind(&self) -> &MirStorageKind {
+        &self.kind
     }
 
     /// Returns the storage's checked type.

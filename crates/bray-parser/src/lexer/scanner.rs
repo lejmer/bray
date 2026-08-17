@@ -307,7 +307,10 @@ fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize 
     while let Some(byte) = bytes.get(index).copied() {
         let character = char::from(byte);
 
-        if character == '.' && index > text_size_to_usize(start) && bytes[index - 1] == b'>' {
+        if matches!(character, '.' | ':')
+            && index > text_size_to_usize(start)
+            && bytes[index - 1] == b'>'
+        {
             break;
         }
 

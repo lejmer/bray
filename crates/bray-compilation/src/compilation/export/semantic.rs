@@ -46,7 +46,7 @@ use bray_symbols::{
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
     GenericArgument, GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
-    GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    GenericParameterSymbolId, GenericSubstitutionId,
     ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationSymbolId,
     InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionQuery,
     PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
@@ -391,6 +391,12 @@ fn executable_template_unit(
     graph: &bray_symbols::SymbolGraph,
     owner: AnySymbolId,
 ) -> Result<Option<BoundUnitKey>, PackageInterfaceExportError> {
+    if let AnySymbolId::Static(static_declaration) = owner {
+        return compilation
+            .static_initializer_key(static_declaration)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation);
+    }
+
     if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
         return compilation
             .callable_body_key(definition)
@@ -2613,26 +2619,12 @@ fn checked_constraint_expression(
         .semantic_value_store()
         .map_err(|_| incomplete(expression.owner()))?;
 
-    let arguments = generic
-        .parameters()
-        .iter()
-        .copied()
-        .map(|parameter| {
-            crate::compilation::substitution::generic_parameter_argument(values, parameter)
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| incomplete(expression.owner()))?;
-
-    let substitution = GenericSubstitutionData::try_new(
+    let substitution = crate::compilation::substitution::identity_substitution(
+        values,
         generic.owner(),
-        generic.parameters().iter().copied(),
-        arguments,
+        generic.parameters(),
     )
     .map_err(|_| incomplete(expression.owner()))?;
-
-    let substitution = values
-        .intern_generic_substitution(substitution)
-        .map_err(|_| incomplete(expression.owner()))?;
 
     let (references, reference_diagnostics) = compilation
         .concrete_call_references(

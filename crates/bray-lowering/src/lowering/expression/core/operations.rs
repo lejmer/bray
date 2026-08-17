@@ -1044,6 +1044,35 @@ impl Lowerer<'_> {
         ty: TypeId,
         origin: bray_bound_tree::BoundNodeOrigin,
     ) -> Result<MirPlace, LoweringError> {
+        self.place_for_identity_with_static(id, ty, origin, None)
+    }
+
+    pub(in crate::lowering) fn place_for_identity_with_static(
+        &mut self,
+        id: StorageIdentityId,
+        ty: TypeId,
+        origin: bray_bound_tree::BoundNodeOrigin,
+        static_reference: Option<&bray_symbols::StaticReferenceSelection>,
+    ) -> Result<MirPlace, LoweringError> {
+        if let Some(reference) = static_reference {
+            let storage = match self.static_storages.get(reference).copied() {
+                Some(storage) => storage,
+                None => {
+                    let storage = self.builder.push_storage(
+                        self.source(origin),
+                        MirStorageKind::Static(reference.clone()),
+                        ty,
+                    )?;
+
+                    self.static_storages.insert(reference.clone(), storage);
+
+                    storage
+                }
+            };
+
+            return Ok(MirPlace::new(storage, [], ty));
+        }
+
         let storage = match self.storages.get(&id).copied() {
             Some(storage) => storage,
             None => {
@@ -1054,7 +1083,6 @@ impl Lowerer<'_> {
                     .ok_or(LoweringError::MissingStorageIdentityRecord(id))?;
 
                 let kind = storage_kind(identity, self.parameter_positions.get(&id).copied())?;
-
                 let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
                 self.storages.insert(id, storage);
@@ -1124,9 +1152,7 @@ fn storage_kind(
         | StorageIdentity::PredicateParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
         }
-        StorageIdentity::Static(id) => {
-            return Err(LoweringError::StaticStorageRequiresRealization(id));
-        }
+        StorageIdentity::Static(_) => return Err(LoweringError::SemanticValueUnavailable),
         StorageIdentity::LocalOwned(_) | StorageIdentity::Alternative { .. } => {
             MirStorageKind::Local
         }

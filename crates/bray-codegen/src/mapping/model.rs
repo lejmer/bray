@@ -1,5 +1,7 @@
 mod callable_demand;
 mod core;
+mod static_storage;
+mod table_validation;
 mod validation;
 
 pub use callable_demand::{

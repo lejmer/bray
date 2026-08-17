@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_ir::MirSourceAnchor;
@@ -6,15 +6,20 @@ use bray_runtime_interface::ProtectedFrameOperation;
 use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
-    CodegenCallableMapping, CodegenCallableTarget, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey,
-    CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTarget, CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnit, CodegenUnitKey, TargetAddressSpaceKind,
+    CodegenCallableMapping, CodegenConstantMapping,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenInstanceKey,
+    CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenStaticStorageMapping,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
+    CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
-use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
-use super::callable_demand::demanded_callable_references;
+use super::static_storage::validate_static_storage_mappings;
+use super::table_validation::{
+    compare_callables, compare_constant_terms, compare_operations, compare_terminators,
+    validate_callable_mappings, validate_constant_mappings, validate_operation_mappings,
+    validate_terminator_mappings,
+};
+
 use super::validation::{
     demanded_debug_sources, mapped_runtime_references, validate_instance_type_structure,
     validate_type_coverage, validate_type_structure,
@@ -32,6 +37,7 @@ pub struct CodegenMappings {
     constant_terms: Arc<[CodegenConstantTermMapping]>,
     callables: Arc<[CodegenCallableMapping]>,
     operations: Arc<[CodegenOperationMapping]>,
+    static_storages: Arc<[CodegenStaticStorageMapping]>,
     terminators: Arc<[CodegenTerminatorMapping]>,
     debug_locations: Arc<[CodegenDebugLocation]>,
 }
@@ -55,6 +61,42 @@ impl CodegenMappings {
         terminators: impl IntoIterator<Item = CodegenTerminatorMapping>,
         debug_locations: impl IntoIterator<Item = CodegenDebugLocation>,
     ) -> Result<Self, CodegenMappingsBuildError> {
+        Self::try_new_with_static_storages(
+            unit,
+            target,
+            types,
+            instance_types,
+            symbols,
+            constants,
+            constant_terms,
+            callables,
+            operations,
+            [],
+            terminators,
+            debug_locations,
+        )
+    }
+
+    /// Validates every demanded mapping table, including static storage, for one code generation
+    /// unit.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the constructor validates each independent canonical mapping table explicitly"
+    )]
+    pub fn try_new_with_static_storages(
+        unit: &CodegenUnit,
+        target: &CodegenTarget,
+        types: impl IntoIterator<Item = CodegenTypeMapping>,
+        instance_types: impl IntoIterator<Item = CodegenInstanceTypeMapping>,
+        symbols: impl IntoIterator<Item = CodegenSymbolMapping>,
+        constants: impl IntoIterator<Item = CodegenConstantMapping>,
+        constant_terms: impl IntoIterator<Item = CodegenConstantTermMapping>,
+        callables: impl IntoIterator<Item = CodegenCallableMapping>,
+        operations: impl IntoIterator<Item = CodegenOperationMapping>,
+        static_storages: impl IntoIterator<Item = CodegenStaticStorageMapping>,
+        terminators: impl IntoIterator<Item = CodegenTerminatorMapping>,
+        debug_locations: impl IntoIterator<Item = CodegenDebugLocation>,
+    ) -> Result<Self, CodegenMappingsBuildError> {
         if !target.matches_mir_target(unit.target()) {
             return Err(CodegenMappingsBuildError::TargetMismatch);
         }
@@ -66,6 +108,7 @@ impl CodegenMappings {
         let mut constant_terms: Vec<_> = constant_terms.into_iter().collect();
         let mut callables: Vec<_> = callables.into_iter().collect();
         let mut operations: Vec<_> = operations.into_iter().collect();
+        let mut static_storages: Vec<_> = static_storages.into_iter().collect();
         let mut terminators: Vec<_> = terminators.into_iter().collect();
         let mut debug_locations: Vec<_> = debug_locations.into_iter().collect();
 
@@ -76,6 +119,7 @@ impl CodegenMappings {
         constant_terms.sort_unstable_by(compare_constant_terms);
         callables.sort_unstable_by(compare_callables);
         operations.sort_unstable_by(compare_operations);
+        static_storages.sort_unstable();
         terminators.sort_unstable_by(compare_terminators);
         debug_locations.sort_unstable_by(|left, right| left.anchor().cmp(right.anchor()));
 
@@ -115,6 +159,12 @@ impl CodegenMappings {
             .any(|pair| compare_operations(&pair[0], &pair[1]).is_eq())
         {
             return Err(CodegenMappingsBuildError::DuplicateOperation);
+        }
+
+        if static_storages.windows(2).any(|pair| {
+            pair[0].owner() == pair[1].owner() && pair[0].storage() == pair[1].storage()
+        }) {
+            return Err(CodegenMappingsBuildError::DuplicateStaticStorage);
         }
 
         if terminators
@@ -165,6 +215,7 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::InstanceSymbolCoverageMismatch);
         }
 
+        validate_static_storage_mappings(unit, &expected_instances, &symbols, &static_storages)?;
         validate_callable_mappings(unit, &expected_instances, &symbols, &callables)?;
         validate_operation_mappings(unit, &symbols, &operations)?;
         validate_terminator_mappings(unit, &terminators)?;
@@ -220,6 +271,7 @@ impl CodegenMappings {
             constant_terms: constant_terms.into(),
             callables: callables.into(),
             operations: operations.into(),
+            static_storages: static_storages.into(),
             terminators: terminators.into(),
             debug_locations: debug_locations.into(),
         })
@@ -268,6 +320,11 @@ impl CodegenMappings {
     /// Returns operation realization mappings in canonical operation order.
     pub fn operations(&self) -> &[CodegenOperationMapping] {
         &self.operations
+    }
+
+    /// Returns static-storage uses in canonical instance and storage order.
+    pub fn static_storages(&self) -> &[CodegenStaticStorageMapping] {
+        &self.static_storages
     }
 
     /// Returns terminator realization mappings in canonical block order.
@@ -417,6 +474,23 @@ impl CodegenMappings {
             .map(|index| &self.operations[index])
     }
 
+    /// Returns the native realization selected for one static storage root.
+    pub fn static_storage(
+        &self,
+        owner: &CodegenInstanceKey,
+        storage: bray_ir::MirStorageId,
+    ) -> Option<&CodegenStaticStorageMapping> {
+        self.static_storages
+            .binary_search_by(|mapping| {
+                mapping
+                    .owner()
+                    .cmp(owner)
+                    .then_with(|| mapping.storage().cmp(&storage))
+            })
+            .ok()
+            .map(|index| &self.static_storages[index])
+    }
+
     /// Returns extra realization inputs for one block terminator.
     pub fn terminator(
         &self,
@@ -476,6 +550,12 @@ pub enum CodegenMappingsBuildError {
     DuplicateCallable,
     /// One MIR operation appears more than once.
     DuplicateOperation,
+    /// One concrete MIR static storage root appears more than once.
+    DuplicateStaticStorage,
+    /// Concrete MIR static storage roots do not have exact realization coverage.
+    StaticStorageCoverageMismatch,
+    /// One static storage realization does not match its MIR use or concrete dependencies.
+    InvalidStaticStorage,
     /// One MIR block terminator appears more than once.
     DuplicateTerminator,
     /// Two semantic symbols select the same binary spelling.
@@ -504,280 +584,6 @@ pub enum CodegenMappingsBuildError {
     TypeCoverageMismatch,
 }
 
-fn compare_constant_terms(
-    left: &CodegenConstantTermMapping,
-    right: &CodegenConstantTermMapping,
-) -> std::cmp::Ordering {
-    left.owner()
-        .cmp(right.owner())
-        .then_with(|| left.term().cmp(&right.term()))
-}
-
-fn compare_callables(
-    left: &CodegenCallableMapping,
-    right: &CodegenCallableMapping,
-) -> std::cmp::Ordering {
-    left.owner()
-        .cmp(right.owner())
-        .then_with(|| left.site().cmp(&right.site()))
-}
-
-fn compare_operations(
-    left: &CodegenOperationMapping,
-    right: &CodegenOperationMapping,
-) -> std::cmp::Ordering {
-    left.owner()
-        .cmp(right.owner())
-        .then_with(|| left.operation().cmp(&right.operation()))
-}
-
-fn compare_terminators(
-    left: &CodegenTerminatorMapping,
-    right: &CodegenTerminatorMapping,
-) -> std::cmp::Ordering {
-    left.owner()
-        .cmp(right.owner())
-        .then_with(|| left.block().cmp(&right.block()))
-}
-
-fn validate_callable_mappings(
-    unit: &CodegenUnit,
-    instances: &BTreeSet<&crate::CodegenInstanceKey>,
-    symbols: &[CodegenSymbolMapping],
-    mappings: &[CodegenCallableMapping],
-) -> Result<(), CodegenMappingsBuildError> {
-    let expected = demanded_callable_references(unit);
-
-    let actual: BTreeSet<_> = mappings
-        .iter()
-        .map(|mapping| (mapping.owner().clone(), mapping.site(), mapping.reference()))
-        .collect();
-
-    if actual != expected
-        || mappings.iter().any(|mapping| {
-            if !instances.contains(mapping.owner()) {
-                return true;
-            }
-
-            match mapping.target() {
-                CodegenCallableTarget::Instance(instance) => {
-                    if !instances.contains(instance) {
-                        return true;
-                    }
-
-                    let key = CodegenSymbolKey::Instance(instance.clone());
-
-                    symbols
-                        .binary_search_by(|symbol| symbol.key().cmp(&key))
-                        .ok()
-                        .is_none_or(|index| {
-                            symbols[index].signature().abi() != mapping.reference().abi()
-                        })
-                }
-                CodegenCallableTarget::Intrinsic(_) => {
-                    mapping.reference().abi() != bray_symbols::CallableAbi::Bray
-                }
-            }
-        })
-    {
-        return Err(CodegenMappingsBuildError::CallableCoverageMismatch);
-    }
-
-    Ok(())
-}
-
-fn validate_operation_mappings(
-    unit: &CodegenUnit,
-    symbols: &[CodegenSymbolMapping],
-    mappings: &[CodegenOperationMapping],
-) -> Result<(), CodegenMappingsBuildError> {
-    let expected: BTreeMap<_, _> = unit
-        .instances()
-        .iter()
-        .flat_map(|instance| {
-            instance
-                .mir()
-                .operations_with_ids()
-                .map(move |(id, operation)| {
-                    (
-                        (instance.key().clone(), id),
-                        operation.kind().helper_references(),
-                    )
-                })
-        })
-        .filter(|(_, helpers)| !helpers.is_empty())
-        .collect();
-
-    if mappings.len() != expected.len()
-        || mappings.iter().any(|mapping| {
-            let key = (mapping.owner().clone(), mapping.operation());
-
-            expected.get(&key).is_none_or(|references| {
-                references.len() != mapping.helpers().len()
-                    || references
-                        .iter()
-                        .zip(mapping.helpers())
-                        .any(|(reference, helper)| reference != helper.reference())
-            }) || mapping
-                .helpers()
-                .iter()
-                .any(|helper| !valid_helper(symbols, helper))
-        })
-    {
-        return Err(CodegenMappingsBuildError::OperationCoverageMismatch);
-    }
-
-    Ok(())
-}
-
-fn validate_terminator_mappings(
-    unit: &CodegenUnit,
-    mappings: &[CodegenTerminatorMapping],
-) -> Result<(), CodegenMappingsBuildError> {
-    let expected: BTreeMap<_, _> = unit
-        .instances()
-        .iter()
-        .flat_map(|instance| {
-            instance
-                .mir()
-                .blocks_with_ids()
-                .filter_map(move |(id, block)| {
-                    block
-                        .terminator()
-                        .kind()
-                        .requires_pattern_value_mapping()
-                        .then_some(((instance.key().clone(), id), 1_usize))
-                })
-        })
-        .collect();
-
-    if mappings.len() != expected.len()
-        || mappings.iter().any(|mapping| {
-            let key = (mapping.owner().clone(), mapping.block());
-
-            expected
-                .get(&key)
-                .is_none_or(|constants| *constants != mapping.constants().len())
-        })
-    {
-        return Err(CodegenMappingsBuildError::TerminatorCoverageMismatch);
-    }
-
-    Ok(())
-}
-
-fn validate_constant_mappings(
-    unit: &CodegenUnit,
-    types: &[CodegenTypeMapping],
-    mappings: &[CodegenConstantMapping],
-    terms: &[CodegenConstantTermMapping],
-    terminators: &[CodegenTerminatorMapping],
-) -> Result<(), CodegenMappingsBuildError> {
-    if mappings
-        .iter()
-        .any(|mapping| !valid_constant_representation(mapping, types))
-    {
-        return Err(CodegenMappingsBuildError::InvalidConstantRepresentation);
-    }
-
-    let demands = demanded_constants(unit);
-    let mut expected_values = demands.values().clone();
-
-    if demands.types().iter().any(|(value, types)| {
-        types.iter().any(|ty| {
-            mappings
-                .binary_search_by_key(&(*value, *ty), |mapping| {
-                    (mapping.value(), mapping.representation())
-                })
-                .is_err()
-        })
-    }) {
-        return Err(CodegenMappingsBuildError::ConstantCoverageMismatch);
-    }
-
-    expected_values.extend(
-        terminators
-            .iter()
-            .flat_map(CodegenTerminatorMapping::constants),
-    );
-
-    let expected_terms: BTreeSet<_> = unit
-        .instances()
-        .iter()
-        .flat_map(|instance| {
-            demanded_constant_terms(instance.mir())
-                .into_iter()
-                .map(move |term| (instance.key().clone(), term))
-        })
-        .collect();
-
-    let actual_terms: BTreeSet<_> = terms
-        .iter()
-        .map(|mapping| (mapping.owner().clone(), mapping.term()))
-        .collect();
-
-    if expected_terms != actual_terms {
-        return Err(CodegenMappingsBuildError::ConstantCoverageMismatch);
-    }
-
-    expected_values.extend(terms.iter().map(CodegenConstantTermMapping::value));
-
-    let actual_values: BTreeSet<_> = mappings.iter().map(CodegenConstantMapping::value).collect();
-
-    for mapping in mappings {
-        expected_values.extend(child_constants(mapping.data().kind()));
-    }
-
-    if expected_values != actual_values {
-        return Err(CodegenMappingsBuildError::ConstantCoverageMismatch);
-    }
-
-    Ok(())
-}
-
-fn valid_constant_representation(
-    constant: &CodegenConstantMapping,
-    types: &[CodegenTypeMapping],
-) -> bool {
-    if constant.semantic_type() == constant.representation() {
-        return true;
-    }
-
-    let semantic = types
-        .binary_search_by_key(&constant.semantic_type(), CodegenTypeMapping::ty)
-        .ok()
-        .and_then(|index| types.get(index));
-
-    let representation = types
-        .binary_search_by_key(&constant.representation(), CodegenTypeMapping::ty)
-        .ok()
-        .and_then(|index| types.get(index));
-
-    semantic.is_some_and(|mapping| {
-        mapping.behavior() == Some(CodegenTypeBehavior::String)
-            && matches!(mapping.kind(), CodegenTypeKind::Aggregate(_))
-    }) && representation.is_some_and(|mapping| {
-        matches!(
-            mapping.kind(),
-            CodegenTypeKind::Pointer {
-                target,
-                address_space: TargetAddressSpaceKind::Default,
-            } if *target == constant.semantic_type()
-        )
-    })
-}
-
-fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping) -> bool {
-    let Some(key) = helper.symbol() else {
-        return true;
-    };
-
-    symbols
-        .binary_search_by(|symbol| symbol.key().cmp(key))
-        .ok()
-        .is_some_and(|index| symbols[index].signature().abi() == helper.reference().abi())
-}
-
 #[cfg(test)]
 mod tests {
     use std::num::{NonZeroU16, NonZeroU64};
@@ -794,10 +600,8 @@ mod tests {
     use bray_target::{TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type};
 
-    use super::{
-        CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources,
-        valid_constant_representation,
-    };
+    use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
+    use super::super::table_validation::valid_constant_representation;
     use crate::demanded_types;
     use crate::test_support::{codegen_partition_compatibility, codegen_request};
     use crate::{
@@ -873,7 +677,7 @@ mod tests {
         );
 
         let _ = builder
-            .push_storage(source.clone(), bray_ir::MirStorageKind::Local, open)
+            .push_storage(source.clone(), MirStorageKind::Local, open)
             .unwrap_or_else(|error| panic!("test storage must validate: {error:?}"));
 
         let entry = builder

@@ -18,7 +18,7 @@ use bray_symbols::{
     GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
     NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolQueryRequest, TargetSizedIntegerType,
-    TraitCallableMemberSymbolId,
+    TraitCallableMemberSymbolId, StaticInstanceKey, StaticReferenceSelection,
 };
 
 use super::super::CodegenPreparationError;
@@ -37,6 +37,7 @@ pub(super) struct ConcreteCodegenInstance {
     key: CodegenInstanceKey,
     callable: Option<CallableInstanceData>,
     anonymous_callable_type: Option<bray_symbols::TypeId>,
+    static_initializer: Option<bray_symbols::StaticSymbolId>,
     lifecycle: Option<MirHelperReference>,
     substitution: Option<GenericSubstitutionId>,
     witnesses: Arc<[ImplementationInstanceId]>,
@@ -93,6 +94,7 @@ impl ConcreteCodegenInstance {
             key,
             callable: Some(callable),
             anonymous_callable_type: None,
+            static_initializer: None,
             lifecycle: None,
             substitution: Some(callable.substitution()),
             witnesses: witnesses
@@ -108,6 +110,7 @@ impl ConcreteCodegenInstance {
             key,
             callable: None,
             anonymous_callable_type: None,
+            static_initializer: None,
             lifecycle: None,
             substitution: None,
             witnesses: Arc::from([]),
@@ -137,6 +140,7 @@ impl ConcreteCodegenInstance {
             ),
             callable: None,
             anonymous_callable_type: Some(callable_type),
+            static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
@@ -153,9 +157,38 @@ impl ConcreteCodegenInstance {
             ),
             callable: None,
             anonymous_callable_type: None,
+            static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
+        }
+    }
+
+    pub(super) fn static_initializer(
+        template: MirUnitKey,
+        declaration: bray_symbols::StaticSymbolId,
+        substitution: GenericSubstitutionId,
+        specialization: CodegenSpecialization,
+        witnesses: &[(CodegenImplementationWitness, ImplementationInstanceId)],
+        target: MirTargetContract,
+    ) -> Self {
+        Self {
+            key: CodegenInstanceKey::new(
+                template,
+                specialization,
+                witnesses.iter().map(|(identity, _)| identity.clone()),
+                target,
+            ),
+            callable: None,
+            anonymous_callable_type: None,
+            static_initializer: Some(declaration),
+            lifecycle: None,
+            substitution: Some(substitution),
+            witnesses: witnesses
+                .iter()
+                .map(|(_, witness)| *witness)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 
@@ -175,6 +208,7 @@ impl ConcreteCodegenInstance {
             ),
             callable: None,
             anonymous_callable_type: None,
+            static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
@@ -197,6 +231,7 @@ impl ConcreteCodegenInstance {
             key,
             callable: None,
             anonymous_callable_type: None,
+            static_initializer: None,
             lifecycle: Some(reference),
             substitution: None,
             witnesses: Arc::from([]),
@@ -215,6 +250,10 @@ impl ConcreteCodegenInstance {
         self.anonymous_callable_type
     }
 
+    pub(super) const fn static_declaration(&self) -> Option<bray_symbols::StaticSymbolId> {
+        self.static_initializer
+    }
+
     pub(super) fn substitution(&self) -> Option<GenericSubstitutionId> {
         self.substitution
     }
@@ -229,6 +268,100 @@ impl ConcreteCodegenInstance {
 }
 
 impl Compilation {
+    pub(super) fn concrete_codegen_static_selection(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &StaticReferenceSelection,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            StaticInstanceKey,
+            CodegenSpecialization,
+            Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
+        ),
+        CodegenPreparationError,
+    > {
+        let values = self.semantic_value_store()?;
+
+        let (template, substitution, witnesses, target) = match reference {
+            StaticReferenceSelection::Open {
+                template,
+                substitution,
+                selected_witnesses,
+                target,
+            } => {
+                let substitution = match owner.substitution() {
+                    Some(owner) => values
+                        .substitute_generic_substitution(*substitution, owner)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                    None => *substitution,
+                };
+
+                let substitution = self.realize_codegen_substitution(substitution)?;
+                let owner_substitution = owner.substitution();
+
+                let selected_witnesses = if selected_witnesses.is_empty()
+                    && owner.static_declaration() == Some(template.declaration())
+                {
+                    owner.implementation_witnesses()
+                } else {
+                    selected_witnesses
+                };
+
+                let witnesses = selected_witnesses
+                    .iter()
+                    .map(|witness| {
+                        let data = values
+                            .implementation_instance_data(*witness)
+                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                        let nested = match owner_substitution {
+                            Some(owner) => values
+                                .substitute_generic_substitution(data.substitution(), owner)
+                                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                            None => data.substitution(),
+                        };
+
+                        let nested = self.realize_codegen_substitution(nested)?;
+
+                        values
+                            .intern_implementation_instance(ImplementationInstanceData::new(
+                                data.definition(),
+                                nested,
+                            ))
+                            .map_err(|_| FactQueryError::InfrastructureFailure.into())
+                    })
+                    .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
+
+                (*template, substitution, witnesses, target.clone())
+            }
+            StaticReferenceSelection::Closed(instance) => (
+                instance.template(),
+                instance.substitution().substitution(),
+                instance.selected_witnesses().to_vec(),
+                instance.target().clone(),
+            ),
+        };
+
+        let substitution = self.realize_codegen_substitution(substitution)?;
+
+        let concrete_substitution = values
+            .require_concrete_substitution(substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let instance = StaticInstanceKey::new(
+            template,
+            concrete_substitution,
+            witnesses.iter().copied(),
+            target,
+        );
+
+        let specialization = self.codegen_specialization(substitution)?;
+        let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
+
+        Ok((instance, specialization, witnesses))
+    }
+
     pub(super) fn concrete_codegen_anonymous_callable(
         &self,
         owner: &ConcreteCodegenInstance,
@@ -859,7 +992,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure.into())
     }
 
-    fn concrete_codegen_witnesses(
+    pub(super) fn concrete_codegen_witnesses(
         &self,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         cancellation: &CancellationToken,

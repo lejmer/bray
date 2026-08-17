@@ -3,6 +3,7 @@ mod debug;
 mod demand;
 mod model;
 mod reference;
+mod static_storage;
 mod symbol;
 mod ty;
 
@@ -18,6 +19,9 @@ pub use model::{
 pub use reference::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenHelperMapping,
     CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
+};
+pub use static_storage::{
+    CodegenStaticInstanceKey, CodegenStaticStorageMapping, CodegenStaticWitness,
 };
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{

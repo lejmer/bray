@@ -1485,6 +1485,11 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
+        MirHostOperation::MaterializeStatic { place } => {
+            parts.attribute("storage", place.storage().slot());
+
+            "materialize_static"
+        }
         MirHostOperation::SelectTestEntry { entry, runtime } => {
             parts.attribute("entry", entry.slot());
             runtime_reference("runtime", *runtime, parts);
@@ -1539,6 +1544,7 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
 
             "report_cleanup_incidents"
         }
+        MirHostOperation::BeginStaticCleanup => "begin_static_cleanup",
         MirHostOperation::StructuredShutdown { runtime } => {
             runtime_reference("runtime", *runtime, parts);
 
@@ -2451,7 +2457,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
     }
 }
 
-fn storage_kind(kind: MirStorageKind) -> &'static str {
+fn storage_kind(kind: &MirStorageKind) -> &'static str {
     match kind {
         MirStorageKind::Parameter(_) => "parameter",
         MirStorageKind::Local => "local",
@@ -2461,6 +2467,7 @@ fn storage_kind(kind: MirStorageKind) -> &'static str {
         MirStorageKind::CurrentFrame => "current_frame",
         MirStorageKind::CurrentTask => "current_task",
         MirStorageKind::ChildTask => "child_task",
+        MirStorageKind::Static(_) => "static",
     }
 }
 
