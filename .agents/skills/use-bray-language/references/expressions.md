@@ -108,7 +108,7 @@ impl Counter
 }
 ```
 
-Unconstrained integer, real, and complex literals default to `i32`, `r64`, and `c128`. An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components. Literal components adapt directly, while already typed real and imaginary components form a complex value through explicit tuple conversion. A bounded [`start..end`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/range-expressions.md) expression produces an ascending half-open `Range<T>`. Payload-free union variants are values such as `Shape.Empty` and `.Empty`.
+Unconstrained integer, real, and complex literals default to `i32`, `r64`, and `c128`. An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components. Literal components adapt directly, while already typed real and imaginary components form a complex value through explicit tuple conversion. A bounded [`start..end`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/range-expressions.md) expression produces an ascending half-open `Range<T>`.
 
 Plain [`as`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/conversion-expressions.md) is only for total, value-preserving conversion. Use an explicit fallible conversion operation otherwise.
 
