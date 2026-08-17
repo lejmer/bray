@@ -312,7 +312,8 @@ where
                 self.input.storage_is_mutable(storage)
             }
             Some(
-                StorageIdentity::LocalOwned(_)
+                StorageIdentity::Static(_)
+                | StorageIdentity::LocalOwned(_)
                 | StorageIdentity::AnonymousParameter(_)
                 | StorageIdentity::PredicateParameter(_)
                 | StorageIdentity::PostconditionResult(_)

@@ -15,7 +15,7 @@ pub enum BoundUnitKind {
     AnonymousCallable,
     /// A parameter, field, or payload runtime default.
     RuntimeDefault,
-    /// A constant definition template.
+    /// A constant definition or static initializer template.
     ConstantTemplate,
     /// A constant expression embedded in a declaration surface.
     EmbeddedConstant,
@@ -50,7 +50,10 @@ impl BoundUnitKind {
             Self::CallableBody => owner.is_callable(),
             Self::AnonymousCallable => false,
             Self::RuntimeDefault => CheckedTemplateKind::RuntimeDefault.accepts_owner(owner),
-            Self::ConstantTemplate => CheckedTemplateKind::ConstantDefinition.accepts_owner(owner),
+            Self::ConstantTemplate => {
+                CheckedTemplateKind::ConstantDefinition.accepts_owner(owner)
+                    || matches!(owner, SymbolKind::Static)
+            }
             Self::EmbeddedConstant => {
                 owner.can_be_source_declared() || matches!(owner, SymbolKind::Module)
             }

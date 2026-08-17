@@ -246,6 +246,21 @@ define_bare_directive_syntax! {
     }
 }
 
+define_bare_directive_syntax! {
+    /// `@thread_local` directive.
+    ThreadLocalDirectiveSyntax {
+        builder: ThreadLocalDirectiveSyntaxBuilder,
+        kind: SyntaxKind::ThreadLocalDirective,
+        source_slot: "thread_local_directive.source",
+        node_name: "thread-local directive",
+        range_description: "thread-local-directive",
+        debug_name: "ThreadLocalDirectiveSyntax",
+        builder_debug_name: "ThreadLocalDirectiveSyntaxBuilder",
+        marker_slot: "thread_local_directive.directive_marker_token",
+        name_slot: "thread_local_directive.name_token",
+    }
+}
+
 define_source_syntax_node! {
     /// `@test` or `@test(...)` directive.
     pub struct TestDirectiveSyntax {

@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PostconditionResultSymbolId,
     PredicateParameterSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal,
-    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    StaticSymbolId, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;
@@ -57,6 +57,8 @@ pub enum StorageIdentity {
     Parameter(CallableParameterSymbolId),
     /// Storage supplied through a callable receiver.
     Receiver(ReceiverParameterSymbolId),
+    /// Storage owned by one demanded static declaration instance.
+    Static(StaticSymbolId),
     /// Storage supplied through an anonymous callable parameter.
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// Storage supplied through a predicate parameter.
@@ -95,6 +97,7 @@ impl StorageIdentity {
             Self::LocalOwned(_) => "local_owned",
             Self::Parameter(_) => "parameter",
             Self::Receiver(_) => "receiver",
+            Self::Static(_) => "static",
             Self::AnonymousParameter(_) => "anonymous_parameter",
             Self::PredicateParameter(_) => "predicate_parameter",
             Self::PostconditionResult(_) => "postcondition_result",
@@ -116,6 +119,7 @@ impl StorageIdentity {
             self,
             Self::Parameter(_)
                 | Self::Receiver(_)
+                | Self::Static(_)
                 | Self::AnonymousParameter(_)
                 | Self::PredicateParameter(_)
                 | Self::PostconditionResult(_)
@@ -134,6 +138,7 @@ impl StorageIdentity {
             Self::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
             Self::Parameter(_)
             | Self::Receiver(_)
+            | Self::Static(_)
             | Self::AnonymousParameter(_)
             | Self::PredicateParameter(_)
             | Self::PostconditionResult(_)
@@ -156,6 +161,7 @@ impl StorageIdentity {
             } => pattern.unit() == unit && alternative.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
+            | Self::Static(_)
             | Self::PredicateParameter(_)
             | Self::PostconditionResult(_)
             | Self::Receiver(_)

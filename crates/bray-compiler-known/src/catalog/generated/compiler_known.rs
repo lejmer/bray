@@ -15,14 +15,14 @@ use super::super::*;
 pub const CATALOG_GRAMMAR_REVISION: CatalogGrammarRevision = CatalogGrammarRevision::new(1);
 
 /// Digest of the revisioned canonical catalog source identity.
-pub const CATALOG_SOURCE_DIGEST: &str = "83c54dd967935ca888907e5d80535fa91ebb966710678c6b7f691e95c91fe261";
+pub const CATALOG_SOURCE_DIGEST: &str = "7b0e5ed442e427e66e91415eea149f49f0fda3d7c3df3c17976f1a7f56f903aa";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {
         id: CompilerKnownScopeId::new(0),
         key: CompilerKnownScopeKey::from_static("Ambient"),
         location: CatalogScopeLocation::Ambient,
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(0), CompilerKnownDeclarationId::new(24), CompilerKnownDeclarationId::new(27), CompilerKnownDeclarationId::new(30), CompilerKnownDeclarationId::new(33), CompilerKnownDeclarationId::new(36), CompilerKnownDeclarationId::new(37), CompilerKnownDeclarationId::new(41), CompilerKnownDeclarationId::new(42), CompilerKnownDeclarationId::new(44), CompilerKnownDeclarationId::new(45), CompilerKnownDeclarationId::new(48), CompilerKnownDeclarationId::new(51), CompilerKnownDeclarationId::new(52), CompilerKnownDeclarationId::new(56), CompilerKnownDeclarationId::new(58), CompilerKnownDeclarationId::new(63), CompilerKnownDeclarationId::new(64), CompilerKnownDeclarationId::new(71), CompilerKnownDeclarationId::new(74), CompilerKnownDeclarationId::new(78), CompilerKnownDeclarationId::new(81), CompilerKnownDeclarationId::new(85), CompilerKnownDeclarationId::new(86), CompilerKnownDeclarationId::new(89), CompilerKnownDeclarationId::new(94), CompilerKnownDeclarationId::new(96), CompilerKnownDeclarationId::new(97), CompilerKnownDeclarationId::new(98), CompilerKnownDeclarationId::new(99), CompilerKnownDeclarationId::new(100), CompilerKnownDeclarationId::new(101), CompilerKnownDeclarationId::new(102), CompilerKnownDeclarationId::new(103), CompilerKnownDeclarationId::new(104), CompilerKnownDeclarationId::new(105), CompilerKnownDeclarationId::new(109), CompilerKnownDeclarationId::new(110), CompilerKnownDeclarationId::new(111), CompilerKnownDeclarationId::new(112), CompilerKnownDeclarationId::new(116), CompilerKnownDeclarationId::new(119), CompilerKnownDeclarationId::new(120), CompilerKnownDeclarationId::new(121), CompilerKnownDeclarationId::new(122), CompilerKnownDeclarationId::new(127), CompilerKnownDeclarationId::new(134), CompilerKnownDeclarationId::new(137), CompilerKnownDeclarationId::new(140), CompilerKnownDeclarationId::new(143), CompilerKnownDeclarationId::new(146), CompilerKnownDeclarationId::new(148), CompilerKnownDeclarationId::new(153), CompilerKnownDeclarationId::new(158), CompilerKnownDeclarationId::new(159), CompilerKnownDeclarationId::new(160), CompilerKnownDeclarationId::new(161), CompilerKnownDeclarationId::new(164), CompilerKnownDeclarationId::new(168), CompilerKnownDeclarationId::new(172), CompilerKnownDeclarationId::new(175), CompilerKnownDeclarationId::new(176), CompilerKnownDeclarationId::new(185), CompilerKnownDeclarationId::new(188), CompilerKnownDeclarationId::new(193), CompilerKnownDeclarationId::new(201), CompilerKnownDeclarationId::new(204), CompilerKnownDeclarationId::new(207), CompilerKnownDeclarationId::new(211), CompilerKnownDeclarationId::new(217), CompilerKnownDeclarationId::new(218), CompilerKnownDeclarationId::new(276), CompilerKnownDeclarationId::new(277), CompilerKnownDeclarationId::new(290), CompilerKnownDeclarationId::new(291), CompilerKnownDeclarationId::new(314), CompilerKnownDeclarationId::new(317), CompilerKnownDeclarationId::new(318), CompilerKnownDeclarationId::new(319), CompilerKnownDeclarationId::new(320), CompilerKnownDeclarationId::new(321), CompilerKnownDeclarationId::new(322), CompilerKnownDeclarationId::new(323), CompilerKnownDeclarationId::new(324), CompilerKnownDeclarationId::new(325), CompilerKnownDeclarationId::new(326), CompilerKnownDeclarationId::new(327), CompilerKnownDeclarationId::new(328), CompilerKnownDeclarationId::new(329), CompilerKnownDeclarationId::new(330), CompilerKnownDeclarationId::new(338), CompilerKnownDeclarationId::new(340), CompilerKnownDeclarationId::new(341)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(0), CompilerKnownDeclarationId::new(24), CompilerKnownDeclarationId::new(27), CompilerKnownDeclarationId::new(30), CompilerKnownDeclarationId::new(33), CompilerKnownDeclarationId::new(36), CompilerKnownDeclarationId::new(37), CompilerKnownDeclarationId::new(41), CompilerKnownDeclarationId::new(42), CompilerKnownDeclarationId::new(44), CompilerKnownDeclarationId::new(45), CompilerKnownDeclarationId::new(48), CompilerKnownDeclarationId::new(51), CompilerKnownDeclarationId::new(52), CompilerKnownDeclarationId::new(56), CompilerKnownDeclarationId::new(58), CompilerKnownDeclarationId::new(63), CompilerKnownDeclarationId::new(64), CompilerKnownDeclarationId::new(71), CompilerKnownDeclarationId::new(74), CompilerKnownDeclarationId::new(78), CompilerKnownDeclarationId::new(81), CompilerKnownDeclarationId::new(85), CompilerKnownDeclarationId::new(86), CompilerKnownDeclarationId::new(89), CompilerKnownDeclarationId::new(94), CompilerKnownDeclarationId::new(96), CompilerKnownDeclarationId::new(97), CompilerKnownDeclarationId::new(98), CompilerKnownDeclarationId::new(99), CompilerKnownDeclarationId::new(100), CompilerKnownDeclarationId::new(101), CompilerKnownDeclarationId::new(102), CompilerKnownDeclarationId::new(103), CompilerKnownDeclarationId::new(104), CompilerKnownDeclarationId::new(105), CompilerKnownDeclarationId::new(109), CompilerKnownDeclarationId::new(110), CompilerKnownDeclarationId::new(111), CompilerKnownDeclarationId::new(112), CompilerKnownDeclarationId::new(116), CompilerKnownDeclarationId::new(119), CompilerKnownDeclarationId::new(120), CompilerKnownDeclarationId::new(121), CompilerKnownDeclarationId::new(122), CompilerKnownDeclarationId::new(127), CompilerKnownDeclarationId::new(134), CompilerKnownDeclarationId::new(137), CompilerKnownDeclarationId::new(140), CompilerKnownDeclarationId::new(143), CompilerKnownDeclarationId::new(146), CompilerKnownDeclarationId::new(148), CompilerKnownDeclarationId::new(153), CompilerKnownDeclarationId::new(158), CompilerKnownDeclarationId::new(159), CompilerKnownDeclarationId::new(160), CompilerKnownDeclarationId::new(161), CompilerKnownDeclarationId::new(164), CompilerKnownDeclarationId::new(168), CompilerKnownDeclarationId::new(172), CompilerKnownDeclarationId::new(175), CompilerKnownDeclarationId::new(176), CompilerKnownDeclarationId::new(185), CompilerKnownDeclarationId::new(188), CompilerKnownDeclarationId::new(193), CompilerKnownDeclarationId::new(201), CompilerKnownDeclarationId::new(204), CompilerKnownDeclarationId::new(207), CompilerKnownDeclarationId::new(211), CompilerKnownDeclarationId::new(217), CompilerKnownDeclarationId::new(218), CompilerKnownDeclarationId::new(276), CompilerKnownDeclarationId::new(277), CompilerKnownDeclarationId::new(291), CompilerKnownDeclarationId::new(292), CompilerKnownDeclarationId::new(315), CompilerKnownDeclarationId::new(318), CompilerKnownDeclarationId::new(319), CompilerKnownDeclarationId::new(320), CompilerKnownDeclarationId::new(321), CompilerKnownDeclarationId::new(322), CompilerKnownDeclarationId::new(323), CompilerKnownDeclarationId::new(324), CompilerKnownDeclarationId::new(325), CompilerKnownDeclarationId::new(326), CompilerKnownDeclarationId::new(327), CompilerKnownDeclarationId::new(328), CompilerKnownDeclarationId::new(329), CompilerKnownDeclarationId::new(330), CompilerKnownDeclarationId::new(331), CompilerKnownDeclarationId::new(339), CompilerKnownDeclarationId::new(341), CompilerKnownDeclarationId::new(342)]),
         value_ids: Cow::Borrowed(&[CompilerKnownValueId::new(0), CompilerKnownValueId::new(1), CompilerKnownValueId::new(2), CompilerKnownValueId::new(3)]),
     },
     CompilerKnownScopeDescriptor {
@@ -36,14 +36,14 @@ static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
         id: CompilerKnownScopeId::new(2),
         key: CompilerKnownScopeKey::from_static("CoreMemory"),
         location: CatalogScopeLocation::Module(CatalogPath::from_static(&[Cow::Borrowed("core"), Cow::Borrowed("memory")])),
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(3), CompilerKnownDeclarationId::new(4), CompilerKnownDeclarationId::new(5), CompilerKnownDeclarationId::new(6), CompilerKnownDeclarationId::new(38), CompilerKnownDeclarationId::new(39), CompilerKnownDeclarationId::new(59), CompilerKnownDeclarationId::new(77), CompilerKnownDeclarationId::new(80), CompilerKnownDeclarationId::new(84), CompilerKnownDeclarationId::new(106), CompilerKnownDeclarationId::new(107), CompilerKnownDeclarationId::new(125), CompilerKnownDeclarationId::new(126), CompilerKnownDeclarationId::new(133), CompilerKnownDeclarationId::new(147), CompilerKnownDeclarationId::new(152), CompilerKnownDeclarationId::new(177), CompilerKnownDeclarationId::new(179), CompilerKnownDeclarationId::new(180), CompilerKnownDeclarationId::new(181), CompilerKnownDeclarationId::new(182), CompilerKnownDeclarationId::new(183), CompilerKnownDeclarationId::new(184), CompilerKnownDeclarationId::new(199), CompilerKnownDeclarationId::new(200), CompilerKnownDeclarationId::new(221), CompilerKnownDeclarationId::new(331), CompilerKnownDeclarationId::new(332), CompilerKnownDeclarationId::new(333), CompilerKnownDeclarationId::new(334), CompilerKnownDeclarationId::new(335), CompilerKnownDeclarationId::new(336), CompilerKnownDeclarationId::new(337), CompilerKnownDeclarationId::new(342), CompilerKnownDeclarationId::new(343)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(3), CompilerKnownDeclarationId::new(4), CompilerKnownDeclarationId::new(5), CompilerKnownDeclarationId::new(6), CompilerKnownDeclarationId::new(38), CompilerKnownDeclarationId::new(39), CompilerKnownDeclarationId::new(59), CompilerKnownDeclarationId::new(77), CompilerKnownDeclarationId::new(80), CompilerKnownDeclarationId::new(84), CompilerKnownDeclarationId::new(106), CompilerKnownDeclarationId::new(107), CompilerKnownDeclarationId::new(125), CompilerKnownDeclarationId::new(126), CompilerKnownDeclarationId::new(133), CompilerKnownDeclarationId::new(147), CompilerKnownDeclarationId::new(152), CompilerKnownDeclarationId::new(177), CompilerKnownDeclarationId::new(179), CompilerKnownDeclarationId::new(180), CompilerKnownDeclarationId::new(181), CompilerKnownDeclarationId::new(182), CompilerKnownDeclarationId::new(183), CompilerKnownDeclarationId::new(184), CompilerKnownDeclarationId::new(199), CompilerKnownDeclarationId::new(200), CompilerKnownDeclarationId::new(221), CompilerKnownDeclarationId::new(332), CompilerKnownDeclarationId::new(333), CompilerKnownDeclarationId::new(334), CompilerKnownDeclarationId::new(335), CompilerKnownDeclarationId::new(336), CompilerKnownDeclarationId::new(337), CompilerKnownDeclarationId::new(338), CompilerKnownDeclarationId::new(343), CompilerKnownDeclarationId::new(344)]),
         value_ids: Cow::Borrowed(&[]),
     },
     CompilerKnownScopeDescriptor {
         id: CompilerKnownScopeId::new(3),
         key: CompilerKnownScopeKey::from_static("CoreTargetControl"),
         location: CatalogScopeLocation::Module(CatalogPath::from_static(&[Cow::Borrowed("core"), Cow::Borrowed("target")])),
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(40), CompilerKnownDeclarationId::new(43), CompilerKnownDeclarationId::new(50), CompilerKnownDeclarationId::new(60), CompilerKnownDeclarationId::new(61), CompilerKnownDeclarationId::new(62), CompilerKnownDeclarationId::new(66), CompilerKnownDeclarationId::new(67), CompilerKnownDeclarationId::new(68), CompilerKnownDeclarationId::new(69), CompilerKnownDeclarationId::new(70), CompilerKnownDeclarationId::new(88), CompilerKnownDeclarationId::new(108), CompilerKnownDeclarationId::new(154), CompilerKnownDeclarationId::new(155), CompilerKnownDeclarationId::new(156), CompilerKnownDeclarationId::new(157), CompilerKnownDeclarationId::new(210), CompilerKnownDeclarationId::new(280), CompilerKnownDeclarationId::new(339), CompilerKnownDeclarationId::new(344), CompilerKnownDeclarationId::new(345)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(40), CompilerKnownDeclarationId::new(43), CompilerKnownDeclarationId::new(50), CompilerKnownDeclarationId::new(60), CompilerKnownDeclarationId::new(61), CompilerKnownDeclarationId::new(62), CompilerKnownDeclarationId::new(66), CompilerKnownDeclarationId::new(67), CompilerKnownDeclarationId::new(68), CompilerKnownDeclarationId::new(69), CompilerKnownDeclarationId::new(70), CompilerKnownDeclarationId::new(88), CompilerKnownDeclarationId::new(108), CompilerKnownDeclarationId::new(154), CompilerKnownDeclarationId::new(155), CompilerKnownDeclarationId::new(156), CompilerKnownDeclarationId::new(157), CompilerKnownDeclarationId::new(210), CompilerKnownDeclarationId::new(280), CompilerKnownDeclarationId::new(340), CompilerKnownDeclarationId::new(345), CompilerKnownDeclarationId::new(346)]),
         value_ids: Cow::Borrowed(&[]),
     },
     CompilerKnownScopeDescriptor {
@@ -99,21 +99,21 @@ static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
         id: CompilerKnownScopeId::new(11),
         key: CompilerKnownScopeKey::from_static("TargetPlatform"),
         location: CatalogScopeLocation::Module(CatalogPath::from_static(&[Cow::Borrowed("target"), Cow::Borrowed("platform")])),
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(287)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(287), CompilerKnownDeclarationId::new(288)]),
         value_ids: Cow::Borrowed(&[]),
     },
     CompilerKnownScopeDescriptor {
         id: CompilerKnownScopeId::new(12),
         key: CompilerKnownScopeKey::from_static("TargetPointer"),
         location: CatalogScopeLocation::Module(CatalogPath::from_static(&[Cow::Borrowed("target"), Cow::Borrowed("pointer")])),
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(288), CompilerKnownDeclarationId::new(289)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(289), CompilerKnownDeclarationId::new(290)]),
         value_ids: Cow::Borrowed(&[]),
     },
     CompilerKnownScopeDescriptor {
         id: CompilerKnownScopeId::new(13),
         key: CompilerKnownScopeKey::from_static("TargetScalar"),
         location: CatalogScopeLocation::Module(CatalogPath::from_static(&[Cow::Borrowed("target"), Cow::Borrowed("scalar")])),
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(292), CompilerKnownDeclarationId::new(293), CompilerKnownDeclarationId::new(294), CompilerKnownDeclarationId::new(295), CompilerKnownDeclarationId::new(296), CompilerKnownDeclarationId::new(297), CompilerKnownDeclarationId::new(298), CompilerKnownDeclarationId::new(299), CompilerKnownDeclarationId::new(300), CompilerKnownDeclarationId::new(301), CompilerKnownDeclarationId::new(302), CompilerKnownDeclarationId::new(303), CompilerKnownDeclarationId::new(304), CompilerKnownDeclarationId::new(305), CompilerKnownDeclarationId::new(306), CompilerKnownDeclarationId::new(307), CompilerKnownDeclarationId::new(308), CompilerKnownDeclarationId::new(309), CompilerKnownDeclarationId::new(310), CompilerKnownDeclarationId::new(311), CompilerKnownDeclarationId::new(312), CompilerKnownDeclarationId::new(313)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(293), CompilerKnownDeclarationId::new(294), CompilerKnownDeclarationId::new(295), CompilerKnownDeclarationId::new(296), CompilerKnownDeclarationId::new(297), CompilerKnownDeclarationId::new(298), CompilerKnownDeclarationId::new(299), CompilerKnownDeclarationId::new(300), CompilerKnownDeclarationId::new(301), CompilerKnownDeclarationId::new(302), CompilerKnownDeclarationId::new(303), CompilerKnownDeclarationId::new(304), CompilerKnownDeclarationId::new(305), CompilerKnownDeclarationId::new(306), CompilerKnownDeclarationId::new(307), CompilerKnownDeclarationId::new(308), CompilerKnownDeclarationId::new(309), CompilerKnownDeclarationId::new(310), CompilerKnownDeclarationId::new(311), CompilerKnownDeclarationId::new(312), CompilerKnownDeclarationId::new(313), CompilerKnownDeclarationId::new(314)]),
         value_ids: Cow::Borrowed(&[]),
     },
 ];
@@ -3001,6 +3001,16 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
     },
     CompilerKnownDeclarationDescriptor {
         id: CompilerKnownDeclarationId::new(288),
+        key: CompilerKnownDeclarationKey::from_static("TargetPlatformNativeThreads"),
+        owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(11)),
+        kind: CatalogDeclarationKind::Constant,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(4), range: TextRange::new(TextSize::new(8835), TextSize::new(8872)) }),
+        representation_role: None,
+        implementation_hook: None,
+        availability_rule: AvailabilityRule::Always,
+    },
+    CompilerKnownDeclarationDescriptor {
+        id: CompilerKnownDeclarationId::new(289),
         key: CompilerKnownDeclarationKey::from_static("TargetPointerBits"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(12)),
         kind: CatalogDeclarationKind::Constant,
@@ -3010,7 +3020,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(289),
+        id: CompilerKnownDeclarationId::new(290),
         key: CompilerKnownDeclarationKey::from_static("TargetPointerBytes"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(12)),
         kind: CatalogDeclarationKind::Constant,
@@ -3020,7 +3030,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(290),
+        id: CompilerKnownDeclarationId::new(291),
         key: CompilerKnownDeclarationKey::from_static("TargetReal128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3030,7 +3040,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Real128,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(291),
+        id: CompilerKnownDeclarationId::new(292),
         key: CompilerKnownDeclarationKey::from_static("TargetReal16"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3040,7 +3050,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Real16,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(292),
+        id: CompilerKnownDeclarationId::new(293),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarBool"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3050,7 +3060,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(293),
+        id: CompilerKnownDeclarationId::new(294),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarC128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3060,7 +3070,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(294),
+        id: CompilerKnownDeclarationId::new(295),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarC256"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3070,7 +3080,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(295),
+        id: CompilerKnownDeclarationId::new(296),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarC32"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3080,7 +3090,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(296),
+        id: CompilerKnownDeclarationId::new(297),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarC64"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3090,7 +3100,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(297),
+        id: CompilerKnownDeclarationId::new(298),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarChar"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3100,7 +3110,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(298),
+        id: CompilerKnownDeclarationId::new(299),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarI128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3110,7 +3120,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(299),
+        id: CompilerKnownDeclarationId::new(300),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarI16"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3120,7 +3130,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(300),
+        id: CompilerKnownDeclarationId::new(301),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarI32"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3130,7 +3140,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(301),
+        id: CompilerKnownDeclarationId::new(302),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarI64"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3140,7 +3150,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(302),
+        id: CompilerKnownDeclarationId::new(303),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarI8"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3150,7 +3160,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(303),
+        id: CompilerKnownDeclarationId::new(304),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarIsize"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3160,7 +3170,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(304),
+        id: CompilerKnownDeclarationId::new(305),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarR128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3170,7 +3180,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(305),
+        id: CompilerKnownDeclarationId::new(306),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarR16"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3180,7 +3190,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(306),
+        id: CompilerKnownDeclarationId::new(307),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarR32"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3190,7 +3200,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(307),
+        id: CompilerKnownDeclarationId::new(308),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarR64"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3200,7 +3210,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(308),
+        id: CompilerKnownDeclarationId::new(309),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarU128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3210,7 +3220,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(309),
+        id: CompilerKnownDeclarationId::new(310),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarU16"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3220,7 +3230,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(310),
+        id: CompilerKnownDeclarationId::new(311),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarU32"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3230,7 +3240,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(311),
+        id: CompilerKnownDeclarationId::new(312),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarU64"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3240,7 +3250,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(312),
+        id: CompilerKnownDeclarationId::new(313),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarU8"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3250,7 +3260,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(313),
+        id: CompilerKnownDeclarationId::new(314),
         key: CompilerKnownDeclarationKey::from_static("TargetScalarUsize"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(13)),
         kind: CatalogDeclarationKind::Constant,
@@ -3260,7 +3270,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(314),
+        id: CompilerKnownDeclarationId::new(315),
         key: CompilerKnownDeclarationKey::from_static("Task"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3270,9 +3280,9 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(315),
+        id: CompilerKnownDeclarationId::new(316),
         key: CompilerKnownDeclarationKey::from_static("TaskCancel"),
-        owner: CompilerKnownDeclarationOwner::Declaration(CompilerKnownDeclarationId::new(314)),
+        owner: CompilerKnownDeclarationOwner::Declaration(CompilerKnownDeclarationId::new(315)),
         kind: CatalogDeclarationKind::TypeCallableMember,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(1), range: TextRange::new(TextSize::new(1952), TextSize::new(2000)) }),
         representation_role: None,
@@ -3280,9 +3290,9 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(316),
+        id: CompilerKnownDeclarationId::new(317),
         key: CompilerKnownDeclarationKey::from_static("TaskJoin"),
-        owner: CompilerKnownDeclarationOwner::Declaration(CompilerKnownDeclarationId::new(314)),
+        owner: CompilerKnownDeclarationOwner::Declaration(CompilerKnownDeclarationId::new(315)),
         kind: CatalogDeclarationKind::TypeCallableMember,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(1), range: TextRange::new(TextSize::new(2107), TextSize::new(2153)) }),
         representation_role: None,
@@ -3290,7 +3300,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(317),
+        id: CompilerKnownDeclarationId::new(318),
         key: CompilerKnownDeclarationKey::from_static("U128"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3300,7 +3310,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(318),
+        id: CompilerKnownDeclarationId::new(319),
         key: CompilerKnownDeclarationKey::from_static("U128RangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3310,7 +3320,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(319),
+        id: CompilerKnownDeclarationId::new(320),
         key: CompilerKnownDeclarationKey::from_static("U16"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3320,7 +3330,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(320),
+        id: CompilerKnownDeclarationId::new(321),
         key: CompilerKnownDeclarationKey::from_static("U16RangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3330,7 +3340,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(321),
+        id: CompilerKnownDeclarationId::new(322),
         key: CompilerKnownDeclarationKey::from_static("U32"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3340,7 +3350,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(322),
+        id: CompilerKnownDeclarationId::new(323),
         key: CompilerKnownDeclarationKey::from_static("U32RangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3350,7 +3360,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(323),
+        id: CompilerKnownDeclarationId::new(324),
         key: CompilerKnownDeclarationKey::from_static("U64"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3360,7 +3370,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(324),
+        id: CompilerKnownDeclarationId::new(325),
         key: CompilerKnownDeclarationKey::from_static("U64RangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3370,7 +3380,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(325),
+        id: CompilerKnownDeclarationId::new(326),
         key: CompilerKnownDeclarationKey::from_static("U8"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3380,7 +3390,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(326),
+        id: CompilerKnownDeclarationId::new(327),
         key: CompilerKnownDeclarationKey::from_static("U8RangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3390,7 +3400,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(327),
+        id: CompilerKnownDeclarationId::new(328),
         key: CompilerKnownDeclarationKey::from_static("UnaryCallable"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::CallableContract,
@@ -3400,7 +3410,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(328),
+        id: CompilerKnownDeclarationId::new(329),
         key: CompilerKnownDeclarationKey::from_static("UncheckedAliasCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
@@ -3410,7 +3420,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(329),
+        id: CompilerKnownDeclarationId::new(330),
         key: CompilerKnownDeclarationKey::from_static("UncheckedInitializationCapability"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::TrustedCapability,
@@ -3420,7 +3430,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(330),
+        id: CompilerKnownDeclarationId::new(331),
         key: CompilerKnownDeclarationKey::from_static("Uninit"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3430,7 +3440,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(331),
+        id: CompilerKnownDeclarationId::new(332),
         key: CompilerKnownDeclarationKey::from_static("UninitAssumeInitialized"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3440,7 +3450,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(332),
+        id: CompilerKnownDeclarationId::new(333),
         key: CompilerKnownDeclarationKey::from_static("UninitInitialized"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Predicate,
@@ -3450,7 +3460,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(333),
+        id: CompilerKnownDeclarationId::new(334),
         key: CompilerKnownDeclarationKey::from_static("UninitMove"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3460,7 +3470,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(334),
+        id: CompilerKnownDeclarationId::new(335),
         key: CompilerKnownDeclarationKey::from_static("UninitNew"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3470,7 +3480,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(335),
+        id: CompilerKnownDeclarationId::new(336),
         key: CompilerKnownDeclarationKey::from_static("UninitPointer"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3480,7 +3490,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(336),
+        id: CompilerKnownDeclarationId::new(337),
         key: CompilerKnownDeclarationKey::from_static("UninitPointerMut"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3490,7 +3500,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(337),
+        id: CompilerKnownDeclarationId::new(338),
         key: CompilerKnownDeclarationKey::from_static("UninitWrite"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Function,
@@ -3500,7 +3510,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(338),
+        id: CompilerKnownDeclarationId::new(339),
         key: CompilerKnownDeclarationKey::from_static("Unit"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3510,7 +3520,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(339),
+        id: CompilerKnownDeclarationId::new(340),
         key: CompilerKnownDeclarationKey::from_static("UnreachableTermination"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(3)),
         kind: CatalogDeclarationKind::Function,
@@ -3520,7 +3530,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(340),
+        id: CompilerKnownDeclarationId::new(341),
         key: CompilerKnownDeclarationKey::from_static("Usize"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
@@ -3530,7 +3540,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(341),
+        id: CompilerKnownDeclarationId::new(342),
         key: CompilerKnownDeclarationKey::from_static("UsizeRangeElementImplementation"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::NamedTraitImplementation,
@@ -3540,7 +3550,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::Always,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(342),
+        id: CompilerKnownDeclarationId::new(343),
         key: CompilerKnownDeclarationKey::from_static("ValidRead"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Predicate,
@@ -3550,7 +3560,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(343),
+        id: CompilerKnownDeclarationId::new(344),
         key: CompilerKnownDeclarationKey::from_static("ValidWrite"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(2)),
         kind: CatalogDeclarationKind::Predicate,
@@ -3560,7 +3570,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(344),
+        id: CompilerKnownDeclarationId::new(345),
         key: CompilerKnownDeclarationKey::from_static("VolatileLoad"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(3)),
         kind: CatalogDeclarationKind::Function,
@@ -3570,7 +3580,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         availability_rule: AvailabilityRule::RawMemory,
     },
     CompilerKnownDeclarationDescriptor {
-        id: CompilerKnownDeclarationId::new(345),
+        id: CompilerKnownDeclarationId::new(346),
         key: CompilerKnownDeclarationKey::from_static("VolatileStore"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(3)),
         kind: CatalogDeclarationKind::Function,
@@ -3628,35 +3638,35 @@ static COMPILER_KNOWN_REPRESENTATION_ROLES: &[CompilerKnownRepresentationBinding
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarI32, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(100)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarI64, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(102)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarI128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(96)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU8, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(325)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(319)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU32, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(321)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU64, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(323)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(317)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU8, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(326)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(320)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU32, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(322)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU64, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(324)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(318)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarIsize, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(110)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarUsize, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(340)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(291)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarUsize, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(341)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(292)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR32, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(158)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR64, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(159)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(290)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(291)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarC32, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(277)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarC64, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(42)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarC128, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(41)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarC256, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(276)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::Unit, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(338)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::Unit, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(339)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Never, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(146)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::String, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(217)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Range, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(160)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::RawPointer, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(176)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::DevicePointer, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(64)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Atomic, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(7)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::Uninit, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(330)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::Uninit, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(331)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Result, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(188)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::RunResult, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(193)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::PanicReport, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(153)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ConversionError, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(52)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Future, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(86)) },
-    CompilerKnownRepresentationBinding { role: RepresentationRole::Task, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(314)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::Task, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(315)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::BooleanTrue, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(2)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::BooleanFalse, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(0)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::UnitValue, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(3)) },
@@ -3675,18 +3685,18 @@ static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding
     CompilerKnownImplementationBinding { hook: ImplementationHook::RawPointerWrite, declaration: CompilerKnownDeclarationId::new(184) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::MemoryCopy, declaration: CompilerKnownDeclarationId::new(125) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::MemoryCopyOverlapping, declaration: CompilerKnownDeclarationId::new(126) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitNew, declaration: CompilerKnownDeclarationId::new(334) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitPointer, declaration: CompilerKnownDeclarationId::new(335) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitPointerMut, declaration: CompilerKnownDeclarationId::new(336) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitWrite, declaration: CompilerKnownDeclarationId::new(337) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitAssumeInitialized, declaration: CompilerKnownDeclarationId::new(331) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitMove, declaration: CompilerKnownDeclarationId::new(333) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitNew, declaration: CompilerKnownDeclarationId::new(335) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitPointer, declaration: CompilerKnownDeclarationId::new(336) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitPointerMut, declaration: CompilerKnownDeclarationId::new(337) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitWrite, declaration: CompilerKnownDeclarationId::new(338) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitAssumeInitialized, declaration: CompilerKnownDeclarationId::new(332) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UninitMove, declaration: CompilerKnownDeclarationId::new(334) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::BorrowFrom, declaration: CompilerKnownDeclarationId::new(38) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::BorrowMutFrom, declaration: CompilerKnownDeclarationId::new(39) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::RawAllocate, declaration: CompilerKnownDeclarationId::new(6) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::RawDeallocate, declaration: CompilerKnownDeclarationId::new(59) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::VolatileLoad, declaration: CompilerKnownDeclarationId::new(344) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::VolatileStore, declaration: CompilerKnownDeclarationId::new(345) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::VolatileLoad, declaration: CompilerKnownDeclarationId::new(345) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::VolatileStore, declaration: CompilerKnownDeclarationId::new(346) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::DeviceVolatileLoad, declaration: CompilerKnownDeclarationId::new(68) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::DeviceVolatileStore, declaration: CompilerKnownDeclarationId::new(69) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::PointerExposeAddress, declaration: CompilerKnownDeclarationId::new(156) },
@@ -3697,7 +3707,7 @@ static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding
     CompilerKnownImplementationBinding { hook: ImplementationHook::HardwareFence, declaration: CompilerKnownDeclarationId::new(88) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::CatastrophicAbort, declaration: CompilerKnownDeclarationId::new(43) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::DebuggerTrap, declaration: CompilerKnownDeclarationId::new(60) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::UnreachableTermination, declaration: CompilerKnownDeclarationId::new(339) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::UnreachableTermination, declaration: CompilerKnownDeclarationId::new(340) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::SpinLoopHint, declaration: CompilerKnownDeclarationId::new(210) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::TargetFeatureEnabled, declaration: CompilerKnownDeclarationId::new(280) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::InlineAssembly, declaration: CompilerKnownDeclarationId::new(108) },
@@ -3720,8 +3730,8 @@ static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding
     CompilerKnownImplementationBinding { hook: ImplementationHook::AtomicNotifyOne, declaration: CompilerKnownDeclarationId::new(21) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::AtomicNotifyAll, declaration: CompilerKnownDeclarationId::new(20) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::FutureStart, declaration: CompilerKnownDeclarationId::new(87) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::TaskJoin, declaration: CompilerKnownDeclarationId::new(316) },
-    CompilerKnownImplementationBinding { hook: ImplementationHook::TaskCancel, declaration: CompilerKnownDeclarationId::new(315) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::TaskJoin, declaration: CompilerKnownDeclarationId::new(317) },
+    CompilerKnownImplementationBinding { hook: ImplementationHook::TaskCancel, declaration: CompilerKnownDeclarationId::new(316) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::BlockingExecution, declaration: CompilerKnownDeclarationId::new(36) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::ComputeExecution, declaration: CompilerKnownDeclarationId::new(51) },
     CompilerKnownImplementationBinding { hook: ImplementationHook::MainThreadExecution, declaration: CompilerKnownDeclarationId::new(120) },
@@ -5944,6 +5954,11 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(4), range: TextRange::new(TextSize::new(8725), TextSize::new(8763)) }),
         kind: CatalogDeclarationKind::Constant,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::ConstantDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::ConstantModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::ConstantModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ConstKeyword, "const")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "dynamic_loading")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::EqualsToken, "=")), CatalogSurfaceElement::EnterNode(SyntaxKind::Expression), CatalogSurfaceElement::EnterNode(SyntaxKind::PrimaryExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::LiteralExpression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FalseKeyword, "false")), CatalogSurfaceElement::ExitNode(SyntaxKind::LiteralExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::PrimaryExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::Expression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::ConstantDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(4), range: TextRange::new(TextSize::new(8835), TextSize::new(8872)) }),
+        kind: CatalogDeclarationKind::Constant,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::ConstantDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::ConstantModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::ConstantModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ConstKeyword, "const")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "native_threads")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::EqualsToken, "=")), CatalogSurfaceElement::EnterNode(SyntaxKind::Expression), CatalogSurfaceElement::EnterNode(SyntaxKind::PrimaryExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::LiteralExpression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FalseKeyword, "false")), CatalogSurfaceElement::ExitNode(SyntaxKind::LiteralExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::PrimaryExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::Expression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::ConstantDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(5), range: TextRange::new(TextSize::new(142), TextSize::new(163)) }),

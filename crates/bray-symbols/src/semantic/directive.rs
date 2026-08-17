@@ -29,6 +29,8 @@ pub enum DirectiveKind {
     Symbol,
     /// Marks a function as an executable entry point.
     Entrypoint,
+    /// Gives a static declaration one instance per exact native-thread attachment.
+    ThreadLocal,
 }
 
 impl DirectiveKind {
@@ -44,6 +46,7 @@ impl DirectiveKind {
             SyntaxKind::AbiDirective => Some(Self::Abi),
             SyntaxKind::SymbolDirective => Some(Self::Symbol),
             SyntaxKind::EntrypointDirective => Some(Self::Entrypoint),
+            SyntaxKind::ThreadLocalDirective => Some(Self::ThreadLocal),
             _ => None,
         }
     }

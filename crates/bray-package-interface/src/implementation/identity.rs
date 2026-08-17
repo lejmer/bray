@@ -313,7 +313,8 @@ fn target_property_value_matches_kind(
         | TargetPropertyKind::AbiSystem
         | TargetPropertyKind::AddressSpaceHost
         | TargetPropertyKind::AddressSpaceDevice
-        | TargetPropertyKind::PlatformDynamicLoading => {
+        | TargetPropertyKind::PlatformDynamicLoading
+        | TargetPropertyKind::PlatformNativeThreads => {
             matches!(value, PackageImplementationTargetPropertyValue::Boolean(_))
         }
     }

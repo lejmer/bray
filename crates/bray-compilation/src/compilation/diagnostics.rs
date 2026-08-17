@@ -23,9 +23,9 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsQuery, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
-    ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, SymbolGraph, SymbolKey, SymbolOrigin,
-    SymbolQueryRequest, TraitImplementationConformanceQuery, diagnostic_symbol_identity,
-    diagnostic_symbol_kind,
+    ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, StaticInstanceTemplate, SymbolGraph,
+    SymbolKey, SymbolOrigin, SymbolQueryRequest, TraitImplementationConformanceQuery,
+    diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 use bray_syntax::{
     ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
@@ -391,6 +391,14 @@ impl Compilation {
                 .symbol_for_key(key.declared_owner())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
+            if let AnySymbolId::Static(declaration) = owner {
+                sources.push(SemanticDiagnosticSource::StaticTemplate(
+                    self.static_instance_template(declaration)?,
+                ));
+
+                return Ok((bound, sources));
+            }
+
             let definition =
                 constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -476,7 +484,9 @@ impl Compilation {
         }
 
         let constructor = match declaration.kind() {
-            DeclarationKind::Constant | DeclarationKind::TraitConstantMember => {
+            DeclarationKind::Constant
+            | DeclarationKind::Static
+            | DeclarationKind::TraitConstantMember => {
                 BoundUnitKey::constant_template
             }
             DeclarationKind::Predicate | DeclarationKind::TraitPredicateMember => {
@@ -674,6 +684,7 @@ enum SemanticDiagnosticSource {
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     TargetValidity(DiagnosticBag),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
+    StaticTemplate(Arc<DiagnosticResult<StaticInstanceTemplate>>),
     ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
     CallableContracts(
@@ -712,6 +723,7 @@ impl SemanticDiagnosticSource {
             Self::BodyBehavior(result) => result.diagnostics(),
             Self::TargetValidity(diagnostics) => diagnostics,
             Self::ConstantTemplate(result) => result.diagnostics(),
+            Self::StaticTemplate(result) => result.diagnostics(),
             Self::ConstantInstance(result) => result.diagnostics(),
             Self::ModuleSurface(result) => result.diagnostics(),
             Self::CallableContracts(result) => result.diagnostics(),
@@ -777,11 +789,9 @@ impl SemanticSyntaxIndex {
                 entry.has_callable_body = true;
             }
 
-            for active_anchor in &active {
-                let Some(entry) = entries.get_mut(active_anchor) else {
-                    continue;
-                };
-
+            if let Some(active_anchor) = active.last()
+                && let Some(entry) = entries.get_mut(active_anchor)
+            {
                 if node.kind() == SyntaxKind::Expression && entry.first_expression.is_none() {
                     entry.first_expression = Some(anchor);
 

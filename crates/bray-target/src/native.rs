@@ -112,6 +112,7 @@ impl NativeTarget {
                 .with_atomics(native_atomic_properties())
                 .with_operations(TargetOperationSupport::new(true, true))
                 .with_dynamic_loading(true)
+                .with_native_threads(true)
         })
         .unwrap_or_else(|| panic!("native target properties must be valid"));
 

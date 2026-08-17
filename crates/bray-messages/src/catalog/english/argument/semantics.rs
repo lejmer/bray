@@ -469,6 +469,7 @@ pub(super) fn format_english_storage_access(access: &DiagnosticStorageAccess) ->
         DiagnosticStorageRoot::Local => "local storage",
         DiagnosticStorageRoot::Parameter => "parameter storage",
         DiagnosticStorageRoot::Receiver => "receiver storage",
+        DiagnosticStorageRoot::Static => "static storage",
         DiagnosticStorageRoot::AnonymousParameter => "anonymous parameter storage",
         DiagnosticStorageRoot::PredicateParameter => "predicate parameter storage",
         DiagnosticStorageRoot::PostconditionResult => "postcondition result storage",

@@ -841,14 +841,14 @@ fn bind_remaining_path(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{TextRange, TextSize};
     use bray_symbols::{
         AnyLocalSymbolId, AnySymbolId, LocalSymbolRegionId, MemberEntry, MemberLookupIndex,
         MemberLookupResult, MemberValidity, MemberVisibility, SymbolKind, SymbolName, SymbolOrigin,
     };
     use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxKind, SyntaxToken};
-    use bray_testing::{test_source_at, test_source_store};
+    use bray_testing::{diagnostics_of_kind, test_source_at, test_source_store};
 
     use super::{NameAccess, PathBindingContext};
     use crate::BindingQueryContext;
@@ -858,16 +858,6 @@ mod tests {
     use crate::lookup::test_support::{path, source_module, text_range};
     use crate::query::test_support::TestFixture as QueryFixture;
     use crate::unit::test_support::{builder, fixture, push_binding};
-
-    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
-        DiagnosticBag::from(
-            diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.kind() == kind)
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    }
 
     #[test]
     fn typed_paths_resolve_modules_declarations_overloads_and_members() {

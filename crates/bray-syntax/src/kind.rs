@@ -45,6 +45,14 @@ pub enum SyntaxKind {
     ConstantDeclaration,
     /// Optional constant declaration modifiers in source order.
     ConstantModifiers,
+    /// Module-level static storage declaration.
+    StaticDeclaration,
+    /// Static declaration directives in source order.
+    StaticDirectives,
+    /// `@thread_local` static directive.
+    ThreadLocalDirective,
+    /// Optional static declaration modifiers in source order.
+    StaticDeclarationModifiers,
     /// Module-level function declaration.
     FunctionDeclaration,
     /// Function directives in source order.
@@ -488,6 +496,10 @@ impl SyntaxKind {
                 | Self::ExportDeclaration
                 | Self::ConstantDeclaration
                 | Self::ConstantModifiers
+                | Self::StaticDeclaration
+                | Self::StaticDirectives
+                | Self::ThreadLocalDirective
+                | Self::StaticDeclarationModifiers
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
@@ -827,6 +839,10 @@ impl SyntaxKind {
             Self::ExportDeclaration => "export_declaration",
             Self::ConstantDeclaration => "constant_declaration",
             Self::ConstantModifiers => "constant_modifiers",
+            Self::StaticDeclaration => "static_declaration",
+            Self::StaticDirectives => "static_directives",
+            Self::ThreadLocalDirective => "thread_local_directive",
+            Self::StaticDeclarationModifiers => "static_declaration_modifiers",
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",

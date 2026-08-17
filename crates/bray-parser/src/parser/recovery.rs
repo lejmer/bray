@@ -32,6 +32,7 @@ use bray_syntax::{
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
     SequencedExpressionSyntaxBuilder, SliceIndexOperationSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    StaticDeclarationSyntaxBuilder, StaticDirectivesSyntaxBuilder,
     StructConstructionBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
     StructFieldDeclarationSyntaxBuilder, StructFieldInitializerSyntaxBuilder, SyntaxKind,
     SyntaxToken, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
@@ -253,6 +254,18 @@ impl RecoverySyntaxSink for ExportDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for ConstantDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ConstantDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StaticDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StaticDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StaticDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StaticDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

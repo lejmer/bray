@@ -11,6 +11,7 @@ mod module;
 mod predicate;
 mod representation;
 mod signature;
+mod static_storage;
 mod target;
 mod template;
 mod type_expression;
@@ -39,7 +40,9 @@ pub use contract::{
     ImplementationSelectionQuery, ImplementationSubjectQuery, ImplementedTraitApplicationQuery,
     InherentTypeMemberValueQuery, ModuleSurfaceQuery, PredicateDefinitionQuery,
     PredicateSignatureTemplateQuery, SemanticQueryContract, StructFieldDefaultQuery,
-    StructFieldDefaultTemplateQuery, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
+    StaticDeclaredTypeQuery, StaticInstanceTemplateQuery,
+    StructFieldDefaultTemplateQuery,
+    StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
     TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
     TraitImplementationConformanceQuery, TraitPredicateFulfillmentDefinitionQuery,
@@ -95,6 +98,9 @@ pub use representation::{
 pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
+};
+pub use static_storage::{
+    StaticInstanceKey, StaticInstanceTemplate, StaticInstanceTemplateId, StaticStorageDuration,
 };
 pub use target::{ModuleContributionGate, TargetPropertyDependency};
 pub use template::{

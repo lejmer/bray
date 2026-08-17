@@ -297,6 +297,7 @@ where
         }
         Some(
             StorageIdentity::LocalOwned(_)
+            | StorageIdentity::Static(_)
             | StorageIdentity::Parameter(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)

@@ -819,6 +819,14 @@ const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" does not provide the required "),
     MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
 ];
+const CHECKING_THREAD_LOCAL_STATIC_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("thread-local static storage is unavailable for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CHECKING_STATIC_DEPENDENCY_OUTLIVES_OWNER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("product-static storage requires a product-rooted dependency, found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
+];
 
 const CHECKING_INVALID_TARGET_CONTROL_CONTRACT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("the "),
@@ -2440,6 +2448,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTargetMemoryOperationUnavailable => {
             MessageTemplate::new(CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingThreadLocalStaticUnavailable => {
+            MessageTemplate::new(CHECKING_THREAD_LOCAL_STATIC_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingStaticDependencyOutlivesOwner => {
+            MessageTemplate::new(CHECKING_STATIC_DEPENDENCY_OUTLIVES_OWNER)
         }
         DiagnosticKind::CheckingInvalidTargetControlContract => {
             MessageTemplate::new(CHECKING_INVALID_TARGET_CONTROL_CONTRACT)

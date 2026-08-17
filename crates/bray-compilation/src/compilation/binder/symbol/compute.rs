@@ -8,14 +8,15 @@ use bray_symbols::{
     GenericConstParameterSymbolId, ImplementationCoherenceKey, ImplementationCoherenceQuery,
     ImplementationSubjectQuery, ImplementationSubjectTemplate, ImplementationSymbolId,
     ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, StructFieldTypeQuery,
-    SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
+    StaticDeclaredTypeQuery, SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
     TraitTypeFulfillmentValueQuery, UnionPayloadFieldTypeQuery,
 };
 use bray_syntax::{
     CallableContractDeclarationSyntax, ConstantDeclarationSyntax, GenericConstParameterSyntax,
     ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
-    StructFieldDeclarationSyntax, SyntaxKind, SyntaxWalkControl, TraitApplicationSyntax,
+    StaticDeclarationSyntax, StructFieldDeclarationSyntax, SyntaxKind, SyntaxWalkControl,
+    TraitApplicationSyntax,
     TraitConstantMemberDeclarationSyntax, TypeExpressionSyntax, UnionPayloadFieldSyntax,
     walk_direct_child_nodes,
 };
@@ -104,6 +105,12 @@ impl CompilationSymbolQueryEvaluator<ConstantDeclaredTypeQuery> for CompilationS
         })
     }
 }
+
+impl_declared_type_query!(
+    StaticDeclaredTypeQuery,
+    static_declared_types,
+    StaticDeclarationSyntax
+);
 
 impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
     for CompilationSymbolSemantics

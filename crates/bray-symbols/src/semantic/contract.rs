@@ -6,7 +6,7 @@ use crate::{
     InherentTypeMemberSymbolId, ModuleSymbolId, PredicateSymbolId, StructFieldSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
-    UnionPayloadFieldSymbolId,
+    StaticSymbolId, UnionPayloadFieldSymbolId,
 };
 
 use super::{
@@ -17,8 +17,8 @@ use super::{
     ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
     ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
     OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
-    PredicateSignatureTemplate, SymbolQueryKind, TraitApplicationTemplate, TypeExpressionTemplate,
-    UnevaluatedDefaultTemplate,
+    PredicateSignatureTemplate, StaticInstanceTemplate, SymbolQueryKind,
+    TraitApplicationTemplate, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
 };
 
 mod sealed {
@@ -187,6 +187,13 @@ define_resolve_symbol_query_contract! {
         kind: ConstantDeclaredType,
         erase: |owner: ConstantSymbolId| owner.into(),
     }
+    /// The declared type of one static storage declaration.
+    StaticDeclaredTypeQuery {
+        owner: StaticSymbolId,
+        value: TypeExpressionTemplate,
+        kind: ConstantDeclaredType,
+        erase: |owner: StaticSymbolId| owner.into(),
+    }
     /// The declared type of one generic constant parameter.
     GenericConstParameterDeclaredTypeQuery {
         owner: GenericConstParameterSymbolId,
@@ -214,6 +221,13 @@ define_resolve_symbol_query_contract! {
         value: ConstantDefinitionState,
         kind: ConstantDefinition,
         erase: |owner: ConstantSymbolId| owner.into(),
+    }
+    /// The complete checked open instance template of one static declaration.
+    StaticInstanceTemplateQuery {
+        owner: StaticSymbolId,
+        value: StaticInstanceTemplate,
+        kind: StaticInstanceTemplate,
+        erase: |owner: StaticSymbolId| owner.into(),
     }
     /// The checked template state of one trait constant member.
     TraitConstantMemberDefinitionQuery {

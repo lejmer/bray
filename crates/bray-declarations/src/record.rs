@@ -13,6 +13,8 @@ pub enum DeclarationKind {
     Export,
     /// Constant declaration.
     Constant,
+    /// Static storage declaration.
+    Static,
     /// Function declaration.
     Function,
     /// Predicate declaration.
@@ -89,6 +91,7 @@ impl DeclarationKind {
             Self::Using => "using",
             Self::Export => "export",
             Self::Constant => "constant",
+            Self::Static => "static",
             Self::Function => "function",
             Self::Predicate => "predicate",
             Self::CallableContract => "callable_contract",
@@ -134,6 +137,7 @@ impl DeclarationKind {
             | Self::UnnamedTraitImplementation
             | Self::NamedTraitImplementation => Some(ContainerKind::Implementation),
             Self::CallableContract
+            | Self::Static
             | Self::Function
             | Self::Predicate
             | Self::TraitPredicateMember

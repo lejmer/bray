@@ -77,6 +77,8 @@ where
             | BoundDependencySubject::BorrowCapability(_)
             | BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
+            | BoundDependencySubject::ProductStatic(_)
+            | BoundDependencySubject::ExactThreadStatic(_)
             | BoundDependencySubject::LifecycleObligation(_) => {
                 Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
             }
@@ -104,7 +106,9 @@ where
                 .receiver()
                 .map(bray_bound_tree::SelectedReceiver::expression),
             DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_) => None,
+            | DependencySubjectRoot::ImplementationWitness(_)
+            | DependencySubjectRoot::ProductStatic(_)
+            | DependencySubjectRoot::ExactThreadStatic(_) => None,
         }
     }
 
@@ -118,7 +122,9 @@ where
             DependencySubjectRoot::Result => Some(result),
             DependencySubjectRoot::Parameter(_)
             | DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_) => None,
+            | DependencySubjectRoot::ImplementationWitness(_)
+            | DependencySubjectRoot::ProductStatic(_)
+            | DependencySubjectRoot::ExactThreadStatic(_) => None,
         }
     }
 
@@ -166,7 +172,9 @@ where
             }
             DependencySubjectRoot::Result
             | DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_) => false,
+            | DependencySubjectRoot::ImplementationWitness(_)
+            | DependencySubjectRoot::ProductStatic(_)
+            | DependencySubjectRoot::ExactThreadStatic(_) => false,
         };
 
         Ok(transferred
@@ -209,6 +217,16 @@ where
     ) -> Result<BoundDependencySubject, Self::Error> {
         if let DependencySubjectRoot::ImplementationWitness(witness) = subject.subject_root() {
             return Ok(BoundDependencySubject::ImplementationWitness(witness));
+        }
+
+        match subject.subject_root() {
+            DependencySubjectRoot::ProductStatic(id) => {
+                return Ok(BoundDependencySubject::ProductStatic(id));
+            }
+            DependencySubjectRoot::ExactThreadStatic(id) => {
+                return Ok(BoundDependencySubject::ExactThreadStatic(id));
+            }
+            _ => {}
         }
 
         let root = subject.subject_root();

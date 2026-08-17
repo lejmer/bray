@@ -2,6 +2,7 @@ mod block;
 mod callable;
 mod callable_contract;
 mod constant;
+mod static_storage;
 mod contract;
 mod directive;
 mod expression;
@@ -46,6 +47,11 @@ pub use constant::{
     ConstantModifiersSyntaxBuilder, TraitConstantMemberDeclarationSyntax,
     TraitConstantMemberDeclarationSyntaxBuilder,
 };
+pub use static_storage::{
+    StaticDeclarationModifiersSyntax, StaticDeclarationModifiersSyntaxBuilder,
+    StaticDeclarationSyntax, StaticDeclarationSyntaxBuilder, StaticDirectivesSyntax,
+    StaticDirectivesSyntaxBuilder,
+};
 pub use contract::{
     EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, RequiresClauseSyntax,
     RequiresClauseSyntaxBuilder, StaticTypeOperandSyntax, TraitSatisfactionConstraintSyntax,
@@ -60,6 +66,7 @@ pub use directive::{
     LinkDirectiveSyntaxBuilder, SymbolDirectiveSyntax, SymbolDirectiveSyntaxBuilder,
     TagDirectiveSyntax, TagDirectiveSyntaxBuilder, TargetDirectiveSyntax,
     TargetDirectiveSyntaxBuilder, TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+    ThreadLocalDirectiveSyntax, ThreadLocalDirectiveSyntaxBuilder,
 };
 pub use expression::{
     AbsenceExpressionSyntax, AbsenceExpressionSyntaxBuilder, AccessExpressionSyntax,

@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
-use crate::{StructFieldSymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
+use crate::{
+    StaticSymbolId, StructFieldSymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId,
+    UnionVariantSymbolId,
+};
 
 use super::{BorrowKind, ConstantTermId, ImplementationInstanceId};
 
@@ -19,6 +22,10 @@ pub enum DependencySubjectRoot {
     ScopedCapability(SymbolOrdinal),
     /// A required selected implementation witness.
     ImplementationWitness(ImplementationInstanceId),
+    /// Storage owned by one product-static instance.
+    ProductStatic(StaticSymbolId),
+    /// Storage owned by one exact native-thread static instance.
+    ExactThreadStatic(StaticSymbolId),
 }
 
 /// One source-independent projection from a formal dependency subject.

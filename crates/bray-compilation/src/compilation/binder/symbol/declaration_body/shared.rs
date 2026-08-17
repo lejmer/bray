@@ -6,11 +6,11 @@ use bray_symbols::{DependencyContractTemplateId, TypeId};
 use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
 
-pub(super) struct CheckedSourceExpression {
-    pub(super) result: TypeId,
-    pub(super) dependency_contract: DependencyContractTemplateId,
-    pub(super) diagnostics: DiagnosticBag,
-    pub(super) is_recovered: bool,
+pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
+    pub(in crate::compilation::binder::symbol) result: TypeId,
+    pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,
+    pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
+    pub(in crate::compilation::binder::symbol) is_recovered: bool,
 }
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
@@ -19,7 +19,7 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
 }
 
-pub(super) fn checked_source_expression(
+pub(in crate::compilation::binder::symbol) fn checked_source_expression(
     context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
 ) -> BindingQueryResult<CheckedSourceExpression> {

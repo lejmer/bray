@@ -4,7 +4,7 @@ use bray_base::sorted_unique_shared_slice;
 use bray_symbols::{
     BorrowKind, DependencyContractTemplateData, DependencyGuard, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, ImplementationInstanceId,
-    LifecycleObligationKind, UnionVariantSymbolId,
+    LifecycleObligationKind, StaticSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;
@@ -60,6 +60,10 @@ pub enum BoundDependencySubject {
     ScopedCapability(ScopedCapabilityId),
     /// A selected semantic implementation witness.
     ImplementationWitness(ImplementationInstanceId),
+    /// One product-static declaration instance.
+    ProductStatic(StaticSymbolId),
+    /// One exact native-thread static declaration instance.
+    ExactThreadStatic(StaticSymbolId),
     /// A value-attached lifecycle obligation.
     LifecycleObligation(LifecycleObligationId),
 }
@@ -72,7 +76,9 @@ impl BoundDependencySubject {
             Self::BorrowCapability(capability) => capability.unit() == unit,
             Self::ScopedCapability(capability) => capability.unit() == unit,
             Self::LifecycleObligation(obligation) => obligation.unit() == unit,
-            Self::ImplementationWitness(_) => true,
+            Self::ImplementationWitness(_) | Self::ProductStatic(_) | Self::ExactThreadStatic(_) => {
+                true
+            }
         }
     }
 
@@ -83,7 +89,9 @@ impl BoundDependencySubject {
             Self::BorrowCapability(capability) => storage.borrow_capability(capability).is_some(),
             Self::ScopedCapability(capability) => capability.unit() == storage.unit(),
             Self::LifecycleObligation(obligation) => obligation.unit() == storage.unit(),
-            Self::ImplementationWitness(_) => true,
+            Self::ImplementationWitness(_) | Self::ProductStatic(_) | Self::ExactThreadStatic(_) => {
+                true
+            }
         }
     }
 }

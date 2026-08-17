@@ -9,7 +9,7 @@ use crate::{
     ImplementationOverloadSymbolId, InherentImplementationSymbolId, InherentTypeMemberSymbolId,
     NamedTraitImplementationSymbolId, PredicateDefinitionSymbolId, PredicateParameterSymbolId,
     PredicateSymbolId, ReceiverParameterSymbolId, ScopeEnterSymbolId, ScopeExitSymbolId,
-    StructFieldSymbolId, StructSymbolId, TraitCallableFulfillmentSymbolId,
+    StaticSymbolId, StructFieldSymbolId, StructSymbolId, TraitCallableFulfillmentSymbolId,
     TraitCallableMemberSymbolId, TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitDestructorRequirementSymbolId, TraitFinalizerRequirementSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
@@ -564,6 +564,7 @@ fn predicate_owner(owner: AnySymbolId) -> Option<PredicateDefinitionSymbolId> {
 pub(crate) struct ModuleRelationships {
     pub(crate) trusted_capabilities: Box<[TrustedCapabilitySymbolId]>,
     pub(crate) constants: Box<[ConstantSymbolId]>,
+    pub(crate) statics: Box<[StaticSymbolId]>,
     pub(crate) functions: Box<[FunctionSymbolId]>,
     pub(crate) predicates: Box<[PredicateSymbolId]>,
     pub(crate) callable_contracts: Box<[CallableContractSymbolId]>,
@@ -582,6 +583,7 @@ impl ModuleRelationships {
         Self {
             trusted_capabilities: collect_children!(index, owner, TrustedCapability),
             constants: collect_children!(index, owner, Constant),
+            statics: collect_children!(index, owner, Static),
             functions: collect_children!(index, owner, Function),
             predicates: collect_children!(index, owner, Predicate),
             callable_contracts: collect_children!(index, owner, CallableContract),
@@ -647,7 +649,7 @@ build_from_erased!(PredicateRelationships:
     TraitPredicateMemberSymbolId,
     TraitPredicateFulfillmentSymbolId,
 );
-build_from_erased!(GenericRelationships: CallableContractSymbolId);
+build_from_erased!(GenericRelationships: CallableContractSymbolId, StaticSymbolId);
 build_from_erased!(OverloadRelationships:
     CallableOverloadSymbolId,
     ImplementationOverloadSymbolId,

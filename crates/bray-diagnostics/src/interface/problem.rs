@@ -23,6 +23,7 @@ define_interface_symbol_kinds! {
     Module => "module", "A logical module.";
     TrustedCapability => "trusted_capability", "A compiler-known trusted capability.";
     Constant => "constant", "A constant declaration.";
+    Static => "static", "A static storage declaration.";
     Function => "function", "A function declaration.";
     Predicate => "predicate", "A predicate declaration.";
     CallableContract => "callable_contract", "A callable contract declaration.";

@@ -387,6 +387,7 @@ pub(crate) const fn format_english_interface_symbol_kind(
         Kind::Module => "module",
         Kind::TrustedCapability => "trusted capability",
         Kind::Constant => "constant",
+        Kind::Static => "static",
         Kind::Function => "function",
         Kind::Predicate => "predicate",
         Kind::CallableContract => "callable contract",

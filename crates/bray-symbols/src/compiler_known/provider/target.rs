@@ -126,5 +126,6 @@ const fn target_property_catalog_key(property: TargetPropertyKind) -> &'static s
         TargetPropertyKind::AlignmentMaxStorage => "TargetAlignmentMaxStorage",
         TargetPropertyKind::AlignmentMaxAllocation => "TargetAlignmentMaxAllocation",
         TargetPropertyKind::PlatformDynamicLoading => "TargetPlatformDynamicLoading",
+        TargetPropertyKind::PlatformNativeThreads => "TargetPlatformNativeThreads",
     }
 }

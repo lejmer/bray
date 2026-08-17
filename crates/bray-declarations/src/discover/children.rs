@@ -4,7 +4,7 @@ use bray_syntax::{
     GenericParameterListSyntax, GenericTypeParameterSyntax, ParameterListSyntax, ParameterSyntax,
     PredicateDeclarationSyntax, PredicateParameterListSyntax, PredicateParameterSyntax,
     ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
-    StructDeclarationSyntax, SyntaxCast, SyntaxNodeView, SyntaxToken,
+    StaticDeclarationSyntax, StructDeclarationSyntax, SyntaxCast, SyntaxNodeView, SyntaxToken,
     TraitCallableMemberDeclarationSyntax, TraitDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
     TraitPredicateMemberDeclarationSyntax, TraitScopeEnterRequirementDeclarationSyntax,
@@ -33,6 +33,11 @@ pub(super) fn declaration_children(
                 CallableContractDeclarationSyntax::generic_parameter_list,
             )
         }
+        DeclarationKind::Static => generic_parameter_children_from::<StaticDeclarationSyntax>(
+            view,
+            "static declaration",
+            StaticDeclarationSyntax::generic_parameter_list,
+        ),
         DeclarationKind::Function => callable_children_from::<FunctionDeclarationSyntax>(
             view,
             "function declaration",

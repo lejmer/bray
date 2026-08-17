@@ -708,7 +708,9 @@ fn dependency_subject_exists(
         }
         BoundDependencySubject::ScopedCapability(capability) => capability.unit() == unit.unit(),
         BoundDependencySubject::LifecycleObligation(obligation) => obligation.unit() == unit.unit(),
-        BoundDependencySubject::ImplementationWitness(_) => true,
+        BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ProductStatic(_)
+        | BoundDependencySubject::ExactThreadStatic(_) => true,
     }
 }
 

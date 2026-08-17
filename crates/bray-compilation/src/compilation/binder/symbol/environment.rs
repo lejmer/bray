@@ -207,6 +207,7 @@ pub(super) trait GenericParameterAccess {
 macro_rules! generic_parameters {
     ($symbols:expr, $owner:expr, $accessor:ident) => {
         match $owner {
+            AnySymbolId::Static(id) => $symbols.static_symbol(id).map(|symbol| symbol.$accessor()),
             AnySymbolId::Struct(id) => $symbols.structure(id).map(|symbol| symbol.$accessor()),
             AnySymbolId::Union(id) => $symbols.union(id).map(|symbol| symbol.$accessor()),
             AnySymbolId::Trait(id) => $symbols.trait_symbol(id).map(|symbol| symbol.$accessor()),

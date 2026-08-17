@@ -6,7 +6,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId,
     DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit,
-    DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceSemanticProblem,
     DiagnosticInterfaceSymbolGraphProblem, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
@@ -912,7 +912,7 @@ fn interface_symbol_graph_problem(
             owner,
             member,
         } => DiagnosticInterfaceSymbolGraphProblem::InvalidRelationshipKinds {
-            relationship: diagnostic_relationship_kind(relationship),
+            relationship: bray_symbols::diagnostic_symbol_relationship_kind(relationship),
             owner: diagnostic_symbol_kind(owner),
             member: diagnostic_symbol_kind(member),
         },
@@ -928,7 +928,7 @@ fn interface_symbol_graph_problem(
             expected,
             actual,
         } => DiagnosticInterfaceSymbolGraphProblem::NonCanonicalRelationshipOrdinal {
-            relationship: diagnostic_relationship_kind(relationship),
+            relationship: bray_symbols::diagnostic_symbol_relationship_kind(relationship),
             owner: owner.symbol_id().raw(),
             expected,
             actual,
@@ -1122,30 +1122,6 @@ fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanti
         SemanticValueStoreError::OpenSubstitution => {
             DiagnosticSemanticContentProblem::OpenSubstitution
         }
-    }
-}
-
-fn diagnostic_relationship_kind(
-    kind: bray_symbols::SymbolRelationshipKind,
-) -> DiagnosticInterfaceRelationshipKind {
-    use DiagnosticInterfaceRelationshipKind as Diagnostic;
-    use bray_symbols::SymbolRelationshipKind as Relationship;
-
-    match kind {
-        Relationship::PackageModule => Diagnostic::PackageModule,
-        Relationship::ModuleMember => Diagnostic::ModuleMember,
-        Relationship::TypeMember => Diagnostic::TypeMember,
-        Relationship::TraitMember => Diagnostic::TraitMember,
-        Relationship::ImplementationMember => Diagnostic::ImplementationMember,
-        Relationship::StructField => Diagnostic::StructField,
-        Relationship::UnionVariant => Diagnostic::UnionVariant,
-        Relationship::UnionPayloadField => Diagnostic::UnionPayloadField,
-        Relationship::GenericParameter => Diagnostic::GenericParameter,
-        Relationship::CallableParameter => Diagnostic::CallableParameter,
-        Relationship::PredicateParameter => Diagnostic::PredicateParameter,
-        Relationship::OverloadArm => Diagnostic::OverloadArm,
-        Relationship::ImplementationFulfillment => Diagnostic::ImplementationFulfillment,
-        Relationship::DefaultProvider => Diagnostic::DefaultProvider,
     }
 }
 

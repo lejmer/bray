@@ -9,6 +9,8 @@ pub(crate) const fn format_english_dependency_subject(
         DiagnosticDependencySubjectKind::BorrowCapability => "borrow",
         DiagnosticDependencySubjectKind::ScopedCapability => "scoped capability",
         DiagnosticDependencySubjectKind::SelectedImplementation => "selected implementation",
+        DiagnosticDependencySubjectKind::ProductStatic => "product-static storage",
+        DiagnosticDependencySubjectKind::ExactThreadStatic => "thread-local static storage",
         DiagnosticDependencySubjectKind::LifecycleObligation => "lifecycle obligation",
         DiagnosticDependencySubjectKind::SuspensionState => "the values and borrows at this point",
     }

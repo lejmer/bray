@@ -155,7 +155,7 @@ fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
 }
 
 impl Compilation {
-    fn is_constant_callable(
+    pub(in crate::compilation) fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
         cancellation: &CancellationToken,

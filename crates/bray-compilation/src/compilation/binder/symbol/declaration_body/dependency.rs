@@ -1,12 +1,16 @@
-use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyGuard, BoundDependencyRequirement,
     BoundDependencySubject, StorageAccessId, StorageIdentity, StoragePlan, StorageProjection,
 };
 use bray_symbols::{
-    DependencyContractTemplateData, DependencyContractTemplateId, DependencyGuard,
+    DeclarationDirectivesQuery, DependencyContractTemplateData, DependencyContractTemplateId,
+    DependencyGuard,
     DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    SymbolOrdinal,
+    DirectiveKind,
+    SymbolOrdinal, SymbolQueryRequest,
 };
 
 use crate::compilation::binder::CompilationBindingContext;
@@ -121,6 +125,12 @@ fn portable_bound_subject(
         BoundDependencySubject::ImplementationWitness(witness) => Ok(Some(PortableSubject::root(
             DependencySubjectRoot::ImplementationWitness(witness),
         ))),
+        BoundDependencySubject::ProductStatic(id) => Ok(Some(PortableSubject::root(
+            DependencySubjectRoot::ProductStatic(id),
+        ))),
+        BoundDependencySubject::ExactThreadStatic(id) => Ok(Some(PortableSubject::root(
+            DependencySubjectRoot::ExactThreadStatic(id),
+        ))),
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::LifecycleObligation(_) => Ok(None),
     }
@@ -231,6 +241,22 @@ fn portable_storage_identity(
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
+        StorageIdentity::Static(id) => {
+            let directives = context.resolve_symbol_query(SymbolQueryRequest::<
+                DeclarationDirectivesQuery,
+            >::new(id.into()))?;
+
+            if directives
+                .value()
+                .directives()
+                .iter()
+                .any(|directive| directive.kind() == DirectiveKind::ThreadLocal)
+            {
+                DependencySubjectRoot::ExactThreadStatic(id)
+            } else {
+                DependencySubjectRoot::ProductStatic(id)
+            }
+        }
         StorageIdentity::Result(_) | StorageIdentity::PostconditionResult(_) => {
             DependencySubjectRoot::Result
         }

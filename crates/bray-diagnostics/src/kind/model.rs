@@ -347,6 +347,10 @@ define_diagnostic_kinds! {
     CheckingTargetAbiRepresentationUnsupported,
     /// The selected target does not provide a compiler-provided memory operation.
     CheckingTargetMemoryOperationUnavailable,
+    /// The selected target does not provide native-thread static storage.
+    CheckingThreadLocalStaticUnavailable,
+    /// Product-static storage retains a dependency owned by one exact thread attachment.
+    CheckingStaticDependencyOutlivesOwner,
     /// A target-control literal contract is invalid for the selected target.
     CheckingInvalidTargetControlContract,
     /// A compiler-provided atomic operation received an invalid compile-time memory order.
@@ -762,6 +766,8 @@ impl DiagnosticKind {
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
+            Self::CheckingThreadLocalStaticUnavailable => 7099,
+            Self::CheckingStaticDependencyOutlivesOwner => 7100,
             Self::CheckingInvalidTargetControlContract => 7096,
             Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
@@ -1111,6 +1117,12 @@ impl DiagnosticKind {
             }
             Self::CheckingTargetMemoryOperationUnavailable => {
                 "checking_target_memory_operation_unavailable"
+            }
+            Self::CheckingThreadLocalStaticUnavailable => {
+                "checking_thread_local_static_unavailable"
+            }
+            Self::CheckingStaticDependencyOutlivesOwner => {
+                "checking_static_dependency_outlives_owner"
             }
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"

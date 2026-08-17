@@ -294,6 +294,9 @@ fn parser_context(context: CatalogSurfaceContext) -> Option<DeclarationFragmentC
 pub(super) fn declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
     match declaration {
         DeclarationFragmentSyntax::Constant(_) => CatalogDeclarationKind::Constant,
+        DeclarationFragmentSyntax::Static(_) => {
+            panic!("compiler-known catalog does not support static declarations")
+        }
         DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,
         DeclarationFragmentSyntax::Predicate(_) => CatalogDeclarationKind::Predicate,
         DeclarationFragmentSyntax::CallableContract(_) => CatalogDeclarationKind::CallableContract,
@@ -368,6 +371,7 @@ fn declaration_elements(
 
     match declaration {
         DeclarationFragmentSyntax::Constant(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Static(syntax) => elements!(syntax),
         DeclarationFragmentSyntax::Function(syntax) => elements!(syntax),
         DeclarationFragmentSyntax::Predicate(syntax) => elements!(syntax),
         DeclarationFragmentSyntax::CallableContract(syntax) => elements!(syntax),

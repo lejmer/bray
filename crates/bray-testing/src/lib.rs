@@ -20,6 +20,7 @@ pub use bound_unit::{
 pub use command_help::assert_complete_command_help;
 pub use diagnostic::{
     assert_goal_state_diagnostic, assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics,
+    diagnostics_of_kind,
 };
 #[cfg(feature = "mir-unit")]
 pub use mir_unit::{

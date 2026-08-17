@@ -1,6 +1,17 @@
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind};
 use bray_messages::DiagnosticRenderer;
 
+/// Selects diagnostics with one exact kind while preserving their source order.
+pub fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
+    DiagnosticBag::from(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.kind() == kind)
+            .cloned()
+            .collect::<Vec<_>>(),
+    )
+}
+
 /// Asserts that an actual produced diagnostic satisfies its goal-state contract.
 pub fn assert_goal_state_diagnostic(diagnostic: &Diagnostic) {
     let contract = diagnostic.kind().quality_contract();

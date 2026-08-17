@@ -19,6 +19,10 @@ pub enum InterfaceDependencySubjectRoot {
     ScopedCapability(SymbolOrdinal),
     /// Selected implementation witness.
     ImplementationWitness(InterfaceImplementationInstanceId),
+    /// Product-static declaration identity.
+    ProductStatic(InterfaceSymbolReference),
+    /// Exact-thread static declaration identity.
+    ExactThreadStatic(InterfaceSymbolReference),
 }
 
 /// One source-independent dependency-subject projection.

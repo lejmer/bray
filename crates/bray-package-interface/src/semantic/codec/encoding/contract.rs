@@ -171,7 +171,7 @@ pub(super) fn encode_dependency_subject(
     encoder: &mut WireEncoder,
     subject: &InterfaceDependencySubject,
 ) {
-    match subject.root {
+    match &subject.root {
         InterfaceDependencySubjectRoot::Receiver => encoder.write_u32(1),
         InterfaceDependencySubjectRoot::Parameter(ordinal) => {
             write_tagged_id(encoder, 2, ordinal.raw());
@@ -182,6 +182,14 @@ pub(super) fn encode_dependency_subject(
         }
         InterfaceDependencySubjectRoot::ImplementationWitness(instance) => {
             write_tagged_id(encoder, 5, instance.raw());
+        }
+        InterfaceDependencySubjectRoot::ProductStatic(reference) => {
+            encoder.write_u32(6);
+            write_symbol_reference(encoder, reference);
+        }
+        InterfaceDependencySubjectRoot::ExactThreadStatic(reference) => {
+            encoder.write_u32(7);
+            write_symbol_reference(encoder, reference);
         }
     }
 

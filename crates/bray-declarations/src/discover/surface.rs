@@ -5,7 +5,8 @@ use bray_syntax::{
     ImplementationOverloadDeclarationSyntax, InherentImplementationDeclarationSyntax,
     NamedTraitImplementationDeclarationSyntax, PredicateDeclarationSyntax,
     PredicateParameterSyntax, ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
-    SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+    SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StaticDeclarationSyntax,
+    StructDeclarationSyntax,
     StructFieldDeclarationSyntax, SyntaxKind, SyntaxNodeView, SyntaxToken,
     TraitCallableMemberDeclarationSyntax, TraitDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
@@ -57,6 +58,20 @@ pub(super) fn declaration_surface(
                     DeclarationBodyKind::Expression,
                 ),
             )
+        }
+        DeclarationKind::Static => {
+            let declaration = cast_node::<StaticDeclarationSyntax>(view, "static declaration");
+
+            declaration_surface_from_parts(
+                declaration.static_declaration_modifiers().tokens(),
+                syntax_anchors(declaration.static_directives().thread_local_directives()),
+                syntax_anchors(declaration.with_clauses()),
+                [],
+            )
+            .with_body_kind(body_kind(
+                declaration.expression().is_some(),
+                DeclarationBodyKind::Expression,
+            ))
         }
         DeclarationKind::Function => {
             let declaration = cast_node::<FunctionDeclarationSyntax>(view, "function declaration");

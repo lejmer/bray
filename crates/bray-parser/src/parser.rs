@@ -21,6 +21,7 @@ mod predicate;
 mod recovery;
 mod separated;
 mod source;
+mod static_storage;
 mod state;
 mod r#trait;
 mod trait_application;

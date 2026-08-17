@@ -16,6 +16,10 @@ pub enum CheckedTemplateKind {
     RuntimeDefault,
     /// A compile-time constant definition.
     ConstantDefinition,
+    /// A product-static constant initializer.
+    ProductStaticInitializer,
+    /// An exact-thread static constant initializer.
+    ThreadLocalStaticInitializer,
     /// A reusable predicate definition.
     PredicateDefinition,
     /// A generic declaration constraint.
@@ -42,6 +46,9 @@ impl CheckedTemplateKind {
                     | SymbolKind::TraitConstantMember
                     | SymbolKind::TraitConstantFulfillment
             ),
+            Self::ProductStaticInitializer | Self::ThreadLocalStaticInitializer => {
+                matches!(owner, SymbolKind::Static)
+            }
             Self::PredicateDefinition => matches!(
                 owner,
                 SymbolKind::Predicate

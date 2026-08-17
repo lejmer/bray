@@ -358,6 +358,7 @@ fn is_module_declaration(kind: SyntaxKind) -> bool {
         SyntaxKind::SourceUnitModuleDeclaration
             | SyntaxKind::BlockModuleDeclaration
             | SyntaxKind::ConstantDeclaration
+            | SyntaxKind::StaticDeclaration
             | SyntaxKind::FunctionDeclaration
             | SyntaxKind::PredicateDeclaration
             | SyntaxKind::CallableContractDeclaration

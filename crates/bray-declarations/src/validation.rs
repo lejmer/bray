@@ -191,7 +191,9 @@ fn body_form_diagnostics(
             Some(ContainerKind::Implementation) => predicate_body_diagnostic(trusted, body),
             _ => None,
         },
-        DeclarationKind::Constant if body == DeclarationBodyKind::None => {
+        DeclarationKind::Constant | DeclarationKind::Static
+            if body == DeclarationBodyKind::None =>
+        {
             Some(DiagnosticKind::DeclarationBodyRequired)
         }
         DeclarationKind::TypeCallableMember
@@ -266,6 +268,7 @@ fn directive_diagnostics(declaration: &DeclarationRecord) -> Vec<PendingDiagnost
             SyntaxKind::LinkDirective => external,
             SyntaxKind::SymbolDirective => external || has_abi,
             SyntaxKind::EntrypointDirective | SyntaxKind::TestDirective => !external,
+            SyntaxKind::ThreadLocalDirective => declaration.kind() == DeclarationKind::Static,
             _ => true,
         };
 
@@ -332,6 +335,7 @@ fn declaration_is_valid_in_container(
                 | DeclarationKind::Using
                 | DeclarationKind::Export
                 | DeclarationKind::Constant
+                | DeclarationKind::Static
                 | DeclarationKind::Function
                 | DeclarationKind::Predicate
                 | DeclarationKind::CallableContract
@@ -429,7 +433,8 @@ fn implementation_member_is_valid(
 fn signature_child_is_valid(declaration: DeclarationKind, owner: Option<DeclarationKind>) -> bool {
     match owner {
         Some(
-            DeclarationKind::Function
+            DeclarationKind::Static
+            | DeclarationKind::Function
             | DeclarationKind::CallableContract
             | DeclarationKind::TraitCallableMember
             | DeclarationKind::TypeCallableMember,
