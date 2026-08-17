@@ -1,9 +1,15 @@
 # Extern declarations and FFI
 
-The `extern` modifier declares a callable whose implementation body is supplied by another linked artifact rather than by this
-declaration.
+The `extern` modifier declares that a declaration's runtime definition or storage is supplied by another linked artifact rather
+than by this declaration.
+
+Applied to a callable, `extern` supplies the callable body elsewhere. Applied to a static, `extern` supplies provider-owned
+address-bearing storage elsewhere.
 
 An extern callable declaration has no Bray body and ends with `;`.
+
+An extern static declaration has no Bray initializer and ends with `;`. Its source reference produces a provider-rooted raw
+pointer and is defined in [Foreign data and symbols](foreign-data-and-symbols.md).
 
 The providing artifact can contain separately compiled Bray code, compiler-generated runtime code, a platform or system library, or
 code written in another language. `extern` therefore does not by itself mean C, FFI, or foreign code. The selected callable ABI and
@@ -53,7 +59,7 @@ trusted module ffi.zlib
 }
 ```
 
-`@link(...)` can attach to a module declaration or to an extern callable declaration.
+`@link(...)` can attach to a module declaration, an extern callable declaration, or an extern static declaration.
 
 A module-level `@link(...)` applies to extern declarations in that module that do not declare their own `@link(...)`.
 
@@ -78,19 +84,22 @@ The standard option names are:
 
 A target profile accepts only the link kinds it supports.
 
-`@symbol(...)` binds a declaration to an external symbol name.
+`@symbol(...)` binds a declaration to an external symbol identity and resolution policy.
 
 ```bray
 @symbol(name = "zlibVersion")
 ```
 
-`@symbol(...)` can attach to an extern callable declaration or to an ABI-qualified Bray callable declaration exported as a native symbol.
+`@symbol(...)` can attach to an extern callable or static declaration, an ABI-qualified Bray callable exported as a native symbol,
+or a non-generic Bray static exported as a native data symbol.
 
-For extern callable declarations, `@symbol(...)` names the symbol that the linker or loader must resolve.
+For extern declarations, `@symbol(...)` identifies the symbol that the linker or loader must resolve.
 
-For exported Bray callable declarations, `@symbol(...)` names the native symbol made visible to foreign code.
+For exported Bray callable and static declarations, `@symbol(...)` names the native symbol made visible to foreign code.
 
-The `@symbol(...)` name is an exact external symbol identity after the selected target profile's symbol encoding rules are applied.
+Name, ordinal, version, binding, and presence options are defined in
+[Foreign data and symbols](foreign-data-and-symbols.md#symbol-identity-and-availability). The selected target profile applies its
+exact symbol encoding and validates every requested option.
 
 ## Exported ABI callables
 
@@ -185,10 +194,9 @@ a foreign API needs an explicit state pointer. Construction consumes the state v
 opaque context as its first parameter and uses the trusted recognized `std.ffi.callback_state<State>(context)` operation to borrow
 the live state.
 
-A Bray source static and a foreign ABI data symbol are distinct declaration forms. Exporting or re-exporting a Bray static through
-module paths does not publish its address as an ABI data symbol. A foreign data declaration must define explicit target symbol,
-ownership, mutability, thread-local, and provider-retention behavior, and accessing it does not automatically create a safe Bray
-borrow.
+A Bray source export does not publish a static as an ABI data symbol. `@symbol(...)` explicitly exports one ordinary non-generic
+static, while `extern static` explicitly imports provider-owned storage. Both preserve the distinction between Bray-owned and
+provider-owned storage and never create an automatic safe borrow from a native symbol address.
 
 The compiler accepts that operation only when the context expression is the matching live parameter of the exported entry and the
 state type is the one owned by the registered context. The resulting borrow cannot escape the invocation or outlive the context
@@ -203,4 +211,4 @@ generated wrapper reads retired storage to diagnose it.
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
 - Previous: [Callable ABI](callable-abi.md)
-- Next: [Raw pointer type](raw-pointer-type.md)
+- Next: [Foreign data and symbols](foreign-data-and-symbols.md)

@@ -127,13 +127,25 @@ struct Counter
     mut value: i64;
 }
 
+struct FILE;
+
+@layout(stable, size = 40, align = 8)
+struct NativeMutex;
+
+@layout(c)
+struct Packet
+{
+    length: usize;
+    payload: [u8; ..];
+}
+
 func update_counter(pos mut counter: Counter)
 {
     counter.value += 1;
 }
 ```
 
-A product field is immutable after initialization unless its declaration uses `mut`. Binding mutation authority and field mutability are separate. Type and const arguments are explicit, ordered, invariant parts of generic type identity. A `with(...)` clause constrains declared parameters and never introduces them.
+A product field is immutable after initialization unless its declaration uses `mut`. Binding mutation authority and field mutability are separate. A bodyless struct is incomplete by default, while explicit `size` and `align` provide opaque storage. A final `[T; ..]` field gives a `@layout(c)` product flexible trailing storage. Type and const arguments are explicit, ordered, invariant parts of generic type identity. A `with(...)` clause constrains declared parameters and never introduces them.
 
 ### Closed unions, payloads, and recursive ownership
 
@@ -153,9 +165,17 @@ union List<T>
     Node(pos value: T, next: box Self);
     Empty;
 }
+
+@layout(c, tag = none)
+union NativeValue
+{
+    Integer(value: std.ffi.c.int);
+    Floating(value: r32);
+    Pointer(value: RawPointer<u8>);
+}
 ```
 
-A union has one active variant from a closed declared set. Payload fields are named, with `pos` granting positional construction and matching. A recursive stored ownership path must cross `box`, because borrows are non-owning and tuples, arrays, nullable forms, payloads, and generic applications remain inline.
+A union has one active variant from a closed declared set. `@layout(c, tag = none)` stores overlapping payloads while active-variant knowledge comes from construction, flow, or a trusted fact. Payload fields are named, with `pos` granting positional construction and matching. A recursive stored ownership path must cross `box`, because borrows are non-owning and tuples, arrays, nullable forms, payloads, and generic applications remain inline.
 
 ### Copy contracts and lifecycle boundaries
 

@@ -305,6 +305,8 @@ func thread_context() -> &ThreadContext
 
 A product-static borrow carries its exact static and provider-product roots. A thread-local static borrow also carries the exact native-thread attachment root, cannot be used on another native thread, and pins a retained task while that dependency remains live. Static access exposes shared storage. A product-static or thread-local value cannot be moved, replaced, or directly mutably borrowed, and interior mutation requires a valid scoped capability.
 
+An extern static or dynamic-symbol reference produces a raw pointer carrying its provider root. Thread-local foreign storage also carries its exact native-thread attachment. Anchored data borrows and callable values created from those pointers preserve the same roots.
+
 ### Explicit callable state
 
 ```bray

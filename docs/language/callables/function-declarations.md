@@ -13,6 +13,9 @@ The function name follows `func`.
 
 Parameters are declared inside parentheses.
 
+An ellipsis after the fixed parameters declares a variadic foreign callable contract. Variadic syntax is restricted to extern
+trusted functions and ABI-qualified callable types whose selected target ABI supports it.
+
 The result type follows `->`.
 
 The function body is a block expression in callable-body context.

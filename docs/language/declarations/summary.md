@@ -34,6 +34,9 @@ Static declarations introduce address-bearing product storage. The `@thread_loca
 forms have constant materialization, deterministic closed instance identity, inferred dependency roots, and exactly-once cleanup
 ownership.
 
+`extern static` composes the static surface with provider-owned native storage and produces a provider-rooted raw pointer. A
+native-symbol `static mut` exposes externally mutable storage without granting ambient Bray mutation authority.
+
 Predicate declarations introduce contract-level relations.
 
 Overload declarations make overload families explicit.

@@ -779,7 +779,11 @@ slice-type-expression =
     "[" type-expression "]" ;
 
 array-type-expression =
-    "[" type-expression ";" constant-expression "]" ;
+    "[" type-expression ";" array-extent "]" ;
+
+array-extent =
+      constant-expression
+    | ".." ;
 
 trait-application =
     path [ generic-argument-list ] ;
@@ -811,7 +815,10 @@ type-annotation =
     ":" type-expression ;
 
 parameter-list =
-    "(" [ parameter-sequence [ "," ] ] ")" ;
+    "(" [ parameter-sequence [ "," variadic-parameter ] [ "," ] ] ")" ;
+
+variadic-parameter =
+    "..." ;
 
 parameter-sequence =
     parameter { "," parameter } ;
@@ -876,18 +883,32 @@ constant-modifiers =
     [ visibility-modifier ] ;
 
 static-declaration =
-    static-directives static-declaration-modifiers "static" identifier
+    static-directives static-declaration-modifiers "static" [ "mut" ] identifier
     [ generic-parameter-list ] ":" type-expression { with-clause }
-    "=" constant-expression ";" ;
+    static-declaration-tail ;
 
 static-directives =
-    { thread-local-directive } ;
+    { static-directive } ;
+
+static-directive =
+      thread-local-directive
+    | link-directive
+    | symbol-directive ;
 
 thread-local-directive =
     directive-marker "thread_local" ;
 
 static-declaration-modifiers =
-    [ visibility-modifier ] ;
+    { static-declaration-modifier } ;
+
+static-declaration-modifier =
+      "extern"
+    | "trusted"
+    | visibility-modifier ;
+
+static-declaration-tail =
+      "=" constant-expression ";"
+    | ";" ;
 
 generic-parameter-list =
     "<" generic-parameter-sequence [ "," ] ">" ;
@@ -945,7 +966,11 @@ type-declaration =
 
 struct-declaration =
     type-directives type-modifiers "struct" identifier [ generic-parameter-list ]
-    type-constraints struct-body ;
+    type-constraints struct-declaration-tail ;
+
+struct-declaration-tail =
+      struct-body
+    | ";" ;
 
 union-declaration =
     type-directives type-modifiers "union" identifier [ generic-parameter-list ]

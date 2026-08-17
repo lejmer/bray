@@ -1097,7 +1097,11 @@ slice-type-expression =
     "[" type-expression "]" ;
 
 array-type-expression =
-    "[" type-expression ";" constant-expression "]" ;
+    "[" type-expression ";" array-extent "]" ;
+
+array-extent =
+      constant-expression
+    | ".." ;
 
 trait-application =
     path [ generic-argument-list ] ;
@@ -1138,7 +1142,9 @@ use `grouped-type-expression`, as in `(&Vec<T>)(Iterable).Cursor`.
 
 A parenthesized single type expression without a comma is grouping. A one-element tuple type uses the trailing-comma form.
 
-Slice and array type expressions both begin with `[`. A semicolon after the element type selects the fixed-size array form.
+Slice and array type expressions both begin with `[`. A semicolon after the element type selects an array form. A constant extent
+creates a fixed-size array. The `..` extent creates an incomplete trailing-array layout form whose valid declaration contexts are
+checked semantically.
 
 Generic arguments and type-form arguments can syntactically contain type expressions or constant expressions. The accepted argument
 kinds are checked by the selected declaration or type form.
@@ -1171,7 +1177,10 @@ and lambda expressions.
 
 ```ebnf
 parameter-list =
-    "(" [ parameter-sequence [ "," ] ] ")" ;
+    "(" [ parameter-sequence [ "," variadic-parameter ] [ "," ] ] ")" ;
+
+variadic-parameter =
+    "..." ;
 
 parameter-sequence =
     parameter { "," parameter } ;
@@ -1190,7 +1199,8 @@ parameter-default =
     "=" expression ;
 ```
 
-The grammar allows empty parameter lists and a trailing comma after the final parameter.
+The grammar allows empty parameter lists and a trailing comma after the final parameter. An ellipsis can follow one or more fixed
+parameters. Semantic checking restricts variadic forms to supported foreign ABI callable contracts.
 
 Parameter modifiers are written before the parameter name. Duplicate modifiers and context-invalid modifier combinations are
 semantic errors.
@@ -1292,18 +1302,32 @@ Static declarations introduce address-bearing product or native-thread storage.
 
 ```ebnf
 static-declaration =
-    static-directives static-declaration-modifiers "static" identifier
+    static-directives static-declaration-modifiers "static" [ "mut" ] identifier
     [ generic-parameter-list ] ":" type-expression { with-clause }
-    "=" constant-expression ";" ;
+    static-declaration-tail ;
 
 static-directives =
-    { thread-local-directive } ;
+    { static-directive } ;
+
+static-directive =
+      thread-local-directive
+    | link-directive
+    | symbol-directive ;
 
 thread-local-directive =
     directive-marker "thread_local" ;
 
 static-declaration-modifiers =
-    [ visibility-modifier ] ;
+    { static-declaration-modifier } ;
+
+static-declaration-modifier =
+      "extern"
+    | "trusted"
+    | visibility-modifier ;
+
+static-declaration-tail =
+      "=" constant-expression ";"
+    | ";" ;
 ```
 
 `static` declares product storage. `@thread_local` selects storage for each attached native thread. The directive accepts no
@@ -1312,10 +1336,12 @@ arguments and cannot be repeated.
 Generic parameters, when present, are written after the declaration name. Header `with(...)` clauses establish static constraints
 for the declaration.
 
-The type annotation and initializer are required. The initializer is checked as a constant expression template.
+The type annotation is required. A Bray-owned static has an initializer checked as a constant expression template. An extern
+static ends with `;` because its provider supplies the storage definition and initialization.
 
-Visibility modifiers are valid because static declarations are module-level declarations. Directives precede the optional
-visibility modifier and `static`.
+Visibility modifiers are valid because static declarations are module-level declarations. `@link(...)` and `@symbol(...)` can
+describe a native data symbol. `extern` and `trusted` participate in the foreign-storage contract. `mut` follows `static` and
+declares externally mutable storage without granting source mutation authority.
 
 The complete storage, specialization, access, dependency, and cleanup rules are defined in
 [Static storage declarations](declarations/static-storage-declarations.md).
@@ -1442,7 +1468,11 @@ type-declaration =
 
 struct-declaration =
     type-directives type-modifiers "struct" identifier [ generic-parameter-list ]
-    type-constraints struct-body ;
+    type-constraints struct-declaration-tail ;
+
+struct-declaration-tail =
+      struct-body
+    | ";" ;
 
 union-declaration =
     type-directives type-modifiers "union" identifier [ generic-parameter-list ]
@@ -1477,6 +1507,9 @@ Header `with(...)` clauses establish static constraints for the type declaration
 Type directives apply to the primary representation declaration. Directive-specific validity is checked semantically.
 
 Visibility is the declaration header modifier. `public` is optional because it is the default.
+
+A semicolon struct tail declares a bodyless type with no forgeable fields. Layout semantics decide whether it is incomplete or has
+explicit opaque size and alignment. Union declarations always have bodies.
 
 ### Struct bodies
 

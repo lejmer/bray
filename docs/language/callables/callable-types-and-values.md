@@ -114,6 +114,9 @@ trusted func(pos bytes: &mut [u8])
 
 The parameter list uses the same parameter grammar as callable declarations.
 
+An ellipsis after one or more fixed parameters is part of an ABI-qualified foreign callable contract. Its trailing arguments are
+positional and follow the selected ABI's variadic promotion rules.
+
 The result type can be omitted when the result is `unit`.
 
 Callable modifiers that are visible in a callable contract are written before `func`.

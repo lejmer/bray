@@ -48,7 +48,7 @@ extern trusted func get_process_id() -> i32
     uses(foreign_call);
 ```
 
-Extern declarations, `@link(...)`, `@symbol(...)`, exported ABI callables, and foreign callbacks are defined in [Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md).
+Extern callables, `@link(...)`, `@symbol(...)`, exported ABI callables, and foreign callbacks are defined in [Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md). Extern static storage and native data symbols are defined in [Foreign data and symbols](../targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md).
 
 ## Navigation
 

@@ -58,6 +58,13 @@ func byte_offset<T>(pos pointer: RawPointer<T>, bytes: isize) -> RawPointer<T>;
 trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> RawPointer<Target>
     uses(layout_reinterpret);
 
+trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+    requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
+    uses(layout_reinterpret);
+
+trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    uses(layout_reinterpret);
+
 trusted func read<T>(pos pointer: RawPointer<T>) -> T
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
@@ -116,6 +123,9 @@ trusted func copy_overlapping<T>(
 The non-trusted pointer helpers preserve the same semantics as the matching `core.memory` declarations.
 
 The trusted pointer helpers preserve the same caller obligations as the matching `core.memory` declarations.
+
+The callable-address helpers accept ABI-qualified capture-free callable types on targets that support their code-address
+representation. The callable or raw pointer result retains the dependencies carried by the source value.
 
 `std.memory` also exposes protected uninitialized storage and dependency-anchored borrow helpers.
 `uninit_write` is safe because it consumes an owned value and commits initialization as one checked

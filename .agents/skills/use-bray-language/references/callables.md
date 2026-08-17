@@ -138,6 +138,11 @@ func compare(pos left: i32, pos right: i32) -> i32
 extern trusted func native_clock() -> u64
     uses(foreign_call);
 
+@symbol(name = "native_printf")
+@abi(c)
+extern trusted func printf(pos format: RawPointer<std.ffi.c.char>, ...) -> std.ffi.c.int
+    uses(foreign_call);
+
 internal func normalize(pos value: i32) -> i32
 {
     return value;
@@ -156,7 +161,7 @@ async func execution_forms(pos request: Request, pos pointer: RawPointer<u8>) ->
 }
 ```
 
-An async call produces an inactive `Future<T>` whose execution obligations remain attached to it. `const` exposes constant-evaluation eligibility, while `trusted` and `uses(...)` describe exact trusted declaration and implementation capability boundaries. Callable declarations are public by default. External use of [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/visibility-and-paths.md) behavior requires path-specific acknowledgement. `uses(...)` lists trusted capabilities, not ordinary safe mutation, allocation, or I/O.
+An async call produces an inactive `Future<T>` whose execution obligations remain attached to it. `const` exposes constant-evaluation eligibility, while `trusted` and `uses(...)` describe exact trusted declaration and implementation capability boundaries. Variadic syntax follows at least one fixed parameter on an extern trusted function or ABI-qualified callable type, with positional trailing arguments and the selected ABI's promotions. Callable declarations are public by default. External use of [`internal`](https://github.com/lejmer/bray/blob/develop/docs/language/callables/visibility-and-paths.md) behavior requires path-specific acknowledgement. `uses(...)` lists trusted capabilities, not ordinary safe mutation, allocation, or I/O.
 
 ### Generics and explicit overloads
 

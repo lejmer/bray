@@ -20,15 +20,21 @@ Modifier validity depends on the declaration form and declaration context.
 
 `trusted` marks declarations or declaration contexts that participate in trusted capability and trusted obligation rules.
 
-`extern` marks a callable declaration whose body is supplied by another linked artifact. The artifact can itself contain separately
-compiled Bray. The selected ABI determines whether the call is foreign.
+`extern` marks a declaration whose runtime definition or storage is supplied outside that Bray declaration. An extern function has
+no Bray body. An extern static has provider-owned storage and no Bray initializer. The providing artifact can itself contain
+separately compiled Bray. The selected ABI and symbol contract determine whether the boundary is foreign.
 
 `const` marks a callable body as valid in constant-evaluation context.
 
 `async` marks a callable or lifecycle declaration as asynchronous where that declaration form permits asynchronous execution.
 
-`static` introduces product storage at module level. In callable member declarations it selects a static function with no receiver.
+`static` introduces address-bearing storage at module level. With `extern`, the provider owns that storage. In callable member
+declarations `static` selects a static function with no receiver.
 `consume` and `mut` participate in method receiver selection.
+
+`mut` after `static` declares storage whose native symbol contract permits external mutation when suitable authority is
+independently established. It grants no ambient Bray mutation authority. This form is valid only for extern or native-symbol
+statics.
 
 `mut` before a parameter name marks a local owned parameter binding as mutable.
 

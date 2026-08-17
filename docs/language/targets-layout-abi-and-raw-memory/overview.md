@@ -8,7 +8,8 @@ They cover:
 - target constraints and `@target(...)` gates,
 - explicit data layout through `@layout(...)`,
 - callable ABI contracts through `@abi(...)`,
-- foreign callable imports and exports,
+- foreign callable and data imports and exports,
+- provider-owned native storage and owned dynamic symbols,
 - target-specific product-static and thread-local static representation requirements,
 - raw pointer values,
 - compiler-known `core.memory` declarations,
@@ -25,7 +26,8 @@ Raw memory support is part of Bray's trusted substrate.
 Every operation that reads, writes, initializes, copies, reinterprets, aliases, allocates, deallocates, or exposes raw memory remains gated by trusted capabilities, trusted predicate conditions, or both.
 
 Bray static declarations provide safe address-bearing source storage. A source export preserves the Bray declaration and dependency
-contract. It does not implicitly create an ABI data symbol or grant foreign code a safe borrow.
+contract. `@symbol(...)` explicitly publishes native data storage, while `extern static` names provider-owned storage and produces
+a raw address. Neither form grants foreign code or Bray code an implicit safe borrow.
 
 ## Navigation
 

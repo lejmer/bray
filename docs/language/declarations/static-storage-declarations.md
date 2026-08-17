@@ -19,7 +19,7 @@ visibility.
 
 ## Declaration surface
 
-A static declaration has a required type and constant initializer.
+A Bray-owned static declaration has a required type and constant initializer.
 
 ```bray
 internal static METRICS: Metrics = Metrics.empty();
@@ -30,6 +30,20 @@ static BUFFER<T, const CAPACITY: usize>: Buffer<T, CAPACITY>
 ```
 
 Static declarations can have type parameters, const parameters, and `with(...)` constraints.
+
+`extern static` composes the same address-bearing storage concept with provider-owned native storage. It has a required type, no
+initializer, no generic parameters, and no Bray-owned lifecycle. Referencing it produces a provider-rooted raw pointer rather than
+reading the value or creating a borrow.
+
+```bray
+@link(name = "c")
+@symbol(name = "errno")
+@thread_local
+extern trusted static mut errno: std.ffi.c.int;
+```
+
+The complete foreign-data contract is defined in
+[Foreign data and symbols](../targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md).
 
 The declared type must have statically known finite size and alignment for every demanded closed instance. Dynamically sized state
 is stored through a sized owner such as `box [T]`, `string`, or another sized storage representation.
@@ -143,10 +157,14 @@ A static name or qualified static path produces an access path to the selected s
 The access path is fully initialized and observable while its product and, for thread-local statics, exact native-thread attachment
 remain available.
 
-Static storage is an owner. Source expressions cannot move its value out, consume it, replace it, assign to the whole storage, or
+Bray-owned static storage is an owner. Source expressions cannot move its value out, consume it, replace it, assign to the whole storage, or
 destroy it directly.
 
-Static declarations do not have a `mut` form. Direct mutable borrowing is rejected.
+An ordinary Bray static does not have a `mut` form. Direct mutable borrowing is rejected.
+
+`static mut` is reserved for native-symbol storage that foreign code can mutate. It grants no source mutation authority, and a
+source reference produces a raw pointer rather than a safe access path. Interior-mutation types remain the ordinary source model
+for mutable product-static state.
 
 Shared access can observe the value, copy a copyable subvalue, or form a shared borrow. Mutation is valid only through interior
 mutation whose type or declaration contract provides the necessary atomic, synchronization, single-assignment, or unique scoped
@@ -168,8 +186,9 @@ A reachable public static exports its declaration and open instance template thr
 to a product static carries a dependency on the provider product. Public access to a thread-local static additionally carries the
 exact native-thread attachment dependency.
 
-A Bray source export is not an ABI data-symbol export. Importing or exporting native data symbols requires the separate explicit
-ABI declaration form and ownership contract defined for foreign data. No foreign caller can acquire an untracked safe Bray borrow
+A Bray source export is not an ABI data-symbol export. `@symbol(...)` explicitly publishes one non-generic Bray-owned static as a
+native data symbol. `extern static` explicitly imports provider-owned native storage. Both follow the foreign-data representation,
+trust, mutability, provider-retention, and target-availability rules. No foreign caller can acquire an untracked safe Bray borrow
 merely from a symbol address.
 
 ## Product-rooted dependencies

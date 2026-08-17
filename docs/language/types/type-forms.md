@@ -21,6 +21,7 @@ box[Heap] T
 T?
 [T]
 [T; N]
+[T; ..]
 (T1, T2)
 func(left: T1, right: T2) -> R
 ```
@@ -241,6 +242,7 @@ A **structural type form** uses a larger syntactic structure to produce a type.
 ```bray
 [T]
 [T; N]
+[T; ..]
 (T1, T2)
 func(left: T1, right: T2) -> R
 ```
@@ -248,6 +250,8 @@ func(left: T1, right: T2) -> R
 `[T]` is the unsized slice type form.
 
 `[T; N]` is the fixed-size array type form.
+
+`[T; ..]` is the incomplete-extent array representation form.
 
 `(T1, T2)` is the tuple type form.
 
@@ -679,6 +683,18 @@ Array destruction processes initialized elements in reverse index order.
 Finalization obligations retained by array elements are retained by the array.
 
 Array expression rules are defined in [Array expressions](../expressions/array-expressions.md) and [Array generator expressions](../expressions/array-generator-expressions.md).
+
+## Incomplete-extent array representation
+
+The incomplete-extent array representation is:
+
+```bray
+[T; ..]
+```
+
+It describes a runtime-counted trailing sequence of `T` elements. It is available as the final stored field of a `@layout(c)`
+product and contributes no standalone value form. The containing product's layout and access rules are defined by
+[Flexible trailing storage](../targets-layout-abi-and-raw-memory/product-layout.md#flexible-trailing-storage).
 
 Array indexing and slicing expression rules are defined in [Index access expressions](../expressions/index-access-expressions.md).
 

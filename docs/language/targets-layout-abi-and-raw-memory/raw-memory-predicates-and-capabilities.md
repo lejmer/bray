@@ -23,6 +23,8 @@ trusted predicate non_overlapping<T>(
 trusted predicate owned_allocation(pointer: RawPointer<u8>, bytes: usize, align: usize);
 
 trusted predicate same_allocation<T>(left: RawPointer<T>, right: RawPointer<T>);
+
+trusted predicate callable_address_valid<F>(pointer: RawPointer<F>);
 ```
 
 `valid_read` means the range can be read as raw storage for `count` values of `T`.
@@ -40,6 +42,10 @@ trusted predicate same_allocation<T>(left: RawPointer<T>, right: RawPointer<T>);
 `owned_allocation` means the caller owns the allocation described by the pointer, byte count, and alignment.
 
 `same_allocation` means both pointers are derived from the same allocation.
+
+`callable_address_valid` requires `F` to be an ABI-qualified capture-free callable type and means the pointer is non-null, denotes
+executable code with exactly that callable contract, uses a target-supported code-address representation, and retains every
+provider dependency needed to call it.
 
 `shared_alias_valid` and `exclusive_alias_valid` state that creating the corresponding language
 borrow preserves ordinary alias rules. `epoch_current` ties the pointer to its current allocation
@@ -61,7 +67,7 @@ Raw memory operations use trusted capabilities according to the operation they p
 |---------------------------------------------------------|-----------------------------|
 | Raw read, write, and copy                               | `raw_memory`                |
 | Manual initialization or uninitialized storage handling | `unchecked_init`            |
-| Pointer reinterpretation across element types           | `layout_reinterpret`        |
+| Pointer and callable-address reinterpretation           | `layout_reinterpret`        |
 | Manual allocation and deallocation                      | `manual_alloc`              |
 | Aliasing beyond ordinary proof power                    | `unchecked_alias`           |
 | Foreign memory or calls outside ordinary Bray semantics | `foreign_call`              |

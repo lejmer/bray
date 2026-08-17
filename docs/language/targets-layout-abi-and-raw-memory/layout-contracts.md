@@ -44,7 +44,8 @@ The layout options are:
 
 - `align = N`,
 - `pack = N`,
-- `tag = IntegerType`.
+- `size = N`,
+- `tag = IntegerType` or `tag = none`.
 
 `align = N` raises the aggregate alignment to at least `N`.
 
@@ -68,11 +69,19 @@ Packed fields and packed payload components can be loaded and stored by value ac
 
 A packed field or payload component cannot be borrowed as `&T` or `&mut T` unless the compiler proves that the specific access is naturally aligned for `T`.
 
+`size = N` supplies the exact byte size of a bodyless opaque struct. It is valid only with `stable` or `c` layout on a bodyless
+struct and requires an explicit compatible `align = A`. The size must be representable by the selected target and must be a
+multiple of the effective alignment.
+
 `tag = IntegerType` sets the physical tag type of a union.
 
 `tag` is valid only for union layout.
 
 The tag type must be an integer scalar type.
+
+`tag = none` selects an unrepresented semantic discriminant and overlapping payload storage. It is valid only for `c` unions that
+satisfy the tagless-union rules. It preserves semantic active variants while requiring an independent active-variant fact before
+semantic payload access.
 
 Layout directives do not change ownership, initialization, destruction, finalization, field access, variant access, method resolution, trait satisfaction, or contract semantics.
 

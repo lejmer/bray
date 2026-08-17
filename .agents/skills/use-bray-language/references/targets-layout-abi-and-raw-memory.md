@@ -102,6 +102,18 @@ struct NativePoint
     y: r64;
 }
 
+struct FILE;
+
+@layout(stable, size = 40, align = 8)
+struct NativeMutex;
+
+@layout(c)
+struct NativePacket
+{
+    length: usize;
+    payload: [u8; ..];
+}
+
 @copy
 @layout(transparent)
 struct FileDescriptor
@@ -131,6 +143,14 @@ union NativeStatus
     Error(pos code: u32);
 }
 
+@layout(c, tag = none)
+union NativeValue
+{
+    Integer(value: std.ffi.c.int);
+    Floating(value: r32);
+    Pointer(value: RawPointer<u8>);
+}
+
 const VECTOR_BYTES: usize = std.memory.size_of<Vector>();
 const VECTOR_ALIGNMENT: usize = std.memory.align_of<Vector>();
 const VECTOR_STRIDE: usize = std.memory.stride_of<Vector>();
@@ -141,7 +161,7 @@ func allocation_layout(count: usize) -> Result<std.memory.MemoryLayout, std.memo
 }
 ```
 
-`align` raises aggregate alignment. `pack` caps alignment only for stable plain storage, and packed components cannot be borrowed unless the access is naturally aligned. A laid-out union may select its integer tag representation, and explicit variant tags must be unique and complete. Padding is never a semantic value or implicitly initialized storage.
+`align` raises aggregate alignment. `pack` caps alignment only for stable plain storage, and packed components cannot be borrowed unless the access is naturally aligned. A bodyless struct is incomplete by default, while explicit `size` and `align` provide opaque storage. A final `[T; ..]` field supplies flexible trailing storage for a C-layout product when `T` has complete plain C storage, with `std.memory.trailing_layout_of<T>(count)` computing its complete allocation layout. A laid-out union may select an integer tag or `tag = none`. The latter keeps one semantic active variant while relying on trusted facts instead of a represented discriminant. Explicit variant tags are unique and complete. Padding has no semantic value or implicit initialization.
 
 The layout helpers describe size, alignment, array stride, and checked allocation layout for the selected target. They do not read, initialize, allocate, or grant access to memory. An explicit layout stabilizes representation only according to that contract. It does not change ownership, lifecycle, field semantics, or callable ABI.
 
@@ -182,20 +202,32 @@ trusted module native_math
     @abi(system)
     extern trusted func platform_tick() -> unit
         uses(foreign_call);
+
+    @symbol(name = "native_counter")
+    extern trusted static mut COUNTER: std.ffi.c.uint;
+
+    @symbol(name = "native_printf")
+    @abi(c)
+    extern trusted func printf(pos format: RawPointer<std.ffi.c.char>, ...) -> std.ffi.c.int
+        uses(foreign_call);
 }
 ```
 
-An `extern` declaration introduces a linked callable surface and ends with a semicolon. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol. A foreign callback is an ABI-qualified capture-free callable. Pass state as an ABI-laid-out context product, or own stable-address state with `std.ffi.CallbackContext<State>`, pass its opaque context pointer, and borrow the state inside the matching exported entry through trusted `std.ffi.callback_state<State>(context)`.
+`extern` selects a runtime definition or storage supplied outside the Bray declaration. An extern function supplies a linked callable surface, while an extern static reference produces a provider-rooted `RawPointer<T>`. `mut` records the native storage's mutation contract, with write authority established through ordinary trusted memory rules. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol and can select a name or ordinal plus version, binding, and presence policy. An ordinary static with `@symbol` exports Bray-owned storage. A foreign callback is an ABI-qualified capture-free callable. Pass state as an ABI-laid-out context product, or own stable-address state with `std.ffi.CallbackContext<State>`, pass its opaque context pointer, and borrow the state inside the matching exported entry through trusted `std.ffi.callback_state<State>(context)`.
+
+Variadic syntax follows one or more fixed parameters on an extern trusted function or ABI-qualified callable type. Trailing arguments are positional and receive the selected ABI's default promotions.
 
 By-value foreign parameters and results are restricted to representations accepted by the selected ABI. Typical accepted forms are scalars, unit results, raw pointers, same-ABI callables, `@layout(c)` aggregates, and compatible transparent wrappers. Borrows, slices, trait views, boxes, tasks, async computations, default-layout aggregates, and default-ABI callables need an explicit boundary representation.
 
 Panic and cancellation do not unwind through foreign frames. Pointer validity, ownership, thread affinity, callback lifetime, reentrancy, and resource state required by the foreign API belong in the declaration's types and contract.
 
-See [callable ABI](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/callable-abi.md) and [extern declarations and FFI](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md).
+See [callable ABI](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/callable-abi.md), [extern declarations and FFI](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md), and [foreign data and symbols](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md).
 
 ## Raw pointers and trusted memory access
 
-`RawPointer<T>` is a copyable address value without ownership, lifetime, validity, alignment, initialization, aliasing, or provenance guarantees. Raw access succeeds only when the declaration contract proves the relevant predicates and the implementation acknowledges the required capabilities.
+`RawPointer<T>` is a copyable address value without ownership, lifetime, validity, alignment, initialization, aliasing, or provenance guarantees. `T` may be complete data, an incomplete bodyless struct, a flexible-layout product, or an ABI-qualified callable. Raw access succeeds only when the declaration contract proves the relevant predicates and the implementation acknowledges the required capabilities.
+
+For an ABI-qualified capture-free callable `F`, `core.memory.callable_from_pointer<F>` creates a callable after proving `callable_address_valid<F>`. `core.memory.pointer_from_callable<F>` exposes its code address. Both preserve provider dependencies.
 
 ```bray
 trusted module raw_example;
@@ -532,7 +564,9 @@ See [target control and inline assembly](https://github.com/lejmer/bray/blob/dev
 | Preserve one field's layout and ABI       | `@layout(transparent)`                                           |
 | Select a foreign calling convention       | `@abi(c)` or `@abi(system)`                                      |
 | Import a linked callable                  | `extern` with `@link`, `@symbol`, ABI, trust, and `foreign_call` |
+| Import linked native storage              | `extern static` with `@link`, `@symbol`, and trust               |
 | Export a Bray callable as a native symbol | A Bray body with `@symbol` and `@abi`                            |
+| Export Bray-owned native storage          | An ordinary static with `@symbol`                                |
 | Observe size or allocate typed storage    | `std.memory` layout helpers and owners                           |
 | Address storage without borrow semantics  | `RawPointer<T>` plus explicit operations                         |
 | Build a value in protected storage        | `Uninit<T>`, `Output<T>`, or `InPlace<T>`                        |

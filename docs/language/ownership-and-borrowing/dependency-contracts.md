@@ -77,6 +77,10 @@ Product-rooted dependencies can escape a callable and cross package or dynamic-l
 the provider product. Exact-thread-rooted dependencies can escape a callable only into an owner that remains on that attachment.
 They pin a retained task while live.
 
+An extern static reference and a dynamically resolved symbol carry the exact provider dependency on their raw pointer result. A
+thread-local extern static additionally carries the exact native-thread attachment. Converting a raw code pointer into a callable
+or anchoring a raw data pointer into a borrow preserves those roots on the resulting value.
+
 A provider product cannot close or unload while a live external transitive dependency can reach its storage, entries, callbacks,
 callable values, or code. A dependency owned by a static in the active teardown set instead orders consumer cleanup before provider
 cleanup and is released when the consumer is destroyed. A native-thread attachment cannot detach while a live dependency outside

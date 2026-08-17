@@ -26,7 +26,8 @@ The variant set is part of the union type's definition.
 Additional inherent implementation blocks owned by the type's defining package can define behavior associated with the union. They
 cannot add variants or payload fields to the union's closed representation.
 
-A union value is fully initialized when its active variant tag is initialized and the active variant payload, if any, is fully initialized.
+A union value is fully initialized when one semantic active variant is established and that variant's payload, if any, is fully
+initialized. A represented tag is initialized when the selected layout contains one.
 
 Inactive variant payloads have no initialized values.
 
@@ -215,7 +216,8 @@ Union variant construction expression rules are defined in [Union variant constr
 
 Every fully initialized union value has one active variant.
 
-The active variant is part of the union value's runtime state.
+The active variant is part of the union value's semantic state. A layout can represent it in the value or require it to remain an
+independently established flow-sensitive fact.
 
 Operations that branch on or refine a union value can make the active variant known within a control-flow region.
 
@@ -272,7 +274,7 @@ shape = Rectangle(min = a, max = b);
 
 Whole-union replacement ends the old active variant payload according to destruction, finalization, and lifecycle rules.
 
-Whole-union replacement initializes the new active variant tag and payload.
+Whole-union replacement establishes the new active variant, initializes any represented tag, and initializes the payload.
 
 Whole-union replacement changes the active variant condition for the union value.
 
@@ -288,7 +290,8 @@ A union value has initialization state.
 
 The union as a whole can be uninitialized, partially initialized, fully initialized, moved from, or destroyed.
 
-The active variant tag has initialization state.
+The semantic active variant has initialization state. A represented physical tag has corresponding representation initialization
+state.
 
 The active payload, if present, has initialization state.
 
@@ -469,7 +472,7 @@ An active scoped capability can restrict observation, mutation, borrowing, movem
 destruction, and partial moves of the union for the lifetime of the `with` body.
 
 Whole-union replacement resolves the old active variant payload according to union finalization, destruction, and active payload
-destruction rules before the new active variant tag and payload become initialized at that access path.
+destruction rules before the new active variant and payload become initialized at that access path.
 
 Variant declarations remain the source of variant names and payload structure.
 
@@ -501,7 +504,7 @@ union BadList<T>
 
 ## Union layout
 
-A union has a semantic active variant tag.
+A union has one semantic active variant.
 
 Union layout is declared with `@layout(...)` immediately before the `union` declaration.
 
@@ -517,7 +520,8 @@ union Message
 }
 ```
 
-Union layout modes, physical tags, `@tag(...)`, default tag representation, and union-specific layout rules are defined in [Union layout](../targets-layout-abi-and-raw-memory/union-layout.md).
+Union layout modes, represented and unrepresented discriminants, physical tags, `@tag(...)`, default tag representation, and
+union-specific layout rules are defined in [Union layout](../targets-layout-abi-and-raw-memory/union-layout.md).
 
 ## Union patterns
 

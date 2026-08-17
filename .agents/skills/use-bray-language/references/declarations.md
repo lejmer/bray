@@ -81,6 +81,10 @@ static PROCESS_TOTAL: usize = 0;
 @thread_local
 static THREAD_TOTAL: usize = 0;
 
+@link(name = "native")
+@symbol(name = "native_counter")
+extern trusted static mut NATIVE_COUNTER: std.ffi.c.uint;
+
 static EMPTY_BUFFER<T, const N: usize>: Buffer<T, N>
     with(T: Copyable) = Buffer<T, N>.empty();
 
@@ -419,6 +423,7 @@ func adjusted(pos value: usize) -> usize
 | Parameterize a declaration                 | [Type or `const` generics plus `with(...)`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/generic-declarations-and-constraints.md) | Generic callable arguments are explicit. Implementation generics are inferred from unresolved header names instead.              |
 | Name a compile-time value                  | [`const`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/constant-declarations.md)                                                  | Constants have no runtime storage identity and must be freely materializable.                                                    |
 | Own persistent runtime storage             | [`static` or `@thread_local static`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md)                 | Statics have address-bearing instances, demand-driven materialization, and product-owned or exact-thread lifecycle ownership.    |
+| Name provider-owned native storage         | [`extern static`](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md)                  | A reference produces a provider-rooted raw pointer, with exact-thread attachment added for thread-local storage.                 |
 | Name a contract relation                   | [`predicate`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/predicate-declarations.md)                                             | A predicate defines a checked relation, not one eagerly evaluated Boolean value.                                                 |
 | Share one overloaded surface               | [`overload`](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/overload-declarations.md)                                               | Same-name declarations never form an overload set automatically, and expected result types do not select arms.                   |
 | Attach compile-time policy                 | [A directive](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/directives.md)                                                         | `@name` attaches only where that directive's contract permits and uses constant arguments.                                       |

@@ -8,7 +8,7 @@ The type categories are:
 - product types,
 - union types,
 - tuple types,
-- fixed-size array types,
+- fixed-size and incomplete-extent array types,
 - slice types,
 - nullable types,
 - borrow types,
@@ -20,9 +20,10 @@ The type categories are:
 Scalar types are integers, real floating-point types, complex floating-point types, machine-sized integer types, `bool`, `char`,
 `unit`, and `never`.
 
-Product types are named types with fields.
+Product types are named types with fields or bodyless named storage contracts. A bodyless product can be incomplete or explicitly
+sized and aligned opaque storage.
 
-Union types are closed tagged sum types with variants.
+Union types are closed alternatives with one semantic active variant.
 
 Compiler-known result types are named union types with language-defined variant contracts.
 
@@ -32,6 +33,9 @@ async and run-boundary contracts.
 Tuple types are fixed-size ordered product types.
 
 Fixed-size array types are fixed-size ordered homogeneous product types.
+
+An incomplete-extent array type `[T; ..]` describes unsized trailing storage. It is valid only where an explicit layout contract
+admits a final flexible field and has no standalone value construction form.
 
 Slice types are unsized contiguous sequence types.
 

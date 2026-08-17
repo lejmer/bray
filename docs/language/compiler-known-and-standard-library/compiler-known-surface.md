@@ -7,7 +7,7 @@ The compiler-known surface consists of:
 - the compiler-known text type `string`,
 - the compiler-known half-open integer range type `Range<T>`,
 - the compiler-known raw pointer type `RawPointer<T>`,
-- the structural tuple, fixed-size array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms,
+- the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms,
 - the compiler-known `Heap` storage-policy type used by default-storage owned indirection,
 - compiler-known async and run-boundary types `Future<T>`, `Task<T>`, `RunResult<T>`, and `PanicReport`,
 - the compiler-known result and conversion types `Result<T, E>` and `ConversionError`,

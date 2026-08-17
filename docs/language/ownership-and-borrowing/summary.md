@@ -18,6 +18,8 @@ Dependency contracts replace source-level lifetime annotations.
 
 Product-static borrows carry product roots. Thread-local static borrows additionally carry exact native-thread attachment roots.
 
+Extern static and dynamic-symbol pointers carry provider roots. Thread-local foreign storage additionally carries its exact native-thread attachment root.
+
 Partial moves are allowed only when the remaining partial state is accounted for.
 
 Values can cross ownership boundaries only when the destination preserves every dependency contract carried by the value.

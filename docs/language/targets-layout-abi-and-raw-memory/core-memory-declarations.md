@@ -56,6 +56,13 @@ func is_null<T>(pos pointer: RawPointer<T>) -> bool;
 func offset<T>(pos pointer: RawPointer<T>, elements: isize) -> RawPointer<T>;
 
 func byte_offset<T>(pos pointer: RawPointer<T>, bytes: isize) -> RawPointer<T>;
+
+trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+    requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
+    uses(layout_reinterpret);
+
+trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    uses(layout_reinterpret);
 ```
 
 `address_of` produces a raw pointer to the storage reached by a shared borrow.
@@ -76,7 +83,17 @@ Creating a raw pointer from a borrow does not create ordinary borrow protection 
 
 `offset` computes a raw pointer offset by a count of `T` elements.
 
+`offset` requires `T` to be a complete fixed-size data type.
+
 `byte_offset` computes a raw pointer offset by a count of bytes.
+
+`byte_offset` accepts complete or incomplete data pointees. It is unavailable for callable pointees and for target address spaces
+that do not support byte-address calculation.
+
+`callable_from_pointer` and `pointer_from_callable` require `F` to be an ABI-qualified capture-free callable type and a target that
+supports the corresponding code-address representation. `callable_from_pointer` creates a callable value only after its trusted
+precondition establishes that the pointer designates executable code with the exact contract `F`. `pointer_from_callable`
+preserves the callable's provider dependency on the resulting pointer.
 
 Offset operations do not read or write memory.
 
@@ -92,6 +109,10 @@ trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> Raw
 ```
 
 `reinterpret` creates no validity, alignment, initialization, ownership, or aliasing conditions.
+
+Reinterpretation between data and callable pointees is available only when the selected target defines a compatible raw-address
+representation. It never creates a callable value. Creating an ABI-qualified callable from a raw callable pointer uses
+`callable_from_pointer`.
 
 Using the resulting pointer for memory access requires the ordinary trusted guarantees for the target type.
 

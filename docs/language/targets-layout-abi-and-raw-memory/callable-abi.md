@@ -90,6 +90,33 @@ before they can cross a foreign ABI boundary.
 
 Data layout is controlled by `@layout(...)` and the standard layout helpers.
 
+## Variadic callable contracts
+
+An ellipsis after one or more fixed parameters declares a variadic foreign callable contract.
+
+```bray
+@abi(c)
+extern trusted func printf(
+    pos format: RawPointer<std.ffi.c.char>,
+    ...
+) -> std.ffi.c.int
+    uses(foreign_call);
+```
+
+Variadic syntax is valid only for an `extern trusted` function or an ABI-qualified callable type using a target ABI that defines
+variadic calls. A Bray function body, lambda, async callable, const callable, default parameter, named variadic argument, or
+exported Bray variadic implementation is invalid.
+
+The fixed parameters are checked normally. Every trailing call argument is positional, is evaluated in source order, and must
+have a foreign ABI representation accepted in the selected target's variadic position.
+
+The compiler applies the exact default argument promotions required by the selected ABI. For the C ABI this includes integer
+promotions and promotion of `r32` to `r64`. No Bray borrow, owned value, trait view, protected representation, task, async
+computation, or default-layout aggregate is implicitly converted into a variadic representation.
+
+Target ABI classification determines register, stack, alignment, and aggregate passing. Unsupported promoted types and target
+combinations are rejected before code generation.
+
 ## Navigation
 
 - [Language index](../index.md)
