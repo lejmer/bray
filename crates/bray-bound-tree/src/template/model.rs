@@ -337,7 +337,12 @@ pub enum CheckedTemplateOperation {
         operand: CheckedTemplateNodeId,
     },
     /// Reads a declaration-owned value through stable semantic identity.
-    Declaration(SymbolKey),
+    Declaration {
+        /// Selected declaration.
+        declaration: SymbolKey,
+        /// Exact closed generic application when the declaration is selected explicitly.
+        substitution: Option<GenericSubstitutionId>,
+    },
     /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.
@@ -445,7 +450,10 @@ impl CheckedTemplateOperation {
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_) | Self::Constant { .. } | Self::Declaration(_) | Self::Temporary(_) => {}
+            Self::Input(_)
+            | Self::Constant { .. }
+            | Self::Declaration { .. }
+            | Self::Temporary(_) => {}
         }
 
         Ok(())

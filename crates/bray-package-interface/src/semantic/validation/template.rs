@@ -324,8 +324,18 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Borrow { operand, .. } => {
             validate_prior_node(*operand, node_index)?;
         }
-        InterfaceCheckedTemplateOperation::Declaration(declaration) => {
+        InterfaceCheckedTemplateOperation::Declaration {
+            declaration,
+            substitution,
+        } => {
             validate_template_reference(context, declaration)?;
+
+            if let Some(substitution) = substitution {
+                validate_index(
+                    substitution.to_index(),
+                    context.semantics.substitutions.len(),
+                )?;
+            }
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,
@@ -467,7 +477,7 @@ fn validate_operation_type(
             template.temporaries()[temporary_index].ty() == node.ty()
         }
         InterfaceCheckedTemplateOperation::Constant { .. }
-        | InterfaceCheckedTemplateOperation::Declaration(_)
+        | InterfaceCheckedTemplateOperation::Declaration { .. }
         | InterfaceCheckedTemplateOperation::Call { .. }
         | InterfaceCheckedTemplateOperation::Project { .. } => true,
     };

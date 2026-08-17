@@ -684,10 +684,10 @@ mod tests {
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_ir::{MirOperationKind, MirProjectionKind};
     use bray_package_interface::{
-        InterfaceConstantValueKind, InterfaceLanguageRevision, InterfaceProductIdentity,
-        InterfaceSymbolReference, InterfaceValidationLimits, InterfaceValidationPolicy,
-        PackageImplementationArtifact, PackageInterfaceExportBundle, ValidatedPackageInterface,
-        encode_package_interface,
+        InterfaceCheckedTemplateOperation, InterfaceConstantValueKind, InterfaceLanguageRevision,
+        InterfaceProductIdentity, InterfaceSymbolReference, InterfaceValidationLimits,
+        InterfaceValidationPolicy, PackageImplementationArtifact, PackageInterfaceExportBundle,
+        ValidatedPackageInterface, encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
@@ -894,6 +894,7 @@ mod tests {
             "public static Root: i32 = 1;\n",
             "public static Alias: &i32 = &Root;\n",
             "public static Generic<const N: i32>: i32 with(true) = N;\n",
+            "public static Selected: &i32 = &Generic<1>;\n",
             "@thread_local public static ThreadValue: i32 = 2;\n",
         ));
 
@@ -930,8 +931,20 @@ mod tests {
                     template.kind() == CheckedTemplateKind::ProductStaticInitializer
                 })
                 .count(),
-            3
+            4
         );
+
+        assert!(semantics.checked_templates().iter().any(|template| {
+            template.nodes().iter().any(|node| {
+                matches!(
+                    node.operation(),
+                    InterfaceCheckedTemplateOperation::Declaration {
+                        substitution: Some(_),
+                        ..
+                    }
+                )
+            })
+        }));
 
         assert_eq!(
             semantics

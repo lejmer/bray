@@ -1,26 +1,32 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
 use bray_bound_tree::{
-    BoundCallableTarget, BoundUnitKey, BoundUnitKind, CheckedTemplateKind, SemanticSelection,
+    BoundUnitKey, BoundUnitKind, CheckedTemplateKind, CheckedTemplateOperation,
+    SemanticSelection,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDependencySubjectKind,
-    DiagnosticExpressionCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDependencySubjectKind, DiagnosticId,
+    DiagnosticKind, DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    DeclarationDirectivesQuery, DirectiveKind, StaticDeclaredTypeQuery, StaticInstanceTemplate,
-    StaticInstanceTemplateId, StaticInstanceTemplateQuery, StaticStorageDuration, StaticSymbolId,
-    SymbolQueryContract, SymbolQueryRequest,
+    CallableContractsQuery, CallableSymbolId, DeclarationDirectivesQuery, DirectiveKind,
+    StaticDeclaredTypeQuery, StaticInstanceTemplate, StaticInstanceTemplateId,
+    StaticInstanceTemplateQuery, StaticStorageDuration, StaticSymbolId, SymbolQueryContract,
+    SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData,
 };
 
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
-use super::declaration_body::checked_source_expression;
+use super::declaration_body::{
+    checked_source_body_dependency_contracts, checked_source_expression,
+};
 use super::imported::imported_declaration_template;
 use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::checker::checker_result;
+use crate::compilation::unit::semantic_unit_context_for;
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<StaticInstanceTemplateQuery> for CompilationSymbolSemantics {
@@ -125,8 +131,29 @@ fn bind_static_instance_template(
         );
     }
 
-    let (duration, dependency_contract, lifecycle_obligations, witness_requirements) =
+    let (
+        duration,
+        dependency_contract,
+        lifecycle_obligations,
+        witness_requirements,
+        mut lifecycle_dependencies,
+    ) =
         static_initializer_behavior(context, declaration, source_duration, &mut diagnostics)?;
+
+    lifecycle_dependencies.extend(static_type_lifecycle_dependencies(
+        context,
+        declared_type.value(),
+        &mut diagnostics,
+    )?);
+
+    lifecycle_dependencies.sort_unstable();
+    lifecycle_dependencies.dedup();
+
+    diagnostics.add_range(validate_static_lifecycle_graph(
+        context,
+        declaration,
+        &lifecycle_dependencies,
+    )?);
 
     Ok(DiagnosticResult::new(
         StaticInstanceTemplate::new(
@@ -134,6 +161,7 @@ fn bind_static_instance_template(
             duration,
             declared_type.value().clone(),
             dependency_contract,
+            lifecycle_dependencies,
             lifecycle_obligations,
             witness_requirements,
         ),
@@ -151,6 +179,7 @@ fn static_initializer_behavior(
     bray_symbols::DependencyContractTemplateId,
     Vec<bray_symbols::LifecycleObligationKind>,
     Vec<bray_symbols::SymbolKey>,
+    Vec<StaticSymbolId>,
 )> {
     if let Some(key) = context
         .compilation()
@@ -170,7 +199,33 @@ fn static_initializer_behavior(
             behavior.result().diagnostics(),
         ]);
 
-        diagnostics.add_range(validate_static_initializer_calls(context, &key)?);
+        diagnostics.add_range(validate_static_initializer_template(context, &key)?);
+
+        let semantics = context
+            .compilation()
+            .expression_semantics_with_cancellation(key.clone(), context.cancellation())
+            .map_err(super::binding::binder_error)?;
+
+        if semantics
+            .result()
+            .value()
+            .1
+            .entries()
+            .iter()
+            .any(|entry| {
+                matches!(
+                    entry.selection(),
+                    SemanticSelection::StaticReference(reference)
+                        if reference.template().declaration() == declaration
+                            && reference.closed_instance().is_none()
+                )
+            })
+        {
+            diagnostics.add(static_source_diagnostic(
+                &key,
+                DiagnosticKind::CheckingStaticSpecializationDivergence,
+            ));
+        }
 
         diagnostics.add_range(validate_static_dependency_duration(
             context,
@@ -183,7 +238,8 @@ fn static_initializer_behavior(
             source_duration,
             checked.dependency_contract,
             behavior.result().value().lifecycle_obligations().to_vec(),
-            Vec::new(),
+            witness_requirements_from_contract(context, checked.dependency_contract)?,
+            static_dependencies_from_contract(context, checked.dependency_contract)?,
         ));
     }
 
@@ -215,6 +271,18 @@ fn static_initializer_behavior(
         _ => return Err(BindingQueryError::DependencyUnavailable),
     };
 
+    let mut lifecycle_dependencies =
+        static_dependencies_from_contract(context, template.behavior().dependency_contract())?;
+
+    for node in template.nodes() {
+        if let CheckedTemplateOperation::Declaration { declaration, .. } = node.operation()
+            && let Some(bray_symbols::AnySymbolId::Static(dependency)) =
+                context.symbols().symbol_for_key(declaration)
+        {
+            lifecycle_dependencies.push(dependency);
+        }
+    }
+
     Ok((
         duration,
         template.behavior().dependency_contract(),
@@ -224,7 +292,8 @@ fn static_initializer_behavior(
             .witnesses()
             .iter()
             .map(|witness| witness.declaration().clone())
-        .collect(),
+            .collect(),
+        lifecycle_dependencies,
     ))
 }
 
@@ -295,10 +364,346 @@ fn guard_reaches_exact_thread(guard: &bray_symbols::DependencyGuard) -> bool {
     )
 }
 
-fn validate_static_initializer_calls(
+fn static_dependencies_from_contract(
+    context: &CompilationBindingContext<'_>,
+    contract: bray_symbols::DependencyContractTemplateId,
+) -> BindingQueryResult<Vec<StaticSymbolId>> {
+    let contract = context
+        .semantic_values()
+        .dependency_contract_template_data(contract)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+    let mut dependencies = Vec::new();
+
+    for requirement in contract.requirements() {
+        collect_static_requirement_dependencies(requirement, &mut dependencies);
+    }
+
+    dependencies.sort_unstable();
+    dependencies.dedup();
+
+    Ok(dependencies)
+}
+
+fn witness_requirements_from_contract(
+    context: &CompilationBindingContext<'_>,
+    contract: bray_symbols::DependencyContractTemplateId,
+) -> BindingQueryResult<Vec<bray_symbols::SymbolKey>> {
+    let contract = context
+        .semantic_values()
+        .dependency_contract_template_data(contract)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+    let mut requirements = Vec::new();
+
+    for requirement in contract.requirements() {
+        collect_witness_requirements(context, requirement, &mut requirements)?;
+    }
+
+    requirements.sort();
+    requirements.dedup();
+
+    Ok(requirements)
+}
+
+fn collect_witness_requirements(
+    context: &CompilationBindingContext<'_>,
+    requirement: &bray_symbols::DependencyRequirement,
+    requirements: &mut Vec<bray_symbols::SymbolKey>,
+) -> BindingQueryResult<()> {
+    match requirement {
+        bray_symbols::DependencyRequirement::Direct { subject, .. } => {
+            collect_witness_subject_requirement(context, subject.subject_root(), requirements)?;
+        }
+        bray_symbols::DependencyRequirement::Guarded(guarded) => {
+            let subject = match guarded.guard() {
+                bray_symbols::DependencyGuard::NullablePresent(subject)
+                | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
+            };
+
+            collect_witness_subject_requirement(context, subject.subject_root(), requirements)?;
+
+            for requirement in guarded.requirements() {
+                collect_witness_requirements(context, requirement, requirements)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_witness_subject_requirement(
+    context: &CompilationBindingContext<'_>,
+    root: bray_symbols::DependencySubjectRoot,
+    requirements: &mut Vec<bray_symbols::SymbolKey>,
+) -> BindingQueryResult<()> {
+    let bray_symbols::DependencySubjectRoot::ImplementationWitness(witness) = root else {
+        return Ok(());
+    };
+
+    let instance = context
+        .semantic_values()
+        .implementation_instance_data(witness)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+    let key = context
+        .symbols()
+        .symbol_key(instance.definition().into_any())
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+    requirements.push(key.clone());
+
+    Ok(())
+}
+
+fn collect_static_requirement_dependencies(
+    requirement: &bray_symbols::DependencyRequirement,
+    dependencies: &mut Vec<StaticSymbolId>,
+) {
+    match requirement {
+        bray_symbols::DependencyRequirement::Direct { subject, .. } => {
+            collect_static_subject_dependency(subject.subject_root(), dependencies);
+        }
+        bray_symbols::DependencyRequirement::Guarded(guarded) => {
+            let subject = match guarded.guard() {
+                bray_symbols::DependencyGuard::NullablePresent(subject)
+                | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
+            };
+
+            collect_static_subject_dependency(subject.subject_root(), dependencies);
+
+            for requirement in guarded.requirements() {
+                collect_static_requirement_dependencies(requirement, dependencies);
+            }
+        }
+    }
+}
+
+fn collect_static_subject_dependency(
+    root: bray_symbols::DependencySubjectRoot,
+    dependencies: &mut Vec<StaticSymbolId>,
+) {
+    match root {
+        bray_symbols::DependencySubjectRoot::ProductStatic(dependency)
+        | bray_symbols::DependencySubjectRoot::ExactThreadStatic(dependency) => {
+            dependencies.push(dependency);
+        }
+        bray_symbols::DependencySubjectRoot::Receiver
+        | bray_symbols::DependencySubjectRoot::Parameter(_)
+        | bray_symbols::DependencySubjectRoot::Result
+        | bray_symbols::DependencySubjectRoot::ScopedCapability(_)
+        | bray_symbols::DependencySubjectRoot::ImplementationWitness(_) => {}
+    }
+}
+
+fn static_type_lifecycle_dependencies(
+    context: &CompilationBindingContext<'_>,
+    declared_type: &bray_symbols::TypeExpressionTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BindingQueryResult<Vec<StaticSymbolId>> {
+    let Some(ty) = declared_type.resolved_type() else {
+        return Ok(Vec::new());
+    };
+
+    let data = context
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+    let TypeData::Named { definition, .. } = data.as_ref() else {
+        return Ok(Vec::new());
+    };
+
+    let surface = context
+        .compilation()
+        .type_associated_surface_result_with_cancellation(*definition, context.cancellation())
+        .map_err(super::binding::binder_error)?;
+
+    *diagnostics = diagnostics.merged(surface.diagnostics());
+
+    let mut dependencies = Vec::new();
+
+    for lifecycle in surface.value().lifecycle_members() {
+        if !matches!(
+            lifecycle.slot(),
+            TypeAssociatedLifecycleSlot::Finalizer | TypeAssociatedLifecycleSlot::Destructor
+        ) {
+            continue;
+        }
+
+        let callable = CallableSymbolId::try_from_any(lifecycle.id())
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+        let contracts = context.resolve_symbol_query(SymbolQueryRequest::<
+            CallableContractsQuery,
+        >::new(callable))?;
+
+        *diagnostics = diagnostics.merged(contracts.diagnostics());
+
+        dependencies.extend(static_dependencies_from_contract(
+            context,
+            contracts
+                .value()
+                .phase_behaviors()
+                .invocation()
+                .dependency_contract(),
+        )?);
+
+        dependencies.extend(static_source_callable_dependencies(context, callable)?);
+    }
+
+    dependencies.sort_unstable();
+    dependencies.dedup();
+
+    Ok(dependencies)
+}
+
+fn static_source_callable_dependencies(
+    context: &CompilationBindingContext<'_>,
+    callable: CallableSymbolId,
+) -> BindingQueryResult<Vec<StaticSymbolId>> {
+    let definition = bray_symbols::CallableDefinitionId::try_new(callable.into_any())
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+    let Some(key) = context
+        .compilation()
+        .callable_body_key(definition)
+        .map_err(super::binding::binder_error)?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let mut dependencies = Vec::new();
+
+    for contract in checked_source_body_dependency_contracts(context, key)? {
+        dependencies.extend(static_dependencies_from_contract(context, contract)?);
+    }
+
+    dependencies.sort_unstable();
+    dependencies.dedup();
+
+    Ok(dependencies)
+}
+
+fn validate_static_lifecycle_graph(
+    context: &CompilationBindingContext<'_>,
+    declaration: StaticSymbolId,
+    dependencies: &[StaticSymbolId],
+) -> BindingQueryResult<Vec<Diagnostic>> {
+    let mut active = BTreeSet::new();
+    let mut complete = BTreeSet::new();
+
+    if !static_lifecycle_is_cyclic(
+        context,
+        declaration,
+        declaration,
+        dependencies,
+        &mut active,
+        &mut complete,
+    )? {
+        return Ok(Vec::new());
+    }
+
+    let Some(key) = context
+        .compilation()
+        .static_initializer_key(declaration)
+        .map_err(super::binding::binder_error)?
+    else {
+        return Ok(Vec::new());
+    };
+
+    Ok(vec![static_source_diagnostic(
+        &key,
+        DiagnosticKind::CheckingStaticLifecycleCycle,
+    )])
+}
+
+fn static_lifecycle_is_cyclic(
+    context: &CompilationBindingContext<'_>,
+    root: StaticSymbolId,
+    current: StaticSymbolId,
+    root_dependencies: &[StaticSymbolId],
+    active: &mut BTreeSet<StaticSymbolId>,
+    complete: &mut BTreeSet<StaticSymbolId>,
+) -> BindingQueryResult<bool> {
+    if complete.contains(&current) {
+        return Ok(false);
+    }
+
+    if !active.insert(current) {
+        return Ok(true);
+    }
+
+    let dependencies = if current == root {
+        root_dependencies.to_vec()
+    } else {
+        raw_static_lifecycle_dependencies(context, current)?
+    };
+
+    for dependency in dependencies {
+        if static_lifecycle_is_cyclic(
+            context,
+            root,
+            dependency,
+            root_dependencies,
+            active,
+            complete,
+        )? {
+            return Ok(true);
+        }
+    }
+
+    active.remove(&current);
+    complete.insert(current);
+
+    Ok(false)
+}
+
+fn raw_static_lifecycle_dependencies(
+    context: &CompilationBindingContext<'_>,
+    declaration: StaticSymbolId,
+) -> BindingQueryResult<Vec<StaticSymbolId>> {
+    let mut diagnostics = DiagnosticBag::new();
+
+    let (_, _, _, _, mut dependencies) = static_initializer_behavior(
+        context,
+        declaration,
+        StaticStorageDuration::Product,
+        &mut diagnostics,
+    )?;
+
+    let declared_type = context.resolve_symbol_query(SymbolQueryRequest::<
+        StaticDeclaredTypeQuery,
+    >::new(declaration))?;
+
+    dependencies.extend(static_type_lifecycle_dependencies(
+        context,
+        declared_type.value(),
+        &mut diagnostics,
+    )?);
+
+    dependencies.sort_unstable();
+    dependencies.dedup();
+
+    Ok(dependencies)
+}
+
+fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnostic {
+    let syntax = key.source().syntax();
+    let span = SourceSpan::new(syntax.source_id(), syntax.full_range());
+
+    Diagnostic::new(DiagnosticId::new(span.start().bytes()), kind, SeverityKind::Error)
+        .with_primary_span(span)
+}
+
+fn validate_static_initializer_template(
     context: &CompilationBindingContext<'_>,
     key: &BoundUnitKey,
-) -> BindingQueryResult<Vec<Diagnostic>> {
+) -> BindingQueryResult<DiagnosticBag> {
+    use bray_checker::{
+        CheckerUnitView, ConstantChecker, ConstantEvaluationInput, DefaultConstantChecker,
+    };
+
     let bound = context
         .compilation()
         .bound_unit_with_cancellation(key.clone(), context.cancellation())
@@ -309,57 +714,48 @@ fn validate_static_initializer_calls(
         .expression_semantics_with_cancellation(key.clone(), context.cancellation())
         .map_err(super::binding::binder_error)?;
 
-    let mut diagnostics = Vec::new();
+    let checker_context = context
+        .compilation()
+        .checker_context_for(key, context.cancellation())
+        .map_err(super::binding::binder_error)?;
 
-    for entry in semantics.result().value().1.entries() {
-        let SemanticSelection::Call(call) = entry.selection() else {
-            continue;
-        };
+    let semantic_context = semantic_unit_context_for(
+        checker_context.symbols(),
+        bound.result().value(),
+    )
+    .map_err(super::binding::binder_error)?;
 
-        let is_constant = match call.target() {
-            BoundCallableTarget::Declaration(callable) => context
-                .compilation()
-                .is_constant_callable(callable, context.cancellation())
-                .map_err(super::binding::binder_error)?,
-            BoundCallableTarget::Predicate(_) => true,
-            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => false,
-        };
+    let references = context
+        .compilation()
+        .symbolic_references(bound.result().value(), &semantics.result().value().1)
+        .map_err(super::binding::binder_error)?;
 
-        if is_constant {
-            continue;
-        }
+    let resolver = crate::compilation::constant::CompilationConstantCallResolver::new(
+        context.compilation(),
+        context.cancellation(),
+    );
 
-        let expression = bound
-            .result()
-            .value()
-            .view()
-            .expression(entry.expression())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let input = ConstantEvaluationInput::new(
+        &semantics.result().value().0,
+        &semantics.result().value().1,
+    )
+    .with_references(references)
+    .with_call_resolver(&resolver)
+    .with_static_address_borrows();
 
-        let anchor = expression.origin().source_anchor().syntax();
-        let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+    let unit = CheckerUnitView::new(
+        bound.result().value(),
+        &semantic_context,
+        &checker_context,
+    )
+    .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-        diagnostics.push(
-            Diagnostic::new(
-                DiagnosticId::new(span.start().bytes()),
-                DiagnosticKind::CheckingInvalidConstantExpression,
-                SeverityKind::Error,
-            )
-            .with_primary_span(span)
-            .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::InvalidConstantExpression,
-                span,
-            ))
-            .with_arg(DiagnosticArg::expression_category(
-                DiagnosticExpressionCategory::Call,
-            ))
-            .with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
-            )),
-        );
-    }
+    let checked = checker_result(
+        DefaultConstantChecker.check_constant_term(unit, &input),
+    )
+    .map_err(super::binding::binder_error)?;
 
-    Ok(diagnostics)
+    Ok(checked.diagnostics().clone())
 }
 
 impl crate::compilation::Compilation {
@@ -381,6 +777,7 @@ impl crate::compilation::Compilation {
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::SemanticSelection;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{DependencyRequirement, DependencySubjectRoot, StaticStorageDuration};
     use bray_testing::diagnostics_of_kind;
@@ -528,6 +925,8 @@ mod tests {
                     if subject.subject_root() == DependencySubjectRoot::ProductStatic(*root)
             )
         }));
+
+        assert_eq!(template.value().lifecycle_dependencies(), &[*root]);
     }
 
     #[test]
@@ -683,6 +1082,164 @@ mod tests {
             diagnostics_of_kind(
                 template.diagnostics(),
                 DiagnosticKind::CheckingInvalidConstantExpression,
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn static_initializer_reports_direct_static_value_reads() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static Root: i32 = 1;\n",
+            "static Copy: i32 = Root;\n",
+        ));
+
+        assert_eq!(
+            diagnostics_of_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingInvalidConstantExpression,
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn generic_static_reference_selects_one_closed_instance_key() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Marker {}\n",
+            "struct Marked {}\n",
+            "impl Marked(Marker) {}\n",
+            "static Value<T>: i32 with(T: Marker) = 1;\n",
+            "static Selected: &i32 = &Value<Marked>;\n",
+        ));
+
+        let symbols = symbol_graph(&compilation);
+
+        let selected = symbols
+            .statics()
+            .iter()
+            .find(|symbol| {
+                symbol.origin() == bray_symbols::SymbolOrigin::Source
+                    && symbol.generic_type_parameters().is_empty()
+            })
+            .map(|symbol| symbol.id())
+            .unwrap_or_else(|| panic!("selected static must exist"));
+
+        let key = compilation
+            .static_initializer_key(selected)
+            .unwrap_or_else(|error| panic!("initializer key must publish: {error:?}"))
+            .unwrap_or_else(|| panic!("selected static must have an initializer"));
+
+        let semantics = compilation
+            .expression_semantics_with_cancellation(key, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("initializer semantics must publish: {error:?}"));
+
+        let instances = semantics
+            .result()
+            .value()
+            .1
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::StaticReference(reference) => reference.closed_instance(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let [instance] = instances.as_slice() else {
+            panic!("one closed static instance must be selected: {instances:?}");
+        };
+
+        assert_eq!(instance.template().declaration(), symbols.statics()[0].id());
+        assert_eq!(instance.selected_witnesses().len(), 1);
+    }
+
+    #[test]
+    fn static_type_cleanup_retains_its_callable_dependencies() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static Root: i32 = 1;\n",
+            "struct Resource {}\n",
+            "impl Resource\n",
+            "{\n",
+            "    finalize()\n",
+            "    {\n",
+            "        let value = Root;\n",
+            "        value;\n",
+            "    }\n",
+            "}\n",
+            "static Stored: Resource = Resource {};\n",
+        ));
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let stored = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(stored)
+            .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+        assert!(
+            template.diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            template.diagnostics()
+        );
+
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
+    }
+
+    #[test]
+    fn closed_generic_static_reference_checks_declaration_constraints() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Argument {}\n",
+            "static Value<T>: i32 with(false) = 1;\n",
+            "static Selected: &i32 = &Value<Argument>;\n",
+        ));
+
+        assert_eq!(
+            diagnostics_of_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingStaticConstraintUnsatisfied,
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn static_lifecycle_dependencies_report_cycles() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static First: &i32 = &Second;\n",
+            "static Second: &i32 = &First;\n",
+        ));
+
+        assert_eq!(
+            diagnostics_of_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingStaticLifecycleCycle,
+            )
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn open_recursive_static_specialization_reports_divergence() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static Loop<const N: i32>: &i32 = &Loop<N>;\n",
+        ));
+
+        assert_eq!(
+            diagnostics_of_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingStaticSpecializationDivergence,
             )
             .len(),
             1

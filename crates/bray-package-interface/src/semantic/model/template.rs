@@ -196,7 +196,12 @@ pub enum InterfaceCheckedTemplateOperation {
         operand: CheckedTemplateNodeId,
     },
     /// Reads a declaration-owned value.
-    Declaration(InterfaceTemplateReference),
+    Declaration {
+        /// Selected declaration.
+        declaration: InterfaceTemplateReference,
+        /// Exact closed generic application when the declaration is selected explicitly.
+        substitution: Option<InterfaceGenericSubstitutionId>,
+    },
     /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.

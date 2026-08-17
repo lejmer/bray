@@ -36,6 +36,9 @@ impl Parser {
                 SyntaxKind::LessToken if self.should_parse_explicit_generic_call() => {
                     self.parse_call_postfix(expression)
                 }
+                SyntaxKind::LessToken if self.should_parse_explicit_generic_application() => {
+                    self.parse_generic_application_postfix(expression)
+                }
                 SyntaxKind::QuestionToken => self.parse_nullable_propagation_postfix(expression),
                 SyntaxKind::AsKeyword => self.parse_conversion_postfix(expression, at_boundary),
                 _ => break,
@@ -87,6 +90,19 @@ impl Parser {
 
         builder.push_expression(expression);
         builder.push_call_operation(self.parse_call_operation());
+
+        builder.build()
+    }
+
+    fn parse_generic_application_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_generic_argument_list(self.parse_generic_argument_list());
 
         builder.build()
     }
@@ -379,6 +395,28 @@ mod tests {
 
         assert_eq!(expression.call_operations().count(), 1);
         assert!(expression.operator_token().is_none());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_bare_generic_access_path_arguments() {
+        let sources = source_store(["Value<1>;" ]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        let lists = expression.generic_argument_lists().collect::<Vec<_>>();
+
+        let [arguments] = lists.as_slice() else {
+            panic!("generic access path must retain one argument list: {lists:?}");
+        };
+
+        assert_eq!(expression.full_text(), "Value<1>");
+        assert_eq!(arguments.generic_arguments().count(), 1);
         assert!(diagnostics.is_empty());
     }
 

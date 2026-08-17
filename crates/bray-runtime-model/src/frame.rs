@@ -67,6 +67,27 @@ pub enum ProtectedFrameAffinity {
     MainThread,
 }
 
+impl ProtectedFrameAffinity {
+    /// Returns the stable native and executable-format code.
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Movable => 0,
+            Self::OriginThread => 1,
+            Self::MainThread => 2,
+        }
+    }
+
+    /// Resolves one stable native or executable-format code.
+    pub const fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 => Some(Self::Movable),
+            1 => Some(Self::OriginThread),
+            2 => Some(Self::MainThread),
+            _ => None,
+        }
+    }
+}
+
 /// Compiler-emitted operation available for one protected frame.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProtectedFrameOperation {

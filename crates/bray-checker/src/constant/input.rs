@@ -47,6 +47,7 @@ pub struct ConstantEvaluationInput<'input> {
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     is_consistent: bool,
     call_resolver: Option<&'input dyn ConstantCallResolver>,
+    allow_static_address_borrows: bool,
     limits: ConstantEvaluationLimits,
 }
 
@@ -66,6 +67,7 @@ impl<'input> ConstantEvaluationInput<'input> {
             local_terms: BTreeMap::new(),
             is_consistent: true,
             call_resolver: None,
+            allow_static_address_borrows: false,
             limits: ConstantEvaluationLimits::default(),
         }
     }
@@ -95,6 +97,14 @@ impl<'input> ConstantEvaluationInput<'input> {
     /// Supplies the demand-driven dependency boundary for selected constant calls.
     pub const fn with_call_resolver(mut self, resolver: &'input dyn ConstantCallResolver) -> Self {
         self.call_resolver = Some(resolver);
+
+        self
+    }
+
+    /// Permits shared address formation for static storage while validating an initializer
+    /// template. The resulting term is a validation recovery value and is not evaluated.
+    pub const fn with_static_address_borrows(mut self) -> Self {
+        self.allow_static_address_borrows = true;
 
         self
     }
@@ -181,6 +191,10 @@ impl<'input> ConstantEvaluationInput<'input> {
 
     pub(crate) const fn is_consistent(&self) -> bool {
         self.is_consistent
+    }
+
+    pub(crate) const fn allows_static_address_borrows(&self) -> bool {
+        self.allow_static_address_borrows
     }
 
     /// Returns the deterministic resource limits for this request.

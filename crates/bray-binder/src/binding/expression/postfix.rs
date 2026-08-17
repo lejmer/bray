@@ -7,7 +7,8 @@ use bray_declarations::SyntaxAnchor;
 use bray_symbols::LocalScopeId;
 use bray_syntax::{
     ArgumentListSyntax, CallOperationSyntax, ConversionOperationSyntax, ExpressionSyntax,
-    SourceSyntaxNode, SyntaxKind, SyntaxWalkControl, walk_direct_child_nodes,
+    GenericArgumentListSyntax, SourceSyntaxNode, SyntaxKind, SyntaxWalkControl,
+    walk_direct_child_nodes,
 };
 
 use super::super::BindingResult;
@@ -40,6 +41,15 @@ impl ExpressionBinder {
                     };
 
                     self.bind_call(binder, scope, &call, current)
+                }
+                SyntaxKind::GenericArgumentList => {
+                    let Some(arguments) = operation.cast::<GenericArgumentListSyntax>() else {
+                        failure = Some(BindingError::UnsupportedSyntax);
+
+                        return SyntaxWalkControl::Stop;
+                    };
+
+                    self.bind_generic_application(binder, &arguments, current)
                 }
                 SyntaxKind::ConversionOperation => {
                     let Some(conversion) = operation.cast::<ConversionOperationSyntax>() else {
@@ -108,6 +118,27 @@ impl ExpressionBinder {
         });
 
         failure.map_or(Ok(current), Err)
+    }
+
+    fn bind_generic_application<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        syntax: &GenericArgumentListSyntax,
+        subject: BoundExpressionId,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BindingQueryContext + ?Sized,
+    {
+        let Some(BoundExpression::Name(name)) = binder.unit_view().expression(subject) else {
+            return Ok(subject);
+        };
+
+        self.push(
+            binder,
+            BoundExpression::Name(
+                name.with_generic_argument_list(SyntaxAnchor::from_node(syntax)),
+            ),
+        )
     }
 
     fn bind_call<C>(

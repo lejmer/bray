@@ -692,6 +692,25 @@ where
             BoundStructuredExpressionKind::ResultPropagation => {
                 Err(EvaluationFailure::invalid_expression(expression))
             }
+            BoundStructuredExpressionKind::Borrow
+                if self.input.allows_static_address_borrows()
+                    && structured.borrow_kind() == Some(bray_symbols::BorrowKind::Shared)
+                    && operands.len() == 1
+                    && self.request.view().expression(operands[0]).is_some_and(|operand| {
+                        matches!(
+                            operand,
+                            BoundExpression::Name(name)
+                                if matches!(
+                                    name.target(),
+                                    bray_bound_tree::BoundReferenceTarget::Surface(
+                                        bray_symbols::AnySymbolId::Static(_)
+                                    )
+                                )
+                        )
+                    }) =>
+            {
+                self.recovery_term(ty).map_err(EvaluationFailure::Infrastructure)
+            }
             BoundStructuredExpressionKind::NullablePropagation
             | BoundStructuredExpressionKind::ArrayGenerator
             | BoundStructuredExpressionKind::GeneralGenerator

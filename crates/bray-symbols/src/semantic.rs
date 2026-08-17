@@ -100,7 +100,8 @@ pub use signature::{
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
 pub use static_storage::{
-    StaticInstanceKey, StaticInstanceTemplate, StaticInstanceTemplateId, StaticStorageDuration,
+    StaticInstanceKey, StaticInstanceTemplate, StaticInstanceTemplateId, StaticReferenceSelection,
+    StaticStorageDuration,
 };
 pub use target::{ModuleContributionGate, TargetPropertyDependency};
 pub use template::{

@@ -86,7 +86,7 @@ impl Lowerer<'_> {
                     resume,
                     self.execution_lane_requirements(),
                     initialized_storages,
-                ));
+                ).with_affinity(self.frame_affinity()));
 
                 let ty = self.expression_type(expression)?;
                 let value = self.unit_operand(ty);

@@ -290,18 +290,7 @@ impl Drop for NativeFrameTransfer {
 }
 
 fn affinity(native: NativeFrameAffinity) -> Option<ProtectedFrameAffinity> {
-    match native.code() {
-        code if code == NativeFrameAffinity::MOVABLE.code() => {
-            Some(ProtectedFrameAffinity::Movable)
-        }
-        code if code == NativeFrameAffinity::ORIGIN_THREAD.code() => {
-            Some(ProtectedFrameAffinity::OriginThread)
-        }
-        code if code == NativeFrameAffinity::MAIN_THREAD.code() => {
-            Some(ProtectedFrameAffinity::MainThread)
-        }
-        _ => None,
-    }
+    ProtectedFrameAffinity::from_code(native.code())
 }
 
 fn lane_requirements(native: NativeLaneRequirements) -> Option<Vec<ExecutionLaneRequirement>> {

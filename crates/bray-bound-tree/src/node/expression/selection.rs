@@ -106,6 +106,7 @@ pub struct BoundNameExpression {
     origin: BoundNodeOrigin,
     target: BoundReferenceTarget,
     ty: Option<TypeId>,
+    generic_argument_list: Option<bray_declarations::SyntaxAnchor>,
     is_recovered: bool,
 }
 
@@ -121,6 +122,7 @@ impl BoundNameExpression {
             origin,
             target,
             ty,
+            generic_argument_list: None,
             is_recovered,
         }
     }
@@ -138,6 +140,21 @@ impl BoundNameExpression {
     /// Returns the resolved type when available.
     pub const fn ty(self) -> Option<TypeId> {
         self.ty
+    }
+
+    /// Retains the explicit generic application selected for this reference.
+    pub const fn with_generic_argument_list(
+        mut self,
+        syntax: bray_declarations::SyntaxAnchor,
+    ) -> Self {
+        self.generic_argument_list = Some(syntax);
+
+        self
+    }
+
+    /// Returns the explicit generic application selected for this reference.
+    pub const fn generic_argument_list(self) -> Option<bray_declarations::SyntaxAnchor> {
+        self.generic_argument_list
     }
 
     /// Returns whether recovery contributed to this expression.

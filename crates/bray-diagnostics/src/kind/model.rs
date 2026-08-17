@@ -351,6 +351,12 @@ define_diagnostic_kinds! {
     CheckingThreadLocalStaticUnavailable,
     /// Product-static storage retains a dependency owned by one exact thread attachment.
     CheckingStaticDependencyOutlivesOwner,
+    /// Static initialization or cleanup dependencies contain a cycle.
+    CheckingStaticLifecycleCycle,
+    /// A generic static recursively demands a distinct open specialization.
+    CheckingStaticSpecializationDivergence,
+    /// A closed generic static reference does not satisfy every declaration constraint.
+    CheckingStaticConstraintUnsatisfied,
     /// A target-control literal contract is invalid for the selected target.
     CheckingInvalidTargetControlContract,
     /// A compiler-provided atomic operation received an invalid compile-time memory order.
@@ -768,6 +774,9 @@ impl DiagnosticKind {
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
             Self::CheckingThreadLocalStaticUnavailable => 7099,
             Self::CheckingStaticDependencyOutlivesOwner => 7100,
+            Self::CheckingStaticLifecycleCycle => 7101,
+            Self::CheckingStaticSpecializationDivergence => 7102,
+            Self::CheckingStaticConstraintUnsatisfied => 7103,
             Self::CheckingInvalidTargetControlContract => 7096,
             Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
@@ -1123,6 +1132,13 @@ impl DiagnosticKind {
             }
             Self::CheckingStaticDependencyOutlivesOwner => {
                 "checking_static_dependency_outlives_owner"
+            }
+            Self::CheckingStaticLifecycleCycle => "checking_static_lifecycle_cycle",
+            Self::CheckingStaticSpecializationDivergence => {
+                "checking_static_specialization_divergence"
+            }
+            Self::CheckingStaticConstraintUnsatisfied => {
+                "checking_static_constraint_unsatisfied"
             }
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"

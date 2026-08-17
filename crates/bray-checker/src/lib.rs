@@ -50,7 +50,7 @@ pub use context::{
     CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution,
 };
 pub use diagnostic::diagnostic_type;
-pub use expression::NestedCallableEvidence;
+pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
     GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,

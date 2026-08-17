@@ -1008,6 +1008,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         for state in frame.states() {
             self.wire.write_u32(state.state().raw());
             self.wire.write_u32(state.entry().slot());
+
+            self.wire.write_u32(state.affinity().code());
+
             write_count(&mut self.wire, state.lane_requirements().len());
 
             for requirement in state.lane_requirements() {

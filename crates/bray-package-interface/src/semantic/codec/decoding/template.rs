@@ -3,8 +3,8 @@ use bray_symbols::{InterfaceSupportEntityId, SymbolOrdinal};
 
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
-    read_symbol_references, read_u32,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32,
+    read_symbol_reference, read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -247,9 +247,12 @@ fn decode_operation(
                 reader.read_u64().map_err(map_wire_error)?,
             ),
         }),
-        3 => Ok(InterfaceCheckedTemplateOperation::Declaration(
-            decode_template_reference(reader, context)?,
-        )),
+        3 => Ok(InterfaceCheckedTemplateOperation::Declaration {
+            declaration: decode_template_reference(reader, context)?,
+            substitution: read_optional_u32(reader)?.map(
+                crate::semantic::model::InterfaceGenericSubstitutionId::new,
+            ),
+        }),
         4 => {
             let callable = decode_template_reference(reader, context)?;
             let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
@@ -994,9 +997,12 @@ mod tests {
             };
 
             let operation = if index == 0 {
-                InterfaceCheckedTemplateOperation::Declaration(InterfaceTemplateReference::Support(
-                    InterfaceSupportEntityId::new(0),
-                ))
+                InterfaceCheckedTemplateOperation::Declaration {
+                    declaration: InterfaceTemplateReference::Support(
+                        InterfaceSupportEntityId::new(0),
+                    ),
+                    substitution: None,
+                }
             } else {
                 InterfaceCheckedTemplateOperation::Input(CheckedTemplateInputId::new(0))
             };
@@ -1114,7 +1120,10 @@ mod tests {
                 InterfaceTypeId::new(0),
             ),
             InterfaceCheckedTemplateNode::new(
-                InterfaceCheckedTemplateOperation::Declaration(declaration.clone()),
+                InterfaceCheckedTemplateOperation::Declaration {
+                    declaration: declaration.clone(),
+                    substitution: None,
+                },
                 InterfaceTypeId::new(0),
             ),
             InterfaceCheckedTemplateNode::new(

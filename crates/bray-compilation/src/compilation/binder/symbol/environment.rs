@@ -190,7 +190,7 @@ fn parameter_name(
     }
 }
 
-pub(super) trait GenericParameterAccess {
+pub(in crate::compilation) trait GenericParameterAccess {
     fn generic_type_parameters(
         &self,
         owner: AnySymbolId,
@@ -309,7 +309,7 @@ macro_rules! impl_generic_parameter_access {
 impl_generic_parameter_access!(SymbolGraph);
 impl_generic_parameter_access!(ImportedSymbolSkeleton);
 
-pub(super) fn generic_parameter_ids(
+pub(in crate::compilation) fn generic_parameter_ids(
     symbols: &impl GenericParameterAccess,
     owner: AnySymbolId,
 ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {

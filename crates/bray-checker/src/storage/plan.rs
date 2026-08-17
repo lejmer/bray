@@ -177,6 +177,7 @@ where
                         Some((selection.expression(), selection))
                     }
                     SemanticSelection::Reference(_)
+                    | SemanticSelection::StaticReference(_)
                     | SemanticSelection::Call(_)
                     | SemanticSelection::Predicate(_)
                     | SemanticSelection::Operation(_)
