@@ -105,6 +105,8 @@ impl Counter
 }
 ```
 
+An imaginary literal uses a trailing `i`. Context selects `c64` with `r32` components or `c128` with `r64` components, while an unconstrained complex literal defaults to `c128`. Literal components adapt directly, but already typed real and imaginary components form a complex value through explicit tuple conversion.
+
 ### Operators and assignment
 
 ```bray

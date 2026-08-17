@@ -8,7 +8,7 @@
 - [Named types, generics, and copying](#named-types-generics-and-copying)
 - [Traits](#traits)
 - [Implementations and member selection](#implementations-and-member-selection)
-- [Conversion and operator contracts](#conversion-and-operator-contracts)
+- [Operator contracts](#operator-contracts)
 - [Choose the type form by intent](#choose-the-type-form-by-intent)
 - [Common mistakes](#common-mistakes)
 
@@ -345,27 +345,9 @@ func read_byte(pos mut buffer: Buffer) -> u8?
 
 Trait satisfaction requires an explicit participating implementation for the exact `(ImplementingSubject, TraitApplication)` key. Multiple applications of one generic trait for a subject require named implementations and an explicit implementation overload family. Overlapping keys are rejected, and Bray never ranks one implementation as more specific.
 
-## Conversion and operator contracts
+## Operator contracts
 
 ```bray
-impl PortToU16 = Port(ConvertTo<u16>)
-{
-    consume func convert() -> u16
-    {
-        return self.value;
-    }
-}
-
-impl TextToPort = string(CheckedConvertTo<Port>)
-{
-    type Error = ParseError;
-
-    consume func convert_checked() -> Result<Port, Error>
-    {
-        return parse_port(self);
-    }
-}
-
 impl Vec2Add = Vec2(Add<Vec2>)
 {
     type Output = Vec2;
@@ -381,9 +363,9 @@ impl Vec2Add = Vec2(Add<Vec2>)
 }
 ```
 
-Plain `as` conversion uses the compiler-known `ConvertTo<Target>` contract only for total value-preserving conversion. Fallible `std.convert<Target>(source)` uses `CheckedConvertTo<Target>` and its selected `Error`. Overloadable tokens use a closed compiler-known trait set whose shared-receiver operations use non-consuming shared access.
+Overloadable tokens use a closed compiler-known trait set whose shared-receiver operations use non-consuming shared access.
 
-**Remember:** Named types preserve identity, generic arguments are explicit and invariant, structural forms carry their own ownership and storage rules, traits require explicit implementations, views require an indirection boundary, and conversions or operators exist only through their exact compiler-known contracts.
+**Remember:** Named types preserve identity, generic arguments are explicit and invariant, structural forms carry their own ownership and storage rules, traits require explicit implementations, views require an indirection boundary, and operators exist only through their exact compiler-known contracts.
 
 ## Choose the type form by intent
 
@@ -407,7 +389,7 @@ Plain `as` conversion uses the compiler-known `ConvertTo<Target>` contract only 
 ## Common mistakes
 
 - Do not treat two named types with matching fields or layout as interchangeable. [Named identity](https://github.com/lejmer/bray/blob/develop/docs/language/types/type-identity.md) survives representational similarity.
-- Convert scalars explicitly, supply generic arguments in declaration order, and treat generic type identity as invariant.
+- Supply generic arguments in declaration order and treat generic type identity as invariant.
 - Do not write redundant `public` on types, fields, traits, or inherent members unless deliberate emphasis improves the API. Public visibility is the default.
 - Do not store a bare trait name. Use a generic constraint when the concrete type remains known, or place an exact `view` behind a borrow or box for dynamic dispatch.
 - Use trait type-valued members and inherent type-valued bindings only for their defined associated type surfaces.
