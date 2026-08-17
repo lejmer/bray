@@ -286,26 +286,15 @@ fn share_token(token: &SyntaxToken) -> SyntaxToken {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceVersion};
-    use bray_testing::assert_goal_state_diagnostics;
+    use bray_testing::{assert_goal_state_diagnostics, diagnostics_of_kind};
     use std::ops::Deref;
 
     use super::{LexerCachePolicy, LexerTokenSource};
     use crate::test_support::{diagnostic_kinds, token_kinds};
     use bray_source::{SourceSnapshot, TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxToken, SyntaxTrivia};
-
-    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
-        DiagnosticBag::from(
-            diagnostics
-                .diagnostics()
-                .iter()
-                .filter(|diagnostic| diagnostic.kind() == kind)
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    }
 
     #[test]
     fn peek_does_not_consume_the_next_token() {

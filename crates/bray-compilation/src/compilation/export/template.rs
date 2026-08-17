@@ -283,7 +283,9 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
         match expression {
             BoundExpression::Literal(_) => self.literal(expression_id),
-            BoundExpression::Name(reference) => self.reference(reference.target(), ty),
+            BoundExpression::Name(reference) => {
+                self.reference(expression_id, reference.target(), ty)
+            }
             BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
                 self.payloadless_variant(expression_id)
             }
@@ -294,7 +296,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                     return Err(incomplete());
                 };
 
-                self.reference(*target, ty)
+                self.reference(expression_id, *target, ty)
             }
             BoundExpression::Unary(unary) => self.unary(unary.operator(), unary.operands()),
             BoundExpression::Binary(binary) => self.binary(binary.operator(), binary.operands()),
@@ -406,13 +408,17 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             return Err(incomplete());
         }
 
-        Ok(InterfaceCheckedTemplateOperation::Declaration(
-            InterfaceTemplateReference::Symbol(self.export.symbol_reference(variant.into())?),
-        ))
+        Ok(InterfaceCheckedTemplateOperation::Declaration {
+            declaration: InterfaceTemplateReference::Symbol(
+                self.export.symbol_reference(variant.into())?,
+            ),
+            substitution: None,
+        })
     }
 
     fn reference(
         &mut self,
+        expression: BoundExpressionId,
         target: BoundReferenceTarget,
         ty: TypeId,
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
@@ -439,9 +445,20 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             return Ok(InterfaceCheckedTemplateOperation::Input(input));
         };
 
-        Ok(InterfaceCheckedTemplateOperation::Declaration(
-            InterfaceTemplateReference::Symbol(self.export.symbol_reference(symbol)?),
-        ))
+        let substitution = match self.selections.expression(expression) {
+            Some(SemanticSelection::StaticReference(instance)) => Some(
+                self.export
+                    .substitution_id(instance.substitution())?,
+            ),
+            _ => None,
+        };
+
+        Ok(InterfaceCheckedTemplateOperation::Declaration {
+            declaration: InterfaceTemplateReference::Symbol(
+                self.export.symbol_reference(symbol)?,
+            ),
+            substitution,
+        })
     }
 
     fn unary(

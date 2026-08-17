@@ -143,7 +143,7 @@ where
             CheckedTemplateOperation::Borrow { .. } => {
                 Err(TemplateEvaluationFailure::invalid_input())
             }
-            CheckedTemplateOperation::Declaration(declaration) => {
+            CheckedTemplateOperation::Declaration { declaration, .. } => {
                 self.evaluate_declaration(declaration, ty)
             }
             CheckedTemplateOperation::Call {

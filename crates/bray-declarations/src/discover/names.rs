@@ -5,7 +5,8 @@ use bray_syntax::{
     ImplementationOverloadDeclarationSyntax, ImplementationTypeMemberBindingSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
     PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
-    ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, StructDeclarationSyntax,
+    ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, StaticDeclarationSyntax,
+    StructDeclarationSyntax,
     StructFieldDeclarationSyntax, SyntaxKind, SyntaxNodeView, SyntaxToken,
     TraitCallableMemberDeclarationSyntax, TraitConstantMemberDeclarationSyntax,
     TraitDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
@@ -25,6 +26,7 @@ pub(super) fn declaration_kind_for_syntax(kind: SyntaxKind) -> Option<Declaratio
         SyntaxKind::UsingDeclaration => Some(DeclarationKind::Using),
         SyntaxKind::ExportDeclaration => Some(DeclarationKind::Export),
         SyntaxKind::ConstantDeclaration => Some(DeclarationKind::Constant),
+        SyntaxKind::StaticDeclaration => Some(DeclarationKind::Static),
         SyntaxKind::FunctionDeclaration => Some(DeclarationKind::Function),
         SyntaxKind::PredicateDeclaration => Some(DeclarationKind::Predicate),
         SyntaxKind::CallableContractDeclaration => Some(DeclarationKind::CallableContract),
@@ -94,6 +96,11 @@ pub(super) fn declaration_name(
         }
         DeclarationKind::Constant => {
             let declaration = cast_node::<ConstantDeclarationSyntax>(view, "constant declaration");
+
+            identifier_declaration_name(view.source().text(), declaration.identifier_token())
+        }
+        DeclarationKind::Static => {
+            let declaration = cast_node::<StaticDeclarationSyntax>(view, "static declaration");
 
             identifier_declaration_name(view.source().text(), declaration.identifier_token())
         }

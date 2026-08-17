@@ -1053,7 +1053,7 @@ impl Lowerer<'_> {
                     .identity(id)
                     .ok_or(LoweringError::MissingStorageIdentityRecord(id))?;
 
-                let kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
+                let kind = storage_kind(identity, self.parameter_positions.get(&id).copied())?;
 
                 let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
@@ -1113,13 +1113,19 @@ fn unary_operator(operator: BoundOperator) -> Option<MirUnaryOperator> {
     }
 }
 
-fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> MirStorageKind {
-    match identity {
+fn storage_kind(
+    identity: StorageIdentity,
+    parameter_position: Option<u32>,
+) -> Result<MirStorageKind, LoweringError> {
+    Ok(match identity {
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::PredicateParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
+        }
+        StorageIdentity::Static(id) => {
+            return Err(LoweringError::StaticStorageRequiresRealization(id));
         }
         StorageIdentity::LocalOwned(_) | StorageIdentity::Alternative { .. } => {
             MirStorageKind::Local
@@ -1133,5 +1139,5 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => MirStorageKind::Temporary,
-    }
+    })
 }

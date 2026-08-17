@@ -7,7 +7,8 @@ use bray_syntax::{
     ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
     NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
+    SourceUnitSyntaxBuilder, StaticDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
+    SyntaxToken,
     TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
     UsingDeclarationSyntax,
 };
@@ -53,7 +54,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 20] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 21] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -63,6 +64,7 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 20] = [
     SyntaxKind::ExternKeyword,
     SyntaxKind::AsyncKeyword,
     SyntaxKind::ConstKeyword,
+    SyntaxKind::StaticKeyword,
     SyntaxKind::CallableKeyword,
     SyntaxKind::FuncKeyword,
     SyntaxKind::StructKeyword,
@@ -82,7 +84,7 @@ pub(super) const MODULE_ITEM_DECLARATION_TERMINATOR_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-pub(super) const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
+pub(super) const MODULE_ITEM_START_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -92,6 +94,7 @@ pub(super) const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
     SyntaxKind::ExternKeyword,
     SyntaxKind::AsyncKeyword,
     SyntaxKind::ConstKeyword,
+    SyntaxKind::StaticKeyword,
     SyntaxKind::CallableKeyword,
     SyntaxKind::FuncKeyword,
     SyntaxKind::StructKeyword,
@@ -299,6 +302,12 @@ impl Parser {
             ));
         }
 
+        if self.should_parse_static_declaration() {
+            return Some(DeclarationFragmentSyntax::Static(
+                self.parse_static_declaration(),
+            ));
+        }
+
         if self.should_parse_predicate_declaration() {
             return Some(DeclarationFragmentSyntax::Predicate(
                 self.parse_predicate_declaration(),
@@ -496,6 +505,9 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
             DeclarationFragmentSyntax::Constant(declaration) => {
                 self.push_constant_declaration(declaration);
             }
+            DeclarationFragmentSyntax::Static(declaration) => {
+                self.push_static_declaration(declaration);
+            }
             DeclarationFragmentSyntax::Function(declaration) => {
                 self.push_function_declaration(declaration);
             }
@@ -538,6 +550,8 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
 
     fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax);
+
+    fn push_static_declaration(&mut self, declaration: StaticDeclarationSyntax);
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
 
@@ -629,6 +643,10 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
         SourceUnitSyntaxBuilder::push_constant_declaration(self, declaration);
     }
 
+    fn push_static_declaration(&mut self, declaration: StaticDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_static_declaration(self, declaration);
+    }
+
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
     }
@@ -703,6 +721,10 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_constant_declaration(self, declaration);
+    }
+
+    fn push_static_declaration(&mut self, declaration: StaticDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_static_declaration(self, declaration);
     }
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {

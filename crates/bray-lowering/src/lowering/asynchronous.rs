@@ -94,7 +94,7 @@ impl Lowerer<'_> {
             resume,
             self.execution_lane_requirements(),
             initialized_storages,
-        ));
+        ).with_affinity(self.frame_affinity()));
 
         let value = self.push_value_operation(
             id,
@@ -233,6 +233,8 @@ impl Lowerer<'_> {
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)
                 | BoundDependencySubject::ImplementationWitness(_)
+                | BoundDependencySubject::ProductStatic(_)
+                | BoundDependencySubject::ExactThreadStatic(_)
                 | BoundDependencySubject::LifecycleObligation(_) => None,
             };
 
@@ -245,6 +247,24 @@ impl Lowerer<'_> {
         storages.dedup();
 
         Ok(storages)
+    }
+
+    pub(super) fn frame_affinity(&self) -> bray_runtime_interface::ProtectedFrameAffinity {
+        frame_affinity(self.input.async_analysis())
+    }
+}
+
+fn frame_affinity(
+    analysis: &bray_bound_tree::CheckedAsync,
+) -> bray_runtime_interface::ProtectedFrameAffinity {
+    if analysis
+        .frame_dependencies()
+        .iter()
+        .any(|subject| matches!(subject, BoundDependencySubject::ExactThreadStatic(_)))
+    {
+        bray_runtime_interface::ProtectedFrameAffinity::OriginThread
+    } else {
+        bray_runtime_interface::ProtectedFrameAffinity::Movable
     }
 }
 
@@ -262,4 +282,46 @@ fn call_receiver(
             MirCallArgument::Explicit { .. } | MirCallArgument::Default { .. } => None,
         })
         .ok_or(LoweringError::InvalidTaskOperation(expression))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        BoundDependencySubject, BoundUnitId, BoundUnitKind, CheckedAsync,
+    };
+    use bray_runtime_interface::ProtectedFrameAffinity;
+    use bray_symbols::{StaticSymbolId, SymbolId};
+
+    use super::frame_affinity;
+
+    #[test]
+    fn exact_thread_static_dependencies_pin_the_protected_frame() {
+        let unit = BoundUnitId::new(91);
+        let root = StaticSymbolId::from_symbol_id(SymbolId::new(7));
+
+        let pinned = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [BoundDependencySubject::ExactThreadStatic(root)],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("pinned async analysis must validate: {error:?}"));
+
+        let movable = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
+
+        assert_eq!(frame_affinity(&pinned), ProtectedFrameAffinity::OriginThread);
+        assert_eq!(frame_affinity(&movable), ProtectedFrameAffinity::Movable);
+    }
 }

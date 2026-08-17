@@ -6,8 +6,9 @@ use bray_symbols::{
     AnySymbolId, CallableContractTypeQuery, CallableSignatureQuery, CallableSignatureTemplate,
     CallableSymbolId, ConstantDeclaredTypeQuery, GenericConstParameterDeclaredTypeQuery,
     InherentTypeMemberValueQuery, PredicateDefinitionSymbolId, PredicateSignatureTemplate,
-    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
-    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
+    PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StructFieldTypeQuery,
+    SymbolQueryContract, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+    TraitConstantMemberDeclaredTypeQuery,
     TraitTypeFulfillmentValueQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
 
@@ -53,6 +54,9 @@ impl Compilation {
                 .map(Some),
             AnySymbolId::Constant(owner) => self
                 .resolve_symbol_query::<ConstantDeclaredTypeQuery>(owner)
+                .map(Some),
+            AnySymbolId::Static(owner) => self
+                .resolve_symbol_query::<StaticDeclaredTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::GenericConstParameter(owner) => self
                 .resolve_symbol_query::<GenericConstParameterDeclaredTypeQuery>(owner)

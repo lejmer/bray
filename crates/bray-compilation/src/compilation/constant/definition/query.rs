@@ -19,8 +19,7 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionQuery, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery,
-    TraitConstantMemberDefinitionQuery,
+    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,
 };
 
 use super::support::{
@@ -503,7 +502,7 @@ impl Compilation {
         ))
     }
 
-    fn symbolic_references(
+    pub(in crate::compilation) fn symbolic_references(
         &self,
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
@@ -517,7 +516,7 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure),
             BoundReferenceTarget::Surface(symbol) => {
                 let Some(definition) = constant_definition_id(symbol) else {
-                    return Err(FactQueryError::InfrastructureFailure);
+                    return Ok(ConstantReferenceResolution::Invalid);
                 };
 
                 let substitution = empty_substitution(values, definition.into_any())?;
@@ -532,7 +531,7 @@ impl Compilation {
 
                 Ok(ConstantReferenceResolution::Term(term))
             }
-            BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
+            BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
         })
     }
 

@@ -10,7 +10,8 @@ use bray_symbols::{
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
     ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolQueryRequest,
+    PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StructFieldTypeQuery,
+    SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
     TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
@@ -426,6 +427,12 @@ impl DeclaredValueTypeBinding<'_> {
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         match owner {
             AnySymbolId::Constant(constant) => self.constant_type(constant),
+            AnySymbolId::Static(static_symbol) => self
+                .context
+                .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(
+                    static_symbol,
+                ))
+                .map(|result| owned_template(result.value())),
             AnySymbolId::TraitConstantMember(member) => self
                 .context
                 .resolve_symbol_query(
@@ -452,6 +459,7 @@ impl DeclaredValueTypeBinding<'_> {
 
         let template = match symbol {
             AnySymbolId::Constant(_)
+            | AnySymbolId::Static(_)
             | AnySymbolId::TraitConstantMember(_)
             | AnySymbolId::TraitConstantFulfillment(_) => {
                 Some(self.constant_declared_type(symbol)?)

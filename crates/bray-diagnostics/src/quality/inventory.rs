@@ -844,6 +844,19 @@ impl DiagnosticKind {
                 &[TargetTriple, CallableAbi],
                 primary_components!(&[TargetTriple, CallableAbi]),
             ),
+            Self::CheckingThreadLocalStaticUnavailable => Self::quality_source(
+                &[TargetTriple],
+                primary_components!(&[TargetTriple]),
+            ),
+            Self::CheckingStaticDependencyOutlivesOwner => Self::quality_source(
+                &[DependencySubjectKind],
+                primary_components!(&[DependencySubjectKind]),
+            ),
+            Self::CheckingStaticLifecycleCycle
+            | Self::CheckingStaticSpecializationDivergence
+            | Self::CheckingStaticConstraintUnsatisfied => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
             Self::CheckingTargetAbiRepresentationUnsupported => Self::quality_source(
                 &[TargetTriple, CallableAbi, TargetRepresentation],
                 primary_components!(&[TargetTriple, CallableAbi, TargetRepresentation]),

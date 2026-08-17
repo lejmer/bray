@@ -481,9 +481,9 @@ fn translate_state_callback(
             .lane_requirements()
             .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
         {
-            2
+            bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
         } else {
-            0
+            state.affinity().code()
         };
 
         builder.position_at_end(block);
@@ -492,7 +492,7 @@ fn translate_state_callback(
             context,
             &builder,
             request.target(),
-            affinity,
+            u64::from(affinity),
             lane_requirements,
         )?;
 

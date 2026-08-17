@@ -11,6 +11,8 @@ macro_rules! for_each_compilation_symbol_kind {
             TrustedCapabilitySymbolId => TrustedCapability: TrustedCapability,
             "A constant declaration.";
             ConstantSymbolId => Constant: Constant,
+            "A static storage declaration.";
+            StaticSymbolId => Static: Static,
             "A function declaration.";
             FunctionSymbolId => Function: Function,
             "A predicate declaration.";
@@ -137,6 +139,7 @@ impl SymbolKind {
             Self::Module => "module",
             Self::TrustedCapability => "trusted_capability",
             Self::Constant => "constant",
+            Self::Static => "static",
             Self::Function => "function",
             Self::Predicate => "predicate",
             Self::CallableContract => "callable_contract",
@@ -255,7 +258,8 @@ impl SymbolKind {
     pub const fn admits_generic_parameters(self) -> bool {
         matches!(
             self,
-            Self::Function
+            Self::Static
+                | Self::Function
                 | Self::Predicate
                 | Self::CallableContract
                 | Self::CallableOverload
@@ -278,6 +282,7 @@ impl SymbolKind {
         matches!(
             self,
             Self::Constant
+                | Self::Static
                 | Self::Function
                 | Self::Predicate
                 | Self::CallableContract
@@ -366,22 +371,7 @@ impl SymbolRelationshipKind {
 
     /// Returns this relationship kind's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::PackageModule => "package_module",
-            Self::ModuleMember => "module_member",
-            Self::TypeMember => "type_member",
-            Self::TraitMember => "trait_member",
-            Self::ImplementationMember => "implementation_member",
-            Self::StructField => "struct_field",
-            Self::UnionVariant => "union_variant",
-            Self::UnionPayloadField => "union_payload_field",
-            Self::GenericParameter => "generic_parameter",
-            Self::CallableParameter => "callable_parameter",
-            Self::PredicateParameter => "predicate_parameter",
-            Self::OverloadArm => "overload_arm",
-            Self::ImplementationFulfillment => "implementation_fulfillment",
-            Self::DefaultProvider => "default_provider",
-        }
+        crate::diagnostic::diagnostic_symbol_relationship_kind(self).as_str()
     }
 
     /// Classifies a supported owner-member pair.
@@ -446,6 +436,7 @@ const fn is_module_member(kind: SymbolKind) -> bool {
     matches!(
         kind,
         SymbolKind::Constant
+            | SymbolKind::Static
             | SymbolKind::Function
             | SymbolKind::Predicate
             | SymbolKind::CallableContract
@@ -647,6 +638,7 @@ mod tests {
                 &[SymbolKind::Module],
                 &[
                     SymbolKind::Constant,
+                    SymbolKind::Static,
                     SymbolKind::Function,
                     SymbolKind::Predicate,
                     SymbolKind::CallableContract,
@@ -752,8 +744,9 @@ mod tests {
         ]
     }
 
-    fn generic_owners() -> [SymbolKind; 15] {
+    fn generic_owners() -> [SymbolKind; 16] {
         [
+            SymbolKind::Static,
             SymbolKind::Function,
             SymbolKind::Predicate,
             SymbolKind::CallableContract,

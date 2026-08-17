@@ -11,7 +11,8 @@ use bray_symbols::{
     ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
     ImplementationSubjectQuery, ImplementationSymbolId, ImplementedTraitApplicationQuery,
     InherentTypeMemberValueQuery, ModuleSurfaceQuery, ModuleSymbolId, PredicateDefinitionQuery,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, StructFieldDefaultQuery,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery,
+    StaticInstanceTemplateQuery, StructFieldDefaultQuery,
     StructFieldDefaultTemplateQuery, StructFieldSymbolId, StructFieldTypeQuery,
     SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionQuery, SymbolQueryContract,
     SymbolQueryKind, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
@@ -88,6 +89,10 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
             SymbolQueryKind::ConstantDefinition => {
                 evaluate_constant_definition(self, request.symbol())
             }
+            SymbolQueryKind::StaticInstanceTemplate => evaluate_exact::<
+                StaticInstanceTemplateQuery,
+                bray_symbols::StaticSymbolId,
+            >(self, request.symbol()),
             SymbolQueryKind::StructFieldType => {
                 evaluate_exact::<StructFieldTypeQuery, StructFieldSymbolId>(self, request.symbol())
             }
@@ -204,6 +209,9 @@ fn evaluate_constant_declared_type(
     match symbol {
         AnySymbolId::Constant(owner) => {
             evaluate_typed::<ConstantDeclaredTypeQuery>(binding_context, owner)
+        }
+        AnySymbolId::Static(owner) => {
+            evaluate_typed::<StaticDeclaredTypeQuery>(binding_context, owner)
         }
         AnySymbolId::TraitConstantMember(owner) => {
             evaluate_typed::<TraitConstantMemberDeclaredTypeQuery>(binding_context, owner)

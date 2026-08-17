@@ -1973,6 +1973,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 for _ in 0..state_count {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
+
+                    let affinity = bray_runtime_interface::ProtectedFrameAffinity::from_code(
+                        read_u32(&mut self.reader)?,
+                    )
+                    .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
                     let lane_count = self.count()?;
                     let mut lanes = self.items(lane_count)?;
 
@@ -1987,7 +1993,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                         storages.push(self.storage_id()?);
                     }
 
-                    states.push(MirFrameState::new(state, entry, lanes, storages));
+                    states.push(
+                        MirFrameState::new(state, entry, lanes, storages)
+                            .with_affinity(affinity),
+                    );
                 }
 
                 MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)

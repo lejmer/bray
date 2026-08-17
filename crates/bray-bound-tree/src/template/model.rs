@@ -16,6 +16,10 @@ pub enum CheckedTemplateKind {
     RuntimeDefault,
     /// A compile-time constant definition.
     ConstantDefinition,
+    /// A product-static constant initializer.
+    ProductStaticInitializer,
+    /// An exact-thread static constant initializer.
+    ThreadLocalStaticInitializer,
     /// A reusable predicate definition.
     PredicateDefinition,
     /// A generic declaration constraint.
@@ -42,6 +46,9 @@ impl CheckedTemplateKind {
                     | SymbolKind::TraitConstantMember
                     | SymbolKind::TraitConstantFulfillment
             ),
+            Self::ProductStaticInitializer | Self::ThreadLocalStaticInitializer => {
+                matches!(owner, SymbolKind::Static)
+            }
             Self::PredicateDefinition => matches!(
                 owner,
                 SymbolKind::Predicate
@@ -330,7 +337,12 @@ pub enum CheckedTemplateOperation {
         operand: CheckedTemplateNodeId,
     },
     /// Reads a declaration-owned value through stable semantic identity.
-    Declaration(SymbolKey),
+    Declaration {
+        /// Selected declaration.
+        declaration: SymbolKey,
+        /// Exact closed generic application when the declaration is selected explicitly.
+        substitution: Option<GenericSubstitutionId>,
+    },
     /// Applies one selected callable or predicate with deterministic argument order.
     Call {
         /// The selected callable or predicate declaration.
@@ -438,7 +450,10 @@ impl CheckedTemplateOperation {
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_) | Self::Constant { .. } | Self::Declaration(_) | Self::Temporary(_) => {}
+            Self::Input(_)
+            | Self::Constant { .. }
+            | Self::Declaration { .. }
+            | Self::Temporary(_) => {}
         }
 
         Ok(())

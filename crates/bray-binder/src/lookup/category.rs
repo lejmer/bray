@@ -3,6 +3,7 @@ use bray_symbols::{
     CallableParameterSymbolId, ConstantSymbolId, ConstructorSymbolId, FunctionSymbolId,
     GenericConstParameterSymbolId, GenericTypeParameterSymbolId, InherentTypeMemberSymbolId,
     NamedTypeSymbolId, PredicateParameterSymbolId, PredicateSymbolId, ReceiverParameterSymbolId,
+    StaticSymbolId,
     StructFieldSymbolId, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
@@ -37,6 +38,7 @@ pub(crate) enum ResolvedValueName {
     PredicateParameter(PredicateParameterSymbolId),
     ReceiverParameter(ReceiverParameterSymbolId),
     Constant(ConstantSymbolId),
+    Static(StaticSymbolId),
     Function(FunctionSymbolId),
     Predicate(PredicateSymbolId),
     CallableOverload(CallableOverloadSymbolId),
@@ -62,6 +64,7 @@ impl ResolvedValueName {
             Self::PredicateParameter(id) => ResolvedName::Surface(id.into()),
             Self::ReceiverParameter(id) => ResolvedName::Surface(id.into()),
             Self::Constant(id) => ResolvedName::Surface(id.into()),
+            Self::Static(id) => ResolvedName::Surface(id.into()),
             Self::Function(id) => ResolvedName::Surface(id.into()),
             Self::Predicate(id) => ResolvedName::Surface(id.into()),
             Self::CallableOverload(id) => ResolvedName::Surface(id.into()),
@@ -131,6 +134,7 @@ pub(super) fn classify_value(name: ResolvedName) -> Option<ResolvedValueName> {
             Some(ResolvedValueName::ReceiverParameter(id))
         }
         ResolvedName::Surface(AnySymbolId::Constant(id)) => Some(ResolvedValueName::Constant(id)),
+        ResolvedName::Surface(AnySymbolId::Static(id)) => Some(ResolvedValueName::Static(id)),
         ResolvedName::Surface(AnySymbolId::Function(id)) => Some(ResolvedValueName::Function(id)),
         ResolvedName::Surface(AnySymbolId::Predicate(id)) => Some(ResolvedValueName::Predicate(id)),
         ResolvedName::Surface(AnySymbolId::CallableOverload(id)) => {

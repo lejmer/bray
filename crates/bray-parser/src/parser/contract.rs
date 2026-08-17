@@ -5,7 +5,8 @@ use bray_syntax::{
     InherentImplementationDeclarationSyntaxBuilder, LambdaExpressionSyntaxBuilder,
     NamedTraitImplementationDeclarationSyntaxBuilder, PathSyntax, RequiresClauseSyntax,
     RequiresClauseSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
-    ScopeExitMemberDeclarationSyntaxBuilder, StructDeclarationSyntaxBuilder, SyntaxKind,
+    ScopeExitMemberDeclarationSyntaxBuilder, StaticDeclarationSyntaxBuilder,
+    StructDeclarationSyntaxBuilder, SyntaxKind,
     SyntaxToken, TraitCallableMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
     TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
@@ -502,6 +503,7 @@ impl_callable_contract_clause_sink!(TraitScopeEnterRequirementDeclarationSyntaxB
 impl_callable_contract_clause_sink!(TraitScopeExitRequirementDeclarationSyntaxBuilder);
 
 impl_with_clause_sink!(CallableContractDeclarationSyntaxBuilder);
+impl_with_clause_sink!(StaticDeclarationSyntaxBuilder);
 impl_with_clause_sink!(StructDeclarationSyntaxBuilder);
 impl_with_clause_sink!(UnionDeclarationSyntaxBuilder);
 impl_with_clause_sink!(TraitDeclarationSyntaxBuilder);

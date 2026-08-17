@@ -51,10 +51,12 @@ use bray_symbols::{
     InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionQuery,
     PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
-    StructFieldDefaultValue, SymbolKeyData, SymbolKind, SymbolQueryRequest, TraitApplicationId,
+    StaticInstanceTemplateQuery, StaticStorageDuration, StructFieldDefaultValue, SymbolKeyData,
+    SymbolKind, SymbolQueryRequest, TraitApplicationId,
     TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
+use bray_target::TargetPropertyKind;
 
 use super::PackageInterfaceExportError;
 use super::template::{SourceTemplateInput, export_checked_source_template};
@@ -103,7 +105,13 @@ pub(super) fn build_semantics(
 
         export_generic_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
 
-        export_constant_semantics(compilation, symbol, &mut export, &mut declarations)?;
+        export_constant_semantics(
+            compilation,
+            &binder,
+            symbol,
+            &mut export,
+            &mut declarations,
+        )?;
 
         export_predicate_semantics(&binder, symbol, &export, &mut declarations)?;
 
@@ -931,18 +939,49 @@ fn target_dependencies(
     let mut dependencies = Vec::new();
 
     for owner in selected.iter().copied() {
-        let Some(gate) = source_symbol_contribution_gate(source_graph, graph, &module_parts, owner)
-        else {
+        if let Some(gate) =
+            source_symbol_contribution_gate(source_graph, graph, &module_parts, owner)
+        {
+            for dependency in gate.dependencies() {
+                dependencies.push(InterfaceTargetPropertyDependency::new(
+                    export.symbol_reference(owner)?,
+                    export.symbol_reference(dependency.property().into())?,
+                    export.constant_value_id(dependency.value())?,
+                ));
+            }
+        }
+
+        let AnySymbolId::Static(declaration) = owner else {
             continue;
         };
 
-        for dependency in gate.dependencies() {
-            dependencies.push(InterfaceTargetPropertyDependency::new(
-                export.symbol_reference(owner)?,
-                export.symbol_reference(dependency.property().into())?,
-                export.constant_value_id(dependency.value())?,
-            ));
+        let template = compilation
+            .static_instance_template(declaration)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        if template.diagnostics().has_errors()
+            || template.value().duration() != StaticStorageDuration::ExactThread
+        {
+            continue;
         }
+
+        let property = TargetPropertyKind::PlatformNativeThreads;
+
+        let property_symbol = compilation
+            .available_compiler_known_symbols()
+            .provider()
+            .target_property_symbol(property)
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        let value = compilation
+            .target_property_value(property)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        dependencies.push(InterfaceTargetPropertyDependency::new(
+            export.symbol_reference(owner)?,
+            export.symbol_reference(property_symbol.into())?,
+            export.constant_value_id(value)?,
+        ));
     }
 
     dependencies.sort_unstable();
@@ -1833,6 +1872,14 @@ impl<'a> SemanticExporter<'a> {
                     self.implementation_instance_id(instance)?,
                 )
             }
+            DependencySubjectRoot::ProductStatic(id) => {
+                InterfaceDependencySubjectRoot::ProductStatic(self.symbol_reference(id.into())?)
+            }
+            DependencySubjectRoot::ExactThreadStatic(id) => {
+                InterfaceDependencySubjectRoot::ExactThreadStatic(
+                    self.symbol_reference(id.into())?,
+                )
+            }
         };
 
         let projections = subject
@@ -2653,10 +2700,21 @@ fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
 
 fn export_constant_semantics(
     compilation: &Compilation,
+    binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
     semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
+    if let AnySymbolId::Static(declaration) = symbol {
+        return export_static_semantics(
+            compilation,
+            binder,
+            declaration,
+            export,
+            semantics,
+        );
+    }
+
     let Some(definition) = crate::compilation::constant::constant_definition_id(symbol) else {
         return Ok(());
     };
@@ -2673,13 +2731,15 @@ fn export_constant_semantics(
         return Ok(());
     };
 
+    let kind = CheckedTemplateKind::ConstantDefinition;
+
     let dependency_contract = export
         .values
         .empty_dependency_contract_template()
         .map_err(|_| incomplete(symbol))?;
 
     let checked = export.checked_constant_template(
-        CheckedTemplateKind::ConstantDefinition,
+        kind,
         CheckedConstantExpression {
             term: definition.term(),
             ty: definition.ty(),
@@ -2690,7 +2750,66 @@ fn export_constant_semantics(
     push_declaration_template(
         export,
         symbol,
-        CheckedTemplateKind::ConstantDefinition,
+        kind,
+        bray_symbols::SymbolOrdinal::new(0),
+        checked,
+        &mut semantics.checked_templates,
+        &mut semantics.declaration_templates,
+        &mut semantics.support_entities,
+    )
+}
+
+fn export_static_semantics(
+    compilation: &Compilation,
+    binder: &CompilationBindingContext<'_>,
+    declaration: bray_symbols::StaticSymbolId,
+    export: &mut SemanticExporter<'_>,
+    semantics: &mut ExportedDeclarations,
+) -> Result<(), PackageInterfaceExportError> {
+    let symbol = AnySymbolId::Static(declaration);
+
+    let template = binder
+        .resolve_symbol_query(SymbolQueryRequest::<StaticInstanceTemplateQuery>::new(
+            declaration,
+        ))
+        .map_err(|_| incomplete(symbol))?;
+
+    if template.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    let kind = match template.value().duration() {
+        StaticStorageDuration::Product => CheckedTemplateKind::ProductStaticInitializer,
+        StaticStorageDuration::ExactThread => CheckedTemplateKind::ThreadLocalStaticInitializer,
+    };
+
+    let key = compilation
+        .static_initializer_key(declaration)
+        .map_err(|_| incomplete(symbol))?
+        .ok_or_else(|| incomplete(symbol))?;
+
+    let expression = key.source().syntax();
+
+    let inputs = generic_template_inputs(
+        compilation,
+        export,
+        generic_parameters(binder, symbol)?,
+    )?;
+
+    let checked = export_checked_source_template(
+        compilation,
+        export,
+        key,
+        kind,
+        expression,
+        inputs,
+        template.value().dependency_contract(),
+    )?;
+
+    push_declaration_template(
+        export,
+        symbol,
+        kind,
         bray_symbols::SymbolOrdinal::new(0),
         checked,
         &mut semantics.checked_templates,

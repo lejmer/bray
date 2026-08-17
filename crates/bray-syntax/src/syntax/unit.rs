@@ -10,7 +10,8 @@ use super::{
     CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, ExportDeclarationSyntax,
     FunctionDeclarationSyntax, IdentifierListSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
-    PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+    PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax, StaticDeclarationSyntax,
+    StructDeclarationSyntax,
     TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
     UsingDeclarationSyntax,
 };
@@ -247,6 +248,17 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct static declaration children in source order.
+    pub fn static_declarations(&self) -> impl Iterator<Item = StaticDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::StaticDeclaration,
+            StaticDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns direct function declaration children in source order.
     pub fn function_declarations(&self) -> impl Iterator<Item = FunctionDeclarationSyntax> + '_ {
         child_nodes(
@@ -466,6 +478,11 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a static declaration child in source order.
+    pub fn push_static_declaration(&mut self, declaration: StaticDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends a function declaration child in source order.
     pub fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         self.node.push_node(declaration.into_green());
@@ -598,6 +615,13 @@ impl SourceUnitSyntaxBuilder {
     /// Appends a constant declaration child in source order.
     pub fn constant_declaration(mut self, declaration: ConstantDeclarationSyntax) -> Self {
         self.push_constant_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a static declaration child in source order.
+    pub fn static_declaration(mut self, declaration: StaticDeclarationSyntax) -> Self {
+        self.push_static_declaration(declaration);
 
         self
     }

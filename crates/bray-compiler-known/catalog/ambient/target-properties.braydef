@@ -366,4 +366,8 @@ scope TargetPlatform at target.platform {
     declaration TargetPlatformDynamicLoading {
         surface { const dynamic_loading: bool = false; }
     }
+
+    declaration TargetPlatformNativeThreads {
+        surface { const native_threads: bool = false; }
+    }
 }

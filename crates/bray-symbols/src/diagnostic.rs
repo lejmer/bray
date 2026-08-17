@@ -1,14 +1,41 @@
 use bray_diagnostics::{
     DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
+    DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSymbolIdentity,
+    DiagnosticInterfaceSymbolKind,
     DiagnosticInterfaceSynthesizedIdentity,
 };
 
 use crate::{
     CallableAbi, CallableExecution, ExternalDeclarationIdentity, ExternalSymbolKey,
-    ExternalSymbolKeyData, ModulePathKey, SymbolKey, SymbolKeyData, SymbolKind, SymbolOrdinal,
+    ExternalSymbolKeyData, ModulePathKey, SymbolKey, SymbolKeyData, SymbolKind,
+    SymbolOrdinal, SymbolRelationshipKind,
     SymbolRootKey, SynthesizedSymbolRole,
 };
+
+/// Converts a semantic relationship category into its closed diagnostic category.
+pub const fn diagnostic_symbol_relationship_kind(
+    kind: SymbolRelationshipKind,
+) -> DiagnosticInterfaceRelationshipKind {
+    use DiagnosticInterfaceRelationshipKind as Diagnostic;
+    use SymbolRelationshipKind as Relationship;
+
+    match kind {
+        Relationship::PackageModule => Diagnostic::PackageModule,
+        Relationship::ModuleMember => Diagnostic::ModuleMember,
+        Relationship::TypeMember => Diagnostic::TypeMember,
+        Relationship::TraitMember => Diagnostic::TraitMember,
+        Relationship::ImplementationMember => Diagnostic::ImplementationMember,
+        Relationship::StructField => Diagnostic::StructField,
+        Relationship::UnionVariant => Diagnostic::UnionVariant,
+        Relationship::UnionPayloadField => Diagnostic::UnionPayloadField,
+        Relationship::GenericParameter => Diagnostic::GenericParameter,
+        Relationship::CallableParameter => Diagnostic::CallableParameter,
+        Relationship::PredicateParameter => Diagnostic::PredicateParameter,
+        Relationship::OverloadArm => Diagnostic::OverloadArm,
+        Relationship::ImplementationFulfillment => Diagnostic::ImplementationFulfillment,
+        Relationship::DefaultProvider => Diagnostic::DefaultProvider,
+    }
+}
 
 /// Converts a callable ABI into its locale-neutral diagnostic category.
 pub const fn diagnostic_callable_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
@@ -71,6 +98,7 @@ pub const fn diagnostic_symbol_kind(kind: SymbolKind) -> DiagnosticInterfaceSymb
         Symbol::Module => Diagnostic::Module,
         Symbol::TrustedCapability => Diagnostic::TrustedCapability,
         Symbol::Constant => Diagnostic::Constant,
+        Symbol::Static => Diagnostic::Static,
         Symbol::Function => Diagnostic::Function,
         Symbol::Predicate => Diagnostic::Predicate,
         Symbol::CallableContract => Diagnostic::CallableContract,

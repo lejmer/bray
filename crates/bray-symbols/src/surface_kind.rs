@@ -6,6 +6,7 @@ use crate::SymbolKind;
 #[derive(Clone, Copy)]
 pub(crate) enum DeclarationSurfaceKind {
     Constant,
+    Static,
     Function,
     Predicate,
     CallableContract,
@@ -55,6 +56,7 @@ pub(crate) fn declaration_symbol_kind(
             SymbolKind::TraitConstantFulfillment
         }
         DeclarationSurfaceKind::Constant => SymbolKind::Constant,
+        DeclarationSurfaceKind::Static => SymbolKind::Static,
         DeclarationSurfaceKind::Function => SymbolKind::Function,
         DeclarationSurfaceKind::Predicate if trait_implementation => {
             SymbolKind::TraitPredicateFulfillment
@@ -165,6 +167,7 @@ impl TryFrom<DeclarationKind> for DeclarationSurfaceKind {
                 return Err(());
             }
             DeclarationKind::Constant => Self::Constant,
+            DeclarationKind::Static => Self::Static,
             DeclarationKind::Function => Self::Function,
             DeclarationKind::Predicate => Self::Predicate,
             DeclarationKind::CallableContract => Self::CallableContract,

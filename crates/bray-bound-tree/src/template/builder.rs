@@ -220,7 +220,7 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Unary { .. }
         | CheckedTemplateOperation::Binary { .. }
         | CheckedTemplateOperation::Borrow { .. }
-        | CheckedTemplateOperation::Declaration(_)
+        | CheckedTemplateOperation::Declaration { .. }
         | CheckedTemplateOperation::Call { .. }
         | CheckedTemplateOperation::Convert { .. }
         | CheckedTemplateOperation::Tuple(_)
@@ -610,7 +610,10 @@ mod tests {
             CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantDefinition, behavior);
 
         let Ok(result) = builder.push_node(CheckedTemplateNode::new(
-            CheckedTemplateOperation::Declaration(external_symbol()),
+            CheckedTemplateOperation::Declaration {
+                declaration: external_symbol(),
+                substitution: None,
+            },
             ty,
         )) else {
             panic!("one declaration node must be valid");
@@ -655,7 +658,10 @@ mod tests {
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
 
         let Ok(initializer) = builder.push_node(CheckedTemplateNode::new(
-            CheckedTemplateOperation::Declaration(external_symbol()),
+            CheckedTemplateOperation::Declaration {
+                declaration: external_symbol(),
+                substitution: None,
+            },
             ty,
         )) else {
             panic!("temporary initializer must be valid");
@@ -925,7 +931,10 @@ mod tests {
         ty: bray_symbols::TypeId,
     ) -> CheckedTemplateNodeId {
         let Ok(node) = builder.push_node(CheckedTemplateNode::new(
-            CheckedTemplateOperation::Declaration(external_symbol()),
+            CheckedTemplateOperation::Declaration {
+                declaration: external_symbol(),
+                substitution: None,
+            },
             ty,
         )) else {
             panic!("declaration node must be valid");

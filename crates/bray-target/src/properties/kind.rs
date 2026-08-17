@@ -175,6 +175,8 @@ pub enum TargetPropertyKind {
     AlignmentMaxAllocation,
     /// `target.platform.dynamic_loading`.
     PlatformDynamicLoading,
+    /// `target.platform.native_threads`.
+    PlatformNativeThreads,
 }
 
 impl TargetPropertyKind {
@@ -267,6 +269,7 @@ impl TargetPropertyKind {
         Self::AlignmentMaxStorage,
         Self::AlignmentMaxAllocation,
         Self::PlatformDynamicLoading,
+        Self::PlatformNativeThreads,
     ];
 
     /// Returns the language-defined target-property path.
@@ -359,6 +362,7 @@ impl TargetPropertyKind {
             Self::AlignmentMaxStorage => "target.alignment.MAX_STORAGE",
             Self::AlignmentMaxAllocation => "target.alignment.MAX_ALLOCATION",
             Self::PlatformDynamicLoading => "target.platform.dynamic_loading",
+            Self::PlatformNativeThreads => "target.platform.native_threads",
         }
     }
 

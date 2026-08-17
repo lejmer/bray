@@ -23,7 +23,8 @@ pub(super) fn imported_constant_definition(
     let Some(template) = template else {
         return match definition {
             AnyConstantDefinitionId::TraitMember(_) => Ok(ConstantDefinitionState::Required),
-            AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => {
+            AnyConstantDefinitionId::Constant(_)
+            | AnyConstantDefinitionId::TraitFulfillment(_) => {
                 Err(FactQueryError::InfrastructureFailure)
             }
         };
@@ -292,6 +293,8 @@ pub(super) const fn selected_implementation_for_reference(
 ) -> Option<bray_symbols::ImplementationInstanceId> {
     match definition {
         AnyConstantDefinitionId::TraitMember(_) => selected_implementation,
-        AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => None,
+        AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => {
+            None
+        }
     }
 }

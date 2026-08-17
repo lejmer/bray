@@ -83,21 +83,27 @@ impl InternState {
         input: &InterfaceDependencySubject,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<DependencySubject>, InterfaceSemanticInternError> {
-        let root = match input.root {
+        let root = match &input.root {
             InterfaceDependencySubjectRoot::Receiver => DependencySubjectRoot::Receiver,
             InterfaceDependencySubjectRoot::Parameter(ordinal) => {
-                DependencySubjectRoot::Parameter(ordinal)
+                DependencySubjectRoot::Parameter(*ordinal)
             }
             InterfaceDependencySubjectRoot::Result => DependencySubjectRoot::Result,
             InterfaceDependencySubjectRoot::ScopedCapability(ordinal) => {
-                DependencySubjectRoot::ScopedCapability(ordinal)
+                DependencySubjectRoot::ScopedCapability(*ordinal)
             }
             InterfaceDependencySubjectRoot::ImplementationWitness(id) => {
-                let Some(id) = self.implementation_instance_id(id) else {
+                let Some(id) = self.implementation_instance_id(*id) else {
                     return Ok(None);
                 };
 
                 DependencySubjectRoot::ImplementationWitness(id)
+            }
+            InterfaceDependencySubjectRoot::ProductStatic(reference) => {
+                DependencySubjectRoot::ProductStatic(resolve_exact(symbols, reference)?)
+            }
+            InterfaceDependencySubjectRoot::ExactThreadStatic(reference) => {
+                DependencySubjectRoot::ExactThreadStatic(resolve_exact(symbols, reference)?)
             }
         };
 

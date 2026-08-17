@@ -571,6 +571,14 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.tag(4);
                 self.implementation_instance(instance)?;
             }
+            DependencySubjectRoot::ProductStatic(id) => {
+                self.tag(5);
+                self.symbol(id.into())?;
+            }
+            DependencySubjectRoot::ExactThreadStatic(id) => {
+                self.tag(6);
+                self.symbol(id.into())?;
+            }
         }
 
         self.length(subject.projections().len());

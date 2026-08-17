@@ -249,6 +249,7 @@ fn declaration_name_domain(
         DeclarationKind::Using
         | DeclarationKind::Export
         | DeclarationKind::Constant
+        | DeclarationKind::Static
         | DeclarationKind::Function
         | DeclarationKind::Predicate
         | DeclarationKind::CallableContract
@@ -451,11 +452,12 @@ impl PendingDiagnostic {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind,
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
         DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticVisibility,
     };
     use bray_testing::{
-        assert_goal_state_diagnostics, test_source_at as source, test_source_store as source_store,
+        assert_goal_state_diagnostics, diagnostics_of_kind, test_source_at as source,
+        test_source_store as source_store,
     };
 
     use crate::test_support::{
@@ -465,16 +467,6 @@ mod tests {
         discover_source_unit_declarations, merge_declaration_chunks,
         merge_selected_declaration_chunks,
     };
-
-    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
-        DiagnosticBag::from(
-            diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.kind() == kind)
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    }
 
     #[test]
     fn table_validation_reports_duplicate_names_in_each_declaration_domain() {

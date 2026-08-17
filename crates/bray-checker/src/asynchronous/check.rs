@@ -814,6 +814,8 @@ where
             .map(bray_bound_tree::PlannedBorrowCapability::source),
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ProductStatic(_)
+        | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => None,
     };
 
@@ -839,6 +841,7 @@ where
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
+        | StorageIdentity::Static(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::PredicateParameter(_)
         | StorageIdentity::PostconditionResult(_)
@@ -1272,6 +1275,12 @@ const fn diagnostic_dependency_subject(
         }
         BoundDependencySubject::ImplementationWitness(_) => {
             DiagnosticDependencySubjectKind::SelectedImplementation
+        }
+        BoundDependencySubject::ProductStatic(_) => {
+            DiagnosticDependencySubjectKind::ProductStatic
+        }
+        BoundDependencySubject::ExactThreadStatic(_) => {
+            DiagnosticDependencySubjectKind::ExactThreadStatic
         }
         BoundDependencySubject::LifecycleObligation(_) => {
             DiagnosticDependencySubjectKind::LifecycleObligation

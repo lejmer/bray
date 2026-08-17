@@ -42,6 +42,16 @@ where
             BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(id)) => {
                 self.builder()?.binding(StorageBindingTarget::Receiver(id))
             }
+            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => {
+                let target = StorageBindingTarget::Static(id);
+
+                if self.builder()?.binding(target).is_none() {
+                    let ty = self.expression_type(expression)?.ty();
+                    let _ = self.bind_identity(target, StorageIdentity::Static(id), Some(ty))?;
+                }
+
+                self.builder()?.binding(target)
+            }
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => self
                 .builder()?
                 .binding(StorageBindingTarget::PredicateParameter(id)),

@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_runtime_interface::{
-    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameAffinity, RuntimeAbiVersion,
 };
 use bray_symbols::TypeId;
 
@@ -23,6 +24,7 @@ pub enum MirFrameReference {
 pub struct MirFrameState {
     state: MirFrameStateId,
     entry: MirBlockId,
+    affinity: ProtectedFrameAffinity,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
     initialized_storages: Arc<[MirStorageId]>,
 }
@@ -38,6 +40,7 @@ impl MirFrameState {
         Self {
             state,
             entry,
+            affinity: ProtectedFrameAffinity::Movable,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
@@ -51,6 +54,18 @@ impl MirFrameState {
     /// Returns the block entered when this state resumes.
     pub const fn entry(&self) -> MirBlockId {
         self.entry
+    }
+
+    /// Retains the exact thread-affinity required by this frame state.
+    pub const fn with_affinity(mut self, affinity: ProtectedFrameAffinity) -> Self {
+        self.affinity = affinity;
+
+        self
+    }
+
+    /// Returns the checked thread-affinity for this frame state.
+    pub const fn affinity(&self) -> ProtectedFrameAffinity {
+        self.affinity
     }
 
     /// Returns checked execution-lane requirements in canonical order.

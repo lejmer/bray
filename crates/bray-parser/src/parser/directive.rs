@@ -2,7 +2,7 @@ use bray_syntax::{
     AbiDirectiveSyntax, CopyDirectiveSyntax, DirectiveArgumentListSyntax,
     DirectiveArgumentListSyntaxBuilder, DirectiveArgumentSyntax, EntrypointDirectiveSyntax,
     LayoutDirectiveSyntax, LinkDirectiveSyntax, SymbolDirectiveSyntax, SyntaxKind, SyntaxToken,
-    TagDirectiveSyntax, TargetDirectiveSyntax, TestDirectiveSyntax,
+    TagDirectiveSyntax, TargetDirectiveSyntax, TestDirectiveSyntax, ThreadLocalDirectiveSyntax,
 };
 
 use super::expression::EXPRESSION_START_KINDS;
@@ -18,6 +18,7 @@ pub(super) const SYMBOL_DIRECTIVE_NAME: &str = "symbol";
 pub(super) const TAG_DIRECTIVE_NAME: &str = "tag";
 pub(super) const TARGET_DIRECTIVE_NAME: &str = "target";
 pub(super) const TEST_DIRECTIVE_NAME: &str = "test";
+pub(super) const THREAD_LOCAL_DIRECTIVE_NAME: &str = "thread_local";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DirectiveScanKind {
@@ -76,6 +77,16 @@ impl Parser {
     pub(super) fn parse_copy_directive(&mut self) -> CopyDirectiveSyntax {
         let start = self.peek().full_range().start();
         let mut builder = CopyDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.build()
+    }
+
+    pub(super) fn parse_thread_local_directive(&mut self) -> ThreadLocalDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ThreadLocalDirectiveSyntax::builder(self.syntax_source(), start);
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));

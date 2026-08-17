@@ -26,6 +26,8 @@ pub enum DiagnosticDependencySubjectKind {
     BorrowCapability,
     ScopedCapability,
     SelectedImplementation,
+    ProductStatic,
+    ExactThreadStatic,
     LifecycleObligation,
     SuspensionState,
 }
@@ -38,6 +40,8 @@ impl DiagnosticDependencySubjectKind {
             Self::BorrowCapability => "borrow_capability",
             Self::ScopedCapability => "scoped_capability",
             Self::SelectedImplementation => "selected_implementation",
+            Self::ProductStatic => "product_static",
+            Self::ExactThreadStatic => "exact_thread_static",
             Self::LifecycleObligation => "lifecycle_obligation",
             Self::SuspensionState => "suspension_state",
         }

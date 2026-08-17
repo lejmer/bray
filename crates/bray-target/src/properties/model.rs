@@ -154,6 +154,7 @@ pub struct TargetProperties {
     alignments: TargetAlignmentLimits,
     operations: TargetOperationSupport,
     dynamic_loading: bool,
+    native_threads: bool,
 }
 
 impl TargetProperties {
@@ -178,6 +179,7 @@ impl TargetProperties {
             alignments,
             operations,
             dynamic_loading: false,
+            native_threads: false,
         }
     }
 
@@ -236,6 +238,13 @@ impl TargetProperties {
         self
     }
 
+    /// Returns these properties with the supplied native-thread capability.
+    pub const fn with_native_threads(mut self, native_threads: bool) -> Self {
+        self.native_threads = native_threads;
+
+        self
+    }
+
     /// Returns stable target identity properties.
     pub const fn identity(&self) -> &TargetPlatformIdentity {
         &self.identity
@@ -279,6 +288,11 @@ impl TargetProperties {
     /// Returns whether the complete dynamic-library platform role family is available.
     pub const fn dynamic_loading(&self) -> bool {
         self.dynamic_loading
+    }
+
+    /// Returns whether exact native-thread attachment storage is available.
+    pub const fn native_threads(&self) -> bool {
+        self.native_threads
     }
 }
 

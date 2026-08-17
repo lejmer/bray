@@ -2,6 +2,7 @@ use crate::green::GreenElement;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
+    GenericArgumentListSyntax,
     MemberAccessOperationSyntax, NullablePropagationOperationSyntax, PrimaryExpressionSyntax,
     SliceIndexOperationSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
     TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
@@ -68,6 +69,14 @@ define_source_syntax_node! {
                 push_trait_application;
                 ty: TraitApplicationSyntax;
                 kind: SyntaxKind::TraitApplication;
+            },
+            {
+                /// Returns direct generic applications in source order.
+                generic_argument_lists;
+                /// Appends a direct generic application.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
             },
             {
                 /// Returns member-access postfix operations in source order.

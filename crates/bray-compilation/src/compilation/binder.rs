@@ -8,7 +8,8 @@ pub(super) use context::CompilationBindingContext;
 pub(in crate::compilation) use error::binding_query_error;
 pub(in crate::compilation) use symbol::{
     CompilationSymbolSemantics, bind_declared_trusted_capabilities,
-    bind_module_part_directives_for_selection, has_visible_generic_parameters,
+    bind_module_part_directives_for_selection, generic_parameter_ids,
+    has_visible_generic_parameters,
     imported_declaration_template, imported_declaration_template_at, imported_implementation,
     type_binder, type_scope,
 };

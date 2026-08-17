@@ -100,7 +100,7 @@ impl<'unit> Lowerer<'unit> {
                 entry,
                 self.execution_lane_requirements(),
                 [],
-            ));
+            ).with_affinity(self.frame_affinity()));
         }
 
         let completion = match root {

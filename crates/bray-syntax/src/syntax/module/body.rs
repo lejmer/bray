@@ -5,7 +5,7 @@ use crate::{
     CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
     ConstantDeclarationSyntax, FunctionDeclarationSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
-    PredicateDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
+    PredicateDeclarationSyntax, StaticDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
     UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
@@ -64,6 +64,14 @@ define_source_syntax_node! {
                 push_constant_declaration;
                 ty: ConstantDeclarationSyntax;
                 kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
+                /// Returns direct static declaration children in source order.
+                static_declarations;
+                /// Appends a static declaration child in source order.
+                push_static_declaration;
+                ty: StaticDeclarationSyntax;
+                kind: SyntaxKind::StaticDeclaration;
             },
             {
                 /// Returns direct function declaration children in source order.

@@ -44,6 +44,8 @@ pub enum SymbolQueryKind {
     ConstantDeclaredType,
     /// The checked definition template of a constant.
     ConstantDefinition,
+    /// The complete checked open template of a static declaration.
+    StaticInstanceTemplate,
     /// A checked callable parameter default.
     CallableParameterDefault,
     /// An unevaluated declaration default expression.
@@ -76,7 +78,7 @@ pub enum SymbolQueryKind {
     OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 28] = [
+pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 29] = [
     SymbolQueryKind::Members,
     SymbolQueryKind::Imports,
     SymbolQueryKind::Directives,
@@ -90,6 +92,7 @@ pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 28] = [
     SymbolQueryKind::CallableContractType,
     SymbolQueryKind::ConstantDeclaredType,
     SymbolQueryKind::ConstantDefinition,
+    SymbolQueryKind::StaticInstanceTemplate,
     SymbolQueryKind::CallableParameterDefault,
     SymbolQueryKind::UnevaluatedDefaultTemplate,
     SymbolQueryKind::StructFieldType,
@@ -117,6 +120,7 @@ impl SymbolQueryKind {
                 Self::GenericConstraints
                     | Self::CallableContracts
                     | Self::ConstantDefinition
+                    | Self::StaticInstanceTemplate
                     | Self::CallableParameterDefault
                     | Self::StructFieldDefault
                     | Self::UnionPayloadFieldDefault
@@ -148,6 +152,7 @@ impl SymbolQueryKind {
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
             Self::ConstantDeclaredType => supports_declared_constant_type(kind),
             Self::ConstantDefinition => supports_constant_queries(kind),
+            Self::StaticInstanceTemplate => matches!(kind, SymbolKind::Static),
             Self::CallableParameterDefault => matches!(kind, SymbolKind::CallableParameter),
             Self::UnevaluatedDefaultTemplate => matches!(
                 kind,
@@ -183,6 +188,7 @@ const fn supports_directives(kind: SymbolKind) -> bool {
     matches!(
         kind,
         SymbolKind::Module
+            | SymbolKind::Static
             | SymbolKind::Function
             | SymbolKind::Struct
             | SymbolKind::Union
@@ -218,7 +224,8 @@ const fn supports_constant_queries(kind: SymbolKind) -> bool {
 }
 
 const fn supports_declared_constant_type(kind: SymbolKind) -> bool {
-    matches!(kind, SymbolKind::GenericConstParameter) || supports_constant_queries(kind)
+    matches!(kind, SymbolKind::GenericConstParameter | SymbolKind::Static)
+        || supports_constant_queries(kind)
 }
 
 const fn supports_predicate_queries(kind: SymbolKind) -> bool {

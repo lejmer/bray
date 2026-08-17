@@ -49,7 +49,7 @@ pub use compiler_known::{
 };
 pub use diagnostic::{
     diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_symbol_identity,
-    diagnostic_symbol_kind,
+    diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
@@ -65,6 +65,7 @@ pub use id::{
     ModuleOwnerId, ModuleSymbolId, NamedTraitImplementationSymbolId, NamedTypeSymbolId,
     PackageSymbolId, ParameterSymbolId, PredicateDefinitionSymbolId, PredicateParameterSymbolId,
     PredicateSymbolId, ReceiverParameterSymbolId, ScopeEnterSymbolId, ScopeExitSymbolId,
+    StaticSymbolId,
     StructFieldDefaultProviderSymbolId, StructFieldSymbolId, StructSymbolId, SymbolId,
     SymbolRootId, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
@@ -117,7 +118,8 @@ pub use record::{
     GenericTypeParameterSymbol, ImplementationOverloadSymbol, InherentImplementationSymbol,
     InherentTypeMemberSymbol, ModuleSymbol, NamedTraitImplementationSymbol, PackageSymbol,
     PredicateParameterSymbol, PredicateSymbol, ReceiverParameterSymbol, ScopeEnterSymbol,
-    ScopeExitSymbol, StructFieldDefaultProviderSymbol, StructFieldSymbol, StructSymbol,
+    ScopeExitSymbol, StaticSymbol, StructFieldDefaultProviderSymbol, StructFieldSymbol,
+    StructSymbol,
     TraitCallableFulfillmentSymbol, TraitCallableMemberSymbol, TraitConstantFulfillmentSymbol,
     TraitConstantMemberSymbol, TraitDestructorRequirementSymbol, TraitFinalizerRequirementSymbol,
     TraitPredicateFulfillmentSymbol, TraitPredicateMemberSymbol, TraitScopeEnterFulfillmentSymbol,
@@ -176,7 +178,11 @@ pub use semantic::{
     RuntimeDefaultEffectRequirement, RuntimeDefaultGenericArguments, RuntimeDefaultGenericContext,
     RuntimeDefaultOwnership, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
     RuntimeDefaultTrustedObligation, SemanticQueryContract, SourceCallableContractTemplate,
-    StructFieldDefaultQuery, StructFieldDefaultSurface, StructFieldDefaultTemplateQuery,
+    StaticDeclaredTypeQuery, StaticInstanceKey, StaticInstanceTemplate,
+    StaticInstanceTemplateId, StaticInstanceTemplateQuery, StaticReferenceSelection,
+    StaticStorageDuration,
+    StructFieldDefaultQuery,
+    StructFieldDefaultSurface, StructFieldDefaultTemplateQuery,
     StructFieldDefaultValue, StructFieldTypeQuery, SymbolCompletionEvaluator,
     SymbolCompletionLevel, SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionQuery,
     SymbolCompletionUnit, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest,

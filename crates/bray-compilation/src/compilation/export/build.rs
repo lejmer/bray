@@ -680,19 +680,21 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
+    use bray_bound_tree::CheckedTemplateKind;
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_ir::{MirOperationKind, MirProjectionKind};
     use bray_package_interface::{
-        InterfaceConstantValueKind, InterfaceLanguageRevision, InterfaceProductIdentity,
-        InterfaceSymbolReference, InterfaceValidationLimits, InterfaceValidationPolicy,
-        PackageImplementationArtifact, PackageInterfaceExportBundle, ValidatedPackageInterface,
-        encode_package_interface,
+        InterfaceCheckedTemplateOperation, InterfaceConstantValueKind, InterfaceLanguageRevision,
+        InterfaceProductIdentity, InterfaceSymbolReference, InterfaceValidationLimits,
+        InterfaceValidationPolicy, PackageImplementationArtifact, PackageInterfaceExportBundle,
+        ValidatedPackageInterface, encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName, TypeExpressionTemplate,
+        RuntimeDefaultTemplateReference, StaticStorageDuration, SymbolKey, SymbolKind, SymbolName,
+        TypeExpressionTemplate,
     };
     use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_testing::test_source_inputs;
@@ -886,6 +888,80 @@ mod tests {
     }
 
     #[test]
+    fn public_static_initializers_round_trip_as_checked_source_templates() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "public static Root: i32 = 1;\n",
+            "public static Alias: &i32 = &Root;\n",
+            "public static Generic<const N: i32>: i32 with(true) = N;\n",
+            "public static Selected: &i32 = &Generic<1>;\n",
+            "@thread_local public static ThreadValue: i32 = 2;\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = export(&compilation);
+
+        let artifact = encode_package_interface(bundle)
+            .unwrap_or_else(|error| panic!("static interface must encode: {error:?}"));
+
+        let validated = ValidatedPackageInterface::try_new(
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .unwrap_or_else(|error| panic!("static interface must validate: {error:?}"));
+
+        let surface = validated
+            .decode_identity_surface()
+            .unwrap_or_else(|error| panic!("static identity surface must decode: {error:?}"));
+
+        let semantics = validated
+            .decode_semantics(&surface)
+            .unwrap_or_else(|error| panic!("static semantics must decode: {error:?}"));
+
+        assert_eq!(
+            semantics
+                .checked_templates()
+                .iter()
+                .filter(|template| {
+                    template.kind() == CheckedTemplateKind::ProductStaticInitializer
+                })
+                .count(),
+            4
+        );
+
+        assert!(semantics.checked_templates().iter().any(|template| {
+            template.nodes().iter().any(|node| {
+                matches!(
+                    node.operation(),
+                    InterfaceCheckedTemplateOperation::Declaration {
+                        substitution: Some(_),
+                        ..
+                    }
+                )
+            })
+        }));
+
+        assert_eq!(
+            semantics
+                .checked_templates()
+                .iter()
+                .filter(|template| {
+                    template.kind() == CheckedTemplateKind::ThreadLocalStaticInitializer
+                })
+                .count(),
+            1
+        );
+
+        assert_eq!(semantics.target_dependencies().len(), 1);
+        assert_eq!(semantics.constraints().len(), 1);
+    }
+
+    #[test]
     fn callable_signatures_export_fixed_array_lengths() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -961,6 +1037,9 @@ mod tests {
             "{\n",
             "    return 1;\n",
             "}\n",
+            "\n",
+            "public static ProductValue: i32 = 1;\n",
+            "@thread_local public static ThreadValue: i32 = 2;\n",
         ));
 
         let artifact = encode_package_interface(export(&provider))
@@ -1013,6 +1092,32 @@ mod tests {
 
         assert_eq!(skeleton.structures().len(), 1);
         assert_eq!(skeleton.functions().len(), 1);
+
+        let [product_static, thread_static] = skeleton.statics() else {
+            panic!("provider must export two static declarations");
+        };
+
+        for (declaration, duration) in [
+            (product_static.id(), StaticStorageDuration::Product),
+            (thread_static.id(), StaticStorageDuration::ExactThread),
+        ] {
+            consumer
+                .symbol_type_template(declaration.into())
+                .unwrap_or_else(|error| panic!("imported static type must resolve: {error:?}"))
+                .unwrap_or_else(|| panic!("imported static must carry a declared type"));
+
+            let template = consumer
+                .static_instance_template(declaration)
+                .unwrap_or_else(|error| panic!("imported static must resolve: {error:?}"));
+
+            assert!(
+                template.diagnostics().is_empty(),
+                "{:?}",
+                template.diagnostics()
+            );
+
+            assert_eq!(template.value().duration(), duration);
+        }
 
         let [inherent_type_member] = skeleton.inherent_type_members() else {
             panic!("provider must export one inherent type-valued member");

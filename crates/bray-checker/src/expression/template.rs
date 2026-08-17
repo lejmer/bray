@@ -460,6 +460,27 @@ where
     Ok(TemplateResolution::Resolved(resolved))
 }
 
+/// Resolves one declaration application from checked generic-argument templates.
+pub fn check_generic_arguments<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    arguments: &[bray_symbols::GenericArgumentTemplate],
+) -> crate::CheckerOutcome<Option<Vec<GenericArgument>>>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let mut diagnostics = DiagnosticBag::new();
+
+    match resolve_generic_arguments(request, arguments, &mut diagnostics) {
+        Ok(TemplateResolution::Resolved(arguments)) => {
+            crate::CheckerOutcome::complete(Some(arguments), diagnostics)
+        }
+        Ok(TemplateResolution::Unsupported) => {
+            crate::CheckerOutcome::complete(None, diagnostics)
+        }
+        Err(error) => crate::CheckerOutcome::InfrastructureFailure(error),
+    }
+}
+
 fn checked_terms<'template, C>(
     request: crate::CheckerUnitView<'_, C>,
     templates: impl IntoIterator<Item = &'template TypeExpressionTemplate>,

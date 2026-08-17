@@ -21,6 +21,7 @@ macro_rules! for_each_declaration_symbol {
         $consumer! {
             TrustedCapabilitySymbol, TrustedCapabilitySymbolId, TrustedCapability, trusted_capability, trusted_capabilities, LeafRelationships;
             ConstantSymbol, ConstantSymbolId, Constant, constant, constants, LeafRelationships;
+            StaticSymbol, StaticSymbolId, Static, static_symbol, statics, GenericRelationships;
             FunctionSymbol, FunctionSymbolId, Function, function, functions, CallableRelationships;
             PredicateSymbol, PredicateSymbolId, Predicate, predicate, predicates, PredicateRelationships;
             CallableContractSymbol, CallableContractSymbolId, CallableContract, callable_contract, callable_contracts, GenericRelationships;
@@ -449,7 +450,7 @@ macro_rules! impl_predicate_relationships {
     };
 }
 
-impl_generic_relationships!(CallableContractSymbol);
+impl_generic_relationships!(StaticSymbol, CallableContractSymbol);
 
 impl_callable_relationships!(
     FunctionSymbol,

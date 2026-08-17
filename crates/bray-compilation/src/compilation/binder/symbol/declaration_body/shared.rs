@@ -6,11 +6,11 @@ use bray_symbols::{DependencyContractTemplateId, TypeId};
 use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
 
-pub(super) struct CheckedSourceExpression {
-    pub(super) result: TypeId,
-    pub(super) dependency_contract: DependencyContractTemplateId,
-    pub(super) diagnostics: DiagnosticBag,
-    pub(super) is_recovered: bool,
+pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
+    pub(in crate::compilation::binder::symbol) result: TypeId,
+    pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,
+    pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
+    pub(in crate::compilation::binder::symbol) is_recovered: bool,
 }
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
@@ -19,7 +19,7 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
 }
 
-pub(super) fn checked_source_expression(
+pub(in crate::compilation::binder::symbol) fn checked_source_expression(
     context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
 ) -> BindingQueryResult<CheckedSourceExpression> {
@@ -148,6 +148,49 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         dependency_contracts,
         diagnostics,
     })
+}
+
+pub(in crate::compilation::binder::symbol) fn checked_source_body_dependency_contracts(
+    context: &CompilationBindingContext<'_>,
+    key: BoundUnitKey,
+) -> BindingQueryResult<Vec<DependencyContractTemplateId>> {
+    let compilation = context.compilation();
+
+    let bound = compilation
+        .bound_unit_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let storage = compilation
+        .storage_plan_with_cancellation(key.clone(), context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let dependencies = compilation
+        .dependency_contracts_with_cancellation(key, context.cancellation)
+        .map_err(super::super::binding::binder_error)?;
+
+    let mut contracts = Vec::new();
+
+    for (expression, _) in bound.result().value().tree().expressions() {
+        let Some(contract) = dependencies
+            .result()
+            .value()
+            .expression(expression)
+            .and_then(|contract| dependencies.result().value().contract(contract))
+        else {
+            continue;
+        };
+
+        contracts.push(portable_dependency_contract(
+            context,
+            storage.result().value(),
+            contract,
+        )?);
+    }
+
+    contracts.sort_unstable();
+    contracts.dedup();
+
+    Ok(contracts)
 }
 
 pub(super) fn syntax_diagnostics(

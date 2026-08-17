@@ -131,6 +131,7 @@ wire_tags!(SymbolKind {
     51 => SymbolKind::AnonymousCallableParameter,
     52 => SymbolKind::PostconditionResult,
     53 => SymbolKind::TrustedCapability,
+    54 => SymbolKind::Static,
 });
 
 wire_tags!(BorrowKind {
@@ -258,6 +259,8 @@ wire_tags!(CheckedTemplateKind {
     4 => CheckedTemplateKind::GenericConstraint,
     5 => CheckedTemplateKind::CallableContract,
     6 => CheckedTemplateKind::ConstantCallableBody,
+    7 => CheckedTemplateKind::ProductStaticInitializer,
+    8 => CheckedTemplateKind::ThreadLocalStaticInitializer,
 });
 
 wire_tags!(CheckedTemplateShortCircuitKind {
@@ -287,7 +290,7 @@ mod tests {
 
     #[test]
     fn symbol_kind_tags_are_exact_and_closed() {
-        for value in 1..=53 {
+        for value in 1..=54 {
             let Some(kind) = SymbolKind::from_wire(value) else {
                 panic!("known symbol kind tag was rejected: {value}");
             };
@@ -296,7 +299,7 @@ mod tests {
         }
 
         assert_eq!(SymbolKind::from_wire(0), None);
-        assert_eq!(SymbolKind::from_wire(54), None);
+        assert_eq!(SymbolKind::from_wire(55), None);
     }
 
     #[test]
@@ -322,6 +325,8 @@ mod tests {
             CheckedTemplateKind::GenericConstraint,
             CheckedTemplateKind::CallableContract,
             CheckedTemplateKind::ConstantCallableBody,
+            CheckedTemplateKind::ProductStaticInitializer,
+            CheckedTemplateKind::ThreadLocalStaticInitializer,
         ];
 
         for (index, kind) in kinds.into_iter().enumerate() {
@@ -332,7 +337,7 @@ mod tests {
         }
 
         assert_eq!(CheckedTemplateKind::from_wire(0), None);
-        assert_eq!(CheckedTemplateKind::from_wire(7), None);
+        assert_eq!(CheckedTemplateKind::from_wire(9), None);
 
         assert_eq!(CheckedTemplateShortCircuitKind::And.to_wire(), 1);
         assert_eq!(CheckedTemplateShortCircuitKind::Or.to_wire(), 2);

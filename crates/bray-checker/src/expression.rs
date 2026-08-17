@@ -12,4 +12,5 @@ pub(crate) use check::check_expression_semantics;
 pub(crate) use generic_inference::infer_generic_arguments_from_type;
 pub(crate) use literal::check_literal_values;
 pub use nested::NestedCallableEvidence;
+pub use template::check_generic_arguments;
 pub(crate) use template::{TemplateResolution, resolve_signature};

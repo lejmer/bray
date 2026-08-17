@@ -2,7 +2,7 @@ use crate::decode::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
-pub(super) const FORMAT_VERSION: u32 = 1;
+pub(super) const FORMAT_VERSION: u32 = 2;
 
 pub(super) fn write_bool(encoder: &mut WireEncoder, value: bool) {
     encoder.write_u32(u32::from(value));
@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn consolidated_memory_operations_use_executable_format_one() {
-        assert_eq!(FORMAT_VERSION, 1);
+    fn frame_affinity_uses_executable_format_two() {
+        assert_eq!(FORMAT_VERSION, 2);
     }
 }

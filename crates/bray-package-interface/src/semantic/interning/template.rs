@@ -214,9 +214,19 @@ fn convert_operation(
                 operand: *operand,
             })
         }
-        InterfaceCheckedTemplateOperation::Declaration(reference) => Ok(
-            CheckedTemplateOperation::Declaration(template_key(semantics, reference, symbols)?),
-        ),
+        InterfaceCheckedTemplateOperation::Declaration {
+            declaration,
+            substitution,
+        } => Ok(CheckedTemplateOperation::Declaration {
+            declaration: template_key(semantics, declaration, symbols)?,
+            substitution: substitution
+                .map(|substitution| {
+                    state
+                        .substitution_id(substitution)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                })
+                .transpose()?,
+        }),
         InterfaceCheckedTemplateOperation::Call {
             callable,
             substitution,

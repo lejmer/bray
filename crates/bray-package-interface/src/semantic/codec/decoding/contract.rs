@@ -287,6 +287,10 @@ pub(super) fn decode_dependency_subject(
         5 => InterfaceDependencySubjectRoot::ImplementationWitness(
             InterfaceImplementationInstanceId::new(read_u32(reader)?),
         ),
+        6 => InterfaceDependencySubjectRoot::ProductStatic(read_symbol_reference(reader, context)?),
+        7 => InterfaceDependencySubjectRoot::ExactThreadStatic(read_symbol_reference(
+            reader, context,
+        )?),
         _ => return Err(InterfaceValidationError::Malformed),
     };
 

@@ -146,6 +146,8 @@ fn dependency_subject_is_satisfied(
             BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
             | BoundDependencySubject::LifecycleObligation(_) => false,
+            BoundDependencySubject::ProductStatic(_)
+            | BoundDependencySubject::ExactThreadStatic(_) => true,
         },
         BoundDependencyRequirementKind::StorageInitialized => {
             dependency_subject_is_initialized(values, storage, state, subject)
@@ -196,6 +198,8 @@ fn dependency_subject_is_initialized(
         BoundDependencySubject::BorrowCapability(capability) => {
             state.active_borrows().contains(&capability)
         }
+        BoundDependencySubject::ProductStatic(_)
+        | BoundDependencySubject::ExactThreadStatic(_) => true,
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
         | BoundDependencySubject::LifecycleObligation(_) => false,
@@ -236,6 +240,8 @@ fn dependency_subject_has_exclusive_access(
         BoundDependencySubject::Storage(_)
         | BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ProductStatic(_)
+        | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => return false,
     };
 

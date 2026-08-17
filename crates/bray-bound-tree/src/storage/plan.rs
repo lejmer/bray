@@ -108,6 +108,8 @@ pub enum StorageBindingTarget {
     Parameter(CallableParameterSymbolId),
     /// A callable receiver.
     Receiver(ReceiverParameterSymbolId),
+    /// One static declaration instance.
+    Static(bray_symbols::StaticSymbolId),
     /// An anonymous callable parameter.
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// A predicate parameter.

@@ -94,6 +94,7 @@ where
                 selected_iteration_contract(request, storage, iteration)
             }
             SemanticSelection::Reference(_)
+            | SemanticSelection::StaticReference(_)
             | SemanticSelection::Predicate(_)
             | SemanticSelection::Operation(_)
             | SemanticSelection::Propagation(_) => continue,

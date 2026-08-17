@@ -849,6 +849,7 @@ where
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
             Some(StorageIdentity::Parameter(_)) => DiagnosticStorageRoot::Parameter,
             Some(StorageIdentity::Receiver(_)) => DiagnosticStorageRoot::Receiver,
+            Some(StorageIdentity::Static(_)) => DiagnosticStorageRoot::Static,
             Some(StorageIdentity::AnonymousParameter(_)) => {
                 DiagnosticStorageRoot::AnonymousParameter
             }

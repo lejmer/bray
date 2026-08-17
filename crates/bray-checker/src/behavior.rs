@@ -111,6 +111,7 @@ where
                 }));
             }
             SemanticSelection::Reference(_)
+            | SemanticSelection::StaticReference(_)
             | SemanticSelection::Predicate(_)
             | SemanticSelection::Propagation(_) => {}
         }

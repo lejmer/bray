@@ -200,6 +200,9 @@ impl<'profile> TargetPropertyValue<'profile> {
             TargetPropertyKind::PlatformDynamicLoading => {
                 Self::Boolean(properties.dynamic_loading())
             }
+            TargetPropertyKind::PlatformNativeThreads => {
+                Self::Boolean(properties.native_threads())
+            }
         }
     }
 }

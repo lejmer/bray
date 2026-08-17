@@ -116,6 +116,16 @@ fn selection_internal_dependency(
             dependencies.push(*symbol);
         }
         SemanticSelection::Reference(BoundReferenceTarget::Local(_)) => {}
+        SemanticSelection::StaticReference(instance) => {
+            dependencies.push(instance.template().declaration().into());
+
+            semantic_internal = substitution_internal_dependency(
+                instance.substitution(),
+                semantic_values,
+                symbols,
+                declarations,
+            );
+        }
         SemanticSelection::Call(call) => {
             if let BoundCallableTarget::Declaration(target) = call.target() {
                 dependencies.push(target.definition().symbol());

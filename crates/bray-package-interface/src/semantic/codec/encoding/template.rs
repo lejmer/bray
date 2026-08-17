@@ -1,7 +1,7 @@
 use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{
-    write_count, write_symbol_reference, write_symbol_references,
+    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -156,9 +156,13 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(kind.to_wire());
             encoder.write_u32(operand.raw());
         }
-        InterfaceCheckedTemplateOperation::Declaration(declaration) => {
+        InterfaceCheckedTemplateOperation::Declaration {
+            declaration,
+            substitution,
+        } => {
             encoder.write_u32(3);
             encode_template_reference(encoder, declaration);
+            write_optional_u32(encoder, substitution.map(|substitution| substitution.raw()));
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,

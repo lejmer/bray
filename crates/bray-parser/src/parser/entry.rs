@@ -7,7 +7,7 @@ use bray_syntax::{
     ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
     NamedTraitImplementationDeclarationSyntax, PredicateDeclarationSyntax,
     ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceUnitSyntax,
-    StructDeclarationSyntax, StructFieldDeclarationSyntax, SyntaxTree,
+    StaticDeclarationSyntax, StructDeclarationSyntax, StructFieldDeclarationSyntax, SyntaxTree,
     TraitCallableMemberDeclarationSyntax, TraitConstantMemberDeclarationSyntax,
     TraitDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
     TraitFinalizerRequirementDeclarationSyntax, TraitPredicateMemberDeclarationSyntax,
@@ -155,6 +155,8 @@ pub enum DeclarationFragmentContext {
 pub enum DeclarationFragmentSyntax {
     /// Constant declaration.
     Constant(ConstantDeclarationSyntax),
+    /// Static storage declaration.
+    Static(StaticDeclarationSyntax),
     /// Function declaration.
     Function(FunctionDeclarationSyntax),
     /// Predicate declaration.
@@ -220,6 +222,7 @@ impl DeclarationFragmentSyntax {
     pub fn is_recovered(&self) -> bool {
         match self {
             Self::Constant(syntax) => syntax.is_recovered(),
+            Self::Static(syntax) => syntax.is_recovered(),
             Self::Function(syntax) => syntax.is_recovered(),
             Self::Predicate(syntax) => syntax.is_recovered(),
             Self::CallableContract(syntax) => syntax.is_recovered(),
