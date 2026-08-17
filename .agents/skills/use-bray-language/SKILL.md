@@ -41,16 +41,6 @@ Do not read every reference by default. Read another reference only when the tas
 - **Standard-library modules, APIs, I/O, or platform services:** [references/standard-library.md](references/standard-library.md)
 - **Raw memory, target control, layout, FFI, or ABI:** [references/targets-layout-abi-and-raw-memory.md](references/targets-layout-abi-and-raw-memory.md)
 
-## Choose a Bray-native approach
-
-Before writing or approving code:
-
-1. List the Bray features that could express the requirement.
-2. Prefer the most direct Bray construct and established repository idiom.
-3. Check whether the proposed pattern bypasses a more direct Bray feature.
-4. Preserve Bray's visibility, ownership, lifecycle, contract, effect, and expression semantics instead of approximating them with superficially similar syntax.
-5. Use explicit low-level forms only when the task actually needs their semantics.
-
 ## Verify the result
 
 - Compare new Bray code with the relevant language documentation and representative repository examples.
