@@ -10,17 +10,18 @@ int main(void)
 {
     product_host_observation formed = BRAY_PRODUCT_HOST_CONTROL(PRODUCT_HOST_FORM);
 
-    if (formed.status != 0 || formed.state != 1 || formed.initialized_statics < 4) {
+    if (formed.status != 0 || formed.state != 1 || formed.initialized_statics < 4)
         return 1;
-    }
 
     product_host_observation closed = BRAY_PRODUCT_HOST_CONTROL(PRODUCT_HOST_CLOSE);
 
-    if (closed.status != 4 || closed.state != 3
-        || closed.cleaned_statics != formed.initialized_statics
-        || closed.cleanup_incidents != 1) {
+    if (
+        closed.status != 4 ||
+        closed.state != 3 ||
+        closed.cleaned_statics != formed.initialized_statics ||
+        closed.cleanup_incidents != 1
+    )
         return 2;
-    }
 
     return 0;
 }

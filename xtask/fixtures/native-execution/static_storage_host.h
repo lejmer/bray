@@ -4,7 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum product_host_operation {
+enum product_host_operation
+{
     PRODUCT_HOST_FORM = 0,
     PRODUCT_HOST_ACQUIRE_ENTRY = 1,
     PRODUCT_HOST_RELEASE_ENTRY = 2,
@@ -16,7 +17,8 @@ enum product_host_operation {
     PRODUCT_HOST_DETACH_CURRENT_THREAD = 10,
 };
 
-typedef struct {
+typedef struct
+{
     uint32_t status;
     uint32_t state;
     size_t active_entries;
