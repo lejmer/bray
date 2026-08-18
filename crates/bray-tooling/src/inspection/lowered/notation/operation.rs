@@ -220,10 +220,10 @@ fn pattern_projection_operation(operation: &InspectionMirOperation) -> String {
         .map(|symbol| format!(".{}", symbol.symbol.display_name()))
         .or_else(|| {
             attribute_text(operation, "projection_ordinal").map(|ordinal| {
-                if projection == "element_from_end" {
-                    format!("[end - {ordinal}]")
-                } else {
-                    format!("[{ordinal}]")
+                match projection.as_str() {
+                    "tuple_element" => format!(".{ordinal}"),
+                    "element_from_end" => format!("[end - {ordinal}]"),
+                    _ => format!("[{ordinal}]"),
                 }
             })
         })
@@ -548,13 +548,28 @@ mod tests {
             "pattern_projection",
             vec![
                 attribute("operation", "observe"),
+                attribute("projection", "element_from_start"),
+                attribute("projection_ordinal", "2"),
+            ],
+            vec![value("subject", 7)],
+        );
+
+        assert_eq!(operation_text(&operation), "observe %7[2] [element_from_start]");
+    }
+
+    #[test]
+    fn tuple_projections_use_member_notation() {
+        let operation = operation(
+            "pattern_projection",
+            vec![
+                attribute("operation", "observe"),
                 attribute("projection", "tuple_element"),
                 attribute("projection_ordinal", "2"),
             ],
             vec![value("subject", 7)],
         );
 
-        assert_eq!(operation_text(&operation), "observe %7[2] [tuple_element]");
+        assert_eq!(operation_text(&operation), "observe %7.2 [tuple_element]");
     }
 
     #[test]
