@@ -371,10 +371,14 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
         } => {
             types.insert(*error);
         }
+        MirHostOperation::MaterializeStatic { place } => {
+            types.insert(place.ty());
+        }
         MirHostOperation::SelectTestEntry { .. }
         | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { error: None, .. }
+        | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
     }

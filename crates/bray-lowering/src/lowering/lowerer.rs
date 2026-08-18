@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentity, StorageIdentityId,
+    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageAccessId, StorageIdentity,
+    StorageIdentityId,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameState,
     MirFrameStateId, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageId,
-    MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirStorageKind, MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
 use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
+use bray_symbols::StaticReferenceSelection;
 
 use super::LoweringError;
 use crate::LoweringInput;
@@ -55,6 +57,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    pub(super) static_storages: BTreeMap<StaticReferenceSelection, MirStorageId>,
+    pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
     pub(super) yield_targets: Vec<YieldTarget>,
@@ -77,6 +81,8 @@ impl<'unit> Lowerer<'unit> {
             input,
             builder,
             storages: BTreeMap::new(),
+            static_storages: BTreeMap::new(),
+            static_accesses: BTreeMap::new(),
             parameter_positions,
             active_scopes: Vec::new(),
             yield_targets: Vec::new(),
@@ -94,13 +100,24 @@ impl<'unit> Lowerer<'unit> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
+        if let Some((reference, ty)) = self.input.static_owner().cloned() {
+            self.builder.push_storage(
+                Self::retained_source(&source),
+                MirStorageKind::Static(reference),
+                ty,
+            )?;
+        }
+
         if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(MirFrameState::new(
-                MirFrameStateId::new(0),
-                entry,
-                self.execution_lane_requirements(),
-                [],
-            ).with_affinity(self.frame_affinity()));
+            self.frame_states.push(
+                MirFrameState::new(
+                    MirFrameStateId::new(0),
+                    entry,
+                    self.execution_lane_requirements(),
+                    [],
+                )
+                .with_affinity(self.frame_affinity()),
+            );
         }
 
         let completion = match root {

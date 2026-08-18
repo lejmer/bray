@@ -5,6 +5,23 @@ use bray_ir::{
 };
 use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 
+/// One demanded product-static instance owned by a generated product host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableHostStatic {
+    reference: bray_symbols::StaticReferenceSelection,
+    ty: bray_symbols::TypeId,
+}
+
+impl ExecutableHostStatic {
+    /// Creates one closed product-static host entry.
+    pub const fn new(
+        reference: bray_symbols::StaticReferenceSelection,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        Self { reference, ty }
+    }
+}
+
 /// Complete synthetic input for lowering a compiler-generated executable host stub.
 ///
 /// The host is not represented as a bound source unit. Its validated contract already names the
@@ -15,6 +32,7 @@ pub struct ExecutableHostLoweringInput {
     roots: Vec<BoundUnitKey>,
     contract: ExecutableHostContract,
     target: MirTargetContract,
+    statics: Vec<ExecutableHostStatic>,
 }
 
 impl ExecutableHostLoweringInput {
@@ -30,7 +48,15 @@ impl ExecutableHostLoweringInput {
             roots: roots.into_iter().collect(),
             contract,
             target,
+            statics: Vec::new(),
         }
+    }
+
+    /// Supplies product statics in deterministic cleanup order.
+    pub fn with_statics(mut self, statics: impl IntoIterator<Item = ExecutableHostStatic>) -> Self {
+        self.statics = statics.into_iter().collect();
+
+        self
     }
 }
 
@@ -43,6 +69,7 @@ pub fn lower_executable_host(
         roots,
         contract,
         target,
+        statics,
     } = input;
 
     // The generated source anchor owns the same immutable product identity as the host contract.
@@ -57,6 +84,29 @@ pub fn lower_executable_host(
     let mut builder = MirUnitBuilder::for_executable_host(unit, contract.clone(), target);
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
+
+    let mut static_places = Vec::with_capacity(statics.len());
+
+    for static_instance in statics {
+        let storage = builder.push_storage(
+            source.clone(),
+            bray_ir::MirStorageKind::Static(static_instance.reference),
+            static_instance.ty,
+        )?;
+
+        static_places.push(bray_ir::MirPlace::new(storage, [], static_instance.ty));
+    }
+
+    for place in static_places.iter().rev() {
+        builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Host(MirHostOperation::MaterializeStatic {
+                place: place.clone(),
+            }),
+            None,
+        )?;
+    }
 
     for (index, (root, contract_entry)) in
         roots.into_iter().zip(contract.entries().iter()).enumerate()
@@ -122,9 +172,6 @@ pub fn lower_executable_host(
                     runtime_abi,
                 ),
             },
-            MirHostOperation::ReportCleanupIncidents {
-                runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
-            },
         ] {
             builder.push_operation(
                 entry,
@@ -138,13 +185,71 @@ pub fn lower_executable_host(
     builder.push_operation(
         entry,
         source.clone(),
+        MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
+        None,
+    )?;
+
+    // Generated cleanup blocks independently retain the Arc-backed source correlation.
+    let cancellation = builder.push_block(source.clone(), MirBlockKind::CleanupBroadcast)?;
+    let cleanup = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+    builder.set_terminator(
+        entry,
+        source.clone(),
+        MirTerminatorKind::BeginCleanup(bray_ir::MirCleanupEdge::new(
+            bray_ir::MirCleanupPhase::TaskCancellation,
+            bray_ir::MirEdge::new(cancellation, []),
+        )),
+    )?;
+
+    builder.set_terminator(
+        cancellation,
+        source.clone(),
+        MirTerminatorKind::ContinueCleanup(bray_ir::MirCleanupEdge::new(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+            bray_ir::MirEdge::new(cleanup, []),
+        )),
+    )?;
+
+    for place in static_places {
+        builder.push_operation(
+            cleanup,
+            source.clone(),
+            MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+            },
+            None,
+        )?;
+    }
+
+    let shutdown = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
+
+    builder.set_terminator(
+        cleanup,
+        source.clone(),
+        MirTerminatorKind::Goto(bray_ir::MirEdge::new(shutdown, [])),
+    )?;
+
+    builder.push_operation(
+        shutdown,
+        source.clone(),
+        MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents {
+            runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
+        }),
+        None,
+    )?;
+
+    builder.push_operation(
+        shutdown,
+        source.clone(),
         MirOperationKind::Host(MirHostOperation::StructuredShutdown {
             runtime: runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
         }),
         None,
     )?;
 
-    builder.set_terminator(entry, source, MirTerminatorKind::Return(None))?;
+    builder.set_terminator(shutdown, source, MirTerminatorKind::Return(None))?;
 
     builder.finish(entry)
 }
@@ -196,8 +301,8 @@ mod tests {
 
         assert!(matches!(
             unit.operations().first().map(bray_ir::MirOperation::kind),
-            Some(bray_ir::MirOperationKind::Host(
-                bray_ir::MirHostOperation::ExecuteRoot {
+            Some(MirOperationKind::Host(
+                MirHostOperation::ExecuteRoot {
                     root: actual,
                     ..
                 }
@@ -216,6 +321,7 @@ mod tests {
                 MirOperationKind::Host(MirHostOperation::ExecuteRoot { .. }),
                 MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
                 MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
                 MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
             ]

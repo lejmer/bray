@@ -37,7 +37,7 @@ pub struct CompileTimeUnit {
 impl CompileTimeUnit {
     /// Classifies a bound unit whose semantics are complete before runtime.
     pub fn try_new(key: BoundUnitKey) -> Option<Self> {
-        (!requires_mir(key.kind())).then_some(Self { key })
+        (!requires_mir(&key)).then_some(Self { key })
     }
 
     /// Returns the exact checked semantic unit.
@@ -51,10 +51,14 @@ impl CompileTimeUnit {
     }
 }
 
-pub(crate) const fn requires_mir(kind: BoundUnitKind) -> bool {
+pub(crate) fn requires_mir(key: &BoundUnitKey) -> bool {
+    requires_mir_kind(key.kind(), key.declared_owner().kind())
+}
+
+fn requires_mir_kind(kind: BoundUnitKind, owner: bray_symbols::SymbolKind) -> bool {
     match kind {
-        BoundUnitKind::ConstantTemplate
-        | BoundUnitKind::EmbeddedConstant
+        BoundUnitKind::ConstantTemplate => owner == bray_symbols::SymbolKind::Static,
+        BoundUnitKind::EmbeddedConstant
         | BoundUnitKind::PredicateDefinition
         | BoundUnitKind::Constraint
         | BoundUnitKind::ContractClause
@@ -68,27 +72,38 @@ pub(crate) const fn requires_mir(kind: BoundUnitKind) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::BoundUnitKind;
+    use bray_symbols::SymbolKind;
 
-    use super::requires_mir;
+    use super::requires_mir_kind;
 
     #[test]
-    fn compile_time_classification_covers_every_non_executable_unit_kind() {
-        let compile_time = [
+    fn only_static_constant_templates_join_executable_unit_kinds() {
+        assert!(requires_mir_kind(
             BoundUnitKind::ConstantTemplate,
+            SymbolKind::Static
+        ));
+
+        assert!(!requires_mir_kind(
+            BoundUnitKind::ConstantTemplate,
+            SymbolKind::Constant
+        ));
+
+        for kind in [
             BoundUnitKind::EmbeddedConstant,
             BoundUnitKind::PredicateDefinition,
             BoundUnitKind::Constraint,
             BoundUnitKind::ContractClause,
             BoundUnitKind::TargetGate,
-        ];
+        ] {
+            assert!(!requires_mir_kind(kind, SymbolKind::Module));
+        }
 
-        let executable = [
+        for kind in [
             BoundUnitKind::CallableBody,
             BoundUnitKind::AnonymousCallable,
             BoundUnitKind::RuntimeDefault,
-        ];
-
-        assert!(!compile_time.into_iter().any(requires_mir));
-        assert!(executable.into_iter().all(requires_mir));
+        ] {
+            assert!(requires_mir_kind(kind, SymbolKind::Function));
+        }
     }
 }

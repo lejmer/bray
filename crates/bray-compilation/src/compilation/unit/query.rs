@@ -23,9 +23,9 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery,
-    GenericOwnerId, GenericSubstitutionData, ImplementationRequirementKey,
-    ImplementationSelection, ProofOutcome, StaticInstanceKey, StaticInstanceTemplateId,
-    StaticReferenceSelection, SymbolQueryRequest,
+    GenericOwnerId, GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
+    ProofOutcome, StaticInstanceKey, StaticInstanceTemplateId, StaticReferenceSelection,
+    SymbolQueryRequest,
 };
 use bray_syntax::GenericArgumentListSyntax;
 
@@ -445,7 +445,11 @@ impl Compilation {
         let selections = CheckedSemanticSelections::try_new(
             bound.result().value(),
             &types,
-            selections.entries().iter().cloned().chain(static_selections),
+            selections
+                .entries()
+                .iter()
+                .cloned()
+                .chain(static_selections),
         )
         .map_err(|_| {
             FactQueryError::CheckerInfrastructure(
@@ -481,11 +485,12 @@ impl Compilation {
             .symbol_for_key(key.declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let unit = CheckerUnitView::new(bound, semantic_context, checker_context).map_err(|error| {
-            FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
-                error,
-            ))
-        })?;
+        let unit =
+            CheckerUnitView::new(bound, semantic_context, checker_context).map_err(|error| {
+                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
+                    error,
+                ))
+            })?;
 
         let mut entries = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
@@ -495,42 +500,48 @@ impl Compilation {
                 continue;
             };
 
-            let Some(anchor) = name.generic_argument_list() else {
-                continue;
-            };
-
             let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Static(declaration)) =
                 name.target()
             else {
                 continue;
             };
 
-            let arguments = anchor
-                .find_descendant::<GenericArgumentListSyntax>(self.syntax_tree())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
             let parameters = generic_parameter_ids(binding_context.symbols(), declaration.into())
                 .map_err(binding_query_error)?;
 
-            let arguments = arguments.generic_arguments().collect::<Vec<_>>();
+            let source = name.origin().source_anchor().syntax();
 
-            let bound_arguments = type_binder(&binding_context, owner)
-                .map_err(binding_query_error)?
-                .bind_call_generic_arguments(&arguments, &parameters)
-                .map_err(binding_query_error)?;
+            let resolved = match name.generic_argument_list() {
+                Some(anchor) => {
+                    let arguments = anchor
+                        .find_descendant::<GenericArgumentListSyntax>(self.syntax_tree())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let (bound_arguments, argument_diagnostics) = bound_arguments.into_parts();
+                    let arguments = arguments.generic_arguments().collect::<Vec<_>>();
 
-            diagnostics = diagnostics.merged(&argument_diagnostics);
+                    let bound_arguments = type_binder(&binding_context, owner)
+                        .map_err(binding_query_error)?
+                        .bind_call_generic_arguments(&arguments, &parameters)
+                        .map_err(binding_query_error)?;
 
-            let resolved = checker_result(check_generic_arguments(unit, &bound_arguments))?;
+                    let (bound_arguments, argument_diagnostics) = bound_arguments.into_parts();
 
-            let (resolved, resolution_diagnostics) = resolved.into_parts();
+                    diagnostics = diagnostics.merged(&argument_diagnostics);
 
-            diagnostics = diagnostics.merged(&resolution_diagnostics);
+                    let resolved = checker_result(check_generic_arguments(unit, &bound_arguments))?;
 
-            let Some(resolved) = resolved else {
-                continue;
+                    let (resolved, resolution_diagnostics) = resolved.into_parts();
+
+                    diagnostics = diagnostics.merged(&resolution_diagnostics);
+
+                    let Some(resolved) = resolved else {
+                        continue;
+                    };
+
+                    resolved
+                }
+                None if parameters.is_empty() => Vec::new(),
+                None => continue,
             };
 
             let substitution = GenericSubstitutionData::try_new(
@@ -546,33 +557,15 @@ impl Compilation {
                 .intern_generic_substitution(substitution)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            let template = StaticInstanceTemplateId::new(declaration);
-            let target = self.requested_target().profile().identity().clone();
+            let (selection, selection_diagnostics) = self.static_reference_selection(
+                declaration,
+                substitution,
+                cancellation,
+                &binding_context,
+                source,
+            )?;
 
-            let selection = match binding_context
-                .semantic_values()
-                .require_concrete_substitution(substitution)
-            {
-                Ok(concrete_substitution) => {
-                    let (witnesses, witness_diagnostics) = self.static_instance_witnesses(
-                        declaration,
-                        substitution,
-                        cancellation,
-                        &binding_context,
-                        anchor,
-                    )?;
-
-                    diagnostics = diagnostics.merged(&witness_diagnostics);
-
-                    StaticReferenceSelection::Closed(StaticInstanceKey::new(
-                        template,
-                        concrete_substitution,
-                        witnesses,
-                        target,
-                    ))
-                }
-                Err(_) => StaticReferenceSelection::open(template, substitution, [], target),
-            };
+            diagnostics = diagnostics.merged(&selection_diagnostics);
 
             entries.push(SemanticSelectionEntry::new(
                 expression,
@@ -583,7 +576,47 @@ impl Compilation {
         Ok((entries, diagnostics))
     }
 
-    fn static_instance_witnesses(
+    pub(in crate::compilation) fn static_reference_selection(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        cancellation: &CancellationToken,
+        binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
+        source: bray_declarations::SyntaxAnchor,
+    ) -> Result<(StaticReferenceSelection, DiagnosticBag), FactQueryError> {
+        let template = StaticInstanceTemplateId::new(declaration);
+        let target = self.requested_target().profile().identity().clone();
+
+        let Ok(concrete_substitution) = binding_context
+            .semantic_values()
+            .require_concrete_substitution(substitution)
+        else {
+            return Ok((
+                StaticReferenceSelection::open(template, substitution, [], target),
+                DiagnosticBag::new(),
+            ));
+        };
+
+        let (witnesses, diagnostics) = self.static_instance_witnesses(
+            declaration,
+            substitution,
+            cancellation,
+            binding_context,
+            source,
+        )?;
+
+        Ok((
+            StaticReferenceSelection::Closed(StaticInstanceKey::new(
+                template,
+                concrete_substitution,
+                witnesses,
+                target,
+            )),
+            diagnostics,
+        ))
+    }
+
+    pub(in crate::compilation) fn static_instance_witnesses(
         &self,
         declaration: bray_symbols::StaticSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
@@ -591,8 +624,8 @@ impl Compilation {
         binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
         source: bray_declarations::SyntaxAnchor,
     ) -> Result<(Vec<bray_symbols::ImplementationInstanceId>, DiagnosticBag), FactQueryError> {
-        let owner =
-            GenericOwnerId::try_new(declaration.into()).ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = GenericOwnerId::try_new(declaration.into())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let satisfaction = self.generic_constraint_satisfaction_with_cancellation(
             GenericConstraintObligationKey::new(owner, substitution),
@@ -4287,17 +4320,12 @@ func select(pos values: Values) -> i32
             .iter()
             .filter(|access| access.projections().is_empty())
             .filter_map(|access| match access.root() {
-                bray_bound_tree::StorageAccessRoot::BorrowedStorage {
+                StorageAccessRoot::BorrowedStorage {
                     storage: identity, ..
                 } => storage.value().identity(identity),
                 _ => None,
             })
-            .filter(|identity| {
-                matches!(
-                    identity,
-                    bray_bound_tree::StorageIdentity::CustomIndexBorrow(_)
-                )
-            })
+            .filter(|identity| matches!(identity, StorageIdentity::CustomIndexBorrow(_)))
             .count();
 
         assert!(custom_roots >= 3, "{storage:?}");

@@ -1,4 +1,5 @@
 mod query;
+mod static_initializer;
 mod support;
 
 pub(super) use support::{

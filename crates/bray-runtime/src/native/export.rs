@@ -3,10 +3,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativePanicCause, NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRootHandle,
-    NativeRootStart, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
-    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
-    NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
+    NativePanicCause, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeProductHostOperation, NativeProtectedFrame, NativeProtectedFrameTransfer,
+    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
+    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
+    NativeSourceAnchor, NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+    NativeThreadStaticCleanupRegistration, NativeWakeCallback,
 };
 
 use crate::current_run_cancellation_requested;
@@ -14,6 +16,42 @@ use crate::root::propagate_current_run_cancellation;
 
 use super::callback::PropagatedPanicReport;
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
+
+native_export! {
+    pub extern "C" fn bray_runtime_thread_attachment_identity_v1(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64 {
+        crate::product::thread_attachment_identity(descriptor)
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_thread_static_cleanup_registration_v1(
+        registration: &NativeThreadStaticCleanupRegistration,
+    ) -> NativeRuntimeStatus {
+        crate::product::register_thread_static(registration)
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_product_host_control_v3(
+        descriptor: &NativeProductHostDescriptor,
+        operation: NativeProductHostOperation,
+    ) -> NativeProductHostObservation {
+        catch_unwind(AssertUnwindSafe(|| crate::product::control(descriptor, operation)))
+            .unwrap_or_else(|_| NativeProductHostObservation::new(
+                bray_runtime_abi::NativeProductHostStatus::RUNTIME_FAILURE,
+                bray_runtime_abi::NativeProductHostState::FAILED,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                bray_runtime_abi::NativeStaticIdentity::new([0; 32]),
+            ))
+    }
+}
 
 native_export! {
     pub extern "C" fn bray_runtime_root_execution_v1(
@@ -588,7 +626,7 @@ mod tests {
 
         assert_eq!(
             bray_runtime_main_thread_lane_drive_v1(),
-            NativeRuntimeStatus::SUCCESS
+            NativeRuntimeStatus::PENDING
         );
 
         assert_eq!(

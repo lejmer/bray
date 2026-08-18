@@ -120,4 +120,11 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         instance: ConstantInstanceKey,
         limits: ConstantEvaluationLimits,
     ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>>;
+
+    /// Resolves one exact static reference retained by a checked initializer template.
+    fn resolve_static(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::StaticReferenceSelection>>;
 }

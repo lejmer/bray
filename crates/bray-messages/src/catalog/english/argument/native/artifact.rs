@@ -111,6 +111,9 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::ExecutableHostMissingMainThreadLane => {
             "the executable host requires a main-thread execution lane"
         }
+        Kind::LibraryCleanupRequiresMainThread => {
+            "a library static cleanup operation requires main-thread execution"
+        }
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }
@@ -135,7 +138,7 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
         Kind::CodegenInvalidRequest => "the code generation request is internally inconsistent",
-        Kind::CodegenMirUnavailable => "the required checked program representation is unavailable",
+        Kind::CodegenMirUnavailable => "the program is not ready for native code generation",
         Kind::CodegenMissingEntrypoint => "the product has no selected entrypoint",
         Kind::CodegenInvalidInstance => "a compiled program item is invalid",
         Kind::CodegenInvalidUnit => "a native-code work item is invalid",

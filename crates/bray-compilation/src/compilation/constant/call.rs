@@ -140,6 +140,47 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             Err(error) => Err(checker_call_query_error(error)),
         }
     }
+
+    fn resolve_static(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::StaticReferenceSelection>> {
+        let binding_context = self
+            .calls
+            .compilation
+            .binding_context(self.calls.cancellation)
+            .map_err(checker_call_query_error)?;
+
+        let initializer = self
+            .calls
+            .compilation
+            .static_initializer_key(declaration)
+            .map_err(checker_call_query_error)?
+            .ok_or(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidConstantEvaluationInput,
+            ))?;
+
+        let (selection, diagnostics) = self
+            .calls
+            .compilation
+            .static_reference_selection(
+                declaration,
+                substitution,
+                self.calls.cancellation,
+                &binding_context,
+                initializer.source().syntax(),
+            )
+            .map_err(checker_call_query_error)?;
+
+        if selection.closed_instance().is_none() {
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidConstantEvaluationInput,
+            ));
+        }
+
+        Ok(DiagnosticResult::new(selection, diagnostics))
+    }
 }
 
 fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {

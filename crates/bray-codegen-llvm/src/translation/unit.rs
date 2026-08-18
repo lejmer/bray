@@ -15,3 +15,4 @@ mod value;
 
 pub(crate) use core::{TranslationError, UnitTranslator, translate_instances};
 pub(crate) use support::pointer_value;
+pub(crate) use support::{integer_constant, real_width, real_words};

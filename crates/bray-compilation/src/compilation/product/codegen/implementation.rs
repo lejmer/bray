@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_binder::BindingQueryContext;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
     CodegenPartitionPolicy, CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode,
@@ -14,14 +13,9 @@ use bray_linker::Linker;
 use bray_runtime_interface::{
     RuntimeArtifact, RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeCapability,
 };
-use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ProductIdentity, ProductKind,
-};
+use bray_symbols::{ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
-use super::super::super::binder::has_visible_generic_parameters;
-use super::super::super::implementation::implementation_fulfillments;
-use super::super::super::substitution::empty_substitution;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductPlanningError;
 use super::plan::NativeProductPlan;
@@ -164,124 +158,40 @@ impl Compilation {
             cancellation,
         )?;
 
+        let entry_roots = source_roots
+            .iter()
+            .filter(|root| root.callable_instance().is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+
         // Native product plans retain the exact immutable catalog selected for this host.
         let test_catalog = test_discovery
             .as_ref()
             .map(|discovery| discovery.value().catalog().clone());
 
-        let (host, units, mappings) = if source_roots.is_empty()
-            && semantic.value().kind() != ProductKind::Test
-        {
-            (None, Arc::from([]), Vec::new())
-        } else {
-            let source_reachability = if source_roots.is_empty() {
-                None
-            } else {
-                let reachability =
-                    self.codegen_reachability(source_roots.clone(), None, &target, cancellation)?;
+        let (host, units, mappings, host_statics) = self.prepare_native_codegen(
+            &product,
+            semantic.value().kind(),
+            source_roots,
+            &entry_roots,
+            runtime.as_ref(),
+            required_capabilities,
+            &target,
+            options.debug_information(),
+            cancellation,
+        )?;
 
-                Some(reachability)
-            };
+        let product_host =
+            self.codegen_product_host_mapping(&product, &units, &mappings, &host_statics, &target)?;
 
-            let host = self.executable_host(
-                &product,
-                semantic.value().kind(),
-                &source_roots,
-                source_reachability
-                    .as_ref()
-                    .map(ConcreteCodegenReachability::graph),
-                runtime.as_ref(),
-                required_capabilities,
-                &target,
-                cancellation,
-            )?;
-
-            let reachability = match host.as_ref() {
-                Some(host) => {
-                    let host_target = source_roots.first().map_or_else(
-                        || {
-                            bray_ir::MirTargetContract::new(
-                                target.profile().clone(),
-                                self.selected_target().target().runtime_abi(),
-                            )
-                        },
-                        |root| root.key().target().clone(),
-                    );
-
-                    let host_mir = bray_lowering::lower_executable_host(
-                        bray_lowering::ExecutableHostLoweringInput::new(
-                            GENERATED_HOST_UNIT,
-                            source_roots
-                                .iter()
-                                .map(|root| bound_template(root.key()))
-                                .collect::<Result<Vec<_>, _>>()?,
-                            host.clone(),
-                            host_target,
-                        ),
-                    )
-                    .map_err(NativeProductPlanningError::InvalidHostMir)?;
-
-                    let host = ConcreteCodegenInstance::generated(CodegenInstanceKey::non_generic(
-                        &host_mir,
-                    ));
-
-                    let reachability = self.codegen_reachability(
-                        [host],
-                        Some((host_mir, source_roots)),
-                        &target,
-                        cancellation,
-                    )?;
-
-                    reachability
-                }
-                None => {
-                    source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?
-                }
-            };
-
-            let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
-
-            let compatibility = reachability
-                .graph()
-                .instances()
-                .iter()
-                .map(|instance| {
-                    self.codegen_partition_compatibility(
-                        instance,
-                        product.package(),
-                        &roots,
-                        cancellation,
-                    )
-                    // The lookup table owns the Arc-backed instance identity during partitioning.
-                    .map(|compatibility| (instance.key().clone(), compatibility))
-                })
-                .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-            // The partitioner receives owned compatibility identities independent of the table.
-            let units = partition_codegen_units(
-                CodegenPartitionPolicy::NATIVE_BALANCED,
-                reachability.graph(),
-                |instance| compatibility.get(instance.key()).cloned(),
-            )
-            .map_err(NativeProductPlanningError::InvalidCodegenPartition)?;
-
-            let mappings = units
-                .iter()
-                .map(|unit| {
-                    self.codegen_mappings_for_product(
-                        unit,
-                        host.as_ref(),
-                        &target,
-                        &roots,
-                        &reachability,
-                        options.debug_information() != DebugInformationMode::None,
-                        cancellation,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            (host, units, mappings)
-        };
+        // Each unit mapping independently retains the Arc-backed product-host contract.
+        let mappings = mappings
+            .into_iter()
+            .map(|mappings| match product_host.as_ref() {
+                Some(product_host) => mappings.with_product_host(product_host.clone()),
+                None => mappings,
+            })
+            .collect::<Vec<_>>();
 
         let codegen = self
             .state
@@ -311,7 +221,20 @@ impl Compilation {
         )
         .map_err(NativeProductPlanningError::InvalidEmissionBackend)?;
 
-        let runtime = self.select_runtime(semantic.value().kind(), runtime, host.as_ref())?;
+        let runtime = self.select_runtime(
+            semantic.value().kind(),
+            runtime,
+            host.as_ref(),
+            product_host.as_ref(),
+            &mappings,
+            host_statics
+                .iter()
+                .any(super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident),
+            host_statics.iter().any(
+                super::super::realization::ProductStaticHostEntry::requires_main_thread_cleanup,
+            ),
+            &target,
+        )?;
 
         self.profile_runtime_selection(runtime.as_ref());
 
@@ -322,11 +245,19 @@ impl Compilation {
                     host.as_ref(),
                     runtime,
                     &mappings,
+                    product_host.as_ref(),
                     &target,
                     configuration,
                 )
             })
             .transpose()?;
+
+        // The plan owns static instance identities independently of its mapping tables.
+        let static_instances = mappings
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .map(|mapping| mapping.instance().clone())
+            .collect::<BTreeSet<_>>();
 
         Ok(NativeProductPlan {
             backend,
@@ -337,7 +268,165 @@ impl Compilation {
             link,
             units,
             mappings: shared_slice(mappings),
+            static_instances: shared_slice(static_instances),
+            product_host,
         })
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "native product preparation keeps each selected contract explicit"
+    )]
+    fn prepare_native_codegen(
+        &self,
+        product: &ProductIdentity,
+        kind: ProductKind,
+        source_roots: Vec<ConcreteCodegenInstance>,
+        entry_roots: &[ConcreteCodegenInstance],
+        runtime: Option<&RuntimeArtifact>,
+        required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
+        target: &CodegenTarget,
+        debug_information: DebugInformationMode,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Option<bray_runtime_interface::ExecutableHostContract>,
+            Arc<[bray_codegen::CodegenUnit]>,
+            Vec<bray_codegen::CodegenMappings>,
+            Vec<super::super::realization::ProductStaticHostEntry>,
+        ),
+        NativeProductPlanningError,
+    > {
+        if source_roots.is_empty() && kind != ProductKind::Test {
+            return Ok((None, Arc::from([]), Vec::new(), Vec::new()));
+        }
+
+        let source_reachability = if source_roots.is_empty() {
+            None
+        } else {
+            // Reachability owns its Arc-backed roots while preparation retains them for host MIR.
+            let reachability =
+                self.codegen_reachability(source_roots.clone(), None, target, cancellation)?;
+
+            Some(reachability)
+        };
+
+        let host_statics = match source_reachability.as_ref() {
+            Some(reachability) => {
+                let entries =
+                    self.product_static_host_entries(reachability, target, cancellation)?;
+
+                entries
+            }
+            None => Vec::new(),
+        };
+
+        let host = self.executable_host(
+            product,
+            kind,
+            entry_roots,
+            source_reachability
+                .as_ref()
+                .map(ConcreteCodegenReachability::graph),
+            host_statics
+                .iter()
+                .any(super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident),
+            runtime,
+            required_capabilities,
+            target,
+            cancellation,
+        )?;
+
+        let reachability = match host.as_ref() {
+            Some(host) => {
+                // Generated host MIR owns its target and host contracts after this query returns.
+                let host_target = source_roots.first().map_or_else(
+                    || {
+                        bray_ir::MirTargetContract::new(
+                            target.profile().clone(),
+                            self.selected_target().target().runtime_abi(),
+                        )
+                    },
+                    |root| root.key().target().clone(),
+                );
+
+                let host_mir = bray_lowering::lower_executable_host(
+                    bray_lowering::ExecutableHostLoweringInput::new(
+                        GENERATED_HOST_UNIT,
+                        entry_roots
+                            .iter()
+                            .map(|root| bound_template(root.key()))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        host.clone(),
+                        host_target,
+                    )
+                    .with_statics(
+                        host_statics
+                            .iter()
+                            .filter(|entry| {
+                                entry.key().duration()
+                                    == bray_symbols::StaticStorageDuration::Product
+                            })
+                            .map(|entry| entry.lowering_entry()),
+                    ),
+                )
+                .map_err(NativeProductPlanningError::InvalidHostMir)?;
+
+                let host =
+                    ConcreteCodegenInstance::generated(CodegenInstanceKey::non_generic(&host_mir));
+
+                self.codegen_reachability(
+                    [host],
+                    Some((host_mir, source_roots)),
+                    target,
+                    cancellation,
+                )?
+            }
+            None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
+        };
+
+        let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
+
+        let compatibility = reachability
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                self.codegen_partition_compatibility(
+                    instance,
+                    product.package(),
+                    &roots,
+                    cancellation,
+                )
+                // The lookup table owns the Arc-backed instance identity during partitioning.
+                .map(|compatibility| (instance.key().clone(), compatibility))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+        // The partitioner receives owned compatibility identities independent of the table.
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            reachability.graph(),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .map_err(NativeProductPlanningError::InvalidCodegenPartition)?;
+
+        let mappings = units
+            .iter()
+            .map(|unit| {
+                self.codegen_mappings_for_product(
+                    unit,
+                    host.as_ref(),
+                    target,
+                    &roots,
+                    &reachability,
+                    debug_information != DebugInformationMode::None,
+                    cancellation,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((host, units, mappings, host_statics))
     }
 
     fn select_runtime(
@@ -345,23 +434,83 @@ impl Compilation {
         kind: ProductKind,
         runtime: Option<RuntimeArtifact>,
         host: Option<&bray_runtime_interface::ExecutableHostContract>,
+        product_host: Option<&bray_codegen::CodegenProductHostMapping>,
+        mappings: &[bray_codegen::CodegenMappings],
+        transfers_cleanup_incident: bool,
+        requires_main_thread_cleanup: bool,
+        target: &CodegenTarget,
     ) -> Result<Option<RuntimeArtifactSelection>, NativeProductPlanningError> {
-        let (Some(runtime), Some(host)) = (runtime, host) else {
+        if kind == ProductKind::Library && requires_main_thread_cleanup {
+            return Err(NativeProductPlanningError::LibraryCleanupRequiresMainThread);
+        }
+
+        let Some(runtime) = runtime else {
+            if host.is_some_and(|host| host.requirements().requires_implementation())
+                || product_host.is_some()
+            {
+                return Err(NativeProductPlanningError::MissingRuntime);
+            }
+
             return Ok(None);
         };
-
-        if !host.requirements().requires_implementation() {
-            return Ok(None);
-        }
 
         let purpose = match kind {
             ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
-            ProductKind::Executable => RuntimeArtifactPurpose::Product,
-            ProductKind::Library => unreachable!("library products have no host"),
+            ProductKind::Executable | ProductKind::Library => RuntimeArtifactPurpose::Product,
+        };
+
+        let requirements = match host {
+            Some(host) if host.requirements().requires_implementation() => {
+                // Runtime selection owns the Arc-backed executable requirements.
+                host.requirements().clone()
+            }
+            Some(_) | None => {
+                let Some(product_host) = product_host else {
+                    return Ok(None);
+                };
+
+                let mut roles = mappings
+                    .iter()
+                    .flat_map(bray_codegen::CodegenMappings::symbols)
+                    .filter_map(|symbol| match symbol.key() {
+                        bray_codegen::CodegenSymbolKey::Runtime(reference) => {
+                            Some(reference.role())
+                        }
+                        bray_codegen::CodegenSymbolKey::Instance(_)
+                        | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                roles.push(bray_runtime_interface::RuntimeAbiRole::ProductHostControl);
+
+                if product_host.statics().iter().any(|entry| {
+                    entry.duration() == bray_symbols::StaticStorageDuration::ExactThread
+                }) {
+                    roles.extend([
+                        bray_runtime_interface::RuntimeAbiRole::ThreadAttachmentIdentity,
+                        bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
+                    ]);
+                }
+
+                // Runtime selection owns the Arc-backed identities used after planning.
+                let capabilities = transfers_cleanup_incident
+                    .then_some(bray_runtime_interface::RuntimeCapability::MemoryOperations);
+
+                bray_runtime_interface::RuntimeRequirements::new(
+                    Some(runtime.contract().identity().clone()),
+                    self.selected_target().target().runtime_abi(),
+                    None,
+                    target.identity().clone(),
+                    target.panic_abi().clone(),
+                    roles,
+                    capabilities,
+                    [],
+                )
+            }
         };
 
         runtime
-            .select(purpose, host.requirements())
+            .select(purpose, &requirements)
             .map(Some)
             .map_err(NativeProductPlanningError::InvalidRuntimeSelection)
     }
@@ -401,146 +550,6 @@ impl Compilation {
             crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
             bytes,
         );
-    }
-
-    fn product_root_instances(
-        &self,
-        semantic: &bray_symbols::ProductSemantics,
-        test_discovery: Option<&super::super::super::testing::TestDiscovery>,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-    ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductPlanningError> {
-        let binding_context = self.binding_context(cancellation)?;
-
-        let mut symbols: Vec<_> = match semantic.kind() {
-            ProductKind::Executable => semantic
-                .entrypoint()
-                .map(AnySymbolId::from)
-                .into_iter()
-                .collect(),
-            ProductKind::Test => {
-                let discovery = test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
-
-                discovery
-                    .catalog()
-                    .entries()
-                    .iter()
-                    .filter_map(|entry| discovery.function(entry.identity()))
-                    .map(AnySymbolId::from)
-                    .collect()
-            }
-            ProductKind::Library => semantic.public_symbols().to_vec(),
-        };
-
-        if semantic.kind() == ProductKind::Library {
-            for implementation in semantic
-                .public_symbols()
-                .iter()
-                .copied()
-                .filter_map(bray_symbols::ImplementationSymbolId::try_from_any)
-            {
-                symbols.extend(
-                    implementation_fulfillments(&binding_context, implementation)?
-                        .callables
-                        .iter()
-                        .copied()
-                        .map(AnySymbolId::from),
-                );
-            }
-        }
-
-        let mut roots = Vec::new();
-
-        for symbol in symbols {
-            if has_visible_generic_parameters(binding_context.symbols(), symbol) {
-                continue;
-            }
-
-            let Some(definition) = CallableDefinitionId::try_new(symbol) else {
-                continue;
-            };
-
-            let (callable, witnesses) =
-                self.product_root_callable(symbol, definition, &binding_context, cancellation)?;
-
-            let callable =
-                self.concrete_codegen_callable(callable, witnesses, target, cancellation)?;
-
-            if semantic.kind() == ProductKind::Library {
-                roots.extend(self.concrete_codegen_callable_defaults(definition, &callable)?);
-            }
-
-            roots.push(callable);
-        }
-
-        if semantic.kind() != ProductKind::Test {
-            roots.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-            roots.dedup_by(|left, right| left.key() == right.key());
-        }
-
-        if roots.is_empty() && semantic.kind() == ProductKind::Executable {
-            return Err(NativeProductPlanningError::MissingProductRoot);
-        }
-
-        Ok(roots)
-    }
-
-    fn product_root_callable(
-        &self,
-        symbol: AnySymbolId,
-        definition: CallableDefinitionId,
-        binding_context: &super::super::super::binder::CompilationBindingContext<'_>,
-        cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            CallableInstanceData,
-            Vec<bray_symbols::ImplementationInstanceId>,
-        ),
-        NativeProductPlanningError,
-    > {
-        let Some(implementation) = binding_context
-            .symbols()
-            .containing_symbol(symbol)
-            .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
-        else {
-            let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
-
-            return Ok((
-                CallableInstanceData::new(definition, substitution),
-                Vec::new(),
-            ));
-        };
-
-        let headers = self.implementation_header_index(cancellation)?;
-
-        let header = headers
-            .value()
-            .header(implementation)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let values = self.semantic_value_store()?;
-
-        let application = values
-            .trait_application_data(header.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let implementation_substitution = empty_substitution(values, implementation.into_any())?;
-
-        let callable = super::super::super::implementation::callable_instance(
-            values,
-            symbol,
-            [application.substitution(), implementation_substitution],
-        )
-        .map_err(NativeProductPlanningError::from)?;
-
-        let witness = values
-            .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
-                implementation,
-                implementation_substitution,
-            ))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        Ok((callable, vec![witness]))
     }
 
     fn codegen_reachability(
@@ -762,7 +771,7 @@ mod tests {
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
         NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity,
-        ProductKind, SymbolOrigin, TraitApplicationData, TypeData,
+        ProductKind, StaticStorageDuration, SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
@@ -2886,7 +2895,40 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
     ) {
-        let (backend, compilation) = codegen_compilation(source);
+        runtime_native_plan_for_product(source, ProductKind::Executable)
+    }
+
+    fn runtime_native_plan_for_product(
+        source: &str,
+        product_kind: ProductKind,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        runtime_native_plan_for_target(source, product_kind, SelectedTarget::baseline())
+    }
+
+    fn runtime_native_plan_for_target(
+        source: &str,
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        runtime_native_plan_for_sources_target(&[source], product_kind, target)
+    }
+
+    fn runtime_native_plan_for_sources_target(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        let (backend, compilation) =
+            codegen_compilation_for_sources_target(sources, product_kind, target);
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
@@ -3046,9 +3088,15 @@ mod tests {
 
         assert!(matches!(
             host_mir.operations(),
-            [operation]
+            [begin, report, shutdown]
                 if matches!(
-                    operation.kind(),
+                    begin.kind(),
+                    MirOperationKind::Host(MirHostOperation::BeginStaticCleanup)
+                ) && matches!(
+                    report.kind(),
+                    MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. })
+                ) && matches!(
+                    shutdown.kind(),
                     MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. })
                 )
         ));
@@ -3060,9 +3108,422 @@ mod tests {
         );
     }
 
+    #[test]
+    fn generic_static_instances_have_distinct_realizations_and_one_host_owner() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "static GENERIC_VALUE<const N: i32>: i32 = N;\n",
+            "\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return GENERIC_VALUE<1> + GENERIC_VALUE<2> - 3;\n",
+            "}\n",
+        );
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let static_mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .collect::<Vec<_>>();
+
+        assert!(static_mappings.len() >= 4);
+
+        let instances = static_mappings
+            .iter()
+            .map(|mapping| mapping.instance())
+            .collect::<BTreeSet<_>>();
+
+        let symbols = static_mappings
+            .iter()
+            .map(|mapping| mapping.symbol())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(instances.len(), 2);
+        assert_eq!(symbols.len(), instances.len());
+
+        let product_instances = instances
+            .iter()
+            .filter(|instance| instance.duration() == bray_symbols::StaticStorageDuration::Product)
+            .count();
+
+        let thread_instances = instances
+            .iter()
+            .filter(|instance| {
+                instance.duration() == bray_symbols::StaticStorageDuration::ExactThread
+            })
+            .count();
+
+        assert_eq!(product_instances, 2);
+        assert_eq!(thread_instances, 0);
+
+        let host = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
+            .unwrap_or_else(|| panic!("static native plan must retain host MIR"));
+
+        assert_eq!(
+            host.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Host(MirHostOperation::MaterializeStatic { .. })
+                ))
+                .count(),
+            product_instances
+        );
+
+        assert_eq!(
+            host.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Cleanup {
+                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                        ..
+                    }
+                ))
+                .count(),
+            product_instances
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn exact_thread_static_emits_attachment_owned_cleanup() {
+        let source = concat!(
+            "module app;\n",
+            "@thread_local static THREAD_ANSWER: i32 = 42;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return THREAD_ANSWER;\n",
+            "}\n",
+        );
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .filter(|mapping| mapping.instance().duration() == StaticStorageDuration::ExactThread)
+            .collect::<Vec<_>>();
+
+        assert!(!mappings.is_empty());
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn repeated_static_references_emit_one_native_instance() {
+        let source = concat!(
+            "module app;\n",
+            "static ANSWER: i32 = 42;\n",
+            "func answer_address() -> RawPointer<i32>\n",
+            "{\n",
+            "    return core.memory.address_of<i32>(&ANSWER);\n",
+            "}\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    let first = core.memory.address_of<i32>(&ANSWER);\n",
+            "    let second = answer_address();\n",
+            "    return ANSWER;\n",
+            "}\n",
+        );
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        assert_eq!(
+            plan.mappings()
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::static_storages)
+                .map(|mapping| mapping.instance().clone())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            1
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn public_library_static_contributes_a_linked_host_table_entry() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "public static EXPORTED_VALUE: i32 = 42;\n",
+        );
+
+        let (backend, plan) = runtime_native_plan_for_product(source, ProductKind::Library);
+
+        let mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .collect::<Vec<_>>();
+
+        assert_eq!(mappings.len(), 1);
+
+        assert_eq!(
+            mappings[0].instance().duration(),
+            StaticStorageDuration::Product
+        );
+
+        assert_eq!(plan.static_instances(), [mappings[0].instance().clone()]);
+
+        let marker = b"bray.static.host.";
+
+        assert!(generated_artifacts(&backend, &plan).iter().any(|artifact| {
+            artifact
+                .windows(marker.len())
+                .any(|candidate| candidate == marker)
+        }));
+    }
+
+    #[test]
+    fn private_lifecycle_static_is_a_retained_product_root() {
+        let source = concat!(
+            "module app;\n",
+            "internal struct Resource {}\n",
+            "impl Resource\n",
+            "{\n",
+            "    finalize()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+            "internal static HIDDEN_RESOURCE: Resource = Resource {};\n",
+            "func main()\n",
+            "{\n",
+            "}\n",
+        );
+
+        let compilation =
+            crate::test_support::compilation_with_product(source, ProductKind::Executable);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("test product plan must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        assert_eq!(roots.len(), 2);
+    }
+
+    #[test]
+    fn static_mapping_retains_selected_lifecycle_helpers() {
+        let source = concat!(
+            "module app;\n",
+            "struct Resource { mut state: i32; }\n",
+            "impl Resource\n",
+            "{\n",
+            "    finalize() { self.state = 2; }\n",
+            "    destruct() { self.state = 3; }\n",
+            "}\n",
+            "static RESOURCE: Resource = Resource { state = 1 };\n",
+            "func main() {}\n",
+        );
+
+        let (_, plan) = runtime_native_plan(source);
+
+        let mapping = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .find(|mapping| mapping.finalization().is_some() || mapping.destroy().is_some())
+            .unwrap_or_else(|| panic!("lifecycle-bearing static mapping must be retained"));
+
+        assert!(mapping.finalization().is_some());
+        assert!(mapping.destroy().is_some());
+    }
+
+    #[test]
+    fn static_host_orders_dependencies_reached_only_by_finalization() {
+        let source = concat!(
+            "module app;\n",
+            "struct Provider { mut state: i32; }\n",
+            "impl Provider\n",
+            "{\n",
+            "    finalize() {}\n",
+            "}\n",
+            "static PROVIDER: Provider = Provider { state = 1 };\n",
+            "struct Consumer {}\n",
+            "impl Consumer\n",
+            "{\n",
+            "    finalize() { if PROVIDER.state == 1 {} }\n",
+            "}\n",
+            "static CONSUMER: Consumer = Consumer {};\n",
+            "func main() {}\n",
+        );
+
+        let (_, plan) = runtime_native_plan(source);
+
+        let host = plan
+            .product_host()
+            .unwrap_or_else(|| panic!("lifecycle-bearing statics must retain a product host"));
+
+        let consumer = host
+            .statics()
+            .iter()
+            .find(|entry| !entry.dependencies().is_empty())
+            .unwrap_or_else(|| panic!("finalizer-only static dependency must be retained"));
+
+        let [provider] = consumer.dependencies() else {
+            panic!("consumer must retain exactly one finalizer-only provider");
+        };
+
+        let provider = host
+            .statics()
+            .iter()
+            .find(|entry| entry.identity() == *provider)
+            .unwrap_or_else(|| panic!("provider must remain in the product host"));
+
+        assert!(consumer.order() < provider.order());
+    }
+
+    #[test]
+    fn static_mapping_retains_asynchronous_fallible_finalizer() {
+        let source = concat!(
+            "module app;\n",
+            "struct Resource { mut state: i32; }\n",
+            "impl Resource\n",
+            "{\n",
+            "    async finalize() -> Result<unit, i32>\n",
+            "    {\n",
+            "        self.state = 2;\n",
+            "        return await finish();\n",
+            "    }\n",
+            "    destruct() { self.state = 3; }\n",
+            "}\n",
+            "async func finish() -> Result<unit, i32> { return Error(42); }\n",
+            "static RESOURCE: Resource = Resource { state = 1 };\n",
+            "func main() {}\n",
+        );
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let finalization = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .find_map(bray_codegen::CodegenStaticStorageMapping::finalization)
+            .unwrap_or_else(|| panic!("asynchronous static finalizer must be retained"));
+
+        assert_eq!(
+            finalization.execution(),
+            bray_symbols::CallableExecution::Asynchronous
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+
+        let (windows_backend, windows_plan) = runtime_native_plan_for_target(
+            source,
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        assert!(
+            generated_artifacts(&windows_backend, &windows_plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn native_static_storage_fixture_prepares_for_windows() {
+        let sources = [
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/fixtures/native-execution/static_storage.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/fixtures/native-execution/static_storage_contribution.bray"
+            )),
+        ];
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &sources,
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let requirements = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("fixture must retain an executable host"))
+            .requirements();
+
+        assert!(requirements.requires_role(RuntimeAbiRole::AwaitedFrameComposition));
+        assert!(requirements.requires_role(RuntimeAbiRole::FrameCompletionMove));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
     fn codegen_compilation_for_product(
         source: &str,
         product_kind: ProductKind,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_product_target(source, product_kind, SelectedTarget::baseline())
+    }
+
+    fn codegen_compilation_for_product_target(
+        source: &str,
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_sources_target(&[source], product_kind, target)
+    }
+
+    fn codegen_compilation_for_sources_target(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
@@ -3081,12 +3542,18 @@ mod tests {
 
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
-            vec![crate::test_support::source_input(source, 0)],
-            CompilationOptions::new(
-                WorkerBudget::serial(),
-                product_kind,
-                SelectedTarget::baseline(),
-            ),
+            sources
+                .iter()
+                .enumerate()
+                .map(|(identity, source)| {
+                    crate::test_support::source_input(
+                        source,
+                        u32::try_from(identity)
+                            .unwrap_or_else(|_| panic!("test source identity must fit u32")),
+                    )
+                })
+                .collect(),
+            CompilationOptions::new(WorkerBudget::serial(), product_kind, target),
         );
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)
@@ -3195,10 +3662,10 @@ mod tests {
         let product_archive = directory.join("libbray_runtime_product.a");
         let test_archive = directory.join("libbray_runtime_test.a");
 
-        std::fs::copy(archive, &product_archive)
+        fs::copy(archive, &product_archive)
             .unwrap_or_else(|error| panic!("test product runtime archive must copy: {error}"));
 
-        std::fs::copy(archive, &test_archive)
+        fs::copy(archive, &test_archive)
             .unwrap_or_else(|error| panic!("test runner runtime archive must copy: {error}"));
 
         RuntimeArtifact::try_new(
@@ -3568,7 +4035,7 @@ mod tests {
         malformed_templates: bool,
         fixture: GenericDependencyFixture,
     ) -> DependencyInterfaceInput {
-        let package = bray_symbols::PackageIdentity::try_new("example.dependency")
+        let package = PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
         let product = InterfaceProductIdentity::try_new("library")

@@ -836,7 +836,7 @@ impl Compilation {
     }
 }
 
-pub(super) fn checker_result<T>(
+pub(in crate::compilation) fn checker_result<T>(
     outcome: CheckerOutcome<T>,
 ) -> Result<DiagnosticResult<T>, FactQueryError> {
     match outcome {

@@ -1,5 +1,6 @@
 mod attribute;
 mod debug;
+mod static_storage;
 mod symbol;
 mod ty;
 

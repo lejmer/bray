@@ -558,7 +558,11 @@ func main()
             );
         };
 
-        assert_eq!(entry.module().segments().collect::<Vec<_>>(), ["net", "tests"]);
+        assert_eq!(
+            entry.module().segments().collect::<Vec<_>>(),
+            ["net", "tests"]
+        );
+
         assert_eq!(entry.name().as_str(), "parses_minimal_packet");
     }
 

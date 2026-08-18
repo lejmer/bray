@@ -59,6 +59,26 @@ pub(super) fn generic_parameter_argument(
         .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
+pub(super) fn identity_substitution(
+    values: &SemanticValueStore,
+    owner: GenericOwnerId,
+    parameters: &[GenericParameterSymbolId],
+) -> Result<GenericSubstitutionId, FactQueryError> {
+    let arguments = parameters
+        .iter()
+        .copied()
+        .map(|parameter| generic_parameter_argument(values, parameter))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let substitution =
+        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    values
+        .intern_generic_substitution(substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
 pub(super) fn contextual_self_type(
     binding_context: &CompilationBindingContext<'_>,
     context: SelfTypeContext,

@@ -1,6 +1,7 @@
 use bray_bound_tree::{
     ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, SelectedConversion,
 };
+use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableParameterDefaultProviderSymbolId, TypeId,
 };
@@ -35,6 +36,8 @@ pub enum MirHelperReference {
     PanicReport,
     /// Run checked finalization for a value of the retained type.
     Finalize(TypeId),
+    /// Invoke one static finalizer and preserve its completion value.
+    StaticFinalize(TypeId),
     /// Destroy a value of the retained type.
     Destroy(TypeId),
     /// Run one checked cleanup phase for a value of the retained type.
@@ -71,6 +74,7 @@ impl MirHelperReference {
             | Self::FinishGenerator
             | Self::PanicReport
             | Self::Finalize(_)
+            | Self::StaticFinalize(_)
             | Self::Destroy(_)
             | Self::Cleanup { .. }
             | Self::CreateFrame(_)
@@ -84,7 +88,10 @@ impl MirHelperReference {
     /// Returns the semantic value type retained by a lifecycle helper.
     pub const fn lifecycle_type(&self) -> Option<TypeId> {
         match self {
-            Self::Finalize(ty) | Self::Destroy(ty) | Self::Cleanup { ty, .. } => Some(*ty),
+            Self::Finalize(ty)
+            | Self::StaticFinalize(ty)
+            | Self::Destroy(ty)
+            | Self::Cleanup { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
             | Self::CallableDefault(_)
@@ -100,6 +107,37 @@ impl MirHelperReference {
             | Self::ComposeAwaitedFrame(_)
             | Self::CommitAwaitedCompletion(_)
             | Self::DestroyTerminalTask => None,
+        }
+    }
+
+    /// Returns the runtime role that directly realizes this helper when one is required.
+    pub const fn runtime_role(&self) -> Option<RuntimeAbiRole> {
+        match self {
+            Self::BeginGenerator => Some(RuntimeAbiRole::GeneratorBegin),
+            Self::PushGenerator => Some(RuntimeAbiRole::GeneratorPush),
+            Self::FinishGenerator => Some(RuntimeAbiRole::GeneratorFinish),
+            Self::PanicReport => Some(RuntimeAbiRole::PanicReportConstruction),
+            Self::MoveInactiveFrame(MirFrameReference::Erased) => {
+                Some(RuntimeAbiRole::InactiveFrameMove)
+            }
+            Self::ComposeAwaitedFrame(_) => Some(RuntimeAbiRole::AwaitedFrameComposition),
+            Self::CommitAwaitedCompletion(MirFrameReference::Erased) => {
+                Some(RuntimeAbiRole::FrameCompletionMove)
+            }
+            Self::DestroyTerminalTask => Some(RuntimeAbiRole::TaskDestruction),
+            Self::AnonymousCallable(_)
+            | Self::DeclaredCallable(_)
+            | Self::CallableDefault(_)
+            | Self::ConstructionDefault(_)
+            | Self::TypeForm(_)
+            | Self::Conversion(_)
+            | Self::Finalize(_)
+            | Self::StaticFinalize(_)
+            | Self::Destroy(_)
+            | Self::Cleanup { .. }
+            | Self::CreateFrame(_)
+            | Self::MoveInactiveFrame(MirFrameReference::Known(_))
+            | Self::CommitAwaitedCompletion(MirFrameReference::Known(_)) => None,
         }
     }
 }
@@ -142,7 +180,7 @@ impl MirOperationKind {
                 }
                 MirGeneratorOperation::CleanupBroadcast { element, .. } => {
                     helpers.push(MirHelperReference::Cleanup {
-                        phase: crate::MirCleanupPhase::TaskCancellation,
+                        phase: MirCleanupPhase::TaskCancellation,
                         ty: *element,
                     });
                 }
@@ -157,7 +195,7 @@ impl MirOperationKind {
                     memory.kind()
                 {
                     helpers.push(MirHelperReference::Cleanup {
-                        phase: crate::MirCleanupPhase::LifecycleResolution,
+                        phase: MirCleanupPhase::LifecycleResolution,
                         ty: element,
                     });
                 }

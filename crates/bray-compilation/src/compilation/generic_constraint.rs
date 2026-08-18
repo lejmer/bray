@@ -15,14 +15,14 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     ConstantValueKind, GenericConstraintObligationKey, GenericConstraintSatisfactionQuery,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
-    GenericSubstitutionData, GenericSubstitutionId, ImplementationCandidate,
-    ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SymbolQueryRequest,
-    TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    GenericSubstitutionId, ImplementationCandidate, ImplementationRequirementKey,
+    ImplementationSelection, ProofOutcome, SymbolQueryRequest, TraitApplicationTemplate,
+    TraitSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::Compilation;
 use super::checker::{CompilationCheckerContext, checker_result};
-use super::substitution::generic_parameter_argument;
+use super::substitution::identity_substitution;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -156,23 +156,11 @@ impl Compilation {
             return Ok(true);
         }
 
-        let values = self.semantic_value_store()?;
-        let mut arguments = Vec::with_capacity(template.parameters().len());
-
-        for parameter in template.parameters() {
-            arguments.push(generic_parameter_argument(values, *parameter)?);
-        }
-
-        let substitution = GenericSubstitutionData::try_new(
+        let substitution = identity_substitution(
+            self.semantic_value_store()?,
             template.owner(),
-            template.parameters().iter().copied(),
-            arguments,
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let substitution = values
-            .intern_generic_substitution(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            template.parameters(),
+        )?;
 
         let obligation = GenericConstraintObligationKey::new(template.owner(), substitution);
 

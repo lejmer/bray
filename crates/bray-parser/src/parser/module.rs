@@ -8,9 +8,8 @@ use bray_syntax::{
     NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
     SourceUnitSyntaxBuilder, StaticDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
-    SyntaxToken,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-    UsingDeclarationSyntax,
+    SyntaxToken, TraitDeclarationSyntax, UnionDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -448,7 +447,7 @@ impl Parser {
     }
 
     fn consume_module_directives_for_scan(&mut self) {
-        self.consume_directives_for_scan(&MODULE_DECLARATION_START_KINDS, |directive_name| {
+        self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
             match directive_name {
                 TARGET_DIRECTIVE_NAME | TEST_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME => {
                     DirectiveScanKind::ArgumentList

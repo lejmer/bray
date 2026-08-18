@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -13,6 +13,22 @@ static NEXT_RUNTIME_THREAD_ID: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
     static CURRENT_RUNTIME_THREAD: Cell<Option<RuntimeThreadId>> = const { Cell::new(None) };
+    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Vec<RuntimeThreadExitCallback>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// One infallible native callback owned by an exact Bray thread attachment.
+pub type RuntimeThreadExitCallback = extern "C-unwind" fn();
+
+/// Registers cleanup to run in reverse order before the current attachment ends.
+pub fn register_runtime_thread_exit_callback(callback: RuntimeThreadExitCallback) -> bool {
+    if current_runtime_thread().is_none() {
+        return false;
+    }
+
+    RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().push(callback));
+
+    true
 }
 
 /// Process-local identity of a native thread initialized for Bray execution.
@@ -107,6 +123,8 @@ impl RuntimeThreadScope {
             ));
         }
 
+        RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().clear());
+
         Ok(Self {
             runtime: RuntimeThread::new(id),
             thread_bound: PhantomData,
@@ -125,6 +143,13 @@ impl RuntimeThread {
 
 impl Drop for RuntimeThreadScope {
     fn drop(&mut self) {
+        let mut callbacks = RUNTIME_THREAD_EXIT_CALLBACKS
+            .with(|callbacks| std::mem::take(&mut *callbacks.borrow_mut()));
+
+        while let Some(callback) = callbacks.pop() {
+            let _ = catch_unwind(AssertUnwindSafe(|| callback()));
+        }
+
         CURRENT_RUNTIME_THREAD.set(None);
     }
 }
@@ -238,10 +263,40 @@ fn run_initialized_thread<T>(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::{
         NativeThread, NativeThreadName, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry,
-        RuntimeThreadScope, current_runtime_thread,
+        RuntimeThreadScope, current_runtime_thread, register_runtime_thread_exit_callback,
     };
+
+    thread_local! {
+        static EXIT_ORDER: Cell<u64> = const { Cell::new(0) };
+    }
+
+    extern "C-unwind" fn first_exit() {
+        append_exit(1);
+    }
+
+    extern "C-unwind" fn second_exit() {
+        append_exit(2);
+    }
+
+    extern "C-unwind" fn panicking_exit() {
+        panic!("test attachment cleanup incident");
+    }
+
+    fn append_exit(exit: u64) {
+        EXIT_ORDER.with(|order| {
+            let value = order
+                .get()
+                .checked_mul(10)
+                .and_then(|value| value.checked_add(exit))
+                .unwrap_or_else(|| panic!("test exit order must remain representable"));
+
+            order.set(value);
+        });
+    }
 
     #[test]
     fn native_threads_install_and_remove_runtime_context() {
@@ -321,6 +376,48 @@ mod tests {
         );
 
         drop(attached);
+        assert_eq!(current_runtime_thread(), None);
+    }
+
+    #[test]
+    fn attachment_exit_callbacks_run_in_reverse_order_for_each_scope() {
+        EXIT_ORDER.set(0);
+
+        let scope = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
+
+        assert!(register_runtime_thread_exit_callback(first_exit));
+        assert!(register_runtime_thread_exit_callback(second_exit));
+
+        drop(scope);
+
+        assert_eq!(EXIT_ORDER.get(), 21);
+        assert!(!register_runtime_thread_exit_callback(first_exit));
+
+        let scope = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must reattach: {error:?}"));
+
+        assert!(register_runtime_thread_exit_callback(first_exit));
+
+        drop(scope);
+
+        assert_eq!(EXIT_ORDER.get(), 211);
+    }
+
+    #[test]
+    fn attachment_exit_continues_after_a_cleanup_callback_panics() {
+        EXIT_ORDER.set(0);
+
+        let scope = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
+
+        assert!(register_runtime_thread_exit_callback(first_exit));
+        assert!(register_runtime_thread_exit_callback(panicking_exit));
+        assert!(register_runtime_thread_exit_callback(second_exit));
+
+        drop(scope);
+
+        assert_eq!(EXIT_ORDER.get(), 21);
         assert_eq!(current_runtime_thread(), None);
     }
 }

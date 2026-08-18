@@ -41,9 +41,9 @@ pub use constant::{
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
     evaluate_constant_callable_template, evaluate_constant_definition_template,
-    evaluate_generic_constraint_template, normalize_integer_literal,
-    resolve_callable_signature_template, resolve_trait_application_template,
-    resolve_type_expression_template,
+    evaluate_generic_constraint_template, evaluate_static_initializer_template,
+    normalize_integer_literal, resolve_callable_signature_template,
+    resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,

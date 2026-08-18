@@ -312,6 +312,9 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
 
         match data.kind() {
             ConstantValueKind::Error => self.tag(0),
+            ConstantValueKind::StaticAddress(_) => {
+                return Err(FactQueryError::InfrastructureFailure);
+            }
             ConstantValueKind::Boolean(value) => {
                 self.tag(1);
                 self.boolean(*value);

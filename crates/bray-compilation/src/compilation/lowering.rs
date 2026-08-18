@@ -1,15 +1,24 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey};
+use bray_binder::BindingQueryContext;
+use bray_bound_tree::{
+    BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
+    CheckedExpressionTypes,
+};
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::MirTargetContract;
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringInput, executable_unit_kind, lower_unit,
 };
-use bray_symbols::ConstantValueId;
+use bray_symbols::{
+    AnySymbolId, ConstantValueId, GenericOwnerId, StaticInstanceTemplateId,
+    StaticReferenceSelection, TypeId,
+};
 
 use super::Compilation;
+use super::binder::generic_parameter_ids;
+use super::substitution::identity_substitution;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
 };
@@ -153,6 +162,13 @@ impl Compilation {
 
         let unit_kind = executable_unit_kind(unit.result().value(), &target);
 
+        let static_owner = self.static_lowering_owner(
+            key,
+            unit.result().value(),
+            expression_types.result().value(),
+            cancellation,
+        )?;
+
         let input = LoweringInput::try_new(
             unit.result().value(),
             control_flow.result().value(),
@@ -174,6 +190,11 @@ impl Compilation {
         )
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let input = match static_owner {
+            Some((reference, ty)) => input.with_static_owner(reference, ty),
+            None => input,
+        };
 
         let span = self
             .state
@@ -254,6 +275,59 @@ impl Compilation {
         values.sort_unstable_by_key(|(expression, _)| *expression);
 
         Ok((values, diagnostics))
+    }
+
+    fn static_lowering_owner(
+        &self,
+        key: &BoundUnitKey,
+        unit: &BoundUnit,
+        expression_types: &CheckedExpressionTypes,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(StaticReferenceSelection, TypeId)>, FactQueryError> {
+        if key.kind() != BoundUnitKind::ConstantTemplate {
+            return Ok(None);
+        }
+
+        let binding_context = self.binding_context_for(key, cancellation)?;
+
+        let Some(AnySymbolId::Static(declaration)) = binding_context
+            .symbols()
+            .symbol_for_key(key.declared_owner())
+        else {
+            return Ok(None);
+        };
+
+        if self.static_initializer_key(declaration)?.as_ref() != Some(key) {
+            return Ok(None);
+        }
+
+        let parameters = generic_parameter_ids(binding_context.symbols(), declaration.into())
+            .map_err(super::binder::binding_query_error)?;
+
+        let owner = GenericOwnerId::try_new(declaration.into())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let substitution =
+            identity_substitution(binding_context.semantic_values(), owner, &parameters)?;
+
+        let BoundUnitRoot::Expression(initializer) = unit.root() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let ty = expression_types
+            .expression(initializer)
+            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ty();
+
+        Ok(Some((
+            StaticReferenceSelection::open(
+                StaticInstanceTemplateId::new(declaration),
+                substitution,
+                [],
+                self.requested_target().profile().identity().clone(),
+            ),
+            ty,
+        )))
     }
 }
 
@@ -697,20 +771,23 @@ mod tests {
                 if aggregate.kind() == MirAggregateKind::Range
         )));
 
-        assert!(mir
-            .operations()
-            .iter()
-            .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_))));
+        assert!(
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+        );
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
             MirTerminatorKind::RangeIterate { .. }
         )));
 
-        assert!(!mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Iterate { .. }
-        )));
+        assert!(
+            !mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Iterate { .. }
+            ))
+        );
     }
 
     #[test]
@@ -1258,10 +1335,10 @@ mod tests {
         assert_eq!(
             aggregate_kinds.collect::<Vec<_>>(),
             [
-                bray_ir::MirAggregateKind::Tuple,
-                bray_ir::MirAggregateKind::Array,
-                bray_ir::MirAggregateKind::RepeatedArray,
-                bray_ir::MirAggregateKind::Tuple,
+                MirAggregateKind::Tuple,
+                MirAggregateKind::Array,
+                MirAggregateKind::RepeatedArray,
+                MirAggregateKind::Tuple,
             ]
         );
 
@@ -1975,7 +2052,7 @@ func both_bounds(pos values: Values) -> i32
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
             MirOperationKind::Borrow {
-                kind: bray_symbols::BorrowKind::Shared,
+                kind: BorrowKind::Shared,
                 ..
             }
         )));
@@ -2181,7 +2258,7 @@ func both_bounds(pos values: Values) -> i32
                 matches!(
                     operation.kind(),
                     MirOperationKind::Borrow {
-                        kind: bray_symbols::BorrowKind::Mutable,
+                        kind: BorrowKind::Mutable,
                         ..
                     }
                 )

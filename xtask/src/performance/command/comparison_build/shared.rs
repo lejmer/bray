@@ -7,9 +7,8 @@ use crate::performance::compilation::{
     authority, external_invocation, source_bytes, source_digest,
 };
 use crate::performance::model::{
-    CompilationBuildReport, CompilationEvidenceReport, CompilationKind,
-    CompilationReuseEvidence, LibraryReuse, LinkerInvocationReport, PeerBatching,
-    PeerCompilerConfiguration,
+    CompilationBuildReport, CompilationEvidenceReport, CompilationKind, CompilationReuseEvidence,
+    LibraryReuse, LinkerInvocationReport, PeerBatching, PeerCompilerConfiguration,
 };
 
 pub(super) struct PeerReportInput<'a> {
@@ -36,14 +35,16 @@ pub(super) fn peer_report(input: PeerReportInput<'_>) -> Result<CompilationBuild
                 driver: input.compiler.to_owned(),
                 arguments: arguments.clone(),
             },
-            input.evidence.map(|configuration| CompilationEvidenceReport {
-                compiler: external_invocation(
-                    input.compiler,
-                    configuration.arguments,
-                    configuration.environment,
-                ),
-                linker_map: input.linker_map,
-            }),
+            input
+                .evidence
+                .map(|configuration| CompilationEvidenceReport {
+                    compiler: external_invocation(
+                        input.compiler,
+                        configuration.arguments,
+                        configuration.environment,
+                    ),
+                    linker_map: input.linker_map,
+                }),
         ),
         CompilationKind::Library => (
             LibraryReuse::Source,
@@ -63,11 +64,7 @@ pub(super) fn peer_report(input: PeerReportInput<'_>) -> Result<CompilationBuild
             input.modules,
             library_reuse,
         ),
-        compiler: external_invocation(
-            input.compiler,
-            arguments,
-            input.configuration.environment,
-        ),
+        compiler: external_invocation(input.compiler, arguments, input.configuration.environment),
         linker,
         evidence,
         reuse: input.reuse,
@@ -98,7 +95,10 @@ pub(super) fn require_object(path: &Path) -> Result<(), String> {
     if metadata.is_file() && metadata.len() > 0 {
         Ok(())
     } else {
-        Err(format!("matched library object is empty: {}", path.display()))
+        Err(format!(
+            "matched library object is empty: {}",
+            path.display()
+        ))
     }
 }
 
@@ -118,7 +118,10 @@ pub(super) fn require_object_in_directory(
         .map_err(|error| format!("could not inspect {}: {error}", directory.display()))?
         .into_iter()
         .any(|entry| {
-            entry.path().extension().is_some_and(|extension| extension == suffix)
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == suffix)
                 && entry.metadata().is_ok_and(|metadata| metadata.len() > 0)
         });
 

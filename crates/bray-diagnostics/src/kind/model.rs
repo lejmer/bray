@@ -1137,9 +1137,7 @@ impl DiagnosticKind {
             Self::CheckingStaticSpecializationDivergence => {
                 "checking_static_specialization_divergence"
             }
-            Self::CheckingStaticConstraintUnsatisfied => {
-                "checking_static_constraint_unsatisfied"
-            }
+            Self::CheckingStaticConstraintUnsatisfied => "checking_static_constraint_unsatisfied",
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"
             }

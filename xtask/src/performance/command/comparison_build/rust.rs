@@ -9,8 +9,7 @@ use crate::performance::model::{ArtifactKind, CompilationBuildReport, Compilatio
 
 use super::shared::PeerReportInput;
 
-const APPLICATION_SOURCE: &str =
-    include_str!("../../../../fixtures/performance-application.rs");
+const APPLICATION_SOURCE: &str = include_str!("../../../../fixtures/performance-application.rs");
 const LIBRARY_SOURCE: &str = include_str!("../../../../fixtures/performance-library.rs");
 
 pub(super) fn build(
@@ -61,14 +60,8 @@ pub(super) fn build(
                 .and_then(|()| std::fs::create_dir_all(&evidence_output))
                 .map_err(|error| format!("could not create matched Rust output: {error}"))?;
 
-            let timed_configuration = build_configuration(
-                root,
-                kind,
-                &source,
-                &executable,
-                None,
-                target,
-            )?;
+            let timed_configuration =
+                build_configuration(root, kind, &source, &executable, None, target)?;
 
             let evidence = build_configuration(
                 root,

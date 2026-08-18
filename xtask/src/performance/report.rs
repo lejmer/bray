@@ -519,11 +519,7 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
 
         let configuration = &peer.build_configuration;
 
-        super::presentation::compiler_configuration(
-            html,
-            "Production",
-            &configuration.production,
-        );
+        super::presentation::compiler_configuration(html, "Production", &configuration.production);
 
         super::presentation::compiler_configuration(html, "Timed", &configuration.timed);
 

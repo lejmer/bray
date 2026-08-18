@@ -824,17 +824,18 @@ const CHECKING_THREAD_LOCAL_STATIC_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CHECKING_STATIC_DEPENDENCY_OUTLIVES_OWNER: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("product-static storage requires a product-rooted dependency, found "),
+    MessageTemplatePart::Text(
+        "product-static storage requires a product-rooted dependency, found ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
 ];
 const CHECKING_STATIC_LIFECYCLE_CYCLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "static initialization and cleanup dependencies must form an ordered graph",
 )];
-const CHECKING_STATIC_SPECIALIZATION_DIVERGENCE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_STATIC_SPECIALIZATION_DIVERGENCE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "generic static recursion must converge on an already selected specialization",
-    ),
-];
+    )];
 const CHECKING_STATIC_CONSTRAINT_UNSATISFIED: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "static generic arguments must satisfy every declared constraint",
@@ -1794,6 +1795,12 @@ const NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION: &[MessageTemplatePart] =
         "correct the errors reported by the native linker, then build again",
     )];
 
+const NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "fix any earlier errors and build again. If no earlier error appears, report this compiler issue with the command and complete diagnostic output",
+    ),
+];
+
 const NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "provide a type annotation or use the expression where an expected type is known",
 )];
@@ -1905,6 +1912,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UniqueTestIdentityRequired
         | DiagnosticNoteKind::PublicDependencyRequired
         | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
+        | DiagnosticNoteKind::NativeProductPreparationRecovery
         | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => RenderedDiagnosticNoteKind::Help,
     }
 }
@@ -2784,6 +2792,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::LinkPlanContext => MessageTemplate::new(NOTE_LINK_PLAN_CONTEXT),
         DiagnosticNoteKind::ExternalToolExitRequiresCorrection => {
             MessageTemplate::new(NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION)
+        }
+        DiagnosticNoteKind::NativeProductPreparationRecovery => {
+            MessageTemplate::new(NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY)
         }
         DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
             MessageTemplate::new(NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE)

@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_bound_tree::{
-    BoundUnitKey, BoundUnitKind, CheckedTemplateKind, CheckedTemplateOperation,
-    SemanticSelection,
+    BoundUnitKey, BoundUnitKind, CheckedTemplateKind, CheckedTemplateOperation, SemanticSelection,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDependencySubjectKind, DiagnosticId,
@@ -76,9 +77,9 @@ fn bind_static_instance_template(
     let directives = if imported {
         None
     } else {
-        Some(context.resolve_symbol_query(SymbolQueryRequest::<
-            DeclarationDirectivesQuery,
-        >::new(declaration.into()))?)
+        Some(context.resolve_symbol_query(
+            SymbolQueryRequest::<DeclarationDirectivesQuery>::new(declaration.into()),
+        )?)
     };
 
     let thread_local = directives.as_ref().and_then(|directives| {
@@ -96,8 +97,11 @@ fn bind_static_instance_template(
     };
 
     let mut diagnostics = DiagnosticBag::merged_all(
-        std::iter::once(declared_type.diagnostics())
-            .chain(directives.as_ref().map(|directives| directives.diagnostics())),
+        std::iter::once(declared_type.diagnostics()).chain(
+            directives
+                .as_ref()
+                .map(|directives| directives.diagnostics()),
+        ),
     );
 
     if let Some(directive) = thread_local
@@ -137,8 +141,7 @@ fn bind_static_instance_template(
         lifecycle_obligations,
         witness_requirements,
         mut lifecycle_dependencies,
-    ) =
-        static_initializer_behavior(context, declaration, source_duration, &mut diagnostics)?;
+    ) = static_initializer_behavior(context, declaration, source_duration, &mut diagnostics)?;
 
     lifecycle_dependencies.extend(static_type_lifecycle_dependencies(
         context,
@@ -206,21 +209,14 @@ fn static_initializer_behavior(
             .expression_semantics_with_cancellation(key.clone(), context.cancellation())
             .map_err(super::binding::binder_error)?;
 
-        if semantics
-            .result()
-            .value()
-            .1
-            .entries()
-            .iter()
-            .any(|entry| {
-                matches!(
-                    entry.selection(),
-                    SemanticSelection::StaticReference(reference)
-                        if reference.template().declaration() == declaration
-                            && reference.closed_instance().is_none()
-                )
-            })
-        {
+        if semantics.result().value().1.entries().iter().any(|entry| {
+            matches!(
+                entry.selection(),
+                SemanticSelection::StaticReference(reference)
+                    if reference.template().declaration() == declaration
+                        && reference.closed_instance().is_none()
+            )
+        }) {
             diagnostics.add(static_source_diagnostic(
                 &key,
                 DiagnosticKind::CheckingStaticSpecializationDivergence,
@@ -259,11 +255,8 @@ fn static_initializer_behavior(
         CheckedTemplateKind::ThreadLocalStaticInitializer,
     )?;
 
-    *diagnostics = DiagnosticBag::merged_all([
-        diagnostics,
-        product.diagnostics(),
-        thread.diagnostics(),
-    ]);
+    *diagnostics =
+        DiagnosticBag::merged_all([diagnostics, product.diagnostics(), thread.diagnostics()]);
 
     let (duration, template) = match (product.value().as_ref(), thread.value().as_ref()) {
         (Some(template), None) => (StaticStorageDuration::Product, template.template()),
@@ -534,9 +527,8 @@ fn static_type_lifecycle_dependencies(
         let callable = CallableSymbolId::try_from_any(lifecycle.id())
             .ok_or(BindingQueryError::DependencyUnavailable)?;
 
-        let contracts = context.resolve_symbol_query(SymbolQueryRequest::<
-            CallableContractsQuery,
-        >::new(callable))?;
+        let contracts = context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))?;
 
         *diagnostics = diagnostics.merged(contracts.diagnostics());
 
@@ -692,8 +684,12 @@ fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnos
     let syntax = key.source().syntax();
     let span = SourceSpan::new(syntax.source_id(), syntax.full_range());
 
-    Diagnostic::new(DiagnosticId::new(span.start().bytes()), kind, SeverityKind::Error)
-        .with_primary_span(span)
+    Diagnostic::new(
+        DiagnosticId::new(span.start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
 }
 
 fn validate_static_initializer_template(
@@ -719,11 +715,9 @@ fn validate_static_initializer_template(
         .checker_context_for(key, context.cancellation())
         .map_err(super::binding::binder_error)?;
 
-    let semantic_context = semantic_unit_context_for(
-        checker_context.symbols(),
-        bound.result().value(),
-    )
-    .map_err(super::binding::binder_error)?;
+    let semantic_context =
+        semantic_unit_context_for(checker_context.symbols(), bound.result().value())
+            .map_err(super::binding::binder_error)?;
 
     let references = context
         .compilation()
@@ -735,25 +729,17 @@ fn validate_static_initializer_template(
         context.cancellation(),
     );
 
-    let input = ConstantEvaluationInput::new(
-        &semantics.result().value().0,
-        &semantics.result().value().1,
-    )
-    .with_references(references)
-    .with_call_resolver(&resolver)
-    .with_static_address_borrows();
+    let input =
+        ConstantEvaluationInput::new(&semantics.result().value().0, &semantics.result().value().1)
+            .with_references(references)
+            .with_call_resolver(&resolver)
+            .with_static_address_borrows();
 
-    let unit = CheckerUnitView::new(
-        bound.result().value(),
-        &semantic_context,
-        &checker_context,
-    )
-    .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &checker_context)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-    let checked = checker_result(
-        DefaultConstantChecker.check_constant_term(unit, &input),
-    )
-    .map_err(super::binding::binder_error)?;
+    let checked = checker_result(DefaultConstantChecker.check_constant_term(unit, &input))
+        .map_err(super::binding::binder_error)?;
 
     Ok(checked.diagnostics().clone())
 }
@@ -831,8 +817,7 @@ mod tests {
 
     #[test]
     fn generic_static_keeps_its_open_constant_initializer() {
-        let compilation =
-            compilation("module app; static Value<const N: i32>: i32 = N;");
+        let compilation = compilation("module app; static Value<const N: i32>: i32 = N;");
 
         let symbols = symbol_graph(&compilation);
 

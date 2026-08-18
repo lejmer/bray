@@ -97,6 +97,7 @@ pub(super) fn validate_constant_value_data(
         | ConstantValueKind::Real(_)
         | ConstantValueKind::Complex { .. }
         | ConstantValueKind::String(_)
+        | ConstantValueKind::StaticAddress(_)
         | ConstantValueKind::Unit
         | ConstantValueKind::NullableAbsent => {}
     }

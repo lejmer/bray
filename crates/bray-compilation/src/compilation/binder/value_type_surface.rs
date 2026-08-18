@@ -11,9 +11,8 @@ use bray_symbols::{
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
     ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
     PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StructFieldTypeQuery,
-    SymbolQueryRequest,
-    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
-    TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
+    SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+    TraitConstantMemberDeclaredTypeQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
 use bray_syntax::LambdaExpressionSyntax;
 use bray_target::TargetPropertyKind;

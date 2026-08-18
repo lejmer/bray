@@ -210,6 +210,7 @@ where
             | ConstantValueKind::Real(_)
             | ConstantValueKind::Complex { .. }
             | ConstantValueKind::String(_)
+            | ConstantValueKind::StaticAddress(_)
             | ConstantValueKind::Unit
             | ConstantValueKind::NullableAbsent => {}
         }

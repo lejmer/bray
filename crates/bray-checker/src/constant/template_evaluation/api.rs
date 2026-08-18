@@ -49,6 +49,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        static_initializer: false,
     };
 
     let evaluated = evaluator.evaluate_result(
@@ -148,6 +149,42 @@ where
     )
 }
 
+/// Evaluates one source-independent static initializer.
+pub fn evaluate_static_initializer_template<C>(
+    context: &C,
+    template: &CheckedTemplate,
+    kind: CheckedTemplateKind,
+    substitution: ConcreteGenericSubstitutionId,
+    result_type: TypeId,
+    resolver: &dyn ConstantTemplateResolver,
+    diagnostic_span: Option<SourceSpan>,
+    limits: crate::ConstantEvaluationLimits,
+) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if !matches!(
+        kind,
+        CheckedTemplateKind::ProductStaticInitializer
+            | CheckedTemplateKind::ThreadLocalStaticInitializer
+    ) {
+        return CheckerOutcome::InfrastructureFailure(
+            crate::CheckerInfrastructureError::InvalidConstantEvaluationInput,
+        );
+    }
+
+    evaluate_closed_template(
+        context,
+        template,
+        kind,
+        substitution,
+        result_type,
+        resolver,
+        diagnostic_span,
+        limits,
+    )
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "template evaluation requires each validated semantic input independently"
@@ -176,6 +213,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        static_initializer: false,
     };
 
     let evaluated = evaluator.evaluate_result(kind, result_type);
@@ -545,6 +583,16 @@ mod tests {
         ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
         {
             unreachable!("closed test template must not resolve constants")
+        }
+
+        fn resolve_static(
+            &self,
+            _declaration: bray_symbols::StaticSymbolId,
+            _substitution: bray_symbols::GenericSubstitutionId,
+        ) -> CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<bray_symbols::StaticReferenceSelection>,
+        > {
+            unreachable!("closed test template must not resolve statics")
         }
     }
 }

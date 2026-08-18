@@ -9,6 +9,9 @@ use super::buffer::{
     standard_library_compilation,
 };
 use super::hello::audit_standard_hello_world;
+use super::memory_rejection::audit_memory_rejection;
+use super::repeatable::audit_repeatable_fixture;
+use super::static_storage::audit_static_storage;
 
 const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
 const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
@@ -25,8 +28,6 @@ const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layo
 const STANDARD_MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/standard-memory.bray";
 const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
 const TEXT_CURSOR_FIXTURE: &str = "xtask/fixtures/native-execution/standard-text-cursor.bray";
-const INVALID_MEMORY_FIXTURE: &str =
-    "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
 pub(super) const PRODUCT_NAME: &str = "application";
 
 pub(super) struct BuiltFixture {
@@ -36,7 +37,7 @@ pub(super) struct BuiltFixture {
 }
 
 impl BuiltFixture {
-    fn build_command_line(
+    pub(super) fn build_command_line(
         prefix: &str,
         target: NativeTarget,
         build: impl FnOnce(&Path) -> Result<(), String>,
@@ -127,6 +128,10 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         crate::runtime_artifact::build_for_readiness(target, runtime.path())
     })?;
 
+    crate::progress::run("Checking native static storage", || {
+        audit_static_storage(root, target, &runtime)
+    })?;
+
     crate::progress::run("Checking standard-library hello world execution", || {
         audit_standard_hello_world(root, target, &runtime)
     })?;
@@ -180,39 +185,6 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     crate::progress::run("Checking runtime artifact integration", || {
         crate::runtime_artifact::smoke_test_host()
     })
-}
-
-fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), String> {
-    let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
-
-    let fixture = root.join(INVALID_MEMORY_FIXTURE);
-    let mut command = Command::new(compiler);
-
-    command.current_dir(root).args([
-        "check",
-        "--product-kind",
-        "executable",
-        "--target",
-        target.as_str(),
-    ]);
-
-    let output = command
-        .arg(&fixture)
-        .output()
-        .map_err(|error| format!("could not check invalid memory fixture: {error}"))?;
-
-    if output.status.success() {
-        return Err("invalid memory obligations unexpectedly passed checking".to_owned());
-    }
-
-    if output_contains(&output, "E7087") {
-        Ok(())
-    } else {
-        Err(crate::command::failure(
-            "checking invalid memory obligations",
-            &output,
-        ))
-    }
 }
 
 fn audit_memory_operations(
@@ -435,41 +407,6 @@ fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     )
 }
 
-fn audit_repeatable_fixture(
-    root: &Path,
-    target: NativeTarget,
-    runtime: &Path,
-    prefix: &str,
-    fixture: &str,
-    expected: i32,
-    name: &str,
-    required_object_evidence: &[&str],
-) -> Result<(), String> {
-    let first = BuiltFixture::build_command_line(&format!("{prefix}first-"), target, |output| {
-        build_fixture(root, target, runtime, fixture, output)
-    })?;
-
-    let second = BuiltFixture::build_command_line(&format!("{prefix}second-"), target, |output| {
-        build_fixture(root, target, runtime, fixture, output)
-    })?;
-
-    require_equal_files(
-        first.executable(),
-        second.executable(),
-        &format!("{name} executable"),
-    )?;
-
-    require_equal_artifacts(first.objects(), second.objects())?;
-
-    if !required_object_evidence.is_empty() {
-        let report = inspect_objects(root, first.objects())?;
-
-        require_evidence(&report, required_object_evidence)?;
-    }
-
-    execute_product(first.executable(), expected, &format!("executing {name}"))
-}
-
 fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     for (name, fixture, expected, stderr) in [
         ("async unit", ASYNC_UNIT_FIXTURE, 0, None),
@@ -534,7 +471,7 @@ fn build_fixture(
     build_fixtures(root, target, runtime, output, None, &[fixture])
 }
 
-fn build_fixtures(
+pub(super) fn build_fixtures(
     root: &Path,
     target: NativeTarget,
     runtime: &Path,
@@ -610,7 +547,7 @@ fn link_host(
     crate::command::require_success(command, "linking the native ABI host").map(|_| ())
 }
 
-fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), String> {
+pub(super) fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), String> {
     let left =
         std::fs::read(left).map_err(|error| format!("could not read first {artifact}: {error}"))?;
 
@@ -624,7 +561,7 @@ fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), 
     Ok(())
 }
 
-fn object_files(directory: &Path, target: NativeTarget) -> Result<Vec<PathBuf>, String> {
+pub(super) fn object_files(directory: &Path, target: NativeTarget) -> Result<Vec<PathBuf>, String> {
     let suffix =
         TargetOutputName::for_native(target.object_format(), TargetOutputKind::RelocatableObject)
             .suffix()
@@ -656,7 +593,7 @@ fn object_files(directory: &Path, target: NativeTarget) -> Result<Vec<PathBuf>, 
     Ok(objects)
 }
 
-fn require_equal_artifacts(left: &[PathBuf], right: &[PathBuf]) -> Result<(), String> {
+pub(super) fn require_equal_artifacts(left: &[PathBuf], right: &[PathBuf]) -> Result<(), String> {
     if left.len() != right.len() {
         return Err("repeated native builds produced different object counts".to_owned());
     }
@@ -672,7 +609,7 @@ fn require_equal_artifacts(left: &[PathBuf], right: &[PathBuf]) -> Result<(), St
     Ok(())
 }
 
-fn inspect_objects(root: &Path, objects: &[PathBuf]) -> Result<String, String> {
+pub(super) fn inspect_objects(root: &Path, objects: &[PathBuf]) -> Result<String, String> {
     let tool = llvm_tool(
         root,
         bray_diagnostics::DiagnosticLlvmToolRole::ObjectInspector,
@@ -695,7 +632,7 @@ fn inspect_objects(root: &Path, objects: &[PathBuf]) -> Result<String, String> {
     Ok(report)
 }
 
-fn require_evidence(report: &str, required: &[&str]) -> Result<(), String> {
+pub(super) fn require_evidence(report: &str, required: &[&str]) -> Result<(), String> {
     for required in required {
         if !report.contains(required) {
             return Err(format!(
@@ -707,7 +644,7 @@ fn require_evidence(report: &str, required: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_evidence(report: &str, forbidden: &[&str]) -> Result<(), String> {
+pub(super) fn reject_evidence(report: &str, forbidden: &[&str]) -> Result<(), String> {
     for forbidden in forbidden {
         if report.contains(forbidden) {
             return Err(format!(
@@ -781,12 +718,12 @@ pub(super) fn executable_path(directory: &Path, package: &str) -> Result<PathBuf
     .map_err(|error| format!("could not resolve native fixture executable: {error:?}"))
 }
 
-fn output_contains(output: &Output, required: &str) -> bool {
+pub(super) fn output_contains(output: &Output, required: &str) -> bool {
     String::from_utf8_lossy(&output.stdout).contains(required)
         || String::from_utf8_lossy(&output.stderr).contains(required)
 }
 
-fn llvm_tool(root: &Path, tool: bray_diagnostics::DiagnosticLlvmToolRole) -> PathBuf {
+pub(super) fn llvm_tool(root: &Path, tool: bray_diagnostics::DiagnosticLlvmToolRole) -> PathBuf {
     bray_tooling::llvm_tool_path(tool)
         .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, tool.executable_name()))
 }

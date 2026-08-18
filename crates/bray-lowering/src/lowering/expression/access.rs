@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirBlockId, MirFieldReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
-    MirProjectionKind, MirStoreKind,
+    MirProjectionKind,
 };
 use bray_symbols::{BorrowKind, ConstantValueKind, ReceiverMode, TypeData, TypeId};
 
@@ -140,9 +140,9 @@ impl Lowerer<'_> {
                             })
                     });
 
-                let already_dereferenced = projections.first().is_some_and(|projection| {
-                    projection.kind() == &MirProjectionKind::Dereference
-                });
+                let already_dereferenced = projections
+                    .first()
+                    .is_some_and(|projection| projection.kind() == &MirProjectionKind::Dereference);
 
                 if let Some((parameter_type, reached_type)) = parameter_borrow
                     && !already_dereferenced
@@ -337,7 +337,7 @@ impl Lowerer<'_> {
             .to_vec();
 
         let (mut current, storage) =
-            match self.initialize_access_root(identity, expression, current)? {
+            match self.initialize_access_root(id, identity, expression, current)? {
                 RootInitialization::Continuing { block, storage } => (block, storage),
                 RootInitialization::Terminated(completion) => {
                     return Ok(LoweredPlace::Terminated(completion));
@@ -432,22 +432,43 @@ impl Lowerer<'_> {
 
     fn initialize_access_root(
         &mut self,
+        access: StorageAccessId,
         identity: StorageIdentityId,
         expression: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<RootInitialization, LoweringError> {
-        if let Some(storage) = self.storages.get(&identity).copied() {
-            return Ok(RootInitialization::Continuing {
-                block: current,
-                storage,
-            });
-        }
-
         let model = self
             .input
             .storage_plan()
             .identity(identity)
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+
+        let static_reference = if let StorageIdentity::Static(declaration) = model {
+            let selection = super::static_access::static_reference(
+                &self.input,
+                access,
+                expression,
+                declaration,
+            )?;
+
+            self.static_accesses.insert(access, selection.clone());
+
+            Some(selection)
+        } else {
+            None
+        };
+
+        let existing = static_reference.as_ref().map_or_else(
+            || self.storages.get(&identity).copied(),
+            |reference| self.static_storages.get(reference).copied(),
+        );
+
+        if let Some(storage) = existing {
+            return Ok(RootInitialization::Continuing {
+                block: current,
+                storage,
+            });
+        }
 
         let (owner, custom_index) = match model {
             StorageIdentity::CustomIndexBorrow(owner) => (Some(owner), true),
@@ -481,52 +502,7 @@ impl Lowerer<'_> {
             initial_value = Some((owner, value));
         }
 
-        self.initialize_access_storage(identity, current, initial_value)
-    }
-
-    fn initialize_access_storage(
-        &mut self,
-        identity: StorageIdentityId,
-        current: MirBlockId,
-        initial_value: Option<(BoundExpressionId, MirOperand)>,
-    ) -> Result<RootInitialization, LoweringError> {
-        let root_type = self.storage_identity_type(identity)?;
-
-        let origin = initial_value.as_ref().map_or_else(
-            || bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source()),
-            |(owner, _)| {
-                self.input
-                    .unit()
-                    .view()
-                    .expression(*owner)
-                    .map(|expression| expression.origin())
-                    .unwrap_or_else(|| {
-                        bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source())
-                    })
-            },
-        );
-
-        let place = self.place_for_identity(identity, root_type, origin)?;
-
-        if let Some((owner, value)) = initial_value
-            && !value.reads_from(&place)
-        {
-            self.builder.push_operation(
-                current,
-                self.expression_source(owner)?,
-                MirOperationKind::Store {
-                    kind: MirStoreKind::Initialize,
-                    destination: place.clone(),
-                    value,
-                },
-                None,
-            )?;
-        }
-
-        Ok(RootInitialization::Continuing {
-            block: current,
-            storage: place.storage(),
-        })
+        self.initialize_access_storage(identity, current, initial_value, static_reference.as_ref())
     }
 
     pub(in crate::lowering) fn place_for_access(
@@ -560,11 +536,13 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingStorageAccessRecord(id))?;
 
         let root_type = self.storage_identity_type(identity)?;
+        let static_reference = self.static_accesses.get(&id).cloned();
 
-        let root = self.place_for_identity(
+        let root = self.place_for_identity_with_static(
             identity,
             root_type,
             bray_bound_tree::BoundNodeOrigin::source(source),
+            static_reference.as_ref(),
         )?;
 
         let mut lowered =
@@ -781,7 +759,7 @@ fn static_projection_kind(projection: StorageProjection) -> Option<MirProjection
     }
 }
 
-enum RootInitialization {
+pub(super) enum RootInitialization {
     Continuing {
         block: MirBlockId,
         storage: bray_ir::MirStorageId,

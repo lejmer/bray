@@ -548,7 +548,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ),
             )?;
 
-            for (id, _) in self.unit.storages_with_ids() {
+            for (id, storage) in self.unit.storages_with_ids() {
+                if matches!(storage.kind(), MirStorageKind::Static(_)) {
+                    continue;
+                }
+
                 let storage = llvm(self.builder.build_struct_gep(
                     frame_context,
                     pointer,
@@ -567,6 +571,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.builder.position_at_end(entry);
 
         for (id, storage) in self.unit.storages_with_ids() {
+            if matches!(storage.kind(), MirStorageKind::Static(_)) {
+                continue;
+            }
+
             let ty = self.types.map(storage.ty())?;
 
             let pointer = llvm(
@@ -578,6 +586,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(())
+    }
+
+    pub(super) fn static_storage_pointer(
+        &mut self,
+        storage: MirStorageId,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        let mapping = self
+            .request
+            .mappings()
+            .static_storage(self.instance.key(), storage)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let accessor = self
+            .module
+            .get_function(&mapping.accessor_name())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let pointer = llvm(self.builder.build_call(accessor, &[], "static.access"))?
+            .try_as_basic_value()
+            .basic()
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        Ok(pointer)
     }
 
     pub(super) fn bind_parameters(&mut self) -> Result<(), CodegenFailure> {
@@ -616,7 +648,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     if let Some(storage) = storage {
-                        llvm(self.builder.build_store(self.storage(storage)?, value))?;
+                        let destination = self.storage(storage)?;
+
+                        llvm(self.builder.build_store(destination, value))?;
                     }
 
                     llvm_index += 1;
@@ -638,7 +672,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     ))?;
 
                     if let Some(storage) = storage {
-                        llvm(self.builder.build_store(self.storage(storage)?, value))?;
+                        let destination = self.storage(storage)?;
+
+                        llvm(self.builder.build_store(destination, value))?;
                     }
 
                     llvm_index += 1;

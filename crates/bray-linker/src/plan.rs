@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
-use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, RuntimeArtifactId};
 use bray_symbols::ProductIdentity;
 
 use crate::{
@@ -73,6 +73,7 @@ pub struct LinkPlanBuilder {
     outputs: Vec<PlannedLinkedArtifact>,
     entry_point: Option<BinarySymbolName>,
     executable_host: Option<ExecutableHostContract>,
+    runtime_artifact: Option<RuntimeArtifactId>,
     exported_symbols: Vec<BinarySymbolName>,
     retained_symbols: Vec<BinarySymbolName>,
     search_paths: Vec<LinkSearchPath>,
@@ -99,6 +100,7 @@ impl LinkPlanBuilder {
             outputs: Vec::new(),
             entry_point: None,
             executable_host: None,
+            runtime_artifact: None,
             exported_symbols: Vec::new(),
             retained_symbols: Vec::new(),
             search_paths: Vec::new(),
@@ -123,7 +125,13 @@ impl LinkPlanBuilder {
 
     /// Selects the compiler-generated executable host and its native process entry point.
     pub fn set_executable_host(&mut self, host: ExecutableHostContract) {
+        self.runtime_artifact = host.runtime_artifact().cloned();
         self.executable_host = Some(host);
+    }
+
+    /// Selects the runtime artifact that owns runtime-component inputs.
+    pub fn set_runtime_artifact(&mut self, runtime: RuntimeArtifactId) {
+        self.runtime_artifact = Some(runtime);
     }
 
     /// Adds the binary symbol name of one native export.
@@ -164,6 +172,7 @@ pub struct LinkPlan {
     outputs: Arc<[PlannedLinkedArtifact]>,
     entry_point: Option<BinarySymbolName>,
     executable_host: Option<ExecutableHostContract>,
+    runtime_artifact: Option<RuntimeArtifactId>,
     exported_symbols: Arc<[BinarySymbolName]>,
     retained_symbols: Arc<[BinarySymbolName]>,
     search_paths: Arc<[LinkSearchPath]>,
@@ -175,7 +184,7 @@ impl LinkPlan {
         validate_inputs(builder.product_kind, &builder.inputs)?;
 
         crate::execution::validate_execution_inputs(
-            builder.executable_host.as_ref(),
+            builder.runtime_artifact.as_ref(),
             &builder.inputs,
         )?;
 
@@ -209,6 +218,7 @@ impl LinkPlan {
             outputs: builder.outputs.into(),
             entry_point: builder.entry_point,
             executable_host: builder.executable_host,
+            runtime_artifact: builder.runtime_artifact,
             exported_symbols: sorted_unique_shared_slice(builder.exported_symbols),
             retained_symbols: sorted_unique_shared_slice(builder.retained_symbols),
             search_paths: builder.search_paths.into(),
@@ -281,6 +291,11 @@ impl LinkPlan {
     /// Returns the compiler-generated executable-host contract, when applicable.
     pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
         self.executable_host.as_ref()
+    }
+
+    /// Returns the selected runtime artifact when runtime components are linked.
+    pub const fn runtime_artifact(&self) -> Option<&RuntimeArtifactId> {
+        self.runtime_artifact.as_ref()
     }
 
     /// Returns exported binary symbol names in canonical deterministic order.

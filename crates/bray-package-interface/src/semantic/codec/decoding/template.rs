@@ -3,8 +3,8 @@ use bray_symbols::{InterfaceSupportEntityId, SymbolOrdinal};
 
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32,
-    read_symbol_reference, read_symbol_references, read_u32,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -249,9 +249,8 @@ fn decode_operation(
         }),
         3 => Ok(InterfaceCheckedTemplateOperation::Declaration {
             declaration: decode_template_reference(reader, context)?,
-            substitution: read_optional_u32(reader)?.map(
-                crate::semantic::model::InterfaceGenericSubstitutionId::new,
-            ),
+            substitution: read_optional_u32(reader)?
+                .map(crate::semantic::model::InterfaceGenericSubstitutionId::new),
         }),
         4 => {
             let callable = decode_template_reference(reader, context)?;

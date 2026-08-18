@@ -8,8 +8,8 @@ use bray_symbols::{
     InherentTypeMemberValueQuery, PredicateDefinitionSymbolId, PredicateSignatureTemplate,
     PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StructFieldTypeQuery,
     SymbolQueryContract, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
-    TraitConstantMemberDeclaredTypeQuery,
-    TraitTypeFulfillmentValueQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitTypeFulfillmentValueQuery, TypeExpressionTemplate,
+    UnionPayloadFieldTypeQuery,
 };
 
 use super::Compilation;

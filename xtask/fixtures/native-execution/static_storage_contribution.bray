@@ -1,0 +1,8 @@
+module static_storage_execution;
+
+static SHARED_ALIAS: &i32 = &SHARED_COUNTER;
+
+func contribution_counter_value() -> i32
+{
+    return SHARED_COUNTER;
+}

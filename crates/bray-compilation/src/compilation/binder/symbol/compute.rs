@@ -7,16 +7,15 @@ use bray_symbols::{
     ConstantDeclaredTypeQuery, ExactSymbolId, GenericConstParameterDeclaredTypeQuery,
     GenericConstParameterSymbolId, ImplementationCoherenceKey, ImplementationCoherenceQuery,
     ImplementationSubjectQuery, ImplementationSubjectTemplate, ImplementationSymbolId,
-    ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, StructFieldTypeQuery,
-    StaticDeclaredTypeQuery, SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
+    ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, StaticDeclaredTypeQuery,
+    StructFieldTypeQuery, SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
     TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
     TraitTypeFulfillmentValueQuery, UnionPayloadFieldTypeQuery,
 };
 use bray_syntax::{
     CallableContractDeclarationSyntax, ConstantDeclarationSyntax, GenericConstParameterSyntax,
-    ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
-    StaticDeclarationSyntax, StructFieldDeclarationSyntax, SyntaxKind, SyntaxWalkControl,
-    TraitApplicationSyntax,
+    ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax, StaticDeclarationSyntax,
+    StructFieldDeclarationSyntax, SyntaxKind, SyntaxWalkControl, TraitApplicationSyntax,
     TraitConstantMemberDeclarationSyntax, TypeExpressionSyntax, UnionPayloadFieldSyntax,
     walk_direct_child_nodes,
 };

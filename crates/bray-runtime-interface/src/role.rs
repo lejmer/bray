@@ -11,6 +11,12 @@ pub enum RuntimeAbiRole {
     SynchronousRootExecution,
     /// Execute one foreign callback behind a thread-entry and panic boundary.
     ForeignCallbackExecution,
+    /// Read the identity of the current exact Bray thread attachment.
+    ThreadAttachmentIdentity,
+    /// Register one static cleanup entry with the current exact thread attachment.
+    ThreadStaticCleanupRegistration,
+    /// Control lifecycle and provider obligations for one loaded product host.
+    ProductHostControl,
     /// Request cancellation of the root run from its host.
     RootCancellationRequest,
     /// Allocate stable task-owned storage.
@@ -91,10 +97,13 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 44] = [
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::ForeignCallbackExecution,
+        Self::ThreadAttachmentIdentity,
+        Self::ThreadStaticCleanupRegistration,
+        Self::ProductHostControl,
         Self::RootCancellationRequest,
         Self::TaskAllocation,
         Self::TaskStart,
@@ -152,6 +161,9 @@ impl RuntimeAbiRole {
             Self::RootExecution => "root_execution",
             Self::SynchronousRootExecution => "synchronous_root_execution",
             Self::ForeignCallbackExecution => "foreign_callback_execution",
+            Self::ThreadAttachmentIdentity => "thread_attachment_identity",
+            Self::ThreadStaticCleanupRegistration => "thread_static_cleanup_registration",
+            Self::ProductHostControl => "product_host_control",
             Self::RootCancellationRequest => "root_cancellation_request",
             Self::TaskAllocation => "task_allocation",
             Self::TaskStart => "task_start",
@@ -217,6 +229,12 @@ pub enum RuntimeRoleContractEffect {
     PublishWork,
     /// Execute a protected callback root.
     ExecuteCallbackRoot,
+    /// Observe the current exact thread attachment.
+    ObserveThreadAttachment,
+    /// Transfer one cleanup entry to the current exact thread attachment.
+    RegisterThreadCleanup,
+    /// Control loaded-product entry, retention, attachment, and closure obligations.
+    ControlProductHost,
     /// Register a suspended continuation.
     RegisterContinuation,
     /// Establish release-to-acquire visibility.
@@ -402,6 +420,9 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::ForeignCallbackExecution => {
             &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
         }
+        RuntimeAbiRole::ThreadAttachmentIdentity => &[Effect::ObserveThreadAttachment],
+        RuntimeAbiRole::ThreadStaticCleanupRegistration => &[Effect::RegisterThreadCleanup],
+        RuntimeAbiRole::ProductHostControl => &[Effect::ControlProductHost],
         RuntimeAbiRole::RootCancellationRequest | RuntimeAbiRole::TaskCancellationRequest => {
             &[Effect::RequestCancellation]
         }

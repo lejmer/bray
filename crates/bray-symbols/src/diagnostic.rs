@@ -1,15 +1,13 @@
 use bray_diagnostics::{
     DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticInterfaceDeclarationIdentity,
     DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolKind,
-    DiagnosticInterfaceSynthesizedIdentity,
+    DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity,
 };
 
 use crate::{
     CallableAbi, CallableExecution, ExternalDeclarationIdentity, ExternalSymbolKey,
-    ExternalSymbolKeyData, ModulePathKey, SymbolKey, SymbolKeyData, SymbolKind,
-    SymbolOrdinal, SymbolRelationshipKind,
-    SymbolRootKey, SynthesizedSymbolRole,
+    ExternalSymbolKeyData, ModulePathKey, SymbolKey, SymbolKeyData, SymbolKind, SymbolOrdinal,
+    SymbolRelationshipKind, SymbolRootKey, SynthesizedSymbolRole,
 };
 
 /// Converts a semantic relationship category into its closed diagnostic category.

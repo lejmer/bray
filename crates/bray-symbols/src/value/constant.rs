@@ -199,6 +199,8 @@ pub enum ConstantValueKind {
     },
     /// Canonical string content.
     String(Arc<str>),
+    /// A shared address of one selected static instance in a static initializer.
+    StaticAddress(crate::StaticReferenceSelection),
     /// The unit value.
     Unit,
     /// Nullable absence.

@@ -49,6 +49,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         self.target_data
     }
 
+    pub(crate) const fn target(&self) -> &'mappings CodegenTarget {
+        self.target
+    }
+
     pub(crate) const fn select_instance(&mut self, instance: &'mappings CodegenInstanceKey) {
         self.instance = Some(instance);
     }

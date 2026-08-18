@@ -87,6 +87,7 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
         | ConstantValueKind::Real(_)
         | ConstantValueKind::Complex { .. }
         | ConstantValueKind::String(_)
+        | ConstantValueKind::StaticAddress(_)
         | ConstantValueKind::Unit
         | ConstantValueKind::NullableAbsent => Vec::new(),
     };
@@ -291,10 +292,12 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
 
 fn collect_host_values(operation: &MirHostOperation, _demands: &mut ConstantDemands) {
     match operation {
-        MirHostOperation::SelectTestEntry { .. }
+        MirHostOperation::MaterializeStatic { .. }
+        | MirHostOperation::SelectTestEntry { .. }
         | MirHostOperation::ExecuteRoot { .. }
         | MirHostOperation::ObserveRootTerminal { .. }
         | MirHostOperation::ResolveRootTerminal { .. }
+        | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
     }

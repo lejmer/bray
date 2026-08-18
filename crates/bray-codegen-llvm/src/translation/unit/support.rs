@@ -185,7 +185,7 @@ pub(super) fn integer_words(magnitude: &[u8]) -> Vec<u64> {
     words
 }
 
-pub(super) fn integer_constant<'context>(
+pub(crate) fn integer_constant<'context>(
     ty: inkwell::types::IntType<'context>,
     value: &IntegerConstant,
 ) -> IntValue<'context> {
@@ -198,7 +198,7 @@ pub(super) fn integer_constant<'context>(
     }
 }
 
-pub(super) const fn real_width(bits: RealConstantBits) -> u32 {
+pub(crate) const fn real_width(bits: RealConstantBits) -> u32 {
     match bits {
         RealConstantBits::Binary16(_) => 16,
         RealConstantBits::Binary32(_) => 32,
@@ -207,7 +207,7 @@ pub(super) const fn real_width(bits: RealConstantBits) -> u32 {
     }
 }
 
-pub(super) fn real_words(bits: RealConstantBits) -> Vec<u64> {
+pub(crate) fn real_words(bits: RealConstantBits) -> Vec<u64> {
     match bits {
         RealConstantBits::Binary16(bits) => vec![u64::from(bits)],
         RealConstantBits::Binary32(bits) => vec![u64::from(bits)],

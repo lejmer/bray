@@ -19,7 +19,8 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionQuery, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,
+    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDefinitionQuery,
 };
 
 use super::support::{

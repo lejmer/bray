@@ -20,6 +20,7 @@ impl Compilation {
         host: Option<&ExecutableHostContract>,
         runtime: Option<RuntimeArtifactSelection>,
         mappings: &[bray_codegen::CodegenMappings],
+        product_host: Option<&bray_codegen::CodegenProductHostMapping>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
     ) -> Result<ProductLinkInputs, NativeProductPlanningError> {
@@ -151,6 +152,20 @@ impl Compilation {
         if let Some(host) = host {
             // Link inputs own the Arc-backed entry symbol after host construction returns.
             inputs = inputs.with_retained_symbols([host.native_entry().clone()]);
+        }
+
+        if let Some(product_host) = product_host {
+            inputs = inputs.with_retained_symbols([
+                product_host.descriptor_symbol().clone(),
+                product_host.control_symbol().clone(),
+            ]);
+
+            if kind == ProductKind::Library {
+                inputs = inputs.with_exported_symbols([
+                    product_host.descriptor_symbol().clone(),
+                    product_host.control_symbol().clone(),
+                ]);
+            }
         }
 
         Ok(inputs)

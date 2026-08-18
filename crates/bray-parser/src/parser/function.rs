@@ -195,7 +195,7 @@ impl Parser {
     }
 
     fn consume_function_directives_for_scan(&mut self) {
-        self.consume_directives_for_scan(&FUNCTION_DECLARATION_START_KINDS, |directive_name| {
+        self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
             match directive_name {
                 ABI_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME | SYMBOL_DIRECTIVE_NAME => {
                     DirectiveScanKind::ArgumentList

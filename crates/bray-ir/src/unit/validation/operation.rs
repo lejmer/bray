@@ -715,11 +715,7 @@ fn validate_generator_operation(
             runtime,
             ..
         } => {
-            validate_runtime_role(
-                unit,
-                *runtime,
-                RuntimeAbiRole::GeneratorCleanupBroadcast,
-            )?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorCleanupBroadcast)?;
 
             destination
         }
@@ -728,11 +724,7 @@ fn validate_generator_operation(
             runtime,
             ..
         } => {
-            validate_runtime_role(
-                unit,
-                *runtime,
-                RuntimeAbiRole::GeneratorDestruction,
-            )?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorDestruction)?;
 
             destination
         }
@@ -1015,7 +1007,7 @@ fn validate_storage_kind(
 ) -> Result<(), MirUnitBuildError> {
     validate_storage(unit, storage)?;
 
-    if unit.storage(storage).map(MirStorage::kind) != Some(expected) {
+    if unit.storage(storage).map(MirStorage::kind) != Some(&expected) {
         return Err(MirUnitBuildError::StorageKindMismatch(storage));
     }
 

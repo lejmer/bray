@@ -2,7 +2,9 @@ mod constant;
 mod debug;
 mod demand;
 mod model;
+mod product_host;
 mod reference;
+mod static_storage;
 mod symbol;
 mod ty;
 
@@ -15,9 +17,16 @@ pub use model::{
     demanded_callable_references_for_mir, demanded_debug_sources, demanded_runtime_references,
     demanded_runtime_references_for_mir, demanded_types, mapped_runtime_references,
 };
+pub use product_host::{
+    CodegenProductHostMapping, CodegenProductHostStatic, static_host_section_name,
+};
 pub use reference::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenHelperMapping,
     CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
+};
+pub use static_storage::{
+    CodegenStaticFinalization, CodegenStaticInstanceKey, CodegenStaticRelocation,
+    CodegenStaticStorageMapping, CodegenStaticWitness,
 };
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{

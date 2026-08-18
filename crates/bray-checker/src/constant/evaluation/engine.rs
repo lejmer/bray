@@ -695,21 +695,40 @@ where
             BoundStructuredExpressionKind::Borrow
                 if self.input.allows_static_address_borrows()
                     && structured.borrow_kind() == Some(bray_symbols::BorrowKind::Shared)
-                    && operands.len() == 1
-                    && self.request.view().expression(operands[0]).is_some_and(|operand| {
-                        matches!(
-                            operand,
-                            BoundExpression::Name(name)
-                                if matches!(
-                                    name.target(),
-                                    bray_bound_tree::BoundReferenceTarget::Surface(
-                                        bray_symbols::AnySymbolId::Static(_)
-                                    )
-                                )
-                        )
-                    }) =>
+                    && operands.len() == 1 =>
             {
-                self.recovery_term(ty).map_err(EvaluationFailure::Infrastructure)
+                let operand = operands[0];
+
+                let is_static_name =
+                    self.request
+                        .view()
+                        .expression(operand)
+                        .is_some_and(|operand| {
+                            matches!(
+                                operand,
+                                BoundExpression::Name(name)
+                                    if matches!(
+                                        name.target(),
+                                        bray_bound_tree::BoundReferenceTarget::Surface(
+                                            bray_symbols::AnySymbolId::Static(_)
+                                        )
+                                    )
+                            )
+                        });
+
+                let selection = self.input.semantic_selections().expression(operand);
+
+                let Some(bray_bound_tree::SemanticSelection::StaticReference(selection)) =
+                    selection
+                else {
+                    return Err(EvaluationFailure::invalid_expression(expression));
+                };
+
+                if !is_static_name {
+                    return Err(EvaluationFailure::invalid_expression(expression));
+                }
+
+                self.intern_value_term(ty, ConstantValueKind::StaticAddress(selection.clone()))
             }
             BoundStructuredExpressionKind::NullablePropagation
             | BoundStructuredExpressionKind::ArrayGenerator

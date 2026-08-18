@@ -49,6 +49,8 @@ pub fn demanded_runtime_references(unit: &CodegenUnit) -> BTreeSet<MirRuntimeRef
 pub fn demanded_runtime_references_for_mir(
     mir: &bray_ir::MirUnit,
 ) -> BTreeSet<MirRuntimeReference> {
+    let runtime_abi = mir.target().runtime_abi();
+
     mir.operations()
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind()))
@@ -56,6 +58,14 @@ pub fn demanded_runtime_references_for_mir(
             mir.blocks()
                 .iter()
                 .flat_map(|block| terminator_runtime_references(block.terminator().kind())),
+        )
+        .chain(
+            mir.operations()
+                .iter()
+                .flat_map(|operation| operation.kind().helper_references())
+                .filter_map(|helper| helper.runtime_role())
+                .map(|role| MirRuntimeReference::new(role, runtime_abi))
+                .map(Some),
         )
         .flatten()
         .collect()
@@ -324,6 +334,9 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
+        | MirOperationKind::Host(
+            MirHostOperation::MaterializeStatic { .. } | MirHostOperation::BeginStaticCleanup,
+        )
         | MirOperationKind::Async(
             MirAsyncOperation::CreateFrame { .. }
             | MirAsyncOperation::MoveInactiveFrame { .. }

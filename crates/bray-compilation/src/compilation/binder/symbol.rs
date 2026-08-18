@@ -9,8 +9,8 @@ mod directive;
 mod environment;
 mod imported;
 mod module_surface;
-mod surface;
 mod static_storage;
+mod surface;
 mod template;
 
 #[cfg(test)]

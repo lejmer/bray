@@ -1485,6 +1485,11 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
+        MirHostOperation::MaterializeStatic { place } => {
+            parts.attribute("storage", place.storage().slot());
+
+            "materialize_static"
+        }
         MirHostOperation::SelectTestEntry { entry, runtime } => {
             parts.attribute("entry", entry.slot());
             runtime_reference("runtime", *runtime, parts);
@@ -1539,6 +1544,7 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
 
             "report_cleanup_incidents"
         }
+        MirHostOperation::BeginStaticCleanup => "begin_static_cleanup",
         MirHostOperation::StructuredShutdown { runtime } => {
             runtime_reference("runtime", *runtime, parts);
 
@@ -2090,6 +2096,7 @@ fn constant_text(
         }
         ConstantValueKind::String(value) => format!("\"{}\"", value.escape_debug()),
         ConstantValueKind::Unit => String::from("()"),
+        ConstantValueKind::StaticAddress(_) => String::from("<static-address>"),
         ConstantValueKind::NullableAbsent => String::from("none"),
         ConstantValueKind::NullablePresent(_) => String::from("some(<constant>)"),
         ConstantValueKind::Tuple(values) => format!("<tuple:{}>", values.len()),
@@ -2411,6 +2418,7 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
 const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
     match reference {
         MirHelperReference::Finalize(_) => Some("finalize"),
+        MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
         MirHelperReference::Destroy(_) => Some("destroy"),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
@@ -2441,6 +2449,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
 const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"
@@ -2451,7 +2460,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
     }
 }
 
-fn storage_kind(kind: MirStorageKind) -> &'static str {
+fn storage_kind(kind: &MirStorageKind) -> &'static str {
     match kind {
         MirStorageKind::Parameter(_) => "parameter",
         MirStorageKind::Local => "local",
@@ -2461,6 +2470,7 @@ fn storage_kind(kind: MirStorageKind) -> &'static str {
         MirStorageKind::CurrentFrame => "current_frame",
         MirStorageKind::CurrentTask => "current_task",
         MirStorageKind::ChildTask => "child_task",
+        MirStorageKind::Static(_) => "static",
     }
 }
 

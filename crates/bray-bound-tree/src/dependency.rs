@@ -76,9 +76,9 @@ impl BoundDependencySubject {
             Self::BorrowCapability(capability) => capability.unit() == unit,
             Self::ScopedCapability(capability) => capability.unit() == unit,
             Self::LifecycleObligation(obligation) => obligation.unit() == unit,
-            Self::ImplementationWitness(_) | Self::ProductStatic(_) | Self::ExactThreadStatic(_) => {
-                true
-            }
+            Self::ImplementationWitness(_)
+            | Self::ProductStatic(_)
+            | Self::ExactThreadStatic(_) => true,
         }
     }
 
@@ -89,9 +89,9 @@ impl BoundDependencySubject {
             Self::BorrowCapability(capability) => storage.borrow_capability(capability).is_some(),
             Self::ScopedCapability(capability) => capability.unit() == storage.unit(),
             Self::LifecycleObligation(obligation) => obligation.unit() == storage.unit(),
-            Self::ImplementationWitness(_) | Self::ProductStatic(_) | Self::ExactThreadStatic(_) => {
-                true
-            }
+            Self::ImplementationWitness(_)
+            | Self::ProductStatic(_)
+            | Self::ExactThreadStatic(_) => true,
         }
     }
 }

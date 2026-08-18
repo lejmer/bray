@@ -198,8 +198,9 @@ fn dependency_subject_is_initialized(
         BoundDependencySubject::BorrowCapability(capability) => {
             state.active_borrows().contains(&capability)
         }
-        BoundDependencySubject::ProductStatic(_)
-        | BoundDependencySubject::ExactThreadStatic(_) => true,
+        BoundDependencySubject::ProductStatic(_) | BoundDependencySubject::ExactThreadStatic(_) => {
+            true
+        }
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
         | BoundDependencySubject::LifecycleObligation(_) => false,

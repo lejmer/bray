@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::model::{
-    ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison,
-    CompilationComparisonReport, CompilationLanguage, Observation, ObservationComparison,
-    ObservationComparisonReport, PeerComparison, PerformanceReport, SCHEMA_REVISION,
-    WorkloadComparison,
+    ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport,
+    CompilationComparisonReport, CompilationLanguage, MetricComparison, Observation,
+    ObservationComparison, ObservationComparisonReport, PeerComparison, PerformanceReport,
+    SCHEMA_REVISION, WorkloadComparison,
 };
 
 pub(super) fn compare(
@@ -133,10 +133,7 @@ fn compare_compilation(
 
             Ok((
                 *language,
-                observed_metric(
-                    baseline.elapsed_nanoseconds,
-                    candidate.elapsed_nanoseconds,
-                ),
+                observed_metric(baseline.elapsed_nanoseconds, candidate.elapsed_nanoseconds),
             ))
         })
         .collect()

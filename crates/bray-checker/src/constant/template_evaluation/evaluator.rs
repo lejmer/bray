@@ -38,6 +38,7 @@ where
     pub(super) budget: EvaluationBudget,
     pub(super) values: Vec<Option<ConstantValueId>>,
     pub(super) diagnostics: DiagnosticBag,
+    pub(super) static_initializer: bool,
 }
 
 impl<C> TemplateEvaluator<'_, C>
@@ -52,6 +53,12 @@ where
         if self.template.kind() != kind {
             return Err(TemplateEvaluationFailure::invalid_input());
         }
+
+        self.static_initializer = matches!(
+            kind,
+            CheckedTemplateKind::ProductStaticInitializer
+                | CheckedTemplateKind::ThreadLocalStaticInitializer
+        );
 
         let value = self.evaluate_node(self.template.result())?;
         let data = self.constant_value(value)?;
@@ -140,8 +147,8 @@ where
                 left,
                 right,
             } => self.evaluate_binary(*operation, *left, *right, ty),
-            CheckedTemplateOperation::Borrow { .. } => {
-                Err(TemplateEvaluationFailure::invalid_input())
+            CheckedTemplateOperation::Borrow { kind, operand } => {
+                self.evaluate_static_address(*kind, *operand, ty)
             }
             CheckedTemplateOperation::Declaration { declaration, .. } => {
                 self.evaluate_declaration(declaration, ty)
@@ -227,6 +234,52 @@ where
                 self.evaluate_node(temporary.initializer())
             }
         }
+    }
+
+    fn evaluate_static_address(
+        &mut self,
+        kind: bray_symbols::BorrowKind,
+        operand: CheckedTemplateNodeId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        if !self.static_initializer || kind != bray_symbols::BorrowKind::Shared {
+            return Err(TemplateEvaluationFailure::invalid_input());
+        }
+
+        let index = template_index(operand.raw())?;
+
+        let Some(CheckedTemplateOperation::Declaration {
+            declaration,
+            substitution: Some(substitution),
+        }) = self
+            .template
+            .nodes()
+            .get(index)
+            .map(|node| node.operation())
+        else {
+            return Err(TemplateEvaluationFailure::invalid_input());
+        };
+
+        let Some(AnySymbolId::Static(declaration)) = self.resolver.symbol(declaration) else {
+            return Err(TemplateEvaluationFailure::invalid_input());
+        };
+
+        let substitution = self
+            .context
+            .semantic_values()
+            .substitute_generic_substitution(*substitution, self.substitution.substitution())
+            .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+
+        let selection = self
+            .resolver
+            .resolve_static(declaration, substitution)
+            .map_err(query_failure)?;
+
+        let (selection, diagnostics) = selection.into_parts();
+
+        self.diagnostics = self.diagnostics.merged(&diagnostics);
+
+        self.intern_value(ty, ConstantValueKind::StaticAddress(selection))
     }
 
     fn evaluate_input(

@@ -1,0 +1,96 @@
+module static_storage_execution;
+
+static SHARED_COUNTER: i32 = 42;
+
+static ZERO_VALUE: i32 = 0;
+
+static GENERIC_VALUE<const N: i32>: i32 = N;
+
+@thread_local static THREAD_ANSWER: i32 = 42;
+
+internal struct CleanupProbe
+{
+    internal mut state: i32;
+
+    finalize()
+    {
+        self.state = 123456789;
+    }
+
+    destruct() {}
+}
+
+internal static CLEANUP_PROBE: CleanupProbe = CleanupProbe
+{
+    state = 135791113
+};
+
+internal struct AsyncCleanupProbe
+{
+    internal mut state: i32;
+
+    async finalize() -> Result<unit, i32>
+    {
+        self.state = 246802468;
+
+        return await finish_async_cleanup();
+    }
+
+    destruct() {}
+}
+
+internal static ASYNC_CLEANUP_PROBE: AsyncCleanupProbe = AsyncCleanupProbe
+{
+    state = 975318642
+};
+
+@thread_local internal static ASYNC_THREAD_CLEANUP_PROBE: AsyncCleanupProbe = AsyncCleanupProbe
+{
+    state = 192837465
+};
+
+internal struct AsyncFailingCleanupProbe
+{
+    internal mut state: i32;
+
+    async finalize() -> Result<unit, i32>
+    {
+        self.state = 112358132;
+
+        return await fail_async_cleanup();
+    }
+
+    destruct() {}
+}
+
+internal static ASYNC_FAILING_CLEANUP_PROBE: AsyncFailingCleanupProbe = AsyncFailingCleanupProbe
+{
+    state = 864209753
+};
+
+async func finish_async_cleanup() -> Result<unit, i32>
+{
+    return Ok(unit);
+}
+
+async func fail_async_cleanup() -> Result<unit, i32>
+{
+    return Error(314159265);
+}
+
+func read_counter() -> i32
+{
+    return SHARED_COUNTER;
+}
+
+func main() -> i32
+{
+    if read_counter() == 42 && contribution_counter_value() == 42 && ZERO_VALUE == 0 && GENERIC_VALUE<1> == 1 &&
+        GENERIC_VALUE<2> == 2 && THREAD_ANSWER == 42 && CLEANUP_PROBE.state == 135791113 && ASYNC_CLEANUP_PROBE.state ==
+        975318642 && ASYNC_FAILING_CLEANUP_PROBE.state == 864209753
+    {
+        return 42;
+    }
+
+    return 1;
+}

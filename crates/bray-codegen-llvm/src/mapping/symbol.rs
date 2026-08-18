@@ -13,15 +13,17 @@ use inkwell::values::{CallSiteValue, FunctionValue};
 use super::LlvmTypeMappings;
 use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
 
-pub(crate) fn declare_symbols<'context>(
+pub(crate) fn declare_symbols<'context, 'mappings>(
     module: &Module<'context>,
-    mappings: &CodegenMappings,
+    mappings: &'mappings CodegenMappings,
     target: &CodegenTarget,
-    types: &mut LlvmTypeMappings<'context, '_>,
+    types: &mut LlvmTypeMappings<'context, 'mappings>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
         declare_symbol(module, mapping, target, types)?;
     }
+
+    super::static_storage::declare_static_storages(module, mappings, types)?;
 
     Ok(())
 }

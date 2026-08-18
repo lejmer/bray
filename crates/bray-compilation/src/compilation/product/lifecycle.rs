@@ -33,7 +33,9 @@ impl CodegenLifecycleNeeds {
 
     const fn requires(self, role: MirGeneratedLifecycleRole) -> bool {
         let required = match role {
-            MirGeneratedLifecycleRole::Finalize => Self::FINALIZE,
+            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
+                Self::FINALIZE
+            }
             MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 Self::TASK_CANCELLATION
@@ -70,6 +72,20 @@ impl CodegenLifecycleNeeds {
 }
 
 impl Compilation {
+    pub(super) fn codegen_cleanup_is_trivial(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
+        self.codegen_lifecycle_is_trivial(
+            &MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty,
+            },
+            cancellation,
+        )
+    }
+
     pub(super) fn codegen_lifecycle_is_trivial(
         &self,
         reference: &MirHelperReference,

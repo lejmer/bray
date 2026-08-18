@@ -1,0 +1,10 @@
+mod model;
+mod operations;
+mod thread;
+
+pub(crate) use operations::{control, register_thread_static, thread_attachment_identity};
+pub(crate) use thread::drain_product_thread_statics;
+pub(super) use operations::{
+    acquire_thread_attachment, discard_thread_attachment, mark_thread_attachment_acquired,
+    observation_with_status, prepare_thread_attachment,
+};

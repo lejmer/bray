@@ -295,8 +295,7 @@ fn parse_managed_output_directory(value: &str) -> Result<ManagedOutputDirectory,
 }
 
 fn parse_linker_map_output(value: &str) -> Result<SystemLinkerMapOutput, String> {
-    SystemLinkerMapOutput::try_new(value)
-        .ok_or_else(|| help::LINKER_MAP_OUTPUT_INVALID.to_owned())
+    SystemLinkerMapOutput::try_new(value).ok_or_else(|| help::LINKER_MAP_OUTPUT_INVALID.to_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

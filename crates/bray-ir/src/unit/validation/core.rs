@@ -34,7 +34,7 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         .map(crate::MirOperation::kind)
         .collect::<Vec<_>>();
 
-    let Some((shutdown, entries)) = operations.split_last() else {
+    let Some((shutdown, preceding)) = operations.split_last() else {
         return Err(MirUnitBuildError::InvalidHostSequence);
     };
 
@@ -42,16 +42,32 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         .requirements()
         .requires_role(bray_runtime_interface::RuntimeAbiRole::TestEntrySelection);
 
-    let operations_per_entry = if selects_entries { 5 } else { 4 };
-
     if !matches!(
         shutdown,
         crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. })
-    ) || entries.len() % operations_per_entry != 0
-        || entries.len() / operations_per_entry != host.entries().len()
-    {
+    ) {
         return Err(MirUnitBuildError::InvalidHostSequence);
     }
+
+    let materialized = preceding.partition_point(|operation| {
+        matches!(
+            operation,
+            crate::MirOperationKind::Host(crate::MirHostOperation::MaterializeStatic { .. })
+        )
+    });
+
+    let entries = &preceding[materialized..];
+    let operations_per_entry = if selects_entries { 4_usize } else { 3_usize };
+
+    let entry_operation_count = operations_per_entry
+        .checked_mul(host.entries().len())
+        .ok_or(MirUnitBuildError::InvalidHostSequence)?;
+
+    if entries.len() < entry_operation_count + 2 {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    }
+
+    let (entries, cleanup) = entries.split_at(entry_operation_count);
 
     for (expected, operations) in entries.chunks_exact(operations_per_entry).enumerate() {
         let operations = if selects_entries {
@@ -85,9 +101,6 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
                 entry: resolved,
                 ..
             }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents {
-                ..
-            }),
         ] = operations
         else {
             return Err(MirUnitBuildError::InvalidHostSequence);
@@ -99,6 +112,32 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         {
             return Err(MirUnitBuildError::InvalidHostSequence);
         }
+    }
+
+    let Some((report, cleanup)) = cleanup.split_last() else {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    };
+
+    let Some((begin, cleanup)) = cleanup.split_first() else {
+        return Err(MirUnitBuildError::InvalidHostSequence);
+    };
+
+    if !matches!(
+        begin,
+        crate::MirOperationKind::Host(crate::MirHostOperation::BeginStaticCleanup)
+    ) || !matches!(
+        report,
+        crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. })
+    ) || cleanup.iter().any(|operation| {
+        !matches!(
+            operation,
+            crate::MirOperationKind::Cleanup {
+                phase: crate::MirCleanupPhase::LifecycleResolution,
+                ..
+            }
+        )
+    }) {
+        return Err(MirUnitBuildError::InvalidHostSequence);
     }
 
     Ok(())

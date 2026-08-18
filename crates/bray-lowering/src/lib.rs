@@ -8,7 +8,7 @@ mod input;
 mod lowering;
 mod result;
 
-pub use host::{ExecutableHostLoweringInput, lower_executable_host};
+pub use host::{ExecutableHostLoweringInput, ExecutableHostStatic, lower_executable_host};
 pub use identity::executable_unit_kind;
 pub use input::{LoweringInput, LoweringInputError, LoweringInputKind};
 pub use lowering::{LoweringError, lower_unit};

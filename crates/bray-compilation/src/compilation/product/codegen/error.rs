@@ -4,7 +4,7 @@ use bray_codegen::{
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
-    DiagnosticNativeProductFailureKind, SeverityKind,
+    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_emitter::EmissionBackendBuildError;
 use bray_linker::LinkTargetBuildError;
@@ -24,6 +24,8 @@ pub enum NativeProductPlanningError {
     InvalidEntryResult,
     /// An asynchronous product has no selected runtime artifact.
     MissingRuntime,
+    /// A library static cleanup closure requires unavailable main-thread execution.
+    LibraryCleanupRequiresMainThread,
     /// A generated binary symbol name is invalid.
     InvalidSymbolName,
     /// A configured native link input is invalid.
@@ -68,7 +70,7 @@ impl NativeProductPlanningError {
     }
 
     /// Returns structured diagnostics produced while deriving native product plans.
-    pub const fn diagnostics(&self) -> Option<&bray_diagnostics::DiagnosticBag> {
+    pub const fn diagnostics(&self) -> Option<&DiagnosticBag> {
         match self {
             Self::Codegen(super::super::super::CodegenPreparationError::Diagnostics(
                 diagnostics,
@@ -93,15 +95,30 @@ impl NativeProductPlanningError {
         let failure = native_product_failure_kind(self)?;
 
         Some(DiagnosticBag::single(
-            Diagnostic::new(
-                DiagnosticId::new(0),
-                DiagnosticKind::NativeProductPreparationFailed,
-                SeverityKind::Error,
-            )
-            .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
-            .with_arg(DiagnosticArg::target_triple(target))
-            .with_arg(DiagnosticArg::native_product_failure_kind(failure)),
+            native_product_preparation_diagnostic(failure, product, target),
         ))
+    }
+}
+
+pub(in crate::compilation) fn native_product_preparation_diagnostic(
+    failure: DiagnosticNativeProductFailureKind,
+    product: &ProductIdentity,
+    target: &str,
+) -> Diagnostic {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
+    .with_arg(DiagnosticArg::target_triple(target))
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
+
+    match failure {
+        DiagnosticNativeProductFailureKind::CodegenMirUnavailable => diagnostic.with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::NativeProductPreparationRecovery),
+        ),
+        _ => diagnostic,
     }
 }
 
@@ -115,6 +132,9 @@ fn native_product_failure_kind(
         NativeProductPlanningError::MissingProductRoot => Kind::MissingProductRoot,
         NativeProductPlanningError::InvalidEntryResult => Kind::InvalidEntryResult,
         NativeProductPlanningError::MissingRuntime => Kind::MissingRuntime,
+        NativeProductPlanningError::LibraryCleanupRequiresMainThread => {
+            Kind::LibraryCleanupRequiresMainThread
+        }
         NativeProductPlanningError::InvalidSymbolName => Kind::InvalidSymbolName,
         NativeProductPlanningError::InvalidNativeLinkInput => Kind::InvalidNativeLinkInput,
         NativeProductPlanningError::Query(error) => fact_query_failure_kind(error)?,
@@ -273,11 +293,12 @@ impl From<super::super::super::CodegenPreparationError> for NativeProductPlannin
 mod tests {
     use bray_diagnostics::{
         DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticNativeProductFailureKind,
+        DiagnosticNoteKind,
     };
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::NativeProductPlanningError;
+    use super::{NativeProductPlanningError, native_product_preparation_diagnostic};
 
     #[test]
     fn native_product_failures_preserve_exact_product_target_and_reason() {
@@ -310,5 +331,29 @@ mod tests {
                     )
                 )
         }));
+
+        assert!(diagnostic.notes().is_empty());
+    }
+
+    #[test]
+    fn unavailable_native_program_provides_recovery_guidance() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let diagnostic = native_product_preparation_diagnostic(
+            DiagnosticNativeProductFailureKind::CodegenMirUnavailable,
+            &product,
+            "x86_64-pc-windows-msvc",
+        );
+
+        assert_eq!(diagnostic.notes().len(), 1);
+
+        assert_eq!(
+            diagnostic.notes()[0].kind(),
+            DiagnosticNoteKind::NativeProductPreparationRecovery
+        );
     }
 }

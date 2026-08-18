@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bray_linker::{
-    LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError, LinkPlanBuilder,
-    LinkPlanSelectionError, LinkStartupMode, LinkedArtifactKind, LinkedProductKind, Linker,
-    LinkerDriverIdentity, PlannedLinkedArtifact, StagingDestination, StagingDestinationBuildError,
-    StagingDestinationId, StagingPathKey,
+    DebugLinkPolicy, LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
+    LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError,
+    LinkPlanBuilder, LinkPlanSelectionError, LinkPolicy, LinkStartupMode, LinkedArtifactKind,
+    LinkedProductKind, Linker, LinkerDriverIdentity, PlannedLinkedArtifact, StagingDestination,
+    StagingDestinationBuildError, StagingDestinationId, StagingPathKey,
 };
 use bray_target::TargetIdentity;
 
@@ -113,6 +113,7 @@ pub enum LinkPlanConstructionError {
 
 struct LinkPlanConstructor<'plan> {
     emission: &'plan EmissionPlan,
+    product_kind: LinkedProductKind,
     staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
     output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
     inputs: &'plan ProductLinkInputs,
@@ -130,6 +131,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
         driver: LinkerDriverIdentity,
         startup_mode: LinkStartupMode,
     ) -> Self {
+        let policy = link_policy(inputs.policy, &output_staging);
+
         let builder = LinkPlanBuilder::new(
             // The link plan owns the Arc-backed product identity independently of the emission plan.
             emission.request().product().clone(),
@@ -138,11 +141,12 @@ impl<'plan> LinkPlanConstructor<'plan> {
             inputs.target.clone(),
             driver,
             startup_mode,
-            inputs.policy,
+            policy,
         );
 
         Self {
             emission,
+            product_kind,
             staged_artifacts,
             output_staging,
             inputs,
@@ -228,6 +232,10 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_runtime_input(&mut self) -> Result<(), LinkPlanConstructionError> {
+        if self.product_kind == LinkedProductKind::StaticLibrary {
+            return Ok(());
+        }
+
         let Some(runtime) = &self.inputs.runtime else {
             return Ok(());
         };
@@ -273,6 +281,10 @@ impl<'plan> LinkPlanConstructor<'plan> {
         &mut self,
         include: fn(&LinkInputSpec) -> bool,
     ) -> Result<(), LinkPlanConstructionError> {
+        if self.product_kind == LinkedProductKind::StaticLibrary {
+            return Ok(());
+        }
+
         // The link plan owns input specifications independently of the product-input borrow.
         for input in self
             .inputs
@@ -349,6 +361,16 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_product_inputs(&mut self) {
+        if self.product_kind == LinkedProductKind::StaticLibrary {
+            return;
+        }
+
+        if let Some(runtime) = &self.inputs.runtime {
+            // The completed link plan owns the selected runtime artifact identity.
+            self.builder
+                .set_runtime_artifact(runtime.contract().artifact().clone());
+        }
+
         if let Some(entry_point) = &self.inputs.entry_point {
             // The completed link plan owns the Arc-backed binary name.
             self.builder.set_entry_point(entry_point.clone());
@@ -392,6 +414,27 @@ impl<'plan> LinkPlanConstructor<'plan> {
 
         Ok(id)
     }
+}
+
+fn link_policy(
+    policy: LinkPolicy,
+    outputs: &BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
+) -> LinkPolicy {
+    let debug = if outputs
+        .values()
+        .any(|(kind, _, _)| *kind == LinkedArtifactKind::DebugCompanion)
+    {
+        DebugLinkPolicy::Companion
+    } else {
+        policy.debug()
+    };
+
+    LinkPolicy::new(
+        policy.dead_strip(),
+        policy.section_garbage_collection(),
+        debug,
+        policy.subsystem(),
+    )
 }
 
 fn startup_mode(product: LinkedProductKind, inputs: &ProductLinkInputs) -> LinkStartupMode {

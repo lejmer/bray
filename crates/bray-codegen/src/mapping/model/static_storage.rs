@@ -1,0 +1,135 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use bray_ir::MirStorageKind;
+
+use crate::{
+    CodegenConstantMapping, CodegenInstanceKey, CodegenStaticStorageMapping, CodegenSymbolMapping,
+    CodegenUnit,
+};
+
+use super::core::CodegenMappingsBuildError;
+
+pub(super) fn validate_static_storage_mappings(
+    unit: &CodegenUnit,
+    instances: &BTreeSet<&CodegenInstanceKey>,
+    symbols: &[CodegenSymbolMapping],
+    constants: &[CodegenConstantMapping],
+    mappings: &[CodegenStaticStorageMapping],
+) -> Result<(), CodegenMappingsBuildError> {
+    let expected: BTreeSet<_> = unit
+        .instances()
+        .iter()
+        .flat_map(|instance| {
+            instance
+                .mir()
+                .storages_with_ids()
+                .filter_map(|(storage, model)| {
+                    matches!(model.kind(), MirStorageKind::Static(_))
+                        .then_some((instance.key(), storage))
+                })
+        })
+        .collect();
+
+    let actual: BTreeSet<_> = mappings
+        .iter()
+        .map(|mapping| (mapping.owner(), mapping.storage()))
+        .collect();
+
+    if actual != expected {
+        return Err(CodegenMappingsBuildError::StaticStorageCoverageMismatch);
+    }
+
+    let mut realizations = BTreeMap::new();
+
+    for mapping in mappings {
+        let Some(owner) = unit
+            .instances()
+            .iter()
+            .find(|instance| instance.key() == mapping.owner())
+        else {
+            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
+        };
+
+        let Some(storage) = owner.mir().storage(mapping.storage()) else {
+            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
+        };
+
+        if !matches!(storage.kind(), MirStorageKind::Static(_))
+            || storage.ty() != mapping.ty()
+            || mapping.instance().target() != owner.key().target()
+            || !constants
+                .iter()
+                .any(|constant| constant.value() == mapping.initial_value())
+            || mapping.finalization().is_some_and(|finalization| {
+                !instances.contains(finalization.instance())
+                    || finalization
+                        .incident_cleanup()
+                        .is_some_and(|cleanup| !instances.contains(cleanup))
+                    || match finalization.result() {
+                        bray_runtime_interface::ExecutableEntryResult::Fallible { .. } => {
+                            finalization.error_type_identity().is_none()
+                                || finalization.incident_cleanup().is_none()
+                        }
+                        bray_runtime_interface::ExecutableEntryResult::Unit => {
+                            finalization.error_type_identity().is_some()
+                                || finalization.incident_cleanup().is_some()
+                        }
+                        bray_runtime_interface::ExecutableEntryResult::I32 => true,
+                    }
+            })
+            || mapping
+                .destroy()
+                .is_some_and(|destroy| !instances.contains(destroy))
+            || mapping
+                .relocations()
+                .windows(2)
+                .any(|pair| pair[0].value() >= pair[1].value())
+            || mapping.relocations().iter().any(|relocation| {
+                relocation.instance().target() != owner.key().target()
+                    || !constants
+                        .iter()
+                        .any(|constant| constant.value() == relocation.value())
+            })
+        {
+            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
+        }
+
+        if realizations
+            .insert(mapping.instance(), mapping)
+            .is_some_and(|previous| {
+                previous.symbol() != mapping.symbol()
+                    || previous.initial_value() != mapping.initial_value()
+                    || previous.relocations() != mapping.relocations()
+                    || previous.finalization() != mapping.finalization()
+                    || previous.destroy() != mapping.destroy()
+                    || previous.ty() != mapping.ty()
+            })
+        {
+            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
+        }
+    }
+
+    let mut names: BTreeSet<String> = symbols
+        .iter()
+        .map(|mapping| mapping.name().as_str().to_owned())
+        .collect();
+
+    for mapping in realizations.values() {
+        for name in [
+            mapping.symbol().as_str().to_owned(),
+            mapping.accessor_name(),
+            mapping.host_name(),
+            mapping.attachment_name(),
+            mapping.prepare_name(),
+            mapping.finalize_name(),
+            mapping.destroy_name(),
+            mapping.detach_name(),
+        ] {
+            if !names.insert(name) {
+                return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
+            }
+        }
+    }
+
+    Ok(())
+}

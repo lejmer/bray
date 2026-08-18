@@ -587,7 +587,6 @@ impl Lowerer<'_> {
         cursor: MirPlace,
         cursor_type: bray_symbols::TypeId,
     ) -> Result<LoweredExpression, LoweringError> {
-
         let element_type = self
             .input
             .available_compiler_known_symbols()
@@ -619,11 +618,9 @@ impl Lowerer<'_> {
             element_type,
         )?;
 
-        let result = self.builder.push_block_parameter(
-            join,
-            Self::retained_source(&source),
-            result_type,
-        )?;
+        let result =
+            self.builder
+                .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
         self.builder.set_terminator(
             current,

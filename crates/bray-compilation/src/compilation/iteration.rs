@@ -4,8 +4,8 @@ use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundIterationSource, BoundOperator,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedLiteralValues,
-    IterationSourceMode,
-    SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
+    IterationSourceMode, SelectedIterationProtocolOperation, SelectedIterationSource,
+    SelectedIterationTypes,
 };
 use bray_checker::{
     CandidateSelection, DefaultSemanticSelector, IterationSourceCandidate,
@@ -15,8 +15,8 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     BorrowKind, ConstantTermData, ConstantValueKind, ImplementationCandidate,
     ImplementationInstanceData, ImplementationRequirementKey, IntegerConstant, IntegerSign,
-    TargetSizedIntegerType, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TypeData,
-    TypeId,
+    TargetSizedIntegerType, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
+    TypeData, TypeId,
 };
 
 use super::Compilation;
@@ -357,13 +357,9 @@ fn iteration_exact_count(
 
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
-        TypeData::Named { .. } => range_literal_count(
-            unit,
-            literals,
-            values,
-            source_expression,
-            usize_width_bits,
-        ),
+        TypeData::Named { .. } => {
+            range_literal_count(unit, literals, values, source_expression, usize_width_bits)
+        }
         _ => Ok(None),
     }
 }
@@ -458,10 +454,7 @@ fn range_literal_integer(
     }
 }
 
-fn half_open_integer_count(
-    start: &IntegerConstant,
-    end: &IntegerConstant,
-) -> Option<u128> {
+fn half_open_integer_count(start: &IntegerConstant, end: &IntegerConstant) -> Option<u128> {
     let magnitude = |integer: &IntegerConstant| {
         integer.magnitude().iter().try_fold(0_u128, |value, byte| {
             value.checked_mul(256)?.checked_add(u128::from(*byte))
@@ -641,8 +634,7 @@ mod tests {
     use bray_bound_tree::{
         AnyBoundNodeId, BoundExpression, BoundStructuredExpressionKind, BoundWalkControl,
         BoundWalkEvent, BoundWalkOutcome, IterationSourceMode, SelectedIterationSource,
-        SemanticSelection,
-        walk_bound_unit_view,
+        SemanticSelection, walk_bound_unit_view,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind};

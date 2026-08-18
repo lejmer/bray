@@ -7,6 +7,7 @@ mod memory;
 mod numeric;
 mod operand;
 mod run;
+mod static_access;
 mod testing;
 mod text;
 mod value;

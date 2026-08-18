@@ -15,6 +15,16 @@ pub(super) fn validate_host_operation(
     };
 
     match host_operation {
+        MirHostOperation::MaterializeStatic { place } => {
+            if !matches!(
+                unit.storage(place.storage()).map(crate::MirStorage::kind),
+                Some(crate::MirStorageKind::Static(_))
+            ) {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            Ok(())
+        }
         MirHostOperation::SelectTestEntry { entry, runtime } => {
             if host.entry(*entry).is_none()
                 || !host
@@ -83,11 +93,11 @@ pub(super) fn validate_host_operation(
             }
 
             validate_runtime_role(unit, *completion, RuntimeAbiRole::RootCompletionResolution)?;
-
             validate_runtime_role(unit, *panic, RuntimeAbiRole::PanicReporting)?;
 
             validate_runtime_role(unit, *entry_failure, RuntimeAbiRole::EntryFailureReporting)
         }
+        MirHostOperation::BeginStaticCleanup => Ok(()),
         MirHostOperation::ReportCleanupIncidents { runtime } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentReporting)
         }

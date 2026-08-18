@@ -216,9 +216,11 @@ where
             element,
         )
     else {
-        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
-            role: RepresentationRole::Range,
-        });
+        return Err(
+            CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
+                role: RepresentationRole::Range,
+            },
+        );
     };
 
     inference.add_evidence(variable, range, expression_id);

@@ -38,6 +38,7 @@ pub struct LoweringInput<'unit> {
     semantic_values: &'unit SemanticValueStore,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
+    static_owner: Option<(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)>,
     unit_kind: MirUnitKind,
     target: MirTargetContract,
 }
@@ -67,7 +68,7 @@ impl<'unit> LoweringInput<'unit> {
         unit_kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Result<Self, LoweringInputError> {
-        if !requires_mir(unit.key().kind()) {
+        if !requires_mir(unit.key()) {
             return Err(LoweringInputError::CompileTimeUnitRequiresClassification);
         }
 
@@ -195,6 +196,7 @@ impl<'unit> LoweringInput<'unit> {
             semantic_values,
             available_compiler_known_symbols,
             constant_reference_values: &[],
+            static_owner: None,
             unit_kind,
             target,
         })
@@ -290,6 +292,24 @@ impl<'unit> LoweringInput<'unit> {
         self.constant_reference_values = values;
 
         Ok(self)
+    }
+
+    /// Adds the open self realization carried by one static initializer template.
+    pub fn with_static_owner(
+        mut self,
+        reference: bray_symbols::StaticReferenceSelection,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        self.static_owner = Some((reference, ty));
+
+        self
+    }
+
+    /// Returns the open self realization carried by a static initializer template.
+    pub const fn static_owner(
+        &self,
+    ) -> Option<&(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)> {
+        self.static_owner.as_ref()
     }
 
     /// Returns the closed value reached by one constant reference occurrence.

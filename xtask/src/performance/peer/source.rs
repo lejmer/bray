@@ -66,9 +66,7 @@ pub(in crate::performance) fn corpus_contract(workload: &str) -> String {
     contract
 }
 
-pub(in crate::performance) fn comparison_contract(
-    workload: &str,
-) -> Option<&'static str> {
+pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'static str> {
     match workload {
         "small_output" => Some("start and complete an empty program once"),
         "incremental_bytes_small" => Some(

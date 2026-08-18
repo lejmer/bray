@@ -9,12 +9,12 @@ use bray_symbols::{
     CallableParameterSymbolId, CallableSignatureQuery, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ErrorCallableParameterDefault,
     ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId,
-    GenericParameterSymbolId, GenericSubstitutionData, RuntimeDefaultBehavior,
-    RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
-    StructFieldDefaultQuery, StructFieldDefaultSurface, StructFieldDefaultTemplateQuery,
-    StructFieldDefaultValue, StructFieldSymbolId, SymbolQueryRequest, TrustedCapabilitySymbolId,
-    TypeData, TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface,
-    UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    GenericParameterSymbolId, RuntimeDefaultBehavior, RuntimeDefaultGenericContext,
+    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultQuery,
+    StructFieldDefaultSurface, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
+    StructFieldSymbolId, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData, TypeId,
+    UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
     UnionPayloadFieldSymbolId,
 };
 
@@ -27,7 +27,6 @@ use super::lookup::{
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBindingContext;
-use crate::compilation::substitution::generic_parameter_argument;
 use crate::fact::SymbolQueryCache;
 
 impl_declaration_body_query!(
@@ -357,23 +356,12 @@ fn generic_context(
     let generic_owner =
         GenericOwnerId::try_new(declaration).ok_or(BindingQueryError::DependencyUnavailable)?;
 
-    let arguments = parameters
-        .iter()
-        .copied()
-        .map(|parameter| {
-            generic_parameter_argument(context.semantic_values(), parameter)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)
-        })
-        .collect::<BindingQueryResult<Vec<_>>>()?;
-
-    let substitution =
-        GenericSubstitutionData::try_new(generic_owner, parameters.iter().copied(), arguments)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
-
-    let substitution = context
-        .semantic_values()
-        .intern_generic_substitution(substitution)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let substitution = crate::compilation::substitution::identity_substitution(
+        context.semantic_values(),
+        generic_owner,
+        &parameters,
+    )
+    .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     RuntimeDefaultGenericContext::generic(parameters, substitution)
         .ok_or(BindingQueryError::DependencyUnavailable)

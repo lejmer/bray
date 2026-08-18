@@ -44,9 +44,7 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
         return Err("library compilation report uses the wrong comparison kind".to_owned());
     }
 
-    if report.application_compilation.contract
-        != super::compilation::MATCHED_APPLICATION_CONTRACT
-    {
+    if report.application_compilation.contract != super::compilation::MATCHED_APPLICATION_CONTRACT {
         return Err("application compilation report uses the wrong source contract".to_owned());
     }
 
@@ -414,8 +412,7 @@ fn validate_peers(
             || report.build_configuration.production.arguments.is_empty()
             || report.build_configuration.timed.arguments.is_empty()
             || report.build_configuration.linker.is_empty()
-            || report.build_configuration.runtime_linkage
-                != super::peer::runtime_linkage(target)?
+            || report.build_configuration.runtime_linkage != super::peer::runtime_linkage(target)?
             || !super::peer::build_configuration_matches(
                 *language,
                 &workload.id,

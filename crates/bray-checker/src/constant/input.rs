@@ -101,8 +101,7 @@ impl<'input> ConstantEvaluationInput<'input> {
         self
     }
 
-    /// Permits shared address formation for static storage while validating an initializer
-    /// template. The resulting term is a validation recovery value and is not evaluated.
+    /// Permits shared address formation for static storage in an initializer template.
     pub const fn with_static_address_borrows(mut self) -> Self {
         self.allow_static_address_borrows = true;
 
