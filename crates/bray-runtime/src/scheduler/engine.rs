@@ -82,6 +82,10 @@ pub(super) struct TimerWake {
 }
 
 impl Scheduler {
+    pub(crate) fn wake_waiters(&self) {
+        let _ = self.data.event.wake_handle().wake();
+    }
+
     /// Creates a scheduler from validated runtime capabilities and explicit limits.
     pub fn new(
         capabilities: impl IntoIterator<Item = RuntimeCapability>,

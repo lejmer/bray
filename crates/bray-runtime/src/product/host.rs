@@ -36,6 +36,7 @@ struct ProductStatic {
 
 struct ProductHost {
     identity: NativeProductIdentity,
+    runtime: crate::native::RetainedRuntime,
     state: NativeProductHostState,
     active_entries: usize,
     external_roots: usize,
@@ -85,6 +86,7 @@ impl ProductHost {
 
 struct PendingCleanup {
     product: usize,
+    runtime: crate::native::RetainedRuntime,
     statics: Vec<ProductStatic>,
 }
 
@@ -445,24 +447,26 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 
     Some(PendingCleanup {
         product,
+        runtime: host.runtime.clone(),
         statics: host.product_cleanups(),
     })
 }
 
 fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
-    let (mut incidents, runtime_incidents) = crate::native::with_static_cleanup_runtime(|| {
-        let mut incidents = Vec::new();
+    let (mut incidents, runtime_incidents) =
+        crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
+            let mut incidents = Vec::new();
 
-        for entry in &cleanup.statics {
-            incidents.extend(
-                run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
-                    .into_iter()
-                    .map(|incident| (entry.identity, incident)),
-            );
-        }
+            for entry in &cleanup.statics {
+                incidents.extend(
+                    run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
+                        .into_iter()
+                        .map(|incident| (entry.identity, incident)),
+                );
+            }
 
-        incidents
-    });
+            incidents
+        });
 
     let runtime_identity = cleanup
         .statics
@@ -483,6 +487,8 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     }
 
     let Ok(mut hosts) = product_hosts().lock() else {
+        cleanup.runtime.release();
+
         return NativeProductHostObservation::new(
             NativeProductHostStatus::RUNTIME_FAILURE,
             NativeProductHostState::FAILED,
@@ -497,6 +503,8 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     };
 
     let Some(host) = hosts.get_mut(&cleanup.product) else {
+        cleanup.runtime.release();
+
         return NativeProductHostObservation::invalid();
     };
 
@@ -505,6 +513,8 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     host.last_incident = last_incident.unwrap_or(host.last_incident);
     host.cleanup_running = false;
     host.state = NativeProductHostState::CLOSED;
+
+    cleanup.runtime.release();
 
     host.observation(status_for_state(host))
 }
@@ -532,14 +542,35 @@ fn ensure_formed(
         return Ok(());
     }
 
-    let host = read_descriptor(descriptor).ok_or_else(NativeProductHostObservation::invalid)?;
+    let runtime = crate::native::retain_runtime().map_err(|_| {
+        NativeProductHostObservation::new(
+            NativeProductHostStatus::RUNTIME_FAILURE,
+            NativeProductHostState::FAILED,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            NativeStaticIdentity::new([0; 32]),
+        )
+    })?;
+
+    let Some(host) = read_descriptor(descriptor, runtime.clone()) else {
+        runtime.release();
+
+        return Err(NativeProductHostObservation::invalid());
+    };
 
     hosts.insert(product, host);
 
     Ok(())
 }
 
-fn read_descriptor(descriptor: &NativeProductHostDescriptor) -> Option<ProductHost> {
+fn read_descriptor(
+    descriptor: &NativeProductHostDescriptor,
+    runtime: crate::native::RetainedRuntime,
+) -> Option<ProductHost> {
     if descriptor.abi_version() != PRODUCT_HOST_ABI_VERSION
         || descriptor.static_count() > MAXIMUM_STATIC_ENTRIES
     {
@@ -626,6 +657,7 @@ fn read_descriptor(descriptor: &NativeProductHostDescriptor) -> Option<ProductHo
 
     Some(ProductHost {
         identity: descriptor.identity(),
+        runtime,
         state: NativeProductHostState::OPEN,
         active_entries: 0,
         external_roots: 0,
@@ -722,9 +754,29 @@ pub(super) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
 }
 
 fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
-    let runtime_owner = entries.first().copied();
+    let mut products = BTreeMap::<(NativeProductIdentity, usize), Vec<ThreadStaticEntry>>::new();
 
-    let (_, runtime_incidents) = crate::native::with_static_cleanup_runtime(|| {
+    for entry in entries {
+        products
+            .entry((entry.product_identity, entry.product))
+            .or_default()
+            .push(entry);
+    }
+
+    for ((_, product), entries) in products {
+        run_product_thread_cleanups(product, entries);
+    }
+}
+
+fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) {
+    let owner = entries.first().copied();
+
+    let runtime = product_hosts()
+        .lock()
+        .ok()
+        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()));
+
+    let cleanup = || {
         for entry in entries {
             let incidents =
                 run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
@@ -737,9 +789,14 @@ fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
 
             report_incidents(entry.product, entry.static_identity, count);
         }
-    });
+    };
 
-    let Some(owner) = runtime_owner else {
+    let (_, runtime_incidents) = match runtime.as_ref() {
+        Some(runtime) => crate::native::with_retained_static_cleanup_runtime(runtime, cleanup),
+        None => crate::native::with_static_cleanup_runtime(cleanup),
+    };
+
+    let Some(owner) = owner else {
         return;
     };
 

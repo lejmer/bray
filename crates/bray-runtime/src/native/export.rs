@@ -626,7 +626,7 @@ mod tests {
 
         assert_eq!(
             bray_runtime_main_thread_lane_drive_v1(),
-            NativeRuntimeStatus::SUCCESS
+            NativeRuntimeStatus::PENDING
         );
 
         assert_eq!(

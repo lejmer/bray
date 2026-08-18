@@ -60,31 +60,54 @@ pub(crate) fn run_static_finalizer(
 pub(crate) fn with_static_cleanup_runtime<T>(
     callback: impl FnOnce() -> T,
 ) -> (T, Vec<crate::product::CleanupIncident>) {
-    use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+    with_selected_static_cleanup_runtime(None, callback)
+}
 
-    let initialized =
-        super::state::initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
+pub(crate) fn with_retained_static_cleanup_runtime<T>(
+    runtime: &super::state::RetainedRuntime,
+    callback: impl FnOnce() -> T,
+) -> (T, Vec<crate::product::CleanupIncident>) {
+    with_selected_static_cleanup_runtime(Some(runtime), callback)
+}
 
-    let temporary = initialized == NativeRuntimeStatus::SUCCESS;
-    let available = temporary || initialized == NativeRuntimeStatus::ALREADY_INITIALIZED;
-    let result = callback();
+fn with_selected_static_cleanup_runtime<T>(
+    runtime: Option<&super::state::RetainedRuntime>,
+    callback: impl FnOnce() -> T,
+) -> (T, Vec<crate::product::CleanupIncident>) {
+
+    let mut callback = Some(callback);
+    let mut result = None;
     let mut incidents = Vec::new();
 
-    if !available {
-        incidents.push(crate::product::CleanupIncident::runtime_failure());
+    let runtime = super::state::with_cleanup_runtime(runtime, || {
+            let Some(callback) = callback.take() else {
+                return false;
+            };
 
-        return (result, incidents);
-    }
+            result = Some(callback());
 
-    if super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-        .map_or(true, |status| !status.is_success())
+            super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
+                .is_ok_and(|status| status.is_success())
+        });
+
+    let runtime_succeeded = match runtime {
+        Ok((reported, shutdown)) => reported && shutdown.is_success(),
+        Err(_) => false,
+    };
+
+    if result.is_none()
+        && let Some(callback) = callback.take()
     {
+        result = Some(callback());
+    }
+
+    if !runtime_succeeded {
         incidents.push(crate::product::CleanupIncident::runtime_failure());
     }
 
-    if temporary && !super::state::shutdown().is_success() {
-        incidents.push(crate::product::CleanupIncident::runtime_failure());
-    }
+    let Some(result) = result else {
+        unreachable!("static cleanup callback must run exactly once")
+    };
 
     (result, incidents)
 }
@@ -116,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_runtime_services_every_checked_finalizer_lane() {
+    fn cleanup_runtime_services_every_owned_cleanup_lane() {
         let cases = [
             (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE),
             (
@@ -126,10 +149,6 @@ mod tests {
             (
                 NativeFrameAffinity::MOVABLE,
                 NativeLaneRequirements::COMPUTE,
-            ),
-            (
-                NativeFrameAffinity::MAIN_THREAD,
-                NativeLaneRequirements::MAIN_THREAD,
             ),
         ];
 
@@ -144,6 +163,38 @@ mod tests {
 
         assert!(incidents.is_empty());
         assert!(runtime_incidents.is_empty());
+    }
+
+    #[test]
+    fn cleanup_runtime_requires_a_retained_main_thread_identity() {
+        let main_frame = || {
+            inactive_frame(
+                NativeFrameAffinity::MAIN_THREAD,
+                NativeLaneRequirements::MAIN_THREAD,
+            )
+        };
+
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            run_static_finalizer(main_frame(), resolve)
+        });
+
+        assert_eq!(incidents.len(), 1);
+        assert!(runtime_incidents.is_empty());
+
+        assert!(
+            super::super::state::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(
+                16, 16,
+            ))
+            .is_success()
+        );
+
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            run_static_finalizer(main_frame(), resolve)
+        });
+
+        assert!(incidents.is_empty());
+        assert!(runtime_incidents.is_empty());
+        assert!(super::super::state::shutdown().is_success());
     }
 
     fn inactive_frame(
