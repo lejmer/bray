@@ -1417,9 +1417,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
-    fn atomic_order(
-        &mut self,
-    ) -> Result<MemoryOrder, ExecutableTemplateDecodeError> {
+    fn atomic_order(&mut self) -> Result<MemoryOrder, ExecutableTemplateDecodeError> {
         MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
             .ok_or(ExecutableTemplateDecodeError::Malformed)
     }
@@ -1996,8 +1994,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     }
 
                     states.push(
-                        MirFrameState::new(state, entry, lanes, storages)
-                            .with_affinity(affinity),
+                        MirFrameState::new(state, entry, lanes, storages).with_affinity(affinity),
                     );
                 }
 

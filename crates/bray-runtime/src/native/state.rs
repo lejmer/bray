@@ -603,12 +603,22 @@ impl NativeRuntime {
 
         let thread = self.thread.runtime().id();
 
-        let lane = ExecutionLane::new(
-            ExecutionLanePlacement::MainThread(thread),
-            ExecutionWorkload::Cooperative,
-        );
+        let lanes = [
+            ExecutionLane::new(
+                ExecutionLanePlacement::MainThread(thread),
+                ExecutionWorkload::Cooperative,
+            ),
+            ExecutionLane::new(
+                ExecutionLanePlacement::OriginThread(thread),
+                ExecutionWorkload::Cooperative,
+            ),
+            ExecutionLane::new(
+                ExecutionLanePlacement::PinnedWorker(thread),
+                ExecutionWorkload::Cooperative,
+            ),
+        ];
 
-        match self.scheduler.wait_ready(lane, None) {
+        match self.scheduler.wait_ready_from(&lanes, None) {
             Ok(Some(ready)) => self.drive_ready(ready),
             Ok(None) | Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
         }

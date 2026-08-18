@@ -1,5 +1,5 @@
-mod compiler;
 mod comparison_build;
+mod compiler;
 mod execution;
 mod identity;
 mod measurement;

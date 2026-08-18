@@ -474,9 +474,7 @@ where
         Ok(TemplateResolution::Resolved(arguments)) => {
             crate::CheckerOutcome::complete(Some(arguments), diagnostics)
         }
-        Ok(TemplateResolution::Unsupported) => {
-            crate::CheckerOutcome::complete(None, diagnostics)
-        }
+        Ok(TemplateResolution::Unsupported) => crate::CheckerOutcome::complete(None, diagnostics),
         Err(error) => crate::CheckerOutcome::InfrastructureFailure(error),
     }
 }

@@ -2,16 +2,17 @@ use bray_codegen::{
     CodegenFailure, CodegenMappings, CodegenProductHostMapping, CodegenStaticStorageMapping,
 };
 use inkwell::module::{Linkage, Module};
-use inkwell::types::{BasicTypeEnum, PointerType};
+use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
 use super::super::symbol::apply_signature_call_attributes;
 use super::constant::static_initializer;
+use super::finalization::declare_static_finalizer;
 use super::host::{
-    declare_product_host, declare_static_host_entry, declare_thread_static_registration,
-    retain_globals,
+    StaticLifecycleCallbacks, declare_product_host, declare_static_host_entry,
+    declare_thread_static_registration, retain_globals,
 };
 
 pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
@@ -36,7 +37,7 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
         let global = declare_static_global(module, mapping, initializer, alignment);
         let attachment = declare_static_attachment(module, mapping, types)?;
 
-        let cleanup = declare_static_cleanup(
+        let callbacks = declare_static_lifecycle_callbacks(
             module,
             mappings,
             mapping,
@@ -52,7 +53,7 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
             global.as_pointer_value(),
             attachment.map(GlobalValue::as_pointer_value),
             initializer,
-            cleanup,
+            callbacks,
             product_host,
             types,
         )?;
@@ -71,7 +72,7 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
             host_mapping,
             global.as_pointer_value(),
             accessor,
-            cleanup,
+            callbacks,
             types,
         )?);
     }
@@ -93,22 +94,22 @@ fn declare_static_global<'context>(
 ) -> GlobalValue<'context> {
     let name = mapping.symbol().as_str();
 
-    module.get_global(name).unwrap_or_else(|| {
-        let global = module.add_global(initializer.get_type(), None, name);
+    let global = module
+        .get_global(name)
+        .unwrap_or_else(|| module.add_global(initializer.get_type(), None, name));
 
-        global.set_initializer(&initializer);
-        global.set_alignment(alignment);
-        global.set_linkage(Linkage::WeakODR);
-        global.set_visibility(GlobalVisibility::Hidden);
+    global.set_initializer(&initializer);
+    global.set_alignment(alignment);
+    global.set_linkage(Linkage::WeakODR);
+    global.set_visibility(GlobalVisibility::Hidden);
 
-        if mapping.instance().duration() == bray_symbols::StaticStorageDuration::ExactThread {
-            global.set_thread_local(true);
-        }
+    if mapping.instance().duration() == bray_symbols::StaticStorageDuration::ExactThread {
+        global.set_thread_local(true);
+    }
 
-        global.set_comdat(module.get_or_insert_comdat(name));
+    global.set_comdat(module.get_or_insert_comdat(name));
 
-        global
-    })
+    global
 }
 
 fn declare_static_attachment<'context>(
@@ -148,7 +149,7 @@ fn declare_static_accessor<'context>(
     storage: PointerValue<'context>,
     attachment: Option<PointerValue<'context>>,
     initializer: BasicValueEnum<'context>,
-    cleanup: FunctionValue<'context>,
+    callbacks: StaticLifecycleCallbacks<'context>,
     product_host: Option<&CodegenProductHostMapping>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
@@ -179,14 +180,36 @@ fn declare_static_accessor<'context>(
 
     if let Some(attachment) = attachment {
         let product_host = product_host.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let registration = declare_thread_static_registration(
+            module,
+            product_host,
+            mapping,
+            callbacks,
+            pointer,
+            types,
+        )?;
+
+        let descriptor = module
+            .get_global(product_host.descriptor_symbol().as_str())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let identity_name = bray_runtime_abi::THREAD_ATTACHMENT_IDENTITY_SYMBOL;
 
         let identity = module.get_function(identity_name).unwrap_or_else(|| {
-            module.add_function(identity_name, context.i64_type().fn_type(&[], false), None)
+            module.add_function(
+                identity_name,
+                context.i64_type().fn_type(&[pointer.into()], false),
+                None,
+            )
         });
 
         let current = builder
-            .build_call(identity, &[], "static.attachment.current")
+            .build_call(
+                identity,
+                &[descriptor.as_pointer_value().into()],
+                "static.attachment.current",
+            )
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
             .try_as_basic_value()
             .basic()
@@ -217,18 +240,35 @@ fn declare_static_accessor<'context>(
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         let available = builder
-            .build_not(cleaning, "static.attachment.available")
+            .build_int_compare(
+                IntPredicate::NE,
+                current,
+                context.i64_type().const_zero(),
+                "static.attachment.attached",
+            )
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
-        let initialize = builder
-            .build_and(changed, available, "static.attachment.initialize")
+        let not_cleaning = builder
+            .build_not(cleaning, "static.attachment.not_cleaning")
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
+        let available = builder
+            .build_and(available, not_cleaning, "static.attachment.available")
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        let decision = context.append_basic_block(accessor, "static.attachment.decision");
         let initialize_block = context.append_basic_block(accessor, "static.attachment.initialize");
         let ready = context.append_basic_block(accessor, "static.attachment.ready");
+        let unavailable = context.append_basic_block(accessor, "static.attachment.unavailable");
 
         builder
-            .build_conditional_branch(initialize, initialize_block, ready)
+            .build_conditional_branch(available, decision, unavailable)
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        builder.position_at_end(decision);
+
+        builder
+            .build_conditional_branch(changed, initialize_block, ready)
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         builder.position_at_end(initialize_block);
@@ -236,15 +276,6 @@ fn declare_static_accessor<'context>(
         builder
             .build_store(storage, initializer)
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-        let registration = declare_thread_static_registration(
-            module,
-            product_host,
-            mapping,
-            cleanup,
-            pointer,
-            types,
-        )?;
 
         let register_name = bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL;
 
@@ -280,7 +311,7 @@ fn declare_static_accessor<'context>(
         let registered_block = context.append_basic_block(accessor, "static.attachment.registered");
 
         builder
-            .build_conditional_branch(registered, registered_block, ready)
+            .build_conditional_branch(registered, registered_block, unavailable)
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         builder.position_at_end(registered_block);
@@ -294,6 +325,18 @@ fn declare_static_accessor<'context>(
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         builder.position_at_end(ready);
+
+        builder
+            .build_return(Some(&storage))
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        builder.position_at_end(unavailable);
+
+        builder
+            .build_return(Some(&pointer.const_null()))
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+        return Ok(accessor);
     }
 
     builder
@@ -303,7 +346,7 @@ fn declare_static_accessor<'context>(
     Ok(accessor)
 }
 
-fn declare_static_cleanup<'context>(
+fn declare_static_lifecycle_callbacks<'context>(
     module: &Module<'context>,
     mappings: &CodegenMappings,
     mapping: &CodegenStaticStorageMapping,
@@ -311,52 +354,52 @@ fn declare_static_cleanup<'context>(
     attachment: Option<PointerValue<'context>>,
     initializer: BasicValueEnum<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
-) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = mapping.cleanup_name();
+) -> Result<StaticLifecycleCallbacks<'context>, CodegenFailure> {
+    let prepare = declare_static_prepare(module, mapping, attachment, types)?;
 
-    if let Some(cleanup) = module.get_function(&name) {
-        return Ok(cleanup);
+    let finalizer = declare_static_finalizer(module, mappings, mapping, storage, types)?;
+
+    let destroy = declare_static_lifecycle_phase(
+        module,
+        mappings,
+        mapping.destroy(),
+        &mapping.destroy_name(),
+        "static.destroy",
+        storage,
+        types,
+    )?;
+
+    let detach = declare_static_detach(module, mapping, storage, attachment, initializer, types)?;
+
+    Ok(StaticLifecycleCallbacks {
+        prepare,
+        finalizer,
+        destroy,
+        detach,
+    })
+}
+
+fn declare_static_prepare<'context>(
+    module: &Module<'context>,
+    mapping: &CodegenStaticStorageMapping,
+    attachment: Option<PointerValue<'context>>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let name = mapping.prepare_name();
+
+    if let Some(prepare) = module.get_function(&name) {
+        return Ok(prepare);
     }
 
     let context = types.context();
-    let cleanup = module.add_function(&name, context.void_type().fn_type(&[], false), None);
-
-    cleanup.set_linkage(Linkage::WeakODR);
-
-    cleanup
-        .as_global_value()
-        .set_visibility(GlobalVisibility::Hidden);
-
-    cleanup
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(&name));
-
+    let prepare = declare_static_callback(module, &name, "static.prepare", types);
     let builder = context.create_builder();
-    let entry = context.append_basic_block(cleanup, "static.cleanup");
+
+    let entry = prepare
+        .get_first_basic_block()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     builder.position_at_end(entry);
-
-    let cleanup_storage = if mapping.cleanup().is_some() {
-        let value = builder
-            .build_load(types.map(mapping.ty())?, storage, "static.cleanup.value")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-        let cleanup_storage = builder
-            .build_alloca(types.map(mapping.ty())?, "static.cleanup.storage")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-        builder
-            .build_store(cleanup_storage, value)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-        Some(cleanup_storage)
-    } else {
-        None
-    };
-
-    builder
-        .build_store(storage, initializer)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     if let Some(attachment) = attachment {
         builder
@@ -364,7 +407,40 @@ fn declare_static_cleanup<'context>(
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
     }
 
-    if let Some(instance) = mapping.cleanup() {
+    builder
+        .build_return(None)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    Ok(prepare)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one lifecycle phase keeps its selected native function and storage explicit"
+)]
+fn declare_static_lifecycle_phase<'context>(
+    module: &Module<'context>,
+    mappings: &CodegenMappings,
+    instance: Option<&bray_codegen::CodegenInstanceKey>,
+    name: &str,
+    block_name: &str,
+    storage: PointerValue<'context>,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    if let Some(callback) = module.get_function(name) {
+        return Ok(callback);
+    }
+
+    let callback = declare_static_callback(module, name, block_name, types);
+    let builder = types.context().create_builder();
+
+    let entry = callback
+        .get_first_basic_block()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder.position_at_end(entry);
+
+    if let Some(instance) = instance {
         let symbol = mappings
             .instance_symbol(instance)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -374,20 +450,49 @@ fn declare_static_cleanup<'context>(
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let call = builder
-            .build_call(
-                function,
-                &[cleanup_storage
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?
-                    .into()],
-                "",
-            )
+            .build_call(function, &[storage.into()], "")
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         call.set_call_convention(function.get_call_conventions());
         apply_signature_call_attributes(call, symbol.signature(), types)?;
     }
 
+    builder
+        .build_return(None)
+        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
+    Ok(callback)
+}
+
+fn declare_static_detach<'context>(
+    module: &Module<'context>,
+    mapping: &CodegenStaticStorageMapping,
+    storage: PointerValue<'context>,
+    attachment: Option<PointerValue<'context>>,
+    initializer: BasicValueEnum<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let name = mapping.detach_name();
+
+    if let Some(detach) = module.get_function(&name) {
+        return Ok(detach);
+    }
+
+    let context = types.context();
+    let detach = declare_static_callback(module, &name, "static.detach", types);
+    let builder = context.create_builder();
+
+    let entry = detach
+        .get_first_basic_block()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder.position_at_end(entry);
+
     if let Some(attachment) = attachment {
+        builder
+            .build_store(storage, initializer)
+            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+
         builder
             .build_store(attachment, context.i64_type().const_zero())
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
@@ -397,7 +502,46 @@ fn declare_static_cleanup<'context>(
         .build_return(None)
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
-    Ok(cleanup)
+    Ok(detach)
+}
+
+fn declare_static_callback<'context>(
+    module: &Module<'context>,
+    name: &str,
+    block_name: &str,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> FunctionValue<'context> {
+    declare_static_callback_with_type(
+        module,
+        name,
+        block_name,
+        types.context().void_type().fn_type(&[], false),
+    )
+}
+
+pub(super) fn declare_static_callback_with_type<'context>(
+    module: &Module<'context>,
+    name: &str,
+    block_name: &str,
+    ty: FunctionType<'context>,
+) -> FunctionValue<'context> {
+    let callback = module.add_function(name, ty, None);
+
+    callback.set_linkage(Linkage::WeakODR);
+
+    callback
+        .as_global_value()
+        .set_visibility(GlobalVisibility::Hidden);
+
+    callback
+        .as_global_value()
+        .set_comdat(module.get_or_insert_comdat(name));
+
+    module
+        .get_context()
+        .append_basic_block(callback, block_name);
+
+    callback
 }
 
 pub(super) fn pointer_type<'context>(

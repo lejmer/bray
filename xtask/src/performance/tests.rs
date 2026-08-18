@@ -291,7 +291,10 @@ fn compilation_reuse_excludes_application_owned_objects() {
     )
     .runtime;
 
-    assert_eq!(build.reuse.runtime.entries, [retained("std.lib", "runtime.o")]);
+    assert_eq!(
+        build.reuse.runtime.entries,
+        [retained("std.lib", "runtime.o")]
+    );
 }
 
 #[test]
@@ -490,7 +493,13 @@ fn matched_compilation_lanes_record_external_source_authority() {
         assert!(!build.reuse.packaged_library.entries.is_empty());
         assert!(!build.reuse.runtime.entries.is_empty());
         assert!(!build.compiler.program.is_empty());
-        assert!(build.evidence.as_ref().is_some_and(|evidence| evidence.linker_map.is_some()));
+
+        assert!(
+            build
+                .evidence
+                .as_ref()
+                .is_some_and(|evidence| evidence.linker_map.is_some())
+        );
 
         assert!(!build.compiler.arguments.iter().any(|argument| {
             argument == "--profile"
@@ -807,7 +816,10 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             authority: super::compilation::authority(
                 1,
                 11,
-                [format!("{}.performance_peer", peer_language_name(language)), "precompiled_standard_library".to_owned()],
+                [
+                    format!("{}.performance_peer", peer_language_name(language)),
+                    "precompiled_standard_library".to_owned(),
+                ],
                 [match language {
                     PeerLanguage::Rust => "crate".to_owned(),
                     PeerLanguage::Cpp => "translation_unit".to_owned(),
@@ -1085,10 +1097,7 @@ fn matched_compiler(
             ]);
 
             if kind == CompilationKind::Application {
-                arguments.extend([
-                    "--runtime-artifact".to_owned(),
-                    "runtime.json".to_owned(),
-                ]);
+                arguments.extend(["--runtime-artifact".to_owned(), "runtime.json".to_owned()]);
 
                 if evidence {
                     arguments.extend([
@@ -1125,10 +1134,7 @@ fn matched_compiler(
                     "obj".to_owned(),
                 ]);
             } else if evidence {
-                arguments.extend([
-                    "-C".to_owned(),
-                    "link-arg=/MAP:application.map".to_owned(),
-                ]);
+                arguments.extend(["-C".to_owned(), "link-arg=/MAP:application.map".to_owned()]);
             }
 
             arguments.extend(["-o".to_owned(), "out".to_owned()]);
@@ -1150,11 +1156,7 @@ fn matched_compiler(
                 arguments.push("-Wl,/MAP:application.map".to_owned());
             }
 
-            arguments.extend([
-                "source.cpp".to_owned(),
-                "-o".to_owned(),
-                "out".to_owned(),
-            ]);
+            arguments.extend(["source.cpp".to_owned(), "-o".to_owned(), "out".to_owned()]);
 
             ("clang", arguments)
         }

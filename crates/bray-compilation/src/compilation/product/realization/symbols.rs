@@ -4,20 +4,14 @@ use std::hash::{Hash, Hasher};
 use bray_base::StableDigestHasher;
 use bray_binder::BindingQueryContext;
 use bray_codegen::{
-    CodegenCallableMapping, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenOperationMapping, CodegenPartitionCompatibility,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping,
-    CodegenUnit, child_constants,
-    demanded_callable_instances, demanded_constant_terms,
-    demanded_constants,
+    CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
+    CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenOperationMapping,
+    CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenUnit, child_constants, demanded_callable_instances,
+    demanded_constant_terms, demanded_constants,
 };
-use bray_ir::{
-    MirUnitKey, MirUnitKind,
-};
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation,
-};
+use bray_ir::{MirUnitKey, MirUnitKind};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
 use bray_symbols::{
     AnySymbolId, CallableAbi, ConstantTermData, PackageIdentity, SymbolKey, SymbolKeyData,
 };
@@ -28,13 +22,13 @@ use super::super::super::binder::CompilationBindingContext;
 use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
-use crate::fact::{CancellationToken, FactQueryError};
 use super::names::{
     binary_symbol_name, generated_frame_symbol_name, generated_instance_symbol_name,
 };
 use super::support::{
     codegen_runtime_references, native_boundary_mapping, source_backed_symbol_key, void_signature,
 };
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(super) fn codegen_symbols(
@@ -63,7 +57,7 @@ impl Compilation {
                         instance.key(),
                     )?;
 
-                    let signature = self.generated_lifecycle_signature(reference)?;
+                    let signature = self.generated_lifecycle_signature(reference, cancellation)?;
 
                     (name, CodegenLinkage::Internal, signature)
                 }
@@ -614,5 +608,4 @@ impl Compilation {
 
         Ok((terms, terminators))
     }
-
 }

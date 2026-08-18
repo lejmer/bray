@@ -423,16 +423,32 @@ mod tests {
         };
 
         assert_eq!(production.path().dotted(), "net");
-        assert_eq!(production.syntax_kind(), SyntaxKind::SourceUnitModuleDeclaration);
-        assert_eq!(identifier_names(production.declarations()), ["parse_packet"]);
+
+        assert_eq!(
+            production.syntax_kind(),
+            SyntaxKind::SourceUnitModuleDeclaration
+        );
+
+        assert_eq!(
+            identifier_names(production.declarations()),
+            ["parse_packet"]
+        );
+
         assert!(production.surface().directives().is_empty());
 
         assert_eq!(tests.path().dotted(), "net.tests");
         assert_eq!(tests.syntax_kind(), SyntaxKind::BlockModuleDeclaration);
-        assert_eq!(identifier_names(tests.declarations()), ["parses_minimal_packet"]);
+
+        assert_eq!(
+            identifier_names(tests.declarations()),
+            ["parses_minimal_packet"]
+        );
 
         let [test_directive] = tests.surface().directives() else {
-            panic!("expected one test directive: {:?}", tests.surface().directives());
+            panic!(
+                "expected one test directive: {:?}",
+                tests.surface().directives()
+            );
         };
 
         assert_eq!(test_directive.syntax_kind(), SyntaxKind::TestDirective);

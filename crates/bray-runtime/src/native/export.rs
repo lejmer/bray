@@ -18,10 +18,10 @@ use super::callback::PropagatedPanicReport;
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
 native_export! {
-    pub extern "C" fn bray_runtime_thread_attachment_identity_v1() -> u64 {
-        bray_platform::current_runtime_thread()
-            .map(|thread| thread.id().raw())
-            .unwrap_or(0)
+    pub extern "C" fn bray_runtime_thread_attachment_identity_v1(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64 {
+        crate::product::thread_attachment_identity(descriptor)
     }
 }
 
@@ -34,7 +34,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_product_host_control_v1(
+    pub extern "C" fn bray_runtime_product_host_control_v3(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {

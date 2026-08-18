@@ -12,15 +12,14 @@ use bray_symbols::{
     ImplementationSubjectQuery, ImplementationSymbolId, ImplementedTraitApplicationQuery,
     InherentTypeMemberValueQuery, ModuleSurfaceQuery, ModuleSymbolId, PredicateDefinitionQuery,
     PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery,
-    StaticInstanceTemplateQuery, StructFieldDefaultQuery,
-    StructFieldDefaultTemplateQuery, StructFieldSymbolId, StructFieldTypeQuery,
-    SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionQuery, SymbolQueryContract,
-    SymbolQueryKind, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
-    TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
-    TraitConstantMemberDefinitionQuery, TraitPredicateFulfillmentDefinitionQuery,
-    TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
-    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
-    UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery,
+    StaticInstanceTemplateQuery, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery,
+    StructFieldSymbolId, StructFieldTypeQuery, SymbolCompletionEvaluator, SymbolCompletionLevel,
+    SymbolCompletionQuery, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
+    TraitTypeFulfillmentValueQuery, UnionPayloadFieldDefaultQuery,
+    UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::binding_query_error;

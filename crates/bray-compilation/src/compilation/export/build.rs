@@ -789,7 +789,12 @@ mod tests {
                 .is_some()
         );
 
-        assert!(bundle.surface().symbol_by_external_key(&test_module).is_none());
+        assert!(
+            bundle
+                .surface()
+                .symbol_by_external_key(&test_module)
+                .is_none()
+        );
     }
 
     #[test]

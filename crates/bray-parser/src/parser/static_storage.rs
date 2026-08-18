@@ -98,13 +98,11 @@ impl Parser {
     }
 
     fn at_static_initializer_boundary(&mut self) -> bool {
-        self.at_any(&STATIC_INITIALIZER_BOUNDARY_KINDS)
-            || self.at_static_following_item_start()
+        self.at_any(&STATIC_INITIALIZER_BOUNDARY_KINDS) || self.at_static_following_item_start()
     }
 
     fn at_static_declaration_end(&mut self) -> bool {
-        self.at_any(&STATIC_INITIALIZER_BOUNDARY_KINDS)
-            || self.at_static_following_item_start()
+        self.at_any(&STATIC_INITIALIZER_BOUNDARY_KINDS) || self.at_static_following_item_start()
     }
 
     fn at_static_following_item_start(&mut self) -> bool {
@@ -117,11 +115,9 @@ impl Parser {
         }
 
         self.scan_ahead(|scan| {
-            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| {
-                match name {
-                    THREAD_LOCAL_DIRECTIVE_NAME => DirectiveScanKind::Bare,
-                    _ => DirectiveScanKind::Unknown,
-                }
+            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| match name {
+                THREAD_LOCAL_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                _ => DirectiveScanKind::Unknown,
             });
 
             if scan.at_visibility_modifier() {
@@ -154,7 +150,10 @@ mod tests {
             panic!("expected one static declaration: {declarations:?}");
         };
 
-        assert_eq!(declaration.full_text(), source.strip_prefix("module app; ").unwrap());
+        assert_eq!(
+            declaration.full_text(),
+            source.strip_prefix("module app; ").unwrap()
+        );
 
         assert_eq!(
             declaration
@@ -176,7 +175,9 @@ mod tests {
         assert_eq!(declaration.with_clauses().count(), 1);
 
         assert_eq!(
-            declaration.expression().map(|expression| expression.full_text()),
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
             Some("default<T>()".into())
         );
 

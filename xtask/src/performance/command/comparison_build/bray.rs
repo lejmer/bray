@@ -8,12 +8,11 @@ use crate::performance::compilation::{
     authority, empty_reuse_evidence, external_invocation, source_bytes, source_digest,
 };
 use crate::performance::model::{
-    ArtifactKind, CompilationBuildReport, CompilationEvidenceReport, CompilationKind,
-    LibraryReuse, LinkerInvocationReport,
+    ArtifactKind, CompilationBuildReport, CompilationEvidenceReport, CompilationKind, LibraryReuse,
+    LinkerInvocationReport,
 };
 
-const APPLICATION_SOURCE: &str =
-    include_str!("../../../../fixtures/performance-application.bray");
+const APPLICATION_SOURCE: &str = include_str!("../../../../fixtures/performance-application.bray");
 const LIBRARY_SOURCE: &str = include_str!("../../../../fixtures/performance-library.bray");
 
 pub(super) fn build(
@@ -168,11 +167,7 @@ pub(super) fn build(
         compiler: run.invocation,
         linker,
         evidence: Some(CompilationEvidenceReport {
-            compiler: external_invocation(
-                compiler_identity,
-                evidence_arguments,
-                BTreeMap::new(),
-            ),
+            compiler: external_invocation(compiler_identity, evidence_arguments, BTreeMap::new()),
             linker_map,
         }),
         reuse,

@@ -18,10 +18,14 @@ pub use platform::{
 };
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
 pub use product::{
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity,
-    NativeStaticAccessCallback, NativeStaticCleanupCallback, NativeStaticDuration,
-    NativeStaticHostEntry, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
+    NativeCleanupIncident, NativeCleanupIncidentDestroyCallback,
+    NativeCleanupIncidentReportCallback, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeProductHostOperation, NativeProductHostState, NativeProductHostStatus,
+    NativeProductIdentity, NativeStaticAccessCallback, NativeStaticCleanupCallback,
+    NativeStaticDuration, NativeStaticFinalizer, NativeStaticFinalizerExecution,
+    NativeStaticFinalizerResolveCallback, NativeStaticFinalizerStartCallback,
+    NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
+    NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
     PRODUCT_HOST_ABI_VERSION, PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL,
 };
 pub use runtime::{

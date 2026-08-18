@@ -89,12 +89,15 @@ impl Lowerer<'_> {
 
         let initialized_storages = self.retained_storages(suspension.retained_subjects())?;
 
-        self.frame_states.push(MirFrameState::new(
-            state,
-            resume,
-            self.execution_lane_requirements(),
-            initialized_storages,
-        ).with_affinity(self.frame_affinity()));
+        self.frame_states.push(
+            MirFrameState::new(
+                state,
+                resume,
+                self.execution_lane_requirements(),
+                initialized_storages,
+            )
+            .with_affinity(self.frame_affinity()),
+        );
 
         let value = self.push_value_operation(
             id,
@@ -286,9 +289,7 @@ fn call_receiver(
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{
-        BoundDependencySubject, BoundUnitId, BoundUnitKind, CheckedAsync,
-    };
+    use bray_bound_tree::{BoundDependencySubject, BoundUnitId, BoundUnitKind, CheckedAsync};
     use bray_runtime_interface::ProtectedFrameAffinity;
     use bray_symbols::{StaticSymbolId, SymbolId};
 
@@ -310,18 +311,15 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("pinned async analysis must validate: {error:?}"));
 
-        let movable = CheckedAsync::try_new(
-            unit,
-            BoundUnitKind::CallableBody,
-            [],
-            [],
-            [],
-            [],
-            false,
-        )
-        .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
+        let movable =
+            CheckedAsync::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
 
-        assert_eq!(frame_affinity(&pinned), ProtectedFrameAffinity::OriginThread);
+        assert_eq!(
+            frame_affinity(&pinned),
+            ProtectedFrameAffinity::OriginThread
+        );
+
         assert_eq!(frame_affinity(&movable), ProtectedFrameAffinity::Movable);
     }
 }

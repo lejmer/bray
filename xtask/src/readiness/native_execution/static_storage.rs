@@ -50,7 +50,7 @@ fn audit_archive_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     let archive = published_library(output.path(), bray_emitter::ArtifactKind::StaticLibrary)?;
     let report = inspect_objects(root, &object_files(output.path(), target)?)?;
 
-    let control = product_host_symbol(&report, target, "bray_product_host_control_", false)?;
+    let control = report_symbol(&report, target, "bray_product_host_control_", None)?;
 
     let executable = compile_archive_host(root, target, runtime, &archive, control, output.path())?;
 
@@ -110,9 +110,16 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
         ],
     )?;
 
-    let control = product_host_symbol(&report, target, "bray_product_host_control_", false)?;
+    let control = report_symbol(&report, target, "bray_product_host_control_", None)?;
 
-    let descriptor = product_host_symbol(&report, target, "bray_product_host_", true)?;
+    let descriptor = report_symbol(
+        &report,
+        target,
+        "bray_product_host_",
+        Some("bray_product_host_control_"),
+    )?;
+
+    let hidden_static = report_symbol(&report, target, "bray_static_", None)?;
     let loaded = super::core::native_output("bray-native-static-host-load-")?;
     let first_copy = loaded.path().join(shared_copy_name(target, "first")?);
     let second_copy = loaded.path().join(shared_copy_name(target, "second")?);
@@ -127,7 +134,7 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     let mut command = Command::new(&harness);
 
     command.args([&first_copy, &second_copy]);
-    command.args([control, descriptor]);
+    command.args([control, descriptor, hidden_static]);
 
     crate::command::require_success(command, "executing the native static product host").map(|_| ())
 }
@@ -333,11 +340,11 @@ fn shared_copy_name(target: NativeTarget, stem: &str) -> Result<String, String> 
         .ok_or_else(|| "native static-host shared-library copy name is invalid".to_owned())
 }
 
-fn product_host_symbol<'report>(
+fn report_symbol<'report>(
     report: &'report str,
     target: NativeTarget,
     fragment: &str,
-    exclude_control: bool,
+    excluded_fragment: Option<&str>,
 ) -> Result<&'report str, String> {
     let symbol = report.lines().find_map(|line| {
         let name = line
@@ -359,7 +366,7 @@ fn product_host_symbol<'report>(
 
         if suffix.len() != 64
             || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
-            || (exclude_control && name.contains("bray_product_host_control_"))
+            || excluded_fragment.is_some_and(|excluded| name.contains(excluded))
         {
             return None;
         }

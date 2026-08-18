@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bray_runtime_interface::BinarySymbolName;
-use bray_symbols::{ConstantValueId, StaticStorageDuration, SymbolKey};
+use bray_runtime_interface::{BinarySymbolName, ExecutableEntryResult};
+use bray_symbols::{CallableExecution, ConstantValueId, StaticStorageDuration, SymbolKey};
 
 use crate::{CodegenImplementationWitness, CodegenInstanceKey, CodegenSpecialization};
 
@@ -40,6 +40,52 @@ pub struct CodegenStaticInstanceKey {
     witnesses: Arc<[CodegenStaticWitness]>,
     target: bray_ir::MirTargetContract,
     duration: StaticStorageDuration,
+}
+
+/// One exact native relocation retained by a closed static initializer.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenStaticRelocation {
+    value: ConstantValueId,
+    instance: CodegenStaticInstanceKey,
+    symbol: BinarySymbolName,
+    ty: bray_symbols::TypeId,
+}
+
+impl CodegenStaticRelocation {
+    /// Creates one initializer value to static-storage relocation.
+    pub fn new(
+        value: ConstantValueId,
+        instance: CodegenStaticInstanceKey,
+        symbol: BinarySymbolName,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        Self {
+            value,
+            instance,
+            symbol,
+            ty,
+        }
+    }
+
+    /// Returns the initializer leaf represented by this relocation.
+    pub const fn value(&self) -> ConstantValueId {
+        self.value
+    }
+
+    /// Returns the exact target static instance.
+    pub const fn instance(&self) -> &CodegenStaticInstanceKey {
+        &self.instance
+    }
+
+    /// Returns the target storage symbol.
+    pub const fn symbol(&self) -> &BinarySymbolName {
+        &self.symbol
+    }
+
+    /// Returns the target storage type.
+    pub const fn ty(&self) -> bray_symbols::TypeId {
+        self.ty
+    }
 }
 
 impl CodegenStaticInstanceKey {
@@ -95,19 +141,85 @@ pub struct CodegenStaticStorageMapping {
     instance: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
     initial_value: ConstantValueId,
-    cleanup: Option<CodegenInstanceKey>,
+    relocations: Arc<[CodegenStaticRelocation]>,
+    finalization: Option<CodegenStaticFinalization>,
+    destroy: Option<CodegenInstanceKey>,
+}
+
+/// One nontrivial static finalizer and its closed completion contract.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenStaticFinalization {
+    execution: CallableExecution,
+    instance: CodegenInstanceKey,
+    result: ExecutableEntryResult,
+    error_type_identity: Option<[u8; 32]>,
+    source: Option<bray_ir::MirSourceAnchor>,
+    incident_cleanup: Option<CodegenInstanceKey>,
+}
+
+impl CodegenStaticFinalization {
+    /// Creates one closed finalizer mapping.
+    pub const fn new(
+        execution: CallableExecution,
+        instance: CodegenInstanceKey,
+        result: ExecutableEntryResult,
+        error_type_identity: Option<[u8; 32]>,
+        source: Option<bray_ir::MirSourceAnchor>,
+        incident_cleanup: Option<CodegenInstanceKey>,
+    ) -> Self {
+        Self {
+            execution,
+            instance,
+            result,
+            error_type_identity,
+            source,
+            incident_cleanup,
+        }
+    }
+
+    /// Returns whether finalization executes immediately or through a protected frame.
+    pub const fn execution(&self) -> CallableExecution {
+        self.execution
+    }
+
+    /// Returns the generated static-finalizer instance.
+    pub const fn instance(&self) -> &CodegenInstanceKey {
+        &self.instance
+    }
+
+    /// Returns the permitted finalizer completion shape.
+    pub const fn result(&self) -> ExecutableEntryResult {
+        self.result
+    }
+
+    /// Returns the concrete error type identity for a fallible completion.
+    pub const fn error_type_identity(&self) -> Option<[u8; 32]> {
+        self.error_type_identity
+    }
+
+    /// Returns the selected finalizer source location when locally available.
+    pub const fn source(&self) -> Option<&bray_ir::MirSourceAnchor> {
+        self.source.as_ref()
+    }
+
+    /// Returns abandonment cleanup for an owned incident payload.
+    pub const fn incident_cleanup(&self) -> Option<&CodegenInstanceKey> {
+        self.incident_cleanup.as_ref()
+    }
 }
 
 impl CodegenStaticStorageMapping {
     /// Creates one exact storage-use mapping.
-    pub const fn new(
+    pub fn new(
         owner: CodegenInstanceKey,
         storage: bray_ir::MirStorageId,
         ty: bray_symbols::TypeId,
         instance: CodegenStaticInstanceKey,
         symbol: BinarySymbolName,
         initial_value: ConstantValueId,
-        cleanup: Option<CodegenInstanceKey>,
+        relocations: impl IntoIterator<Item = CodegenStaticRelocation>,
+        finalization: Option<CodegenStaticFinalization>,
+        destroy: Option<CodegenInstanceKey>,
     ) -> Self {
         Self {
             owner,
@@ -116,7 +228,9 @@ impl CodegenStaticStorageMapping {
             instance,
             symbol,
             initial_value,
-            cleanup,
+            relocations: bray_base::shared_slice(relocations),
+            finalization,
+            destroy,
         }
     }
 
@@ -150,9 +264,27 @@ impl CodegenStaticStorageMapping {
         self.initial_value
     }
 
-    /// Returns lifecycle resolution for this storage when its type owns cleanup work.
-    pub const fn cleanup(&self) -> Option<&CodegenInstanceKey> {
-        self.cleanup.as_ref()
+    /// Returns exact native address relocations retained by the initializer.
+    pub fn relocations(&self) -> &[CodegenStaticRelocation] {
+        &self.relocations
+    }
+
+    /// Returns the relocation represented by one initializer value.
+    pub fn relocation(&self, value: ConstantValueId) -> Option<&CodegenStaticRelocation> {
+        self.relocations
+            .binary_search_by_key(&value, CodegenStaticRelocation::value)
+            .ok()
+            .and_then(|index| self.relocations.get(index))
+    }
+
+    /// Returns graceful finalization for this storage when its type defines it.
+    pub const fn finalization(&self) -> Option<&CodegenStaticFinalization> {
+        self.finalization.as_ref()
+    }
+
+    /// Returns destruction for this storage when its representation requires it.
+    pub const fn destroy(&self) -> Option<&CodegenInstanceKey> {
+        self.destroy.as_ref()
     }
 
     /// Returns the coalesced accessor symbol paired with this storage symbol.
@@ -170,8 +302,23 @@ impl CodegenStaticStorageMapping {
         format!("{}.attachment", self.symbol.as_str())
     }
 
-    /// Returns the attachment cleanup entry paired with exact-thread storage.
-    pub fn cleanup_name(&self) -> String {
-        format!("{}.cleanup", self.symbol.as_str())
+    /// Returns the cleanup preparation entry paired with this storage symbol.
+    pub fn prepare_name(&self) -> String {
+        format!("{}.prepare", self.symbol.as_str())
+    }
+
+    /// Returns the finalization entry paired with this storage symbol.
+    pub fn finalize_name(&self) -> String {
+        format!("{}.finalize", self.symbol.as_str())
+    }
+
+    /// Returns the destruction entry paired with this storage symbol.
+    pub fn destroy_name(&self) -> String {
+        format!("{}.destroy", self.symbol.as_str())
+    }
+
+    /// Returns the exact-thread detach entry paired with this storage symbol.
+    pub fn detach_name(&self) -> String {
+        format!("{}.detach", self.symbol.as_str())
     }
 }

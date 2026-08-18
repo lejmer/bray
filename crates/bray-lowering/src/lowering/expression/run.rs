@@ -81,12 +81,15 @@ impl Lowerer<'_> {
                 let initialized_storages =
                     self.retained_storages(suspension.retained_subjects())?;
 
-                self.frame_states.push(MirFrameState::new(
-                    state,
-                    resume,
-                    self.execution_lane_requirements(),
-                    initialized_storages,
-                ).with_affinity(self.frame_affinity()));
+                self.frame_states.push(
+                    MirFrameState::new(
+                        state,
+                        resume,
+                        self.execution_lane_requirements(),
+                        initialized_storages,
+                    )
+                    .with_affinity(self.frame_affinity()),
+                );
 
                 let ty = self.expression_type(expression)?;
                 let value = self.unit_operand(ty);

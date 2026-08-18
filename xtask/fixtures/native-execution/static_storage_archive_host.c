@@ -16,9 +16,9 @@ int main(void)
 
     product_host_observation closed = BRAY_PRODUCT_HOST_CONTROL(PRODUCT_HOST_CLOSE);
 
-    if (closed.status != 2 || closed.state != 3
+    if (closed.status != 4 || closed.state != 3
         || closed.cleaned_statics != formed.initialized_statics
-        || closed.cleanup_incidents != 0) {
+        || closed.cleanup_incidents != 1) {
         return 2;
     }
 

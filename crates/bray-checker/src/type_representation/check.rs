@@ -689,13 +689,22 @@ where
             element,
         )?;
 
-        if role.and_then(RepresentationRole::integer_representation).is_some() {
+        if role
+            .and_then(RepresentationRole::integer_representation)
+            .is_some()
+        {
             return Ok(());
         }
 
-        let data = self.context.semantic_values().type_data(element).map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-        })?;
+        let data = self
+            .context
+            .semantic_values()
+            .type_data(element)
+            .map_err(|_| {
+                CheckerQueryError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
 
         let actual = match data.as_ref() {
             TypeData::TypeParameter(_) => return Ok(()),

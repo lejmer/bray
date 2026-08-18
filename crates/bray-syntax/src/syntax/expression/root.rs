@@ -2,10 +2,9 @@ use crate::green::GreenElement;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
-    GenericArgumentListSyntax,
-    MemberAccessOperationSyntax, NullablePropagationOperationSyntax, PrimaryExpressionSyntax,
-    SliceIndexOperationSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
-    TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
+    GenericArgumentListSyntax, MemberAccessOperationSyntax, NullablePropagationOperationSyntax,
+    PrimaryExpressionSyntax, SliceIndexOperationSyntax, SyntaxKind, SyntaxToken,
+    TraitApplicationSyntax, TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
 };
 
 pub(in crate::syntax) fn first_expression(

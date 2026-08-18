@@ -2,31 +2,28 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_codegen::{
-    CodegenInstanceTypeMapping,
-    CodegenParameterMapping, CodegenResultMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
+    CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
+    CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
 };
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
-    StructSymbolId,
+    GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext, StructSymbolId,
     TypeData, TypeId,
 };
-use bray_target::{
-    TargetLayoutContract, TargetScalarKind, TargetValueLayout,
-};
+use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::super::substitution::substitution_for_owner;
 use super::super::specialization::ConcreteCodegenInstance;
-use crate::fact::{CancellationToken, FactQueryError};
 use super::support::{
     atomic_representation_for_type, atomic_storage_role, callable_type_signature,
     closed_array_length, codegen_checker_error, implementation_subject, pointer_layout,
     pointer_mapping, scalar_mapping, target_layout_contract,
 };
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     #[cfg(test)]

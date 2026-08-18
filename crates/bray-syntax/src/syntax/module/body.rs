@@ -5,8 +5,8 @@ use crate::{
     CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
     ConstantDeclarationSyntax, FunctionDeclarationSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
-    PredicateDeclarationSyntax, StaticDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
-    UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    PredicateDeclarationSyntax, StaticDeclarationSyntax, StructDeclarationSyntax,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
 define_source_syntax_node! {

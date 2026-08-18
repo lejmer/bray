@@ -2,29 +2,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_codegen::{
-    CodegenCallableSignature,
-    CodegenFieldLayout,
-    CodegenParameterMapping, CodegenResultMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute, TargetAddressSpaceKind,
+    CodegenCallableSignature, CodegenFieldLayout, CodegenParameterMapping, CodegenResultMapping,
+    CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+    CodegenValueAttribute, TargetAddressSpaceKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    BorrowKind, CallableAbi, GenericSubstitutionId, NamedTypeSymbolId,
-    StructSymbolId,
-    TypeData, TypeId,
+    BorrowKind, CallableAbi, GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, TypeData,
+    TypeId,
 };
-use bray_target::{
-    TargetAtomicRepresentation, TargetLayoutContract, TargetValueLayout,
-};
+use bray_target::{TargetAtomicRepresentation, TargetLayoutContract, TargetValueLayout};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::substitution::named_type;
-use crate::fact::{CancellationToken, FactQueryError};
 use super::support::{
     align_to, atomic_representation_for_type, atomic_storage_is_padding_free,
     ensure_target_alignment, indirect_abi_value, indirect_parameter_kind, packed_alignment,
     pointer_mapping, signature_types, sized_layout, target_layout_contract,
 };
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     #[expect(
@@ -188,8 +185,10 @@ impl Compilation {
 
         let fields = match pointee_data.as_ref() {
             TypeData::Named { definition, .. }
-                if super::super::super::foreign::compiler_known_representation(self, *definition)
-                    == Some(RepresentationRole::String) =>
+                if super::super::super::foreign::compiler_known_representation(
+                    self,
+                    *definition,
+                ) == Some(RepresentationRole::String) =>
             {
                 self.codegen_type(pointee, target, cancellation, mappings, pending)?;
 
@@ -343,7 +342,10 @@ impl Compilation {
         .map(|mapping| mapping.with_behavior(Some(bray_codegen::CodegenTypeBehavior::String)))
     }
 
-    pub(super) fn compiler_known_type(&self, role: RepresentationRole) -> Result<TypeId, FactQueryError> {
+    pub(super) fn compiler_known_type(
+        &self,
+        role: RepresentationRole,
+    ) -> Result<TypeId, FactQueryError> {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
@@ -643,5 +645,4 @@ impl Compilation {
             ],
         ))
     }
-
 }

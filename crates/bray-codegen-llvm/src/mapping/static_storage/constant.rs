@@ -13,6 +13,7 @@ pub(super) fn static_initializer<'context>(
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
     static_constant(
         module,
+        mapping,
         mapping.initial_value(),
         mapping.ty(),
         mapping.owner(),
@@ -23,6 +24,7 @@ pub(super) fn static_initializer<'context>(
 
 fn static_constant<'context>(
     module: &Module<'context>,
+    storage: &bray_codegen::CodegenStaticStorageMapping,
     value: bray_symbols::ConstantValueId,
     representation: bray_symbols::TypeId,
     owner: &bray_codegen::CodegenInstanceKey,
@@ -77,6 +79,34 @@ fn static_constant<'context>(
             mappings,
             types,
         ),
+        bray_symbols::ConstantValueKind::StaticAddress(_) => {
+            let relocation = storage
+                .relocation(value)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            let target = if let Some(target) = module.get_global(relocation.symbol().as_str()) {
+                target
+            } else {
+                let target = module.add_global(
+                    types.map(relocation.ty())?,
+                    None,
+                    relocation.symbol().as_str(),
+                );
+
+                target.set_linkage(inkwell::module::Linkage::External);
+                target.set_visibility(inkwell::GlobalVisibility::Hidden);
+
+                if relocation.instance().duration()
+                    == bray_symbols::StaticStorageDuration::ExactThread
+                {
+                    target.set_thread_local(true);
+                }
+
+                target
+            };
+
+            Ok(target.as_pointer_value().into())
+        }
         bray_symbols::ConstantValueKind::Unit | bray_symbols::ConstantValueKind::NullableAbsent => {
             Ok(ty.const_zero())
         }
@@ -87,6 +117,7 @@ fn static_constant<'context>(
 
             let child_value = static_constant(
                 module,
+                storage,
                 child.value(),
                 child.representation(),
                 owner,
@@ -130,12 +161,24 @@ fn static_constant<'context>(
 
             physical_aggregate(types, total, values)
         }
-        bray_symbols::ConstantValueKind::Tuple(children) => {
-            static_positional_aggregate(module, representation, owner, children, mappings, types)
-        }
-        bray_symbols::ConstantValueKind::Array(children) => {
-            static_array(module, representation, owner, children, mappings, types)
-        }
+        bray_symbols::ConstantValueKind::Tuple(children) => static_positional_aggregate(
+            module,
+            storage,
+            representation,
+            owner,
+            children,
+            mappings,
+            types,
+        ),
+        bray_symbols::ConstantValueKind::Array(children) => static_array(
+            module,
+            storage,
+            representation,
+            owner,
+            children,
+            mappings,
+            types,
+        ),
         bray_symbols::ConstantValueKind::Product(fields) => {
             let layout = aggregate_fields(owner, representation, mappings)?;
             let total = layout_size(owner, representation, mappings)?;
@@ -156,6 +199,7 @@ fn static_constant<'context>(
 
                 let value = static_constant(
                     module,
+                    storage,
                     child.value(),
                     child.representation(),
                     owner,
@@ -174,6 +218,7 @@ fn static_constant<'context>(
         }
         bray_symbols::ConstantValueKind::Union { variant, fields } => static_union(
             module,
+            storage,
             representation,
             owner,
             *variant,
@@ -286,6 +331,7 @@ fn string_value<'context>(
 
 fn static_positional_aggregate<'context>(
     module: &Module<'context>,
+    storage: &bray_codegen::CodegenStaticStorageMapping,
     representation: bray_symbols::TypeId,
     owner: &bray_codegen::CodegenInstanceKey,
     children: &[bray_symbols::ConstantValueId],
@@ -307,6 +353,7 @@ fn static_positional_aggregate<'context>(
 
         let value = static_constant(
             module,
+            storage,
             child.value(),
             child.representation(),
             owner,
@@ -326,6 +373,7 @@ fn static_positional_aggregate<'context>(
 
 fn static_array<'context>(
     module: &Module<'context>,
+    storage: &bray_codegen::CodegenStaticStorageMapping,
     representation: bray_symbols::TypeId,
     owner: &bray_codegen::CodegenInstanceKey,
     children: &[bray_symbols::ConstantValueId],
@@ -349,6 +397,7 @@ fn static_array<'context>(
 
         let value = static_constant(
             module,
+            storage,
             child.value(),
             child.representation(),
             owner,
@@ -366,6 +415,7 @@ fn static_array<'context>(
 
 fn static_union<'context>(
     module: &Module<'context>,
+    storage: &bray_codegen::CodegenStaticStorageMapping,
     representation: bray_symbols::TypeId,
     owner: &bray_codegen::CodegenInstanceKey,
     selected: bray_symbols::UnionVariantSymbolId,
@@ -412,6 +462,7 @@ fn static_union<'context>(
 
         let value = static_constant(
             module,
+            storage,
             child.value(),
             child.representation(),
             owner,

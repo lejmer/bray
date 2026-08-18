@@ -7,8 +7,10 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_thread_attachment_identity_v1() -> u64 {
-        implementation::bray_runtime_thread_attachment_identity_v1()
+    pub extern "C" fn bray_runtime_thread_attachment_identity_v1(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64 {
+        implementation::bray_runtime_thread_attachment_identity_v1(descriptor)
     }
 }
 
@@ -21,11 +23,11 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_product_host_control_v1(
+    pub extern "C" fn bray_runtime_product_host_control_v3(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {
-        implementation::bray_runtime_product_host_control_v1(descriptor, operation)
+        implementation::bray_runtime_product_host_control_v3(descriptor, operation)
     }
 }
 

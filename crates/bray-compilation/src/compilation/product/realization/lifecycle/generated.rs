@@ -1,21 +1,19 @@
-
 use bray_binder::SymbolQueryProvider;
 use bray_ir::{
-    MirBlockKind,
-    MirEdge, MirGeneratorOperation, MirHelperReference, MirOperand, MirOperationKind, MirPlace,
-    MirProjectionKind, MirRuntimeReference, MirSourceAnchor,
-    MirTerminatorKind, MirUnitBuilder,
+    MirBlockKind, MirEdge, MirGeneratorOperation, MirHelperReference, MirOperand, MirOperationKind,
+    MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
+    MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
-    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, SymbolQueryRequest, TypeAssociatedLifecycleSlot,
-    TypeData, TypeId, UnionPayloadFieldTypeQuery,
+    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, SymbolQueryRequest,
+    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::super::super::CodegenPreparationError;
 use super::super::super::super::Compilation;
-use crate::fact::{CancellationToken, FactQueryError};
 use super::super::support::{lifecycle_operation_block_kind, projected_lifecycle_place};
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(in crate::compilation::product::realization) fn push_generated_lifecycle_operations(
@@ -41,7 +39,7 @@ impl Compilation {
         }
 
         match reference {
-            MirHelperReference::Finalize(ty) => {
+            MirHelperReference::Finalize(ty) | MirHelperReference::StaticFinalize(ty) => {
                 if let Some(callable) = self.lifecycle_callable(
                     *ty,
                     TypeAssociatedLifecycleSlot::Finalizer,
@@ -180,6 +178,7 @@ impl Compilation {
                         ),
                     },
                     bray_ir::MirGeneratedLifecycleRole::Finalize
+                    | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
                     | bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::LifecycleResolution,
                     ) => return Err(FactQueryError::InfrastructureFailure.into()),
@@ -420,7 +419,8 @@ impl Compilation {
                         },
                     )?;
                 }
-                bray_ir::MirGeneratedLifecycleRole::Finalize => {
+                bray_ir::MirGeneratedLifecycleRole::Finalize
+                | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                     return Err(FactQueryError::InfrastructureFailure.into());
                 }
             }
@@ -501,7 +501,8 @@ impl Compilation {
                     },
                 )?;
             }
-            bray_ir::MirGeneratedLifecycleRole::Finalize => {
+            bray_ir::MirGeneratedLifecycleRole::Finalize
+            | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                 return Err(FactQueryError::InfrastructureFailure.into());
             }
         }

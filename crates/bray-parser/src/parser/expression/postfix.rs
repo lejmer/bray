@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn parser_parses_bare_generic_access_path_arguments() {
-        let sources = source_store(["Value<1>;" ]);
+        let sources = source_store(["Value<1>;"]);
         let snapshot = source(&sources, 0);
 
         let mut parser = Parser::new(snapshot);

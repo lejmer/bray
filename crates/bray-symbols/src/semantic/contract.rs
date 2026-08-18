@@ -3,10 +3,10 @@ use std::marker::PhantomData;
 use crate::{
     AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId, CallableSymbolId,
     ConstantSymbolId, GenericConstParameterSymbolId, GenericOwnerId, ImplementationSymbolId,
-    InherentTypeMemberSymbolId, ModuleSymbolId, PredicateSymbolId, StructFieldSymbolId,
-    TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
+    InherentTypeMemberSymbolId, ModuleSymbolId, PredicateSymbolId, StaticSymbolId,
+    StructFieldSymbolId, TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
-    StaticSymbolId, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldSymbolId,
 };
 
 use super::{
@@ -17,8 +17,8 @@ use super::{
     ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
     ImplementationSelection, ImplementationSubjectTemplate, ModuleSurface,
     OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
-    PredicateSignatureTemplate, StaticInstanceTemplate, SymbolQueryKind,
-    TraitApplicationTemplate, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    PredicateSignatureTemplate, StaticInstanceTemplate, SymbolQueryKind, TraitApplicationTemplate,
+    TypeExpressionTemplate, UnevaluatedDefaultTemplate,
 };
 
 mod sealed {

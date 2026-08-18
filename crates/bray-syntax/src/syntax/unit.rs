@@ -11,9 +11,8 @@ use super::{
     FunctionDeclarationSyntax, IdentifierListSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
     PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax, StaticDeclarationSyntax,
-    StructDeclarationSyntax,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-    UsingDeclarationSyntax,
+    StructDeclarationSyntax, TraitDeclarationSyntax, UnionDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;

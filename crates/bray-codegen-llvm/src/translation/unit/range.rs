@@ -32,18 +32,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let start = extract_value(&self.builder, range, start_index)?.into_int_value();
         let end = extract_value(&self.builder, range, end_index)?.into_int_value();
 
-        let predicate = match self.type_mapping(element_type).map(|mapping| mapping.kind()) {
+        let predicate = match self
+            .type_mapping(element_type)
+            .map(|mapping| mapping.kind())
+        {
             Some(CodegenTypeKind::SignedInteger(_)) => IntPredicate::SLT,
             Some(CodegenTypeKind::UnsignedInteger(_)) => IntPredicate::ULT,
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         };
 
-        let present = llvm(self.builder.build_int_compare(
-            predicate,
-            start,
-            end,
-            "range.present",
-        ))?;
+        let present = llvm(
+            self.builder
+                .build_int_compare(predicate, start, end, "range.present"),
+        )?;
 
         let incremented = llvm(self.builder.build_int_add(
             start,
@@ -51,12 +52,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "range.incremented",
         ))?;
 
-        let next = llvm(self.builder.build_select(
-            present,
-            incremented,
-            start,
-            "range.next",
-        ))?;
+        let next = llvm(
+            self.builder
+                .build_select(present, incremented, start, "range.next"),
+        )?;
 
         let range = insert_value(
             &self.builder,

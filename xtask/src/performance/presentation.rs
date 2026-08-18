@@ -183,7 +183,9 @@ fn comparability(html: &mut BoundedHtml, comparability: &CompilationComparabilit
             html.push_str("<p><strong>Comparable.</strong> Every row satisfies the source-authority contract.</p>");
         }
         CompilationComparability::Incomparable { reasons } => {
-            html.push_str("<p><strong>Incomparable.</strong> No compilation winner is reported.</p><ul>");
+            html.push_str(
+                "<p><strong>Incomparable.</strong> No compilation winner is reported.</p><ul>",
+            );
 
             for (language, reasons) in reasons {
                 let reasons = reasons
@@ -265,7 +267,12 @@ fn compilation_build(
     tool_invocation(html, "Compiler invocation", &build.compiler);
     linker_invocation(html, &build.linker);
 
-    reused_artifacts(html, "Packaged-library artifacts", &build.reuse.packaged_library);
+    reused_artifacts(
+        html,
+        "Packaged-library artifacts",
+        &build.reuse.packaged_library,
+    );
+
     reused_artifacts(html, "Runtime artifacts", &build.reuse.runtime);
 
     if let Some(evidence) = &build.evidence {

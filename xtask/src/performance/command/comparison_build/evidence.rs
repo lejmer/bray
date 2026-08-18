@@ -3,12 +3,8 @@ use std::path::Path;
 
 use bray_target::NativeTarget;
 
-use crate::performance::compilation::{
-    CompilationReuseRole, reuse_evidence,
-};
-use crate::performance::model::{
-    ArtifactReport, CompilationReuseEvidence, RetainedInput,
-};
+use crate::performance::compilation::{CompilationReuseRole, reuse_evidence};
+use crate::performance::model::{ArtifactReport, CompilationReuseEvidence, RetainedInput};
 
 pub(super) fn bray_reuse_evidence(
     artifact: &ArtifactReport,
@@ -25,7 +21,9 @@ pub(super) fn bray_reuse_evidence(
 
     let packaged_library_names = resolver
         .target_artifacts(selected.profile().identity(), selected.runtime_abi())
-        .map_err(|error| format!("could not resolve matched standard-library artifacts: {error:?}"))?
+        .map_err(|error| {
+            format!("could not resolve matched standard-library artifacts: {error:?}")
+        })?
         .iter()
         .filter_map(|artifact| artifact.path().file_name())
         .map(|name| name.to_string_lossy().to_ascii_lowercase())

@@ -3,9 +3,8 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 use bray_binder::SymbolQueryProvider;
 use bray_codegen::{
-    CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage, CodegenOperationMapping,
-    CodegenParameterMapping, CodegenResultMapping,
-    CodegenSourceFile,
+    CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage,
+    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
     CodegenUnit, TargetAddressSpaceKind, mapped_runtime_references,
 };
@@ -14,17 +13,13 @@ use bray_ir::{
     MirBlockKind, MirFrameReference, MirHelperReference, MirOperation, MirPlace, MirProjection,
     MirProjectionKind, MirRuntimeReference, MirUnit,
 };
-use bray_runtime_interface::{
-    BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole,
-};
+use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole};
 use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection,
-    ImplementationCoherenceQuery, ImplementationSymbolId,
-    ReceiverMode, SelfTypeContext,
-    SemanticValueStore, SymbolKey, SymbolKeyData, SymbolQueryRequest,
-    TypeData, TypeId,
+    DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
+    ImplementationSymbolId, ReceiverMode, SelfTypeContext, SemanticValueStore, SymbolKey,
+    SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -115,7 +110,8 @@ pub(super) fn atomic_representation_for_type(
         return Ok(None);
     };
 
-    let role = super::super::super::foreign::compiler_known_representation(compilation, *definition);
+    let role =
+        super::super::super::foreign::compiler_known_representation(compilation, *definition);
 
     if let Some(representation) = role.and_then(|role| {
         bray_checker::atomic_target_representation(
@@ -222,7 +218,9 @@ pub(super) fn implementation_subject(
         .map_err(super::super::super::binder::binding_query_error)
 }
 
-pub(super) fn signature_types(signature: &CodegenCallableSignature) -> impl Iterator<Item = TypeId> + '_ {
+pub(super) fn signature_types(
+    signature: &CodegenCallableSignature,
+) -> impl Iterator<Item = TypeId> + '_ {
     signature
         .parameters()
         .iter()
@@ -441,6 +439,7 @@ pub(super) fn lifecycle_operation_block_kind(
             Ok(MirBlockKind::CleanupBroadcast)
         }
         bray_ir::MirGeneratedLifecycleRole::Finalize
+        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
         ) => Err(FactQueryError::InfrastructureFailure),
@@ -472,14 +471,21 @@ pub(super) fn receiver_codegen_type(
     }
 }
 
-pub(super) fn projected_lifecycle_place(parent: &MirPlace, kind: MirProjectionKind, ty: TypeId) -> MirPlace {
+pub(super) fn projected_lifecycle_place(
+    parent: &MirPlace,
+    kind: MirProjectionKind,
+    ty: TypeId,
+) -> MirPlace {
     let mut projections = parent.projections().to_vec();
     projections.push(MirProjection::new(kind, parent.ty(), ty));
 
     MirPlace::new(parent.storage(), projections, ty)
 }
 
-pub(super) fn helper_runtime_symbol(owner: &CodegenInstance, role: RuntimeAbiRole) -> CodegenSymbolKey {
+pub(super) fn helper_runtime_symbol(
+    owner: &CodegenInstance,
+    role: RuntimeAbiRole,
+) -> CodegenSymbolKey {
     CodegenSymbolKey::Runtime(MirRuntimeReference::new(
         role,
         owner.key().target().runtime_abi(),
@@ -490,53 +496,42 @@ pub(super) fn direct_helper_symbol(
     owner: &CodegenInstance,
     reference: &MirHelperReference,
 ) -> Option<CodegenSymbolKey> {
+    if let Some(role) = reference.runtime_role() {
+        return Some(helper_runtime_symbol(owner, role));
+    }
+
     let symbol = match reference {
-        MirHelperReference::BeginGenerator => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorBegin)
-        }
-        MirHelperReference::PushGenerator => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorPush)
-        }
-        MirHelperReference::FinishGenerator => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::GeneratorFinish)
-        }
-        MirHelperReference::PanicReport => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::PanicReportConstruction)
-        }
         MirHelperReference::MoveInactiveFrame(frame) => match frame {
             MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
                 frame: *frame,
                 operation: ProtectedFrameOperation::MoveBeforeStart,
             },
-            MirFrameReference::Erased => {
-                helper_runtime_symbol(owner, RuntimeAbiRole::InactiveFrameMove)
-            }
+            MirFrameReference::Erased => return None,
         },
-        MirHelperReference::ComposeAwaitedFrame(_) => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::AwaitedFrameComposition)
-        }
         MirHelperReference::CommitAwaitedCompletion(frame) => match frame {
             MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
                 frame: *frame,
                 operation: ProtectedFrameOperation::CompletionMove,
             },
-            MirFrameReference::Erased => {
-                helper_runtime_symbol(owner, RuntimeAbiRole::FrameCompletionMove)
-            }
+            MirFrameReference::Erased => return None,
         },
-        MirHelperReference::DestroyTerminalTask => {
-            helper_runtime_symbol(owner, RuntimeAbiRole::TaskDestruction)
-        }
         MirHelperReference::AnonymousCallable(_)
         | MirHelperReference::DeclaredCallable(_)
         | MirHelperReference::CallableDefault(_)
         | MirHelperReference::ConstructionDefault(_)
         | MirHelperReference::TypeForm(_)
         | MirHelperReference::Conversion(_)
+        | MirHelperReference::BeginGenerator
+        | MirHelperReference::PushGenerator
+        | MirHelperReference::FinishGenerator
+        | MirHelperReference::PanicReport
         | MirHelperReference::Finalize(_)
+        | MirHelperReference::StaticFinalize(_)
         | MirHelperReference::Destroy(_)
         | MirHelperReference::Cleanup { .. }
-        | MirHelperReference::CreateFrame(_) => return None,
+        | MirHelperReference::CreateFrame(_)
+        | MirHelperReference::ComposeAwaitedFrame(_)
+        | MirHelperReference::DestroyTerminalTask => return None,
     };
 
     Some(symbol)
@@ -563,7 +558,10 @@ pub(super) fn dependency_symbol(
         .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))
 }
 
-pub(super) fn is_void_result(compilation: &Compilation, ty: TypeId) -> Result<bool, FactQueryError> {
+pub(super) fn is_void_result(
+    compilation: &Compilation,
+    ty: TypeId,
+) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
     let data = values
@@ -724,7 +722,9 @@ pub(super) fn nonzero_width(width: u16) -> NonZeroU16 {
     NonZeroU16::new(width).unwrap_or(NonZeroU16::MIN)
 }
 
-pub(super) fn codegen_checker_error(error: bray_checker::CheckerQueryError) -> CodegenPreparationError {
+pub(super) fn codegen_checker_error(
+    error: bray_checker::CheckerQueryError,
+) -> CodegenPreparationError {
     match error {
         bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled.into(),
         bray_checker::CheckerQueryError::Infrastructure(error) => {
@@ -2073,7 +2073,10 @@ mod tests {
             [vec![], vec![8], vec![8, 16]]
         );
 
-        assert_eq!(mappings[&tag].layout().map(TargetValueLayout::size), Some(1));
+        assert_eq!(
+            mappings[&tag].layout().map(TargetValueLayout::size),
+            Some(1)
+        );
 
         assert_eq!(mapping.layout().map(TargetValueLayout::size), Some(24));
     }

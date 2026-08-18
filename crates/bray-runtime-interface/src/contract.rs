@@ -62,7 +62,7 @@ pub enum RootExecution {
 }
 
 /// Checked source result mapped by one compiler-generated executable host.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ExecutableEntryResult {
     /// `unit` maps normal completion to a successful process exit.
     Unit,

@@ -60,9 +60,36 @@ pub(super) fn validate_static_storage_mappings(
             || !constants
                 .iter()
                 .any(|constant| constant.value() == mapping.initial_value())
+            || mapping.finalization().is_some_and(|finalization| {
+                !instances.contains(finalization.instance())
+                    || finalization
+                        .incident_cleanup()
+                        .is_some_and(|cleanup| !instances.contains(cleanup))
+                    || match finalization.result() {
+                        bray_runtime_interface::ExecutableEntryResult::Fallible { .. } => {
+                            finalization.error_type_identity().is_none()
+                                || finalization.incident_cleanup().is_none()
+                        }
+                        bray_runtime_interface::ExecutableEntryResult::Unit => {
+                            finalization.error_type_identity().is_some()
+                                || finalization.incident_cleanup().is_some()
+                        }
+                        bray_runtime_interface::ExecutableEntryResult::I32 => true,
+                    }
+            })
             || mapping
-                .cleanup()
-                .is_some_and(|cleanup| !instances.contains(cleanup))
+                .destroy()
+                .is_some_and(|destroy| !instances.contains(destroy))
+            || mapping
+                .relocations()
+                .windows(2)
+                .any(|pair| pair[0].value() >= pair[1].value())
+            || mapping.relocations().iter().any(|relocation| {
+                relocation.instance().target() != owner.key().target()
+                    || !constants
+                        .iter()
+                        .any(|constant| constant.value() == relocation.value())
+            })
         {
             return Err(CodegenMappingsBuildError::InvalidStaticStorage);
         }
@@ -72,7 +99,9 @@ pub(super) fn validate_static_storage_mappings(
             .is_some_and(|previous| {
                 previous.symbol() != mapping.symbol()
                     || previous.initial_value() != mapping.initial_value()
-                    || previous.cleanup() != mapping.cleanup()
+                    || previous.relocations() != mapping.relocations()
+                    || previous.finalization() != mapping.finalization()
+                    || previous.destroy() != mapping.destroy()
                     || previous.ty() != mapping.ty()
             })
         {
@@ -91,7 +120,10 @@ pub(super) fn validate_static_storage_mappings(
             mapping.accessor_name(),
             mapping.host_name(),
             mapping.attachment_name(),
-            mapping.cleanup_name(),
+            mapping.prepare_name(),
+            mapping.finalize_name(),
+            mapping.destroy_name(),
+            mapping.detach_name(),
         ] {
             if !names.insert(name) {
                 return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);

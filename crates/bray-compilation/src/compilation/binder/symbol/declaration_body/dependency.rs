@@ -7,10 +7,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     DeclarationDirectivesQuery, DependencyContractTemplateData, DependencyContractTemplateId,
-    DependencyGuard,
-    DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    DirectiveKind,
-    SymbolOrdinal, SymbolQueryRequest,
+    DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject,
+    DependencySubjectRoot, DirectiveKind, SymbolOrdinal, SymbolQueryRequest,
 };
 
 use crate::compilation::binder::CompilationBindingContext;

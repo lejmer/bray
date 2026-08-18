@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpressionId, SemanticSelection, StorageAccessId, StorageIdentityId,
+    BoundExpression, BoundExpressionId, SemanticSelection, StorageAccessId, StorageIdentityId,
 };
 use bray_ir::{MirBlockId, MirOperand, MirOperationKind, MirStoreKind};
 use bray_symbols::{StaticReferenceSelection, StaticSymbolId};
@@ -21,12 +21,29 @@ pub(super) fn static_reference(
         .ok_or(LoweringError::MissingStorageAccessRecord(access))?
         .source();
 
+    let mut receivers = vec![expression];
+    let mut candidate = expression;
+
+    while let Some(receiver) = input
+        .unit()
+        .view()
+        .expression(candidate)
+        .and_then(|candidate| match candidate {
+            BoundExpression::MemberAccess(member) => Some(member.receiver()),
+            BoundExpression::TraitQualifiedMember(member) => Some(member.receiver()),
+            _ => None,
+        })
+    {
+        receivers.push(receiver);
+        candidate = receiver;
+    }
+
     input
         .semantic_selections()
         .entries()
         .iter()
         .filter(|entry| {
-            entry.expression() == expression
+            receivers.contains(&entry.expression())
                 || input
                     .unit()
                     .view()
@@ -78,12 +95,8 @@ impl Lowerer<'_> {
             },
         );
 
-        let place = self.place_for_identity_with_static(
-            identity,
-            root_type,
-            origin,
-            static_reference,
-        )?;
+        let place =
+            self.place_for_identity_with_static(identity, root_type, origin, static_reference)?;
 
         if let Some((owner, value)) = initial_value
             && !value.reads_from(&place)

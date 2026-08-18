@@ -117,6 +117,7 @@ impl Compilation {
         kind: ProductKind,
         roots: &[ConcreteCodegenInstance],
         reachability: Option<&bray_codegen::CodegenReachability>,
+        transfers_cleanup_incident: bool,
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
@@ -255,6 +256,10 @@ impl Compilation {
 
         if let Some(reachability) = reachability {
             capabilities.extend(demanded_product_runtime_capabilities(reachability));
+        }
+
+        if transfers_cleanup_incident {
+            capabilities.insert(RuntimeCapability::MemoryOperations);
         }
 
         if has_async_entries {

@@ -14,6 +14,8 @@ use crate::{
 pub enum MirGeneratedLifecycleRole {
     /// Runs semantic finalization.
     Finalize,
+    /// Runs semantic finalization while preserving its completion.
+    StaticFinalize,
     /// Runs semantic destruction.
     Destroy,
     /// Runs one checked cleanup phase.
@@ -25,6 +27,7 @@ impl MirGeneratedLifecycleRole {
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {
             MirHelperReference::Finalize(_) => Some(Self::Finalize),
+            MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
             MirHelperReference::AnonymousCallable(_)

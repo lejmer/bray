@@ -844,10 +844,9 @@ impl DiagnosticKind {
                 &[TargetTriple, CallableAbi],
                 primary_components!(&[TargetTriple, CallableAbi]),
             ),
-            Self::CheckingThreadLocalStaticUnavailable => Self::quality_source(
-                &[TargetTriple],
-                primary_components!(&[TargetTriple]),
-            ),
+            Self::CheckingThreadLocalStaticUnavailable => {
+                Self::quality_source(&[TargetTriple], primary_components!(&[TargetTriple]))
+            }
             Self::CheckingStaticDependencyOutlivesOwner => Self::quality_source(
                 &[DependencySubjectKind],
                 primary_components!(&[DependencySubjectKind]),

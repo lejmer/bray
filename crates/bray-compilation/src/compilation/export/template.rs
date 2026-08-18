@@ -446,17 +446,14 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         };
 
         let substitution = match self.selections.expression(expression) {
-            Some(SemanticSelection::StaticReference(instance)) => Some(
-                self.export
-                    .substitution_id(instance.substitution())?,
-            ),
+            Some(SemanticSelection::StaticReference(instance)) => {
+                Some(self.export.substitution_id(instance.substitution())?)
+            }
             _ => None,
         };
 
         Ok(InterfaceCheckedTemplateOperation::Declaration {
-            declaration: InterfaceTemplateReference::Symbol(
-                self.export.symbol_reference(symbol)?,
-            ),
+            declaration: InterfaceTemplateReference::Symbol(self.export.symbol_reference(symbol)?),
             substitution,
         })
     }

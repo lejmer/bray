@@ -49,6 +49,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        static_initializer: false,
     };
 
     let evaluated = evaluator.evaluate_result(
@@ -212,6 +213,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        static_initializer: false,
     };
 
     let evaluated = evaluator.evaluate_result(kind, result_type);
@@ -581,6 +583,16 @@ mod tests {
         ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
         {
             unreachable!("closed test template must not resolve constants")
+        }
+
+        fn resolve_static(
+            &self,
+            _declaration: bray_symbols::StaticSymbolId,
+            _substitution: bray_symbols::GenericSubstitutionId,
+        ) -> CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<bray_symbols::StaticReferenceSelection>,
+        > {
+            unreachable!("closed test template must not resolve statics")
         }
     }
 }

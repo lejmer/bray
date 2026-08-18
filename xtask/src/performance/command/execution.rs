@@ -24,12 +24,12 @@ use super::super::model::{
     WorkloadBatching, WorkloadReport,
 };
 use super::super::{report, retention, statistics};
+use super::comparison_build;
 use super::identity::{expected_output_digest, report_identity};
 use super::measurement::{
     ImplementationExecution, ImplementationKey, ImplementationTarget, calibrate_inner_iterations,
     execute_interleaved,
 };
-use super::comparison_build;
 use super::options::Options;
 use super::progress;
 
@@ -38,9 +38,7 @@ const USAGE: &str = "usage: cargo xtask performance \
     [--warmup <count>] [--samples <count>] [--workload <identity>]...";
 const MAX_BASELINE_REPORT_BYTES: usize = 16 * 1024 * 1024;
 
-pub(crate) fn run(
-    arguments: impl Iterator<Item = String>,
-) -> std::process::ExitCode {
+pub(crate) fn run(arguments: impl Iterator<Item = String>) -> std::process::ExitCode {
     let result = Options::parse(arguments)
         .map_err(|detail| format!("{detail}. {USAGE}"))
         .and_then(execute);

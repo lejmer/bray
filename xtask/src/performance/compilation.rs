@@ -8,9 +8,9 @@ use super::model::{
     ArtifactReport, BoundedList, CompilationAuthority, CompilationBuildReport,
     CompilationComparability, CompilationComparisonReport, CompilationIncomparability,
     CompilationKind, CompilationLanguage, CompilationReuseEvidence, LibraryReuse,
-    LinkerInvocationReport, RetainedInput,
-    MAX_COMPILATION_INPUT_COUNT, MAX_RESPONSE_FILE_COUNT, MAX_RETAINED_INPUT_COUNT,
-    MAX_TOOL_ARGUMENT_COUNT, MAX_TOOL_ENVIRONMENT_COUNT, ToolInvocationReport,
+    LinkerInvocationReport, MAX_COMPILATION_INPUT_COUNT, MAX_RESPONSE_FILE_COUNT,
+    MAX_RETAINED_INPUT_COUNT, MAX_TOOL_ARGUMENT_COUNT, MAX_TOOL_ENVIRONMENT_COUNT, RetainedInput,
+    ToolInvocationReport,
 };
 
 const LANGUAGES: [CompilationLanguage; 3] = [
@@ -22,8 +22,7 @@ const MAXIMUM_SOURCE_BYTE_RATIO: u64 = 8;
 
 pub(super) const MATCHED_LIBRARY_CONTRACT: &str =
     "compile one source-authored library that exports an unsigned 64-bit accumulation operation";
-pub(super) const MATCHED_APPLICATION_CONTRACT: &str =
-    "compile one source-authored application that returns success while consuming the language's packaged library and runtime";
+pub(super) const MATCHED_APPLICATION_CONTRACT: &str = "compile one source-authored application that returns success while consuming the language's packaged library and runtime";
 
 pub(super) fn comparison(
     kind: CompilationKind,
@@ -168,7 +167,9 @@ pub(super) fn validate(
     let expected = comparability(report.kind, &report.builds);
 
     if report.comparability != expected {
-        return Err("compilation comparison publishes a misleading comparability result".to_owned());
+        return Err(
+            "compilation comparison publishes a misleading comparability result".to_owned(),
+        );
     }
 
     Ok(())
@@ -287,11 +288,19 @@ fn comparability(
 fn source_byte_scale_matches(
     builds: &BTreeMap<CompilationLanguage, CompilationBuildReport>,
 ) -> bool {
-    let Some(minimum) = builds.values().map(|build| build.authority.source_bytes).min() else {
+    let Some(minimum) = builds
+        .values()
+        .map(|build| build.authority.source_bytes)
+        .min()
+    else {
         return true;
     };
 
-    let Some(maximum) = builds.values().map(|build| build.authority.source_bytes).max() else {
+    let Some(maximum) = builds
+        .values()
+        .map(|build| build.authority.source_bytes)
+        .max()
+    else {
         return true;
     };
 
@@ -340,10 +349,7 @@ fn validate_build(
     validate_compiler_policy(kind, language, target, build)?;
 
     match (&build.linker, kind) {
-        (
-            LinkerInvocationReport::IntegratedCompilerDriver { driver, arguments },
-            _,
-        )
+        (LinkerInvocationReport::IntegratedCompilerDriver { driver, arguments }, _)
             if driver.is_empty()
                 || arguments.is_empty()
                 || arguments.len() > MAX_TOOL_ARGUMENT_COUNT =>
@@ -410,9 +416,9 @@ fn validate_compiler_policy(
                         has_argument_value(arguments, "--runtime-artifact")
                             && has_argument_value(arguments, "--standard-library-root")
                     }
-                    CompilationKind::Library => {
-                        !arguments.iter().any(|argument| argument == "--runtime-artifact")
-                    }
+                    CompilationKind::Library => !arguments
+                        .iter()
+                        .any(|argument| argument == "--runtime-artifact"),
                 }
         }
         CompilationLanguage::Rust => {
@@ -422,9 +428,7 @@ fn validate_compiler_policy(
                 && has_pair(arguments, "-C", "debuginfo=0")
                 && has_argument_value(arguments, "-o")
                 && match kind {
-                    CompilationKind::Application => {
-                        !has_pair(arguments, "--emit", "obj")
-                    }
+                    CompilationKind::Application => !has_pair(arguments, "--emit", "obj"),
                     CompilationKind::Library => {
                         has_pair(arguments, "--crate-type", "lib")
                             && has_pair(arguments, "--emit", "obj")
@@ -457,16 +461,17 @@ fn validate_compiler_policy(
         _ => return Err("matched linker invocation differs from compiler policy".to_owned()),
     }
 
-    match (kind, language, build.profile.as_ref(), build.evidence.as_ref()) {
-        (
-            CompilationKind::Application,
-            CompilationLanguage::Bray,
-            Some(_),
-            Some(evidence),
-        ) if evidence.linker_map.is_some()
-            && evidence_matches_timed_invocation(invocation, &evidence.compiler)
-            && contains_profile_instrumentation(&evidence.compiler.arguments)
-            && contains_linker_map_instrumentation(&evidence.compiler.arguments) => {}
+    match (
+        kind,
+        language,
+        build.profile.as_ref(),
+        build.evidence.as_ref(),
+    ) {
+        (CompilationKind::Application, CompilationLanguage::Bray, Some(_), Some(evidence))
+            if evidence.linker_map.is_some()
+                && evidence_matches_timed_invocation(invocation, &evidence.compiler)
+                && contains_profile_instrumentation(&evidence.compiler.arguments)
+                && contains_linker_map_instrumentation(&evidence.compiler.arguments) => {}
         (
             CompilationKind::Application,
             CompilationLanguage::Rust | CompilationLanguage::Cpp,
@@ -476,15 +481,11 @@ fn validate_compiler_policy(
             && evidence_matches_timed_invocation(invocation, &evidence.compiler)
             && !contains_profile_instrumentation(&evidence.compiler.arguments)
             && contains_linker_map_instrumentation(&evidence.compiler.arguments) => {}
-        (
-            CompilationKind::Library,
-            CompilationLanguage::Bray,
-            Some(_),
-            Some(evidence),
-        ) if evidence.linker_map.is_none()
-            && evidence_matches_timed_invocation(invocation, &evidence.compiler)
-            && contains_profile_instrumentation(&evidence.compiler.arguments)
-            && !contains_linker_map_instrumentation(&evidence.compiler.arguments) => {}
+        (CompilationKind::Library, CompilationLanguage::Bray, Some(_), Some(evidence))
+            if evidence.linker_map.is_none()
+                && evidence_matches_timed_invocation(invocation, &evidence.compiler)
+                && contains_profile_instrumentation(&evidence.compiler.arguments)
+                && !contains_linker_map_instrumentation(&evidence.compiler.arguments) => {}
         (
             CompilationKind::Library,
             CompilationLanguage::Rust | CompilationLanguage::Cpp,
@@ -513,7 +514,10 @@ fn normalized_evidence_arguments(arguments: &[String]) -> Vec<String> {
     let mut index = 0;
 
     while let Some(argument) = arguments.get(index) {
-        if matches!(argument.as_str(), "--profile" | "--profile-output" | "--linker-map-output") {
+        if matches!(
+            argument.as_str(),
+            "--profile" | "--profile-output" | "--linker-map-output"
+        ) {
             index = index.saturating_add(2);
 
             continue;
@@ -553,14 +557,11 @@ fn normalized_evidence_arguments(arguments: &[String]) -> Vec<String> {
 fn linker_map_argument(argument: &str) -> bool {
     let argument = argument.to_ascii_lowercase();
 
-    argument.contains("-map,")
-        || argument.contains("/map:")
-        || argument.starts_with("/map")
+    argument.contains("-map,") || argument.contains("/map:") || argument.starts_with("/map")
 }
 
 fn contains_timing_instrumentation(arguments: &[String]) -> bool {
-    contains_profile_instrumentation(arguments)
-        || contains_linker_map_instrumentation(arguments)
+    contains_profile_instrumentation(arguments) || contains_linker_map_instrumentation(arguments)
 }
 
 fn contains_profile_instrumentation(arguments: &[String]) -> bool {
@@ -591,7 +592,11 @@ fn reuse_is_valid(inputs: &BoundedList<RetainedInput>) -> bool {
     inputs.entries.len() <= MAX_RETAINED_INPUT_COUNT
         && strictly_sorted(&inputs.entries)
         && inputs.entries.iter().all(|input| {
-            !input.artifact.is_empty() && input.member.as_ref().is_some_and(|member| !member.is_empty())
+            !input.artifact.is_empty()
+                && input
+                    .member
+                    .as_ref()
+                    .is_some_and(|member| !member.is_empty())
         })
 }
 
@@ -605,14 +610,11 @@ fn validate_invocation(invocation: &ToolInvocationReport) -> Result<(), String> 
             .environment
             .iter()
             .any(|(name, value)| name.is_empty() || value.is_empty())
-        || invocation
-            .response_files
-            .iter()
-            .any(|file| {
-                file.path.is_empty()
-                    || file.contents_hex.is_empty()
-                    || !bray_base::is_lowercase_hex(&file.contents_hex)
-            })
+        || invocation.response_files.iter().any(|file| {
+            file.path.is_empty()
+                || file.contents_hex.is_empty()
+                || !bray_base::is_lowercase_hex(&file.contents_hex)
+        })
     {
         return Err("external tool invocation is incomplete or outside its bounds".to_owned());
     }

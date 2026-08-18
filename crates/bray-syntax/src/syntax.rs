@@ -2,7 +2,6 @@ mod block;
 mod callable;
 mod callable_contract;
 mod constant;
-mod static_storage;
 mod contract;
 mod directive;
 mod expression;
@@ -18,6 +17,7 @@ mod path;
 mod pattern;
 mod predicate;
 mod recovery;
+mod static_storage;
 mod r#trait;
 mod trait_application;
 mod r#type;
@@ -46,11 +46,6 @@ pub use constant::{
     ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
     ConstantModifiersSyntaxBuilder, TraitConstantMemberDeclarationSyntax,
     TraitConstantMemberDeclarationSyntaxBuilder,
-};
-pub use static_storage::{
-    StaticDeclarationModifiersSyntax, StaticDeclarationModifiersSyntaxBuilder,
-    StaticDeclarationSyntax, StaticDeclarationSyntaxBuilder, StaticDirectivesSyntax,
-    StaticDirectivesSyntaxBuilder,
 };
 pub use contract::{
     EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, RequiresClauseSyntax,
@@ -183,6 +178,11 @@ pub use predicate::{
 };
 pub use recovery::SkippedSyntax;
 pub(crate) use recovery::skipped_syntax_nodes;
+pub use static_storage::{
+    StaticDeclarationModifiersSyntax, StaticDeclarationModifiersSyntaxBuilder,
+    StaticDeclarationSyntax, StaticDeclarationSyntaxBuilder, StaticDirectivesSyntax,
+    StaticDirectivesSyntaxBuilder,
+};
 pub use r#trait::{
     TraitBodySyntax, TraitBodySyntaxBuilder, TraitDeclarationSyntax, TraitDeclarationSyntaxBuilder,
     TraitModifiersSyntax, TraitModifiersSyntaxBuilder,

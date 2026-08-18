@@ -243,7 +243,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = representation;
 
         match kind {
-            ConstantValueKind::Error => Err(CodegenFailure::GeneratedModuleInvariant),
+            ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
+                Err(CodegenFailure::GeneratedModuleInvariant)
+            }
             ConstantValueKind::Boolean(value) => {
                 let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);

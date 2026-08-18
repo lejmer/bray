@@ -824,17 +824,18 @@ const CHECKING_THREAD_LOCAL_STATIC_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CHECKING_STATIC_DEPENDENCY_OUTLIVES_OWNER: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("product-static storage requires a product-rooted dependency, found "),
+    MessageTemplatePart::Text(
+        "product-static storage requires a product-rooted dependency, found ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
 ];
 const CHECKING_STATIC_LIFECYCLE_CYCLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "static initialization and cleanup dependencies must form an ordered graph",
 )];
-const CHECKING_STATIC_SPECIALIZATION_DIVERGENCE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_STATIC_SPECIALIZATION_DIVERGENCE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "generic static recursion must converge on an already selected specialization",
-    ),
-];
+    )];
 const CHECKING_STATIC_CONSTRAINT_UNSATISFIED: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "static generic arguments must satisfy every declared constraint",
@@ -1794,10 +1795,11 @@ const NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION: &[MessageTemplatePart] =
         "correct the errors reported by the native linker, then build again",
     )];
 
-const NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
+const NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
         "fix any earlier errors and build again. If no earlier error appears, report this compiler issue with the command and complete diagnostic output",
-    )];
+    ),
+];
 
 const NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "provide a type annotation or use the expression where an expected type is known",

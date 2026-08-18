@@ -135,9 +135,7 @@ impl ExpressionBinder {
 
         self.push(
             binder,
-            BoundExpression::Name(
-                name.with_generic_argument_list(SyntaxAnchor::from_node(syntax)),
-            ),
+            BoundExpression::Name(name.with_generic_argument_list(SyntaxAnchor::from_node(syntax))),
         )
     }
 

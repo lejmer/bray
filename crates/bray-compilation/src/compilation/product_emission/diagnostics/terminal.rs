@@ -55,9 +55,11 @@ pub(super) fn codegen_failure_diagnostics(
             let failure = codegen_preparation_failure_kind(error)
                 .unwrap_or_else(|| unreachable!("query and diagnostic failures return above"));
 
-            return DiagnosticBag::single(
-                native_product_preparation_diagnostic(failure, product, target.as_str()),
-            );
+            return DiagnosticBag::single(native_product_preparation_diagnostic(
+                failure,
+                product,
+                target.as_str(),
+            ));
         }
         EmissionCodegenErrorKind::Generation { unit, .. } => {
             DiagnosticEmissionCodegenFailure::Generation(codegen_unit_identity(unit))

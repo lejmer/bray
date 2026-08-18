@@ -12,16 +12,34 @@ use inkwell::{
 use super::super::LlvmTypeMappings;
 use super::storage::pointer_type;
 
+#[derive(Clone, Copy)]
+pub(super) struct StaticLifecycleCallbacks<'context> {
+    pub(super) prepare: FunctionValue<'context>,
+    pub(super) finalizer: StaticFinalizerCallbacks<'context>,
+    pub(super) destroy: FunctionValue<'context>,
+    pub(super) detach: FunctionValue<'context>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct StaticFinalizerCallbacks<'context> {
+    pub(super) execution: u64,
+    pub(super) result_size: u64,
+    pub(super) result_alignment: u64,
+    pub(super) start: FunctionValue<'context>,
+    pub(super) resolve: FunctionValue<'context>,
+}
+
 pub(super) fn declare_thread_static_registration<'context>(
     module: &Module<'context>,
     product_host: &CodegenProductHostMapping,
     mapping: &CodegenStaticStorageMapping,
-    cleanup: FunctionValue<'context>,
+    callbacks: StaticLifecycleCallbacks<'context>,
     pointer: PointerType<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<GlobalValue<'context>, CodegenFailure> {
     let context = types.context();
-    let descriptor_type = product_host_descriptor_type(context, pointer, usize_type(types)?);
+    let usize = usize_type(types)?;
+    let descriptor_type = product_host_descriptor_type(context, pointer, usize);
 
     let descriptor = module
         .get_global(product_host.descriptor_symbol().as_str())
@@ -44,6 +62,9 @@ pub(super) fn declare_thread_static_registration<'context>(
             pointer.into(),
             static_identity_type(context).into(),
             pointer.into(),
+            static_finalizer_type(context, pointer, usize).into(),
+            pointer.into(),
+            pointer.into(),
         ],
         false,
     );
@@ -51,10 +72,21 @@ pub(super) fn declare_thread_static_registration<'context>(
     let initializer = registration_type.const_named_struct(&[
         descriptor.as_pointer_value().into(),
         static_identity_value(context, entry.identity()).into(),
-        cleanup.as_global_value().as_pointer_value().into(),
+        callbacks
+            .prepare
+            .as_global_value()
+            .as_pointer_value()
+            .into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        callbacks
+            .destroy
+            .as_global_value()
+            .as_pointer_value()
+            .into(),
+        callbacks.detach.as_global_value().as_pointer_value().into(),
     ]);
 
-    let name = format!("{}.registration", mapping.cleanup_name());
+    let name = format!("{}.registration", mapping.prepare_name());
 
     let registration = module.get_global(&name).unwrap_or_else(|| {
         let registration = module.add_global(registration_type, None, &name);
@@ -77,7 +109,7 @@ pub(super) fn declare_static_host_entry<'context>(
     host_mapping: &CodegenProductHostStatic,
     storage: PointerValue<'context>,
     accessor: FunctionValue<'context>,
-    cleanup: FunctionValue<'context>,
+    callbacks: StaticLifecycleCallbacks<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<GlobalValue<'context>, CodegenFailure> {
     let name = mapping.host_name();
@@ -110,7 +142,18 @@ pub(super) fn declare_static_host_entry<'context>(
             .into(),
         storage.into(),
         accessor.as_global_value().as_pointer_value().into(),
-        cleanup.as_global_value().as_pointer_value().into(),
+        callbacks
+            .prepare
+            .as_global_value()
+            .as_pointer_value()
+            .into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        callbacks
+            .destroy
+            .as_global_value()
+            .as_pointer_value()
+            .into(),
+        callbacks.detach.as_global_value().as_pointer_value().into(),
         dependency.as_global_value().as_pointer_value().into(),
         usize
             .const_int(
@@ -434,11 +477,55 @@ fn static_host_entry_type<'context>(
             pointer.into(),
             pointer.into(),
             pointer.into(),
+            static_finalizer_type(context, pointer, usize).into(),
+            pointer.into(),
+            pointer.into(),
             pointer.into(),
             usize.into(),
         ],
         false,
     )
+}
+
+fn static_finalizer_type<'context>(
+    context: &'context inkwell::context::Context,
+    pointer: PointerType<'context>,
+    usize: IntType<'context>,
+) -> StructType<'context> {
+    context.struct_type(
+        &[
+            context.i32_type().into(),
+            context.i32_type().into(),
+            usize.into(),
+            usize.into(),
+            pointer.into(),
+            pointer.into(),
+        ],
+        false,
+    )
+}
+
+fn static_finalizer_value<'context>(
+    context: &'context inkwell::context::Context,
+    finalizer: StaticFinalizerCallbacks<'context>,
+    pointer: PointerType<'context>,
+    usize: IntType<'context>,
+) -> inkwell::values::StructValue<'context> {
+    static_finalizer_type(context, pointer, usize).const_named_struct(&[
+        context
+            .i32_type()
+            .const_int(finalizer.execution, false)
+            .into(),
+        context.i32_type().const_zero().into(),
+        usize.const_int(finalizer.result_size, false).into(),
+        usize.const_int(finalizer.result_alignment, false).into(),
+        finalizer.start.as_global_value().as_pointer_value().into(),
+        finalizer
+            .resolve
+            .as_global_value()
+            .as_pointer_value()
+            .into(),
+    ])
 }
 
 fn product_host_descriptor_type<'context>(

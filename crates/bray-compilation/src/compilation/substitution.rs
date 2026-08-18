@@ -70,12 +70,9 @@ pub(super) fn identity_substitution(
         .map(|parameter| generic_parameter_argument(values, parameter))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let substitution = GenericSubstitutionData::try_new(
-        owner,
-        parameters.iter().copied(),
-        arguments,
-    )
-    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let substitution =
+        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     values
         .intern_generic_substitution(substitution)

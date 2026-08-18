@@ -1,8 +1,10 @@
+use super::runtime::{NativeRuntimeStatus, NativeSourceAnchor};
+
 /// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 3;
 
 /// Stable runtime symbol controlling one compiler-generated product host.
-pub const PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL: &str = "bray_runtime_product_host_control_v1";
+pub const PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL: &str = "bray_runtime_product_host_control_v3";
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]
@@ -27,6 +29,23 @@ impl NativeProductIdentity {
 pub struct NativeStaticIdentity([u8; 32]);
 
 impl NativeStaticIdentity {
+    /// Creates an identity from its exact compiler-generated digest.
+    pub const fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the exact identity digest.
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+/// Stable structural identity of one erased Bray type.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeTypeIdentity([u8; 32]);
+
+impl NativeTypeIdentity {
     /// Creates an identity from its exact compiler-generated digest.
     pub const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
@@ -154,6 +173,186 @@ pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 /// Compiler-generated callback cleaning one initialized static instance.
 pub type NativeStaticCleanupCallback = extern "C-unwind" fn();
 
+/// Compiler-generated callback starting finalization into caller-owned storage.
+pub type NativeStaticFinalizerStartCallback =
+    extern "C-unwind" fn(usize) -> NativeStaticFinalizerStatus;
+
+/// Compiler-generated callback reporting one owned cleanup incident payload.
+pub type NativeCleanupIncidentReportCallback = extern "C-unwind" fn(usize) -> NativeRuntimeStatus;
+
+/// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
+pub type NativeCleanupIncidentDestroyCallback = extern "C-unwind" fn(usize);
+
+/// Owned type-erased finalizer error transferred to its cleanup domain.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct NativeCleanupIncident {
+    payload: usize,
+    type_identity: NativeTypeIdentity,
+    source: NativeSourceAnchor,
+    report: NativeCleanupIncidentReportCallback,
+    destroy: NativeCleanupIncidentDestroyCallback,
+}
+
+impl NativeCleanupIncident {
+    /// Creates one compiler-generated owned cleanup incident.
+    pub const fn new(
+        payload: usize,
+        type_identity: NativeTypeIdentity,
+        source: NativeSourceAnchor,
+        report: NativeCleanupIncidentReportCallback,
+        destroy: NativeCleanupIncidentDestroyCallback,
+    ) -> Self {
+        Self {
+            payload,
+            type_identity,
+            source,
+            report,
+            destroy,
+        }
+    }
+
+    /// Returns whether every data field satisfies the native ownership contract.
+    pub const fn is_valid(self) -> bool {
+        self.payload != 0 && self.source.is_valid()
+    }
+
+    /// Returns the owned payload address.
+    pub const fn payload(self) -> usize {
+        self.payload
+    }
+
+    /// Returns the concrete Bray type identity.
+    pub const fn type_identity(self) -> NativeTypeIdentity {
+        self.type_identity
+    }
+
+    /// Returns the finalizer source location when locally available.
+    pub const fn source(self) -> NativeSourceAnchor {
+        self.source
+    }
+
+    /// Returns the reporting callback that borrows the owned payload.
+    pub const fn report(self) -> NativeCleanupIncidentReportCallback {
+        self.report
+    }
+
+    /// Returns the callback consuming and releasing the owned payload.
+    pub const fn destroy(self) -> NativeCleanupIncidentDestroyCallback {
+        self.destroy
+    }
+}
+
+/// Compiler-generated callback consuming one completed finalizer result.
+pub type NativeStaticFinalizerResolveCallback =
+    extern "C-unwind" fn(usize, usize) -> NativeStaticFinalizerStatus;
+
+/// How one static finalizer reaches completion.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativeStaticFinalizerExecution(u32);
+
+impl NativeStaticFinalizerExecution {
+    /// The static has no semantic finalizer.
+    pub const NONE: Self = Self(0);
+    /// Finalization completes during its start callback.
+    pub const SYNCHRONOUS: Self = Self(1);
+    /// Finalization produces an inactive protected frame.
+    pub const ASYNCHRONOUS: Self = Self(2);
+
+    /// Returns whether the value belongs to this ABI version.
+    pub const fn is_known(self) -> bool {
+        matches!(self.0, 0..=2)
+    }
+
+    /// Returns the stable integer representation.
+    pub const fn code(self) -> u32 {
+        self.0
+    }
+}
+
+/// Outcome of consuming one completed static finalizer result.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativeStaticFinalizerStatus(u32);
+
+impl NativeStaticFinalizerStatus {
+    /// Finalization completed successfully.
+    pub const SUCCESS: Self = Self(0);
+    /// Finalization produced a contained recoverable failure.
+    pub const INCIDENT: Self = Self(1);
+
+    /// Returns whether the value belongs to this ABI version.
+    pub const fn is_known(self) -> bool {
+        matches!(self.0, 0 | 1)
+    }
+
+    /// Returns the stable integer representation.
+    pub const fn code(self) -> u32 {
+        self.0
+    }
+}
+
+/// Closed execution and completion contract for one static finalizer.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct NativeStaticFinalizer {
+    execution: NativeStaticFinalizerExecution,
+    reserved: u32,
+    result_size: usize,
+    result_alignment: usize,
+    start: NativeStaticFinalizerStartCallback,
+    resolve: NativeStaticFinalizerResolveCallback,
+}
+
+impl NativeStaticFinalizer {
+    /// Creates one immutable compiler-generated finalizer contract.
+    pub const fn new(
+        execution: NativeStaticFinalizerExecution,
+        result_size: usize,
+        result_alignment: usize,
+        start: NativeStaticFinalizerStartCallback,
+        resolve: NativeStaticFinalizerResolveCallback,
+    ) -> Self {
+        Self {
+            execution,
+            reserved: 0,
+            result_size,
+            result_alignment,
+            start,
+            resolve,
+        }
+    }
+
+    /// Returns how finalization reaches completion.
+    pub const fn execution(self) -> NativeStaticFinalizerExecution {
+        self.execution
+    }
+
+    /// Returns the completed result size in bytes.
+    pub const fn result_size(self) -> usize {
+        self.result_size
+    }
+
+    /// Returns the completed result alignment in bytes.
+    pub const fn result_alignment(self) -> usize {
+        self.result_alignment
+    }
+
+    /// Returns the callback starting finalization.
+    pub const fn start(self) -> NativeStaticFinalizerStartCallback {
+        self.start
+    }
+
+    /// Returns the callback consuming the completed result.
+    pub const fn resolve(self) -> NativeStaticFinalizerResolveCallback {
+        self.resolve
+    }
+}
+
+/// Compiler-generated infallible static lifecycle transition callback.
+pub type NativeStaticTransitionCallback = extern "C" fn();
+
 /// Compiler-generated callback returning one dependency identity by ordinal.
 pub type NativeStaticDependencyCallback = extern "C" fn(usize) -> NativeStaticIdentity;
 
@@ -170,7 +369,10 @@ pub struct NativeStaticHostEntry {
     order: u64,
     storage: usize,
     access: NativeStaticAccessCallback,
-    cleanup: NativeStaticCleanupCallback,
+    prepare: NativeStaticTransitionCallback,
+    finalizer: NativeStaticFinalizer,
+    destroy: NativeStaticCleanupCallback,
+    detach: NativeStaticTransitionCallback,
     dependency: NativeStaticDependencyCallback,
     dependency_count: usize,
 }
@@ -187,7 +389,10 @@ impl NativeStaticHostEntry {
         order: u64,
         storage: usize,
         access: NativeStaticAccessCallback,
-        cleanup: NativeStaticCleanupCallback,
+        prepare: NativeStaticTransitionCallback,
+        finalizer: NativeStaticFinalizer,
+        destroy: NativeStaticCleanupCallback,
+        detach: NativeStaticTransitionCallback,
         dependency: NativeStaticDependencyCallback,
         dependency_count: usize,
     ) -> Self {
@@ -198,7 +403,10 @@ impl NativeStaticHostEntry {
             order,
             storage,
             access,
-            cleanup,
+            prepare,
+            finalizer,
+            destroy,
+            detach,
             dependency,
             dependency_count,
         }
@@ -234,9 +442,24 @@ impl NativeStaticHostEntry {
         self.access
     }
 
-    /// Returns the cleanup callback.
-    pub const fn cleanup(self) -> NativeStaticCleanupCallback {
-        self.cleanup
+    /// Returns the callback making storage unavailable for cleanup.
+    pub const fn prepare(self) -> NativeStaticTransitionCallback {
+        self.prepare
+    }
+
+    /// Returns the graceful finalization callback.
+    pub const fn finalizer(self) -> NativeStaticFinalizer {
+        self.finalizer
+    }
+
+    /// Returns the infallible destruction callback.
+    pub const fn destroy(self) -> NativeStaticCleanupCallback {
+        self.destroy
+    }
+
+    /// Returns the callback publishing the cleaned storage state.
+    pub const fn detach(self) -> NativeStaticTransitionCallback {
+        self.detach
     }
 
     /// Returns the callback selecting one dependency identity by ordinal.
@@ -304,7 +527,10 @@ impl NativeProductHostDescriptor {
 pub struct NativeThreadStaticCleanupRegistration {
     product: &'static NativeProductHostDescriptor,
     static_identity: NativeStaticIdentity,
-    callback: NativeStaticCleanupCallback,
+    prepare: NativeStaticTransitionCallback,
+    finalizer: NativeStaticFinalizer,
+    destroy: NativeStaticCleanupCallback,
+    detach: NativeStaticTransitionCallback,
 }
 
 impl NativeThreadStaticCleanupRegistration {
@@ -312,12 +538,18 @@ impl NativeThreadStaticCleanupRegistration {
     pub const fn new(
         product: &'static NativeProductHostDescriptor,
         static_identity: NativeStaticIdentity,
-        callback: NativeStaticCleanupCallback,
+        prepare: NativeStaticTransitionCallback,
+        finalizer: NativeStaticFinalizer,
+        destroy: NativeStaticCleanupCallback,
+        detach: NativeStaticTransitionCallback,
     ) -> Self {
         Self {
             product,
             static_identity,
-            callback,
+            prepare,
+            finalizer,
+            destroy,
+            detach,
         }
     }
 
@@ -331,9 +563,24 @@ impl NativeThreadStaticCleanupRegistration {
         self.static_identity
     }
 
-    /// Returns the exact-thread cleanup callback.
-    pub const fn callback(self) -> NativeStaticCleanupCallback {
-        self.callback
+    /// Returns the callback making this instance unavailable for cleanup.
+    pub const fn prepare(self) -> NativeStaticTransitionCallback {
+        self.prepare
+    }
+
+    /// Returns the graceful finalization callback.
+    pub const fn finalizer(self) -> NativeStaticFinalizer {
+        self.finalizer
+    }
+
+    /// Returns the infallible destruction callback.
+    pub const fn destroy(self) -> NativeStaticCleanupCallback {
+        self.destroy
+    }
+
+    /// Returns the infallible exact-thread detach callback.
+    pub const fn detach(self) -> NativeStaticTransitionCallback {
+        self.detach
     }
 }
 
@@ -446,8 +693,8 @@ impl NativeProductHostObservation {
 #[cfg(test)]
 mod tests {
     use super::{
-        NativeProductHostDescriptor, NativeProductHostObservation, NativeStaticHostEntry,
-        NativeThreadStaticCleanupRegistration,
+        NativeCleanupIncident, NativeProductHostDescriptor, NativeProductHostObservation,
+        NativeStaticFinalizer, NativeStaticHostEntry, NativeThreadStaticCleanupRegistration,
     };
 
     #[test]
@@ -469,6 +716,16 @@ mod tests {
 
         assert_eq!(
             std::mem::align_of::<NativeProductHostObservation>(),
+            std::mem::align_of::<usize>()
+        );
+
+        assert_eq!(
+            std::mem::align_of::<NativeCleanupIncident>(),
+            std::mem::align_of::<usize>()
+        );
+
+        assert_eq!(
+            std::mem::align_of::<NativeStaticFinalizer>(),
             std::mem::align_of::<usize>()
         );
     }

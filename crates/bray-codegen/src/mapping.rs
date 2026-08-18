@@ -25,7 +25,8 @@ pub use reference::{
     CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
 };
 pub use static_storage::{
-    CodegenStaticInstanceKey, CodegenStaticStorageMapping, CodegenStaticWitness,
+    CodegenStaticFinalization, CodegenStaticInstanceKey, CodegenStaticRelocation,
+    CodegenStaticStorageMapping, CodegenStaticWitness,
 };
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{

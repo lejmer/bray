@@ -67,6 +67,7 @@ impl Compilation {
         let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
             .with_references(references)
             .with_call_resolver(&resolver)
+            .with_static_address_borrows()
             .with_limits(limits);
 
         let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)

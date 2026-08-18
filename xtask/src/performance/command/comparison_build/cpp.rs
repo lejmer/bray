@@ -9,8 +9,7 @@ use crate::performance::model::{ArtifactKind, CompilationBuildReport, Compilatio
 
 use super::shared::PeerReportInput;
 
-const APPLICATION_SOURCE: &str =
-    include_str!("../../../../fixtures/performance-application.cpp");
+const APPLICATION_SOURCE: &str = include_str!("../../../../fixtures/performance-application.cpp");
 const LIBRARY_SOURCE: &str = include_str!("../../../../fixtures/performance-library.cpp");
 
 pub(super) fn build(
@@ -28,7 +27,10 @@ pub(super) fn build(
         CompilationKind::Application => (
             APPLICATION_SOURCE,
             "performance-application.cpp",
-            vec!["cxx_runtime".to_owned(), "performance_application".to_owned()],
+            vec![
+                "cxx_runtime".to_owned(),
+                "performance_application".to_owned(),
+            ],
             vec!["cxx_runtime".to_owned(), "translation_unit".to_owned()],
         ),
         CompilationKind::Library => (
@@ -67,13 +69,8 @@ pub(super) fn build(
                 .and_then(|()| std::fs::create_dir_all(&evidence_output))
                 .map_err(|error| format!("could not create matched C++ output: {error}"))?;
 
-            let timed_configuration = build_configuration(
-                kind,
-                &source,
-                &executable,
-                None,
-                target,
-            )?;
+            let timed_configuration =
+                build_configuration(kind, &source, &executable, None, target)?;
 
             let evidence = build_configuration(
                 kind,
@@ -169,9 +166,7 @@ fn build_configuration(
     target: NativeTarget,
 ) -> Result<crate::performance::model::PeerCompilerConfiguration, String> {
     let mut arguments = match kind {
-        CompilationKind::Application => {
-            crate::performance::peer::cpp_executable_arguments(target)
-        }
+        CompilationKind::Application => crate::performance::peer::cpp_executable_arguments(target),
         CompilationKind::Library => {
             let mut arguments = crate::performance::peer::cpp_release_arguments(target);
 

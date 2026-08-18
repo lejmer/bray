@@ -101,17 +101,23 @@ impl<'unit> Lowerer<'unit> {
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         if let Some((reference, ty)) = self.input.static_owner().cloned() {
-            self.builder
-                .push_storage(Self::retained_source(&source), MirStorageKind::Static(reference), ty)?;
+            self.builder.push_storage(
+                Self::retained_source(&source),
+                MirStorageKind::Static(reference),
+                ty,
+            )?;
         }
 
         if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(MirFrameState::new(
-                MirFrameStateId::new(0),
-                entry,
-                self.execution_lane_requirements(),
-                [],
-            ).with_affinity(self.frame_affinity()));
+            self.frame_states.push(
+                MirFrameState::new(
+                    MirFrameStateId::new(0),
+                    entry,
+                    self.execution_lane_requirements(),
+                    [],
+                )
+                .with_affinity(self.frame_affinity()),
+            );
         }
 
         let completion = match root {

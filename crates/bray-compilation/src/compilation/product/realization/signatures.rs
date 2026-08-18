@@ -1,22 +1,17 @@
-
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
-use bray_codegen::{
-    CodegenCallableSignature,
-    CodegenParameterMapping, CodegenResultMapping,
-};
+use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_ir::{
-    MirHelperReference, MirUnitKey,
-};
+use bray_ir::{MirHelperReference, MirUnitKey};
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableParameterSignature,
-    CallableSignature, CallableSignatureQuery, ImplementationSymbolId, NamedTypeSymbolId, ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext, StructFieldDefaultQuery, StructFieldDefaultValue,
-    StructSymbolId, SymbolQueryRequest,
-    TypeData, TypeId,
-    UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
+    CallableSignature, CallableSignatureQuery, ImplementationSymbolId, NamedTypeSymbolId,
+    ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
+    StructFieldDefaultQuery, StructFieldDefaultValue, StructSymbolId, SymbolQueryRequest,
+    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultQuery,
 };
 
 use super::super::super::CodegenPreparationError;
@@ -24,11 +19,11 @@ use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::super::substitution::named_type;
 use super::super::specialization::ConcreteCodegenInstance;
-use crate::fact::{CancellationToken, FactQueryError};
 use super::support::{
     callable_type_signature, codegen_checker_error, implementation_subject, is_void_result,
     receiver_codegen_type, substitute_contextual_self, void_signature,
 };
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(in crate::compilation::product) fn codegen_instance_signature(
@@ -41,7 +36,7 @@ impl Compilation {
                 .generated_lifecycle_reference()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            return self.generated_lifecycle_signature(reference);
+            return self.generated_lifecycle_signature(reference, cancellation);
         }
 
         if let Some(callable_type) = instance.anonymous_callable_type() {
@@ -71,11 +66,7 @@ impl Compilation {
         }
 
         if let Some(declaration) = instance.static_declaration() {
-            return self.codegen_static_initializer_signature(
-                instance,
-                declaration,
-                cancellation,
-            );
+            return self.codegen_static_initializer_signature(instance, declaration, cancellation);
         }
 
         let definition = match instance.key().template() {
@@ -496,6 +487,7 @@ impl Compilation {
     pub(super) fn generated_lifecycle_signature(
         &self,
         reference: &MirHelperReference,
+        cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
         let ty = reference
             .lifecycle_type()
@@ -509,9 +501,42 @@ impl Compilation {
             })
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+        let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            let Some((_, _, result, execution)) =
+                self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
+            else {
+                return Ok(CodegenCallableSignature::new(
+                    [CodegenParameterMapping::direct(pointer, None, [])],
+                    CodegenResultMapping::Void,
+                    CallableAbi::Bray,
+                    false,
+                ));
+            };
+
+            let result = if execution == CallableExecution::Asynchronous {
+                self.available_compiler_known_symbols()
+                    .unary_representation_type(
+                        self.semantic_value_store()?,
+                        RepresentationRole::Future,
+                        result,
+                    )
+                    .ok_or(FactQueryError::InfrastructureFailure)?
+            } else {
+                result
+            };
+
+            if is_void_result(self, result)? {
+                CodegenResultMapping::Void
+            } else {
+                CodegenResultMapping::direct(result, None, [])
+            }
+        } else {
+            CodegenResultMapping::Void
+        };
+
         Ok(CodegenCallableSignature::new(
             [CodegenParameterMapping::direct(pointer, None, [])],
-            CodegenResultMapping::Void,
+            result,
             CallableAbi::Bray,
             false,
         ))

@@ -4,33 +4,30 @@ use std::num::NonZeroU32;
 use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenDebugLocation, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
-    CodegenSourceFile,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping,
+    CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping,
     CodegenUnit, demanded_debug_sources,
 };
 use bray_ir::{
-    MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge,
-    MirEdge, MirFrameInitializer, MirHelperReference, MirOperationKind, MirPlace, MirProjection,
-    MirProjectionKind, MirSourceAnchor, MirStorageKind,
-    MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey,
+    MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
+    MirHelperReference, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
+    MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_source::LineIndex;
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableDefinitionId, SymbolKeyData,
+    AnySymbolId, BorrowKind, CallableDefinitionId, SymbolKeyData, TypeAssociatedLifecycleSlot,
     TypeData, TypeId,
 };
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
-use super::super::specialization::{
-    ConcreteCodegenInstance, ConcreteCodegenReachability,
-};
-use crate::fact::{CancellationToken, FactQueryError};
+use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::support::{
     codegen_source_file, dependency_symbol, direct_helper_symbol, helper_runtime_symbol,
-    operation_result_type,
+    is_void_result, operation_result_type,
 };
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(super) fn codegen_debug_locations(
@@ -284,6 +281,7 @@ impl Compilation {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
             }
             MirHelperReference::Finalize(_)
+            | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
             | MirHelperReference::Cleanup { .. } => {
                 if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
@@ -316,6 +314,9 @@ impl Compilation {
 
         Ok(match reference {
             MirHelperReference::Finalize(ty) => MirHelperReference::Finalize(
+                self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            ),
+            MirHelperReference::StaticFinalize(ty) => MirHelperReference::StaticFinalize(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),
             MirHelperReference::Destroy(ty) => MirHelperReference::Destroy(
@@ -596,6 +597,42 @@ impl Compilation {
                     .set_terminator(lifecycle_end, source, MirTerminatorKind::Return(None))
                     .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
             }
+            MirHelperReference::StaticFinalize(ty) => {
+                let return_value = if self.push_compiler_known_lifecycle_operations(
+                    &mut builder,
+                    entry,
+                    &source,
+                    reference,
+                    &place,
+                    instance.target().runtime_abi(),
+                    cancellation,
+                )? {
+                    None
+                } else if let Some(callable) = self.lifecycle_callable(
+                    *ty,
+                    TypeAssociatedLifecycleSlot::Finalizer,
+                    cancellation,
+                )? {
+                    let returns_void = callable.3 == bray_symbols::CallableExecution::Synchronous
+                        && is_void_result(self, callable.2)?;
+
+                    let value = self.push_static_finalizer_call(
+                        &mut builder,
+                        entry,
+                        &source,
+                        place,
+                        callable,
+                    )?;
+
+                    (!returns_void).then_some(MirOperand::Value(value))
+                } else {
+                    None
+                };
+
+                builder
+                    .set_terminator(entry, source, MirTerminatorKind::Return(return_value))
+                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            }
             MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
@@ -636,5 +673,4 @@ impl Compilation {
             .finish(entry)
             .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)
     }
-
 }

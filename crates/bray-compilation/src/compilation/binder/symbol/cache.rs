@@ -10,14 +10,13 @@ use bray_symbols::{
     ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
     ImplementationSubjectQuery, ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery,
     ModuleSurfaceQuery, PredicateDefinitionQuery, PredicateSignatureTemplateQuery,
-    StaticDeclaredTypeQuery, StaticInstanceTemplateQuery,
-    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldTypeQuery,
-    SymbolQueryContract, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
-    TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
-    TraitConstantMemberDefinitionQuery, TraitPredicateFulfillmentDefinitionQuery,
-    TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
-    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
-    UnionPayloadFieldTypeQuery,
+    StaticDeclaredTypeQuery, StaticInstanceTemplateQuery, StructFieldDefaultQuery,
+    StructFieldDefaultTemplateQuery, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantFulfillmentDefinitionQuery,
+    TraitConstantMemberDeclaredTypeQuery, TraitConstantMemberDefinitionQuery,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery,
+    TraitTypeFulfillmentValueQuery, UnionPayloadFieldDefaultQuery,
+    UnionPayloadFieldDefaultTemplateQuery, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::binding_query_error;

@@ -1276,9 +1276,7 @@ const fn diagnostic_dependency_subject(
         BoundDependencySubject::ImplementationWitness(_) => {
             DiagnosticDependencySubjectKind::SelectedImplementation
         }
-        BoundDependencySubject::ProductStatic(_) => {
-            DiagnosticDependencySubjectKind::ProductStatic
-        }
+        BoundDependencySubject::ProductStatic(_) => DiagnosticDependencySubjectKind::ProductStatic,
         BoundDependencySubject::ExactThreadStatic(_) => {
             DiagnosticDependencySubjectKind::ExactThreadStatic
         }

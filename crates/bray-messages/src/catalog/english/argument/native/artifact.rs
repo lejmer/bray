@@ -135,9 +135,7 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
         Kind::CodegenInvalidRequest => "the code generation request is internally inconsistent",
-        Kind::CodegenMirUnavailable => {
-            "the program is not ready for native code generation"
-        }
+        Kind::CodegenMirUnavailable => "the program is not ready for native code generation",
         Kind::CodegenMissingEntrypoint => "the product has no selected entrypoint",
         Kind::CodegenInvalidInstance => "a compiled program item is invalid",
         Kind::CodegenInvalidUnit => "a native-code work item is invalid",

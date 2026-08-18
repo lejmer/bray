@@ -46,15 +46,15 @@ use bray_symbols::{
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
     GenericArgument, GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
-    GenericParameterSymbolId, GenericSubstitutionId,
-    ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationSymbolId,
-    InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionQuery,
-    PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
-    RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
-    StaticInstanceTemplateQuery, StaticStorageDuration, StructFieldDefaultValue, SymbolKeyData,
-    SymbolKind, SymbolQueryRequest, TraitApplicationId,
-    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateMemberDefinitionQuery, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
+    GenericParameterSymbolId, GenericSubstitutionId, ImplementationCoherenceQuery,
+    ImplementationInstanceId, ImplementationSymbolId, InterfaceSupportEntityId, InterfaceSymbolId,
+    NamedTypeSymbolId, PredicateDefinitionQuery, PredicateDefinitionState,
+    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
+    RuntimeDefaultTemplateReference, SemanticValueStore, StaticInstanceTemplateQuery,
+    StaticStorageDuration, StructFieldDefaultValue, SymbolKeyData, SymbolKind, SymbolQueryRequest,
+    TraitApplicationId, TraitPredicateFulfillmentDefinitionQuery,
+    TraitPredicateMemberDefinitionQuery, TypeData, TypeExpressionTemplate, TypeId,
+    UnionPayloadDefaultValue,
 };
 use bray_target::TargetPropertyKind;
 
@@ -105,13 +105,7 @@ pub(super) fn build_semantics(
 
         export_generic_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
 
-        export_constant_semantics(
-            compilation,
-            &binder,
-            symbol,
-            &mut export,
-            &mut declarations,
-        )?;
+        export_constant_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
 
         export_predicate_semantics(&binder, symbol, &export, &mut declarations)?;
 
@@ -1882,9 +1876,7 @@ impl<'a> SemanticExporter<'a> {
                 InterfaceDependencySubjectRoot::ProductStatic(self.symbol_reference(id.into())?)
             }
             DependencySubjectRoot::ExactThreadStatic(id) => {
-                InterfaceDependencySubjectRoot::ExactThreadStatic(
-                    self.symbol_reference(id.into())?,
-                )
+                InterfaceDependencySubjectRoot::ExactThreadStatic(self.symbol_reference(id.into())?)
             }
         };
 
@@ -2280,7 +2272,9 @@ impl<'a> SemanticExporter<'a> {
             .map_err(|_| incomplete_type())?;
 
         let kind = match data.kind() {
-            ConstantValueKind::Error => return Err(incomplete_type()),
+            ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
+                return Err(incomplete_type());
+            }
             ConstantValueKind::Boolean(value) => InterfaceConstantValueKind::Boolean(*value),
             ConstantValueKind::Character(value) => InterfaceConstantValueKind::Character(*value),
             ConstantValueKind::Integer(value) => InterfaceConstantValueKind::Integer(value.clone()),
@@ -2698,13 +2692,7 @@ fn export_constant_semantics(
     semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     if let AnySymbolId::Static(declaration) = symbol {
-        return export_static_semantics(
-            compilation,
-            binder,
-            declaration,
-            export,
-            semantics,
-        );
+        return export_static_semantics(compilation, binder, declaration, export, semantics);
     }
 
     let Some(definition) = crate::compilation::constant::constant_definition_id(symbol) else {
@@ -2782,11 +2770,7 @@ fn export_static_semantics(
 
     let expression = key.source().syntax();
 
-    let inputs = generic_template_inputs(
-        compilation,
-        export,
-        generic_parameters(binder, symbol)?,
-    )?;
+    let inputs = generic_template_inputs(compilation, export, generic_parameters(binder, symbol)?)?;
 
     let checked = export_checked_source_template(
         compilation,

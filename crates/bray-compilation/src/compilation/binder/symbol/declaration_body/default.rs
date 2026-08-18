@@ -9,12 +9,12 @@ use bray_symbols::{
     CallableParameterSymbolId, CallableSignatureQuery, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ErrorCallableParameterDefault,
     ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId,
-    GenericParameterSymbolId, RuntimeDefaultBehavior,
-    RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
-    StructFieldDefaultQuery, StructFieldDefaultSurface, StructFieldDefaultTemplateQuery,
-    StructFieldDefaultValue, StructFieldSymbolId, SymbolQueryRequest, TrustedCapabilitySymbolId,
-    TypeData, TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface,
-    UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    GenericParameterSymbolId, RuntimeDefaultBehavior, RuntimeDefaultGenericContext,
+    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultQuery,
+    StructFieldDefaultSurface, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
+    StructFieldSymbolId, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData, TypeId,
+    UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
     UnionPayloadFieldSymbolId,
 };
 
@@ -361,7 +361,7 @@ fn generic_context(
         generic_owner,
         &parameters,
     )
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     RuntimeDefaultGenericContext::generic(parameters, substitution)
         .ok_or(BindingQueryError::DependencyUnavailable)

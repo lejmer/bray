@@ -126,10 +126,7 @@ fn rust_configuration(
 ) -> Result<PeerCompilerConfiguration, String> {
     let mut arguments = rust_executable_arguments(source, target, linker);
 
-    arguments.extend([
-        "--cfg".to_owned(),
-        format!("peer_workload=\"{workload}\""),
-    ]);
+    arguments.extend(["--cfg".to_owned(), format!("peer_workload=\"{workload}\"")]);
 
     let mut environment = BTreeMap::new();
 
@@ -688,7 +685,12 @@ pub(in crate::performance) fn command_identity(
 
     let identity = String::from_utf8_lossy(&output.stdout);
 
-    Ok(identity.lines().next().unwrap_or_default().trim().to_owned())
+    Ok(identity
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned())
 }
 
 pub(in crate::performance) fn elapsed_nanoseconds(started: Instant) -> u64 {

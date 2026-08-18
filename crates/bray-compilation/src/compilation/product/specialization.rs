@@ -17,8 +17,8 @@ use bray_symbols::{
     ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsQuery,
     GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
-    NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolQueryRequest, TargetSizedIntegerType,
-    TraitCallableMemberSymbolId, StaticInstanceKey, StaticReferenceSelection,
+    NamedTypeSymbolId, ProofOutcome, StaticInstanceKey, StaticReferenceSelection, StructSymbolId,
+    SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId,
 };
 
 use super::super::CodegenPreparationError;

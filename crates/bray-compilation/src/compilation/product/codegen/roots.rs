@@ -4,8 +4,8 @@ use bray_binder::BindingQueryContext;
 use bray_codegen::CodegenTarget;
 use bray_ir::MirUnitKey;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, ProductKind,
-    StaticSymbolId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, ImplementationSymbolId,
+    ProductKind, StaticSymbolId,
 };
 
 use super::super::super::Compilation;
@@ -211,6 +211,21 @@ impl Compilation {
                 Vec::new(),
             ));
         };
+
+        if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
+            let values = self.semantic_value_store()?;
+
+            let implementation_substitution =
+                empty_substitution(values, implementation.into_any())?;
+
+            let callable = super::super::super::implementation::callable_instance(
+                values,
+                symbol,
+                [implementation_substitution],
+            )?;
+
+            return Ok((callable, Vec::new()));
+        }
 
         let headers = self.implementation_header_index(cancellation)?;
 

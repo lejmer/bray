@@ -8,9 +8,8 @@ use bray_syntax::{
     NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
     SourceUnitSyntaxBuilder, StaticDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
-    SyntaxToken,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-    UsingDeclarationSyntax,
+    SyntaxToken, TraitDeclarationSyntax, UnionDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;

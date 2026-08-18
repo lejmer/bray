@@ -6,11 +6,11 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId,
     DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit,
-    DiagnosticInterfaceSemanticProblem,
-    DiagnosticInterfaceSymbolGraphProblem, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
-    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind, SeverityKind,
+    DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolGraphProblem,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticSemanticContentProblem,
+    DiagnosticSemanticValueKind, SeverityKind,
 };
 use bray_package_interface::{
     ImportedInterfaceSymbolResolver, ImportedSemanticRecord, ImportedSemantics,

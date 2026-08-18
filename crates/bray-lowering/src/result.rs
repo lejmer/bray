@@ -55,10 +55,7 @@ pub(crate) fn requires_mir(key: &BoundUnitKey) -> bool {
     requires_mir_kind(key.kind(), key.declared_owner().kind())
 }
 
-fn requires_mir_kind(
-    kind: BoundUnitKind,
-    owner: bray_symbols::SymbolKind,
-) -> bool {
+fn requires_mir_kind(kind: BoundUnitKind, owner: bray_symbols::SymbolKind) -> bool {
     match kind {
         BoundUnitKind::ConstantTemplate => owner == bray_symbols::SymbolKind::Static,
         BoundUnitKind::EmbeddedConstant

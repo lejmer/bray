@@ -12,7 +12,7 @@ pub use super::export::{
     bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
     bray_runtime_main_thread_lane_startup_v1, bray_runtime_panic_propagation_v1,
     bray_runtime_panic_report_construction_v1, bray_runtime_panic_reporting_v1,
-    bray_runtime_product_host_control_v1, bray_runtime_root_cancellation_request_v1,
+    bray_runtime_product_host_control_v3, bray_runtime_root_cancellation_request_v1,
     bray_runtime_root_completion_resolution_v1, bray_runtime_root_execution_v1,
     bray_runtime_root_terminal_observation_v1, bray_runtime_structured_shutdown_v1,
     bray_runtime_suspension_registration_v1, bray_runtime_task_allocation_v1,

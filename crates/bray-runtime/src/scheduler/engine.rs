@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use bray_platform::{
-    MonotonicDeadline, MonotonicInstant, NativeEvent, NativeWaitOutcome, RuntimeThreadId,
-};
+use bray_platform::{MonotonicDeadline, MonotonicInstant, NativeEvent, RuntimeThreadId};
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
@@ -15,13 +13,13 @@ use crate::{
 
 use super::contract::{SchedulerError, SchedulerLimits};
 use super::dispatch::{
-    earliest_deadline, pop_ready, queue_instant, scheduler_snapshot, select_task_lane,
+    pop_ready, queue_instant, scheduler_snapshot, select_task_lane,
 };
 
 /// Target-independent scheduler policy and ready-queue storage.
 #[derive(Clone, Debug)]
 pub struct Scheduler {
-    data: Arc<SchedulerData>,
+    pub(super) data: Arc<SchedulerData>,
 }
 
 #[derive(Debug)]
@@ -38,7 +36,7 @@ pub(super) struct SchedulerData {
 pub(super) struct SchedulerState {
     pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
     pub(super) queues: BTreeMap<ExecutionLane, VecDeque<QueuedTask>>,
-    timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
+    pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
     next_timer: u64,
     pub(super) timer_count: usize,
 }
@@ -78,7 +76,7 @@ pub(super) struct QueuedTask {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct TimerWake {
+pub(super) struct TimerWake {
     task: TaskId,
     state: ProtectedFrameStateId,
 }
@@ -257,46 +255,6 @@ impl Scheduler {
         Ok(pop_ready(&self.data, &mut state, lane))
     }
 
-    /// Waits for the next compatible task or the supplied deadline.
-    pub fn wait_ready(
-        &self,
-        lane: ExecutionLane,
-        deadline: Option<MonotonicDeadline>,
-    ) -> Result<Option<ReadyTask>, SchedulerError> {
-        loop {
-            let observed = self.data.event.observe()?;
-
-            let wait_deadline = {
-                let mut state = self.lock_state()?;
-
-                self.promote_elapsed_timers(&mut state)?;
-
-                if let Some(task) = pop_ready(&self.data, &mut state, lane) {
-                    return Ok(Some(task));
-                }
-
-                earliest_deadline(deadline, state.timers.keys().next().copied())
-            };
-
-            match self.data.event.wait(observed, wait_deadline)? {
-                NativeWaitOutcome::Woken(_) => {}
-                NativeWaitOutcome::TimedOut(_) => {
-                    let mut state = self.lock_state()?;
-
-                    self.promote_elapsed_timers(&mut state)?;
-
-                    if let Some(task) = pop_ready(&self.data, &mut state, lane) {
-                        return Ok(Some(task));
-                    }
-
-                    if deadline.is_some_and(MonotonicDeadline::has_elapsed) {
-                        return Ok(None);
-                    }
-                }
-            }
-        }
-    }
-
     /// Returns the current registered-task count.
     pub fn task_count(&self) -> Result<usize, SchedulerError> {
         self.lock_state().map(|state| state.tasks.len())
@@ -309,7 +267,10 @@ impl Scheduler {
         scheduler_snapshot(&self.data, &state)
     }
 
-    fn promote_elapsed_timers(&self, scheduler: &mut SchedulerState) -> Result<(), SchedulerError> {
+    pub(super) fn promote_elapsed_timers(
+        &self,
+        scheduler: &mut SchedulerState,
+    ) -> Result<(), SchedulerError> {
         while let Some(deadline) = scheduler.timers.keys().next().copied() {
             if !deadline.has_elapsed() {
                 break;
@@ -347,7 +308,9 @@ impl Scheduler {
         Ok(())
     }
 
-    fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, SchedulerState>, SchedulerError> {
+    pub(super) fn lock_state(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, SchedulerState>, SchedulerError> {
         self.data
             .state
             .lock()

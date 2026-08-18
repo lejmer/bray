@@ -2096,6 +2096,7 @@ fn constant_text(
         }
         ConstantValueKind::String(value) => format!("\"{}\"", value.escape_debug()),
         ConstantValueKind::Unit => String::from("()"),
+        ConstantValueKind::StaticAddress(_) => String::from("<static-address>"),
         ConstantValueKind::NullableAbsent => String::from("none"),
         ConstantValueKind::NullablePresent(_) => String::from("some(<constant>)"),
         ConstantValueKind::Tuple(values) => format!("<tuple:{}>", values.len()),
@@ -2417,6 +2418,7 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
 const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
     match reference {
         MirHelperReference::Finalize(_) => Some("finalize"),
+        MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
         MirHelperReference::Destroy(_) => Some("destroy"),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
@@ -2447,6 +2449,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
 const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"

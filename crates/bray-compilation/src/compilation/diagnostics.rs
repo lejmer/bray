@@ -486,9 +486,7 @@ impl Compilation {
         let constructor = match declaration.kind() {
             DeclarationKind::Constant
             | DeclarationKind::Static
-            | DeclarationKind::TraitConstantMember => {
-                BoundUnitKey::constant_template
-            }
+            | DeclarationKind::TraitConstantMember => BoundUnitKey::constant_template,
             DeclarationKind::Predicate | DeclarationKind::TraitPredicateMember => {
                 BoundUnitKey::predicate_definition
             }

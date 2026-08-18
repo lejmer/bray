@@ -327,8 +327,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
             let witnesses: &[ImplementationInstanceId] = match &reference {
                 bray_symbols::StaticReferenceSelection::Open {
-                    selected_witnesses,
-                    ..
+                    selected_witnesses, ..
                 } => selected_witnesses,
                 bray_symbols::StaticReferenceSelection::Closed(instance) => {
                     instance.selected_witnesses()

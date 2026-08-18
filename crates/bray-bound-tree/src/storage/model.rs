@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PostconditionResultSymbolId,
-    PredicateParameterSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal,
-    StaticSymbolId, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    PredicateParameterSymbolId, ReceiverParameterSymbolId, StaticSymbolId, StructFieldSymbolId,
+    SymbolOrdinal, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;

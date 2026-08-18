@@ -226,6 +226,10 @@ impl Compilation {
             runtime,
             host.as_ref(),
             product_host.as_ref(),
+            &mappings,
+            host_statics
+                .iter()
+                .any(super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident),
             &target,
         )?;
 
@@ -306,7 +310,10 @@ impl Compilation {
 
         let host_statics = match source_reachability.as_ref() {
             Some(reachability) => {
-                self.product_static_host_entries(reachability, target, cancellation)?
+                let entries =
+                    self.product_static_host_entries(reachability, target, cancellation)?;
+
+                entries
             }
             None => Vec::new(),
         };
@@ -318,6 +325,9 @@ impl Compilation {
             source_reachability
                 .as_ref()
                 .map(ConcreteCodegenReachability::graph),
+            host_statics
+                .iter()
+                .any(super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident),
             runtime,
             required_capabilities,
             target,
@@ -422,6 +432,8 @@ impl Compilation {
         runtime: Option<RuntimeArtifact>,
         host: Option<&bray_runtime_interface::ExecutableHostContract>,
         product_host: Option<&bray_codegen::CodegenProductHostMapping>,
+        mappings: &[bray_codegen::CodegenMappings],
+        transfers_cleanup_incident: bool,
         target: &CodegenTarget,
     ) -> Result<Option<RuntimeArtifactSelection>, NativeProductPlanningError> {
         let Some(runtime) = runtime else {
@@ -449,7 +461,19 @@ impl Compilation {
                     return Ok(None);
                 };
 
-                let mut roles = vec![bray_runtime_interface::RuntimeAbiRole::ProductHostControl];
+                let mut roles = mappings
+                    .iter()
+                    .flat_map(bray_codegen::CodegenMappings::symbols)
+                    .filter_map(|symbol| match symbol.key() {
+                        bray_codegen::CodegenSymbolKey::Runtime(reference) => {
+                            Some(reference.role())
+                        }
+                        bray_codegen::CodegenSymbolKey::Instance(_)
+                        | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                roles.push(bray_runtime_interface::RuntimeAbiRole::ProductHostControl);
 
                 if product_host.statics().iter().any(|entry| {
                     entry.duration() == bray_symbols::StaticStorageDuration::ExactThread
@@ -461,6 +485,9 @@ impl Compilation {
                 }
 
                 // Runtime selection owns the Arc-backed identities used after planning.
+                let capabilities = transfers_cleanup_incident
+                    .then_some(bray_runtime_interface::RuntimeCapability::MemoryOperations);
+
                 bray_runtime_interface::RuntimeRequirements::new(
                     Some(runtime.contract().identity().clone()),
                     self.selected_target().target().runtime_abi(),
@@ -468,7 +495,7 @@ impl Compilation {
                     target.identity().clone(),
                     target.panic_abi().clone(),
                     roles,
-                    [],
+                    capabilities,
                     [],
                 )
             }
@@ -2870,7 +2897,30 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
     ) {
-        let (backend, compilation) = codegen_compilation_for_product(source, product_kind);
+        runtime_native_plan_for_target(source, product_kind, SelectedTarget::baseline())
+    }
+
+    fn runtime_native_plan_for_target(
+        source: &str,
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        runtime_native_plan_for_sources_target(&[source], product_kind, target)
+    }
+
+    fn runtime_native_plan_for_sources_target(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        let (backend, compilation) =
+            codegen_compilation_for_sources_target(sources, product_kind, target);
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
@@ -3284,9 +3334,144 @@ mod tests {
         assert_eq!(roots.len(), 2);
     }
 
+    #[test]
+    fn static_mapping_retains_selected_lifecycle_helpers() {
+        let source = concat!(
+            "module app;\n",
+            "struct Resource { mut state: i32; }\n",
+            "impl Resource\n",
+            "{\n",
+            "    finalize() { self.state = 2; }\n",
+            "    destruct() { self.state = 3; }\n",
+            "}\n",
+            "static RESOURCE: Resource = Resource { state = 1 };\n",
+            "func main() {}\n",
+        );
+
+        let (_, plan) = runtime_native_plan(source);
+
+        let mapping = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .find(|mapping| mapping.finalization().is_some() || mapping.destroy().is_some())
+            .unwrap_or_else(|| panic!("lifecycle-bearing static mapping must be retained"));
+
+        assert!(mapping.finalization().is_some());
+        assert!(mapping.destroy().is_some());
+    }
+
+    #[test]
+    fn static_mapping_retains_asynchronous_fallible_finalizer() {
+        let source = concat!(
+            "module app;\n",
+            "struct Resource { mut state: i32; }\n",
+            "impl Resource\n",
+            "{\n",
+            "    async finalize() -> Result<unit, i32>\n",
+            "    {\n",
+            "        self.state = 2;\n",
+            "        return await finish();\n",
+            "    }\n",
+            "    destruct() { self.state = 3; }\n",
+            "}\n",
+            "async func finish() -> Result<unit, i32> { return Error(42); }\n",
+            "static RESOURCE: Resource = Resource { state = 1 };\n",
+            "func main() {}\n",
+        );
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let finalization = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .find_map(bray_codegen::CodegenStaticStorageMapping::finalization)
+            .unwrap_or_else(|| panic!("asynchronous static finalizer must be retained"));
+
+        assert_eq!(
+            finalization.execution(),
+            bray_symbols::CallableExecution::Asynchronous
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+
+        let (windows_backend, windows_plan) = runtime_native_plan_for_target(
+            source,
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        assert!(
+            generated_artifacts(&windows_backend, &windows_plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn native_static_storage_fixture_prepares_for_windows() {
+        let sources = [
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/fixtures/native-execution/static_storage.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/fixtures/native-execution/static_storage_contribution.bray"
+            )),
+        ];
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &sources,
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let requirements = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("fixture must retain an executable host"))
+            .requirements();
+
+        assert!(requirements.requires_role(RuntimeAbiRole::AwaitedFrameComposition));
+        assert!(requirements.requires_role(RuntimeAbiRole::FrameCompletionMove));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
     fn codegen_compilation_for_product(
         source: &str,
         product_kind: ProductKind,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_product_target(source, product_kind, SelectedTarget::baseline())
+    }
+
+    fn codegen_compilation_for_product_target(
+        source: &str,
+        product_kind: ProductKind,
+        target: SelectedTarget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_sources_target(&[source], product_kind, target)
+    }
+
+    fn codegen_compilation_for_sources_target(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
@@ -3305,12 +3490,18 @@ mod tests {
 
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
-            vec![crate::test_support::source_input(source, 0)],
-            CompilationOptions::new(
-                WorkerBudget::serial(),
-                product_kind,
-                SelectedTarget::baseline(),
-            ),
+            sources
+                .iter()
+                .enumerate()
+                .map(|(identity, source)| {
+                    crate::test_support::source_input(
+                        source,
+                        u32::try_from(identity)
+                            .unwrap_or_else(|_| panic!("test source identity must fit u32")),
+                    )
+                })
+                .collect(),
+            CompilationOptions::new(WorkerBudget::serial(), product_kind, target),
         );
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)

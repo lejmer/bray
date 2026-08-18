@@ -79,9 +79,9 @@ const DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
 
 const MODULE_EXPORT: &[MessageTemplatePart] = &[MessageTemplatePart::Text("module export")];
 
-const INVALID_RANGE_ELEMENT_TYPE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("this range uses a non-integer element type"),
-];
+const INVALID_RANGE_ELEMENT_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "this range uses a non-integer element type",
+)];
 
 const INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "this expression has the incompatible type",

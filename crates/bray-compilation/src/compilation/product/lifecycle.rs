@@ -33,7 +33,9 @@ impl CodegenLifecycleNeeds {
 
     const fn requires(self, role: MirGeneratedLifecycleRole) -> bool {
         let required = match role {
-            MirGeneratedLifecycleRole::Finalize => Self::FINALIZE,
+            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
+                Self::FINALIZE
+            }
             MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 Self::TASK_CANCELLATION

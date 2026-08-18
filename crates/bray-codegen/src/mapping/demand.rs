@@ -87,6 +87,7 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
         | ConstantValueKind::Real(_)
         | ConstantValueKind::Complex { .. }
         | ConstantValueKind::String(_)
+        | ConstantValueKind::StaticAddress(_)
         | ConstantValueKind::Unit
         | ConstantValueKind::NullableAbsent => Vec::new(),
     };

@@ -17,10 +17,7 @@ pub(in crate::performance::command) fn build(
     runtime: &Path,
 ) -> Result<crate::performance::model::CompilationComparisonReport, String> {
     let (directory, contract) = match kind {
-        CompilationKind::Application => (
-            "application-compilation",
-            MATCHED_APPLICATION_CONTRACT,
-        ),
+        CompilationKind::Application => ("application-compilation", MATCHED_APPLICATION_CONTRACT),
         CompilationKind::Library => ("library-compilation", MATCHED_LIBRARY_CONTRACT),
     };
 
