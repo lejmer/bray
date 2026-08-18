@@ -1,7 +1,7 @@
 # Contract reasoning
 
-At a program point, a condition is available when the language rules guarantee that it holds on every control-flow path reaching
-that point.
+At a program point, a condition is available when the language rules guarantee that it holds on every control-flow path
+reaching that point.
 
 Available conditions can come from:
 
@@ -19,14 +19,14 @@ Available conditions can come from:
 - trust boundary expressions,
 - trusted declarations that establish guarantees.
 
-A conforming implementation must allow an available condition to satisfy a matching contract requirement and must not rely on a
-condition that is not available under these rules.
+A conforming implementation must allow an available condition to satisfy a matching contract requirement and must not
+rely on a condition that is not available under these rules.
 
-A condition remains available only while the values, storage identities, lifetimes, capabilities, and versions it mentions remain
-valid and unchanged in every way that can affect the condition.
+A condition remains available only while the values, storage identities, lifetimes, capabilities, and versions it
+mentions remain valid and unchanged in every way that can affect the condition.
 
-Changing, moving, consuming, destroying, reinitializing, or finalizing a referenced value or storage location makes the condition
-unavailable when that operation can affect its truth.
+Changing, moving, consuming, destroying, reinitializing, or finalizing a referenced value or storage location makes the
+condition unavailable when that operation can affect its truth.
 
 Conditions over immutable copied scalar values can remain available independently.
 
@@ -41,8 +41,8 @@ predicate can_index<T>(buffer: &Buffer<T>, index: usize) =
     index < buffer.length;
 ```
 
-A guarantee of `can_index(buffer = buffer, index = index)` remains available only while the relevant buffer identity is valid and
-the length state it depends on is unchanged.
+A guarantee of `can_index(buffer = buffer, index = index)` remains available only while the relevant buffer identity is
+valid and the length state it depends on is unchanged.
 
 If `buffer` is mutated in a way that can change `length`, the guarantee is no longer available.
 

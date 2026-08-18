@@ -30,7 +30,8 @@ Const parameters use `const NAME: Type`.
 
 Declaration generics do not include capability parameters.
 
-Capability requirements and caller-visible effects are represented by the ordinary declaration surface and contract clauses.
+Capability requirements and caller-visible effects are represented by the ordinary declaration surface and contract
+clauses.
 
 Generic constraints are written with `with(...)` clauses.
 
@@ -42,18 +43,20 @@ Changing constraints changes which uses and implementations are accepted.
 
 Generic arguments for generic callable calls are explicit.
 
-Generic arguments are not inferred from ordinary arguments, result type, assignment target type, return type, or constraints.
+Generic arguments are not inferred from ordinary arguments, result type, assignment target type, return type, or
+constraints.
 
 Implementation declarations do not have explicit generic parameter lists.
 
-Generic implementation parameters are inferred from otherwise unresolved generic names in the implementing subject and trait application, then constrained by the implementation's `with(...)` clauses.
+Generic implementation parameters are inferred from otherwise unresolved generic names in the implementing subject and
+trait application, then constrained by the implementation's `with(...)` clauses.
 
 Generic type rules are defined in [Generic types](../types/generic-types.md).
 
 Generic function rules are defined in [Generic functions](../callables/generic-functions.md).
 
-Generic static declarations define open instance templates. Each demanded closed substitution selects one address-bearing instance
-according to [Static storage declarations](static-storage-declarations.md).
+Generic static declarations define open instance templates. Each demanded closed substitution selects one
+address-bearing instance according to [Static storage declarations](static-storage-declarations.md).
 
 ## Navigation
 

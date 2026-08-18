@@ -3,12 +3,10 @@
 This document defines how the Bray parser should be implemented.
 
 The source language grammar is defined by `docs/language/syntax-grammar.md` and `docs/language/syntax-grammar.ebnf`.
-This document is not a second grammar.
-It is the implementation contract for turning that grammar into parser code.
+This document is not a second grammar. It is the implementation contract for turning that grammar into parser code.
 
-The parser belongs to `bray-parser`.
-It produces lossless syntax trees owned by `bray-syntax` and syntax diagnostics owned by the diagnostics model.
-It must not perform semantic validation.
+The parser belongs to `bray-parser`. It produces lossless syntax trees owned by `bray-syntax` and syntax diagnostics
+owned by the diagnostics model. It must not perform semantic validation.
 
 ---
 
@@ -31,19 +29,19 @@ Malformed user input must produce syntax diagnostics and recovered syntax trees,
 
 ## Grammar Contract
 
-`docs/language/syntax-grammar.md` is the readable source grammar.
-`docs/language/syntax-grammar.ebnf` is the plain EBNF reference.
+`docs/language/syntax-grammar.md` is the readable source grammar. `docs/language/syntax-grammar.ebnf` is the plain EBNF
+reference.
 
-Parser changes must follow the grammar exactly.
-If the implementation needs to accept a new source shape, update the grammar documents in the same change.
-If the grammar changes, update syntax kinds, typed syntax APIs, parser code, diagnostics, and tests together.
+Parser changes must follow the grammar exactly. If the implementation needs to accept a new source shape, update the
+grammar documents in the same change. If the grammar changes, update syntax kinds, typed syntax APIs, parser code,
+diagnostics, and tests together.
 
-Semantic restrictions must not be encoded as parser restrictions unless the grammar explicitly encodes them.
-Examples of semantic restrictions include duplicate modifiers, incompatible modifier combinations, unknown names,
-invalid types, invalid traits, and context-specific callable body requirements.
+Semantic restrictions must not be encoded as parser restrictions unless the grammar explicitly encodes them. Examples of
+semantic restrictions include duplicate modifiers, incompatible modifier combinations, unknown names, invalid types,
+invalid traits, and context-specific callable body requirements.
 
-The parser may use syntax context to choose between grammar alternatives.
-It must not use name resolution, type information, target properties, package semantics, or later compiler phase state.
+The parser may use syntax context to choose between grammar alternatives. It must not use name resolution, type
+information, target properties, package semantics, or later compiler phase state.
 
 ---
 
@@ -51,31 +49,29 @@ It must not use name resolution, type information, target properties, package se
 
 The parser is a recursive descent parser.
 
-As a default rule, each grammar nonterminal has one private `parse_` method on `Parser`.
-A grammar name like `source-unit-module-declaration` maps to a method like `parse_source_unit_module_declaration`.
+As a default rule, each grammar nonterminal has one private `parse_` method on `Parser`. A grammar name like
+`source-unit-module-declaration` maps to a method like `parse_source_unit_module_declaration`.
 
-Shared grammar shapes may use one shared implementation when the behavior is genuinely the same.
-In that case, prefer either:
+Shared grammar shapes may use one shared implementation when the behavior is genuinely the same. In that case, prefer
+either:
 
 - a small named wrapper for each grammar root that calls the shared implementation, when the root is important to
   readability or typed syntax shape,
 - one shared method with a typed context argument, when the grammar roots are the same parser operation with different
   accepted child roots or terminators.
 
-Do not copy a large parser body only to change one token kind, node kind, or terminator set.
-Use shared helpers, typed context objects, or local macros when they prevent real duplication while preserving clear
-grammar ownership.
+Do not copy a large parser body only to change one token kind, node kind, or terminator set. Use shared helpers, typed
+context objects, or local macros when they prevent real duplication while preserving clear grammar ownership.
 
-`parse_` methods should focus on the production they implement.
-They should not inline generic token skipping, list handling, delimiter recovery, or ambiguity scanning logic.
+`parse_` methods should focus on the production they implement. They should not inline generic token skipping, list
+handling, delimiter recovery, or ambiguity scanning logic.
 
 ---
 
 ## Parser Crate Layout
 
-`bray-parser/src/parser.rs` is a thin parser module root.
-It should contain only parser submodule declarations, crate-local parser wiring, and public reexports for parser entry
-points.
+`bray-parser/src/parser.rs` is a thin parser module root. It should contain only parser submodule declarations,
+crate-local parser wiring, and public reexports for parser entry points.
 
 Parser implementation details live under `bray-parser/src/parser/`:
 
@@ -98,17 +94,16 @@ Parser implementation details live under `bray-parser/src/parser/`:
 - `type.rs` owns module-level struct and union declaration grammar parsing,
 - `typed_identifier.rs` owns typed identifier and type annotation grammar parsing.
 
-Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed.
-Do not put unrelated grammar in a module only because that module first needed it.
-If a parser submodule needs its own submodules, keep the parent file as a thin root and name the nested files for the
-local grammar concept.
+Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed. Do
+not put unrelated grammar in a module only because that module first needed it. If a parser submodule needs its own
+submodules, keep the parent file as a thin root and name the nested files for the local grammar concept.
 
-Tests should live beside the parser code they exercise.
-Use module-local `#[cfg(test)]` blocks for focused parser behavior.
-Shared parser test helpers may live in a small test-only support module when that avoids duplicating test plumbing.
+Tests should live beside the parser code they exercise. Use module-local `#[cfg(test)]` blocks for focused parser
+behavior. Shared parser test helpers may live in a small test-only support module when that avoids duplicating test
+plumbing.
 
-Parser and syntax grammar module files should use the grammar concept name without a `_declaration.rs` suffix.
-If the concept name is a Rust keyword, the owning module root should use a raw module declaration for that file.
+Parser and syntax grammar module files should use the grammar concept name without a `_declaration.rs` suffix. If the
+concept name is a Rust keyword, the owning module root should use a raw module declaration for that file.
 
 ---
 
@@ -116,26 +111,24 @@ If the concept name is a Rust keyword, the owning module root should use a raw m
 
 Expression parsing uses precedence climbing.
 
-The expression grammar in `syntax-grammar.md` remains the contract.
-The precedence-climbing implementation is an implementation strategy for the expression ladder, not permission to accept
-operators or groupings outside the grammar.
+The expression grammar in `syntax-grammar.md` remains the contract. The precedence-climbing implementation is an
+implementation strategy for the expression ladder, not permission to accept operators or groupings outside the grammar.
 
 Expression roots such as `expression`, `condition-expression`, `constant-expression`, `predicate-expression`,
 `type-expression`, and restricted expression roots must keep distinct parser entry points when the grammar gives them
-distinct meanings.
-Those entry points may share a precedence-climbing engine when their accepted operators and operands are the same.
+distinct meanings. Those entry points may share a precedence-climbing engine when their accepted operators and operands
+are the same.
 
-The precedence table must be derived from the grammar and from the compiler-known operator set.
-Associativity must be represented explicitly.
-Right-associative forms such as assignment and exponentiation must not accidentally become left-associative because of a
-generic loop.
+The precedence table must be derived from the grammar and from the compiler-known operator set. Associativity must be
+represented explicitly. Right-associative forms such as assignment and exponentiation must not accidentally become
+left-associative because of a generic loop.
 
 Postfix parsing should be modeled as repeated postfix operations after a primary or access root, matching the grammar.
 Prefix parsing should parse the operand at the correct binding strength.
 
-Ambiguous expression starts must be resolved with syntax lookahead only.
-For example, an `identifier "="` prefix in an argument list is a named argument, while a positional assignment
-expression with that shape must be grouped as the grammar requires.
+Ambiguous expression starts must be resolved with syntax lookahead only. For example, an `identifier "="` prefix in an
+argument list is a named argument, while a positional assignment expression with that shape must be grouped as the
+grammar requires.
 
 ---
 
@@ -153,14 +146,11 @@ Parser code should use cursor-backed helpers such as:
 - `expect`,
 - recovery helpers built on the cursor.
 
-No parser API should require eager tokenization of a whole source unit.
-Lexing stays demand-driven.
-Repeated lookahead must be stable.
-EOF behavior must be repeatable and panic-free.
+No parser API should require eager tokenization of a whole source unit. Lexing stays demand-driven. Repeated lookahead
+must be stable. EOF behavior must be repeatable and panic-free.
 
-Lexical diagnostics produced while demanding tokens remain attached to the parser result.
-Speculative scans may demand lexical tokens, but lexical diagnostics from those demanded tokens must be deterministic
-and deduplicated.
+Lexical diagnostics produced while demanding tokens remain attached to the parser result. Speculative scans may demand
+lexical tokens, but lexical diagnostics from those demanded tokens must be deterministic and deduplicated.
 
 At parser level, terminator and delimiter policy should be expressed in `SyntaxKind` sets, not raw characters.
 
@@ -170,28 +160,25 @@ At parser level, terminator and delimiter policy should be expressed in `SyntaxK
 
 The parser produces immutable green syntax through builders.
 
-Syntax trees must preserve exact source reconstruction for present source text.
-Whitespace and comments remain token trivia.
-Skipped tokens remain present source text attached through skipped syntax.
-Missing tokens are zero-width syntax tokens with the expected `SyntaxKind`.
+Syntax trees must preserve exact source reconstruction for present source text. Whitespace and comments remain token
+trivia. Skipped tokens remain present source text attached through skipped syntax. Missing tokens are zero-width syntax
+tokens with the expected `SyntaxKind`.
 
-Typed syntax APIs should expose recovery state.
-Later phases must be able to detect missing tokens and skipped syntax without depending on public green internals.
+Typed syntax APIs should expose recovery state. Later phases must be able to detect missing tokens and skipped syntax
+without depending on public green internals.
 
-Parser code should build syntax in source order.
-Do not create public generic child-list APIs just to make parser construction convenient.
-Use concrete typed nodes and shared internal helpers or macros where repeated grammar shapes need reuse.
+Parser code should build syntax in source order. Do not create public generic child-list APIs just to make parser
+construction convenient. Use concrete typed nodes and shared internal helpers or macros where repeated grammar shapes
+need reuse.
 
 ---
 
 ## Syntax Crate Layout
 
-`bray-syntax/src/syntax/` is for concrete typed syntax grammar shapes.
-Files and subdirectories there should correspond to terminals, nonterminals, or explicit recovery nodes that appear in
-the syntax tree.
+`bray-syntax/src/syntax/` is for concrete typed syntax grammar shapes. Files and subdirectories there should correspond
+to terminals, nonterminals, or explicit recovery nodes that appear in the syntax tree.
 
-Reusable typed-node infrastructure belongs outside `syntax/`.
-This includes:
+Reusable typed-node infrastructure belongs outside `syntax/`. This includes:
 
 - the thin node infrastructure root in `bray-syntax/src/node.rs`,
 - node contracts and green-node adapter traits in `bray-syntax/src/node/traits.rs`,
@@ -199,17 +186,16 @@ This includes:
 - crate-local helpers for typed syntax nodes in `bray-syntax/src/node/support.rs`,
 - list storage and code-generation macros in `bray-syntax/src/list.rs` and `bray-syntax/src/list/`.
 
-Concrete grammar nodes generated by shared infrastructure still belong in `syntax/`.
-For example, a concrete parameter-list node belongs near the grammar syntax it represents, while the macro or storage
-used to define that node does not.
+Concrete grammar nodes generated by shared infrastructure still belong in `syntax/`. For example, a concrete
+parameter-list node belongs near the grammar syntax it represents, while the macro or storage used to define that node
+does not.
 
-Parser changes that need a new syntax node should add the concrete node under `syntax/`.
-Parser changes that need a reusable builder helper, node trait, macro, or storage adapter should add it to the owning
-crate-root infrastructure module instead.
+Parser changes that need a new syntax node should add the concrete node under `syntax/`. Parser changes that need a
+reusable builder helper, node trait, macro, or storage adapter should add it to the owning crate-root infrastructure
+module instead.
 
-Parser methods should stay handwritten.
-Syntax-node macros remove typed syntax boilerplate only.
-They should not generate recursive descent parser methods or hide grammar decisions in parser code.
+Parser methods should stay handwritten. Syntax-node macros remove typed syntax boilerplate only. They should not
+generate recursive descent parser methods or hide grammar decisions in parser code.
 
 ---
 
@@ -227,31 +213,29 @@ Use shared helpers for common operations such as:
 - recovering until comma, semicolon, closing delimiter, or EOF,
 - attaching skipped tokens as skipped syntax at the recovery point.
 
-Do not inline recovery loops in individual `parse_` methods.
-If a `parse_` method needs a new recovery pattern, first decide whether it is a reusable parser helper.
+Do not inline recovery loops in individual `parse_` methods. If a `parse_` method needs a new recovery pattern, first
+decide whether it is a reusable parser helper.
 
-Recovery loops must make progress.
-Every loop that can see malformed input must either consume a token, insert a missing token and return, or stop at a
-deterministic terminator.
-EOF recovery must be deterministic.
+Recovery loops must make progress. Every loop that can see malformed input must either consume a token, insert a missing
+token and return, or stop at a deterministic terminator. EOF recovery must be deterministic.
 
-Terminator sets should include EOF when the caller can finish at end of source.
-Delimiter-specific recovery should stop before the delimiter so the caller can consume or expect it in the normal
-grammar position.
+Terminator sets should include EOF when the caller can finish at end of source. Delimiter-specific recovery should stop
+before the delimiter so the caller can consume or expect it in the normal grammar position.
 
-Skipped tokens should be attached under skipped-syntax recovery nodes.
-Missing-token diagnostics use an insertion-point span.
+Skipped tokens should be attached under skipped-syntax recovery nodes. Missing-token diagnostics use an insertion-point
+span.
 
 ### Nesting Safety
 
-Recursive grammar entry points must share one deterministic parser-owned syntax nesting budget. Expression, type-expression, and
-pattern parsing count against the same budget so alternating grammar forms cannot evade it. Speculative parser forks inherit the
-current depth and discard over-limit syntax diagnostics when the scan is abandoned like any other parser diagnostic.
+Recursive grammar entry points must share one deterministic parser-owned syntax nesting budget. Expression,
+type-expression, and pattern parsing count against the same budget so alternating grammar forms cannot evade it.
+Speculative parser forks inherit the current depth and discard over-limit syntax diagnostics when the scan is abandoned
+like any other parser diagnostic.
 
-Exceeding the budget produces a structured syntax diagnostic at the first token beyond the limit. Recovery must stop through the
-ordinary caller-provided boundary, retain the over-limit source as skipped syntax, return a typed recovered node, and unwind without
-continuing recursive descent. One over-limit descent reports one primary diagnostic rather than one diagnostic per active grammar
-frame.
+Exceeding the budget produces a structured syntax diagnostic at the first token beyond the limit. Recovery must stop
+through the ordinary caller-provided boundary, retain the over-limit source as skipped syntax, return a typed recovered
+node, and unwind without continuing recursive descent. One over-limit descent reports one primary diagnostic rather than
+one diagnostic per active grammar frame.
 
 ---
 
@@ -259,8 +243,8 @@ frame.
 
 List syntax nodes should use shared syntax infrastructure.
 
-The syntax list infrastructure supports both comma-like separated lists and repeated unseparated lists such as
-directive groups.
+The syntax list infrastructure supports both comma-like separated lists and repeated unseparated lists such as directive
+groups.
 
 Separated lists should use shared parser infrastructure.
 
@@ -282,8 +266,8 @@ The implementation must preserve:
 - skipped syntax,
 - exact reconstruction for present source.
 
-Do not duplicate list parser logic across every grammar list.
-Use macros or typed internal helpers when most of the code would otherwise be identical.
+Do not duplicate list parser logic across every grammar list. Use macros or typed internal helpers when most of the code
+would otherwise be identical.
 
 ---
 
@@ -291,8 +275,7 @@ Use macros or typed internal helpers when most of the code would otherwise be id
 
 Use parser checkpoints or scan forks for syntax lookahead decisions.
 
-Speculative scans are for syntax decisions only.
-They must not perform semantic decisions.
+Speculative scans are for syntax decisions only. They must not perform semantic decisions.
 
 Abandoned scans must not commit:
 
@@ -311,40 +294,33 @@ deduplicated in the final parser result.
 
 ## Diagnostics
 
-The parser owns syntax diagnostics while parsing.
-Lexical diagnostics and syntax diagnostics are merged deterministically when a parse result is materialized.
-Compilation-level diagnostic bags should merge parser diagnostics lazily when a compiler API requests diagnostics.
+The parser owns syntax diagnostics while parsing. Lexical diagnostics and syntax diagnostics are merged
+deterministically when a parse result is materialized. Compilation-level diagnostic bags should merge parser diagnostics
+lazily when a compiler API requests diagnostics.
 
-Parser logic must emit structured diagnostics.
-It must not construct user-facing English text.
+Parser logic must emit structured diagnostics. It must not construct user-facing English text.
 
-Use standard cursor helper diagnostics whenever possible.
-In ordinary parser code, prefer `expect` and shared recovery helpers instead of manually constructing diagnostics.
+Use standard cursor helper diagnostics whenever possible. In ordinary parser code, prefer `expect` and shared recovery
+helpers instead of manually constructing diagnostics.
 
 Add a custom syntax diagnostic only for a non-standard situation where the existing helper diagnostics would be unclear
-or structurally incomplete.
-Custom diagnostics must use the diagnostics framework for structured data and `bray-messages` for locale-aware
-rendering.
+or structurally incomplete. Custom diagnostics must use the diagnostics framework for structured data and
+`bray-messages` for locale-aware rendering.
 
 Diagnostics should carry typed arguments such as expected syntax kinds, actual syntax kinds, token spellings, counts,
-and source spans.
-Do not pre-render or quote diagnostic arguments for English inside parser code.
+and source spans. Do not pre-render or quote diagnostic arguments for English inside parser code.
 
 ---
 
 ## Comments And Naming
 
-Method bodies should be clear from structure and names.
-Add comments only for unclear, complex, or ambiguous code.
+Method bodies should be clear from structure and names. Add comments only for unclear, complex, or ambiguous code.
 
-Comments in parser implementation should use ordinary keyboard characters only.
-Use ASCII double quotes.
-Do not use curly quotation marks.
-Do not use em dashes.
-Do not use semicolons in comments.
+Comments in parser implementation should use ordinary keyboard characters only. Use ASCII double quotes. Do not use
+curly quotation marks. Do not use em dashes. Do not use semicolons in comments.
 
-Names should match grammar concepts unless a shared helper names a lower-level parser operation.
-Avoid abbreviations in parser APIs that are visible beyond a small local scope.
+Names should match grammar concepts unless a shared helper names a lower-level parser operation. Avoid abbreviations in
+parser APIs that are visible beyond a small local scope.
 
 ---
 
@@ -352,12 +328,11 @@ Avoid abbreviations in parser APIs that are visible beyond a small local scope.
 
 Avoid cloning in parser code.
 
-Prefer borrowing syntax data, token data, snapshots, context objects, and terminator sets.
-If cloning is truly necessary, keep the clone narrow and add a short comment explaining why that ownership boundary is
-needed.
+Prefer borrowing syntax data, token data, snapshots, context objects, and terminator sets. If cloning is truly
+necessary, keep the clone narrow and add a short comment explaining why that ownership boundary is needed.
 
-Do not hide expensive ownership movement behind helper names that sound like cheap observation.
-Parser helpers that can demand tokens may take `&mut self` and should not use `is_` names.
+Do not hide expensive ownership movement behind helper names that sound like cheap observation. Parser helpers that can
+demand tokens may take `&mut self` and should not use `is_` names.
 
 ---
 
@@ -365,10 +340,9 @@ Parser helpers that can demand tokens may take `&mut self` and should not use `i
 
 Parser changes should include focused tests near the parser code.
 
-`docs/design/parser-coverage.md` maps grammar nonterminals to parser entry points and primary parser tests.
-The `bray-parser` integration test `parser_coverage_matrix_matches_syntax_grammar_nonterminals` checks that the
-matrix covers every nonterminal in `syntax-grammar.ebnf`.
-Update the matrix when grammar or parser coverage changes.
+`docs/design/parser-coverage.md` maps grammar nonterminals to parser entry points and primary parser tests. The
+`bray-parser` integration test `parser_coverage_matrix_matches_syntax_grammar_nonterminals` checks that the matrix
+covers every nonterminal in `syntax-grammar.ebnf`. Update the matrix when grammar or parser coverage changes.
 
 For each meaningful grammar feature, cover:
 
@@ -380,8 +354,8 @@ For each meaningful grammar feature, cover:
 - EOF behavior when recovery can reach EOF,
 - structured diagnostic kind, span, severity, and typed arguments when diagnostics change.
 
-Rendered diagnostic text belongs at the terminal rendering or `bray-messages` boundary.
-Parser tests should usually assert structured diagnostics.
+Rendered diagnostic text belongs at the terminal rendering or `bray-messages` boundary. Parser tests should usually
+assert structured diagnostics.
 
 Tests for malformed input should verify that ordinary malformed source does not panic.
 

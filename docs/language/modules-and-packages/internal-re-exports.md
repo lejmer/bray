@@ -16,7 +16,8 @@ Acknowledgement does not make an internal declaration public.
 
 Acknowledgement does not propagate through re-exports.
 
-A public API exposes internal declarations only through an explicit public wrapper that removes the internal declaration from the public signature.
+A public API exposes internal declarations only through an explicit public wrapper that removes the internal declaration
+from the public signature.
 
 ```bray
 module api;

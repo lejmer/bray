@@ -17,8 +17,8 @@ Reaching the end of the loop body starts the next iteration.
 
 The syntactic body block of a loop belongs to the loop expression's break-capable region.
 
-A loop body does not capture `yield`. A `yield` inside a loop body targets the nearest enclosing yield-capable region unless a
-nested yield-capable region captures it.
+A loop body does not capture `yield`. A `yield` inside a loop body targets the nearest enclosing yield-capable region
+unless a nested yield-capable region captures it.
 
 `break value` exits the loop expression and supplies the loop result.
 
@@ -28,11 +28,11 @@ nested yield-capable region captures it.
 
 Loop paths that keep iterating do not supply a loop result.
 
-If a loop has reachable `break` expressions that target the loop, every such break value must be compatible with the loop's result
-type.
+If a loop has reachable `break` expressions that target the loop, every such break value must be compatible with the
+loop's result type.
 
-`return`, `yield`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target an outer
-boundary leave the loop without supplying the loop result.
+`return`, `yield`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target
+an outer boundary leave the loop without supplying the loop result.
 
 A loop with no reachable `break` to itself has no normal completion and has type `never`.
 

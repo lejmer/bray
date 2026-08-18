@@ -72,13 +72,14 @@ Parameter modifiers apply independently to the parameter.
 
 A callable parameter can declare a runtime default expression.
 
-The default is a [declaration-owned expression](../declarations/declaration-owned-expressions.md). It is checked with the callable
-declaration and evaluated only when a call omits that parameter.
+The default is a [declaration-owned expression](../declarations/declaration-owned-expressions.md). It is checked with
+the callable declaration and evaluated only when a call omits that parameter.
 
-A parameter default can depend on the receiver, generic context, declarations visible from the callable declaration, and earlier
-parameters. It cannot depend on itself, a later parameter, or an arbitrary call-site local binding.
+A parameter default can depend on the receiver, generic context, declarations visible from the callable declaration, and
+earlier parameters. It cannot depend on itself, a later parameter, or an arbitrary call-site local binding.
 
-Detailed omission and evaluation-order rules are defined by [Defaulted arguments](../expressions/defaulted-arguments.md).
+Detailed omission and evaluation-order rules are defined by
+[Defaulted arguments](../expressions/defaulted-arguments.md).
 
 ## Owned parameters
 
@@ -122,8 +123,8 @@ func normalize(pos mut buffer: Buffer) -> Buffer
 }
 ```
 
-This means the function receives ownership of the argument and the local parameter binding has mutation authority over that owned
-value, subject to the type's field and representation rules.
+This means the function receives ownership of the argument and the local parameter binding has mutation authority over
+that owned value, subject to the type's field and representation rules.
 
 The `mut` before the parameter name applies to the local owned binding.
 
@@ -142,7 +143,8 @@ func read(pos buffer: &Buffer)
 }
 ```
 
-The borrow type forms section of the Types chapter defines shared-borrow observation, aliasing, lifetime, and capability rules.
+The borrow type forms section of the Types chapter defines shared-borrow observation, aliasing, lifetime, and capability
+rules.
 
 ## Mutable borrow parameters
 

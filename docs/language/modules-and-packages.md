@@ -1,6 +1,7 @@
 # Modules and packages
 
-Modules and packages define package identity, product source graphs, module identity, module contributions, path reachability, using declarations, exports, and test entry formation.
+Modules and packages define package identity, product source graphs, module identity, module contributions, path
+reachability, using declarations, exports, and test entry formation.
 
 ---
 

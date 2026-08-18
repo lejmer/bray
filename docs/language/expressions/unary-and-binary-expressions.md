@@ -65,8 +65,8 @@ To combine comparisons, use boolean operators explicitly.
 
 `&&` and `||` are short-circuiting.
 
-Borrow expressions, conversion expressions, field access, calls, indexing, slicing, assignment, construction, pattern-bearing
-forms, `try`, `catch`, `await`, and lifecycle forms are separate expression forms.
+Borrow expressions, conversion expressions, field access, calls, indexing, slicing, assignment, construction,
+pattern-bearing forms, `try`, `catch`, `await`, and lifecycle forms are separate expression forms.
 
 They are not unary or binary expression tokens.
 
@@ -78,7 +78,8 @@ The expression:
 left + right
 ```
 
-is a binary expression that resolves as a call to the public operator trait member selected for the left operand type and the right operand type.
+is a binary expression that resolves as a call to the public operator trait member selected for the left operand type
+and the right operand type.
 
 For binary `+`, the relevant trait application is:
 
@@ -86,11 +87,14 @@ For binary `+`, the relevant trait application is:
 LeftType(Add<RightType>)
 ```
 
-The result type of a unary or binary expression using an overloadable token is the selected operator trait member's declared result after applying the selected implementation's type-valued member bindings.
+The result type of a unary or binary expression using an overloadable token is the selected operator trait member's
+declared result after applying the selected implementation's type-valued member bindings.
 
-Overloadable token resolution follows the implementation selection rules defined by [Operator traits](../types/traits.md#operator-traits).
+Overloadable token resolution follows the implementation selection rules defined by
+[Operator traits](../types/traits.md#operator-traits).
 
-Unary and binary expressions using overloadable tokens follow the public participation, internal-access, and operand authority rules defined by [Operator traits](../types/traits.md#operator-traits).
+Unary and binary expressions using overloadable tokens follow the public participation, internal-access, and operand
+authority rules defined by [Operator traits](../types/traits.md#operator-traits).
 
 Unary and binary expressions using overloadable tokens do not consume operands.
 

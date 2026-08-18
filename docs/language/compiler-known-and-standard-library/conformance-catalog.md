@@ -2,8 +2,8 @@
 
 The compiler-known and recognized standard-library conformance catalog is closed for a conforming Bray implementation.
 
-A conforming compiler and standard library must preserve the declaration identity, availability, contract, and observable
-semantics of each catalog entry.
+A conforming compiler and standard library must preserve the declaration identity, availability, contract, and
+observable semantics of each catalog entry.
 
 ## Always-available compiler-known type entries
 
@@ -70,8 +70,8 @@ The compiler-provided inherent async member entries are:
 
 ## Static-storage conformance requirements
 
-Product-static and `@thread_local` static declarations are language declaration forms. They are not compiler-known declarations
-and do not reserve any standard-library type name.
+Product-static and `@thread_local` static declarations are language declaration forms. They are not compiler-known
+declarations and do not reserve any standard-library type name.
 
 A conforming compiler, compiled-interface implementation, linker, product host, and standard library preserve:
 
@@ -88,9 +88,10 @@ A conforming compiler, compiled-interface implementation, linker, product host, 
 - the stable total node order within each cleanup domain and explicit concurrency between independent domains,
 - exactly-once cleanup ownership and domain-keyed reporting of static cleanup incidents.
 
-`std.sync.Once<T>` and other synchronization or interior-mutation abstractions remain ordinary standard-library declarations.
-Their names are not recognized by the compiler. Their safe contracts must preserve the static storage, publication,
-synchronization, dependency, reentrancy, active-caller failure ownership, waiter retry, cancellation, and cleanup rules they expose.
+`std.sync.Once<T>` and other synchronization or interior-mutation abstractions remain ordinary standard-library
+declarations. Their names are not recognized by the compiler. Their safe contracts must preserve the static storage,
+publication, synchronization, dependency, reentrancy, active-caller failure ownership, waiter retry, cancellation, and
+cleanup rules they expose.
 
 ## Target-available compiler-known entries
 
@@ -126,9 +127,8 @@ The compiler-known traits and contracts are:
 
 The compiler-known default storage policy is `Heap`.
 
-The compiler provides the named generic implementation
-`impl HeapStorage = Heap(Storage<T>)` with the exact `Storage<T>` members and contracts defined by
-[type forms](../types/type-forms.md).
+The compiler provides the named generic implementation `impl HeapStorage = Heap(Storage<T>)` with the exact `Storage<T>`
+members and contracts defined by [type forms](../types/type-forms.md).
 
 For each target-available integer scalar type `T`, the compiler provides exact implementations for:
 
@@ -146,8 +146,8 @@ The reserved compiler-known paths are:
 - `core.memory`,
 - `target`.
 
-No compiler-known declaration is owned by the `std` package. The `std` root is reserved exclusively for ordinary standard-library
-packages and their declarations.
+No compiler-known declaration is owned by the `std` package. The `std` root is reserved exclusively for ordinary
+standard-library packages and their declarations.
 
 ## Recognized standard-library entries
 
@@ -172,9 +172,9 @@ The recognized declarations under `std.ffi` are:
 - `CallbackContext<State>` and its state-consuming primary constructor,
 - `callback_state<State>(context)`.
 
-`CallbackContext<State>` is non-copyable and owns stable-address storage for exactly one initialized `State`. The trusted
-`callback_state` operation returns a borrow tied to that owner only inside the matching exported ABI callback entry, as defined by
-the foreign-callback contract.
+`CallbackContext<State>` is non-copyable and owns stable-address storage for exactly one initialized `State`. The
+trusted `callback_state` operation returns a borrow tied to that owner only inside the matching exported ABI callback
+entry, as defined by the foreign-callback contract.
 
 The recognized declarations under `std.string` are:
 
@@ -236,8 +236,7 @@ The recognized declarations under `std.memory` are:
 - `spare_pointer<T>(buffer)`,
 - `set_initialized_count<T>(buffer, count)`.
 
-`MemoryLayoutError.SizeOverflow` and `MemoryLayoutError.UnsupportedAlignment` have ordinals zero and
-one respectively.
+`MemoryLayoutError.SizeOverflow` and `MemoryLayoutError.UnsupportedAlignment` have ordinals zero and one respectively.
 
 The exact `std.memory` signatures and contracts are defined by
 [the standard-library memory surface](../targets-layout-abi-and-raw-memory/standard-library-memory-surface.md),
@@ -247,22 +246,20 @@ The exact `std.memory` signatures and contracts are defined by
 
 The raw-pointer declarations are available only when the target provides raw memory.
 
-`RawAllocation`, `RawBuffer<T>`, and their allocation operations are available only when the target
-provides allocation.
+`RawAllocation`, `RawBuffer<T>`, and their allocation operations are available only when the target provides allocation.
 
 Layout declarations are available on every target.
 
-Device-memory declarations are target-specific ordinary standard-library APIs and are not part of
-the closed recognized catalog.
+Device-memory declarations are target-specific ordinary standard-library APIs and are not part of the closed recognized
+catalog.
 
-Channels, operating-system threads, child processes, parallel algorithms, task combinators, synchronization types, universal run
-and task checkpoints, cancellation observation, and runtime selection types are ordinary standard-library or product declarations.
-They are not compiler-known or recognized by source name.
+Channels, operating-system threads, child processes, parallel algorithms, task combinators, synchronization types,
+universal run and task checkpoints, cancellation observation, and runtime selection types are ordinary standard-library
+or product declarations. They are not compiler-known or recognized by source name.
 
 Recognized standard-library entries are usable only through ordinary visibility, import, and path rules.
 
-A same-named declaration with a different stable imported identity is ordinary code and is not
-recognized.
+A same-named declaration with a different stable imported identity is ordinary code and is not recognized.
 
 ## Navigation
 

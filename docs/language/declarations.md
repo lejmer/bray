@@ -1,6 +1,7 @@
 # Declarations
 
-Declarations introduce named program entities, members, module contributions, compile-time relations, and semantic relationships.
+Declarations introduce named program entities, members, module contributions, compile-time relations, and semantic
+relationships.
 
 ---
 

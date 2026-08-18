@@ -1,11 +1,11 @@
 # I/O And Platform Standard-Library Surface
 
-This document defines the concrete standard-library declaration surface for Bray's portable external I/O, process, time, and
-entropy facilities. The language semantics governing these declarations are specified in
+This document defines the concrete standard-library declaration surface for Bray's portable external I/O, process, time,
+and entropy facilities. The language semantics governing these declarations are specified in
 [I/O and platform services](../language/io-and-platform-services.md).
 
-No I/O declaration is ambient. Source names it through an ordinary qualified path or makes it available through an explicit
-`using` declaration.
+No I/O declaration is ambient. Source names it through an ordinary qualified path or makes it available through an
+explicit `using` declaration.
 
 ## Package Layout
 
@@ -22,29 +22,31 @@ The portable public service modules whose declaration contracts are defined here
 
 Other public modules in the `std` package are intentionally outside this document. Core data modules are defined by
 [Core data standard library](core-data-standard-library.md). `std.atomic`, `std.run`, and `std.task` are defined by the
-[concurrency specification](../language/async-and-concurrency/standard-library-concurrency.md). `std.memory` is defined by the
-[standard-library memory surface](../language/targets-layout-abi-and-raw-memory/standard-library-memory-surface.md). `std.ffi`,
-`std.ffi.c`, `std.dynamic`, and the target-specific `std.os.*` modules are defined by
+[concurrency specification](../language/async-and-concurrency/standard-library-concurrency.md). `std.memory` is defined
+by the
+[standard-library memory surface](../language/targets-layout-abi-and-raw-memory/standard-library-memory-surface.md).
+`std.ffi`, `std.ffi.c`, `std.dynamic`, and the target-specific `std.os.*` modules are defined by
 [Foreign and platform interoperability](foreign-and-platform-interoperability.md). `std.testing` is defined by
 [Testing standard library and runner](testing.md).
 
 `std.platform` is an internal implementation module, not part of the public package surface.
 
-These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public `std`
-surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the semantics specified
-here.
+These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public
+`std` surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the
+semantics specified here.
 
-The compiler does not recognize these modules by spelling. Their declarations remain ordinary standard-library declarations unless
-another language rule explicitly identifies a particular declaration as compiler-known or recognized.
+The compiler does not recognize these modules by spelling. Their declarations remain ordinary standard-library
+declarations unless another language rule explicitly identifies a particular declaration as compiler-known or
+recognized.
 
 ## Public Declaration Surface
 
-The declarations in this section are the public contract. The bodyless forms describe declaration surfaces and
-are not source syntax that an ordinary package can use to omit a body. Fields named `internal state` represent private standard
+The declarations in this section are the public contract. The bodyless forms describe declaration surfaces and are not
+source syntax that an ordinary package can use to omit a body. Fields named `internal state` represent private standard
 library storage and are not part of the public package interface.
 
-Changes to these modules must preserve the names, parameter modes, result shapes, ownership behavior, and blocking requirements
-defined here unless the standard-library contract itself is revised.
+Changes to these modules must preserve the names, parameter modes, result shapes, ownership behavior, and blocking
+requirements defined here unless the standard-library contract itself is revised.
 
 The `Arguments` sequence excludes the executable path. `Environment.entry_at` uses lexicographic unsigned target-native
 key-code-unit order.
@@ -186,17 +188,18 @@ async func print_line_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution());
 ```
 
-`StandardInput` implements `Reader` and `AsyncReader`. `StandardOutput` and `StandardError` implement `Writer` and `AsyncWriter`.
-These wrappers borrow product-lifetime standard streams and cannot close them. Buffered owners implement the matching traits of their
-owned source or sink. Consuming a buffered writer through `into_sink` flushes it before returning its sink.
+`StandardInput` implements `Reader` and `AsyncReader`. `StandardOutput` and `StandardError` implement `Writer` and
+`AsyncWriter`. These wrappers borrow product-lifetime standard streams and cannot close them. Buffered owners implement
+the matching traits of their owned source or sink. Consuming a buffered writer through `into_sink` flushes it before
+returning its sink.
 
-`IoError.transferred` is the number of bytes committed before the reported failure. It is zero for operations without byte
-transfer. A caller must not retry the already transferred prefix.
+`IoError.transferred` is the number of bytes committed before the reported failure. It is zero for operations without
+byte transfer. A caller must not retry the already transferred prefix.
 
 ### `std.path` and `std.fs`
 
-The native text and path declarations belong to `std.path`. The remaining declarations belong to `std.fs` and therefore qualify
-path types through `std.path`.
+The native text and path declarations belong to `std.path`. The remaining declarations belong to `std.fs` and therefore
+qualify path types through `std.path`.
 
 ```bray
 union PathError
@@ -381,14 +384,14 @@ async func rename_async(
     requires(blocking_execution());
 ```
 
-`File` implements the blocking and asynchronous reader, writer, and seeker traits. A call disallowed by the file's `OpenOptions`
-returns an `IoError` whose `kind` is `IoErrorKind.InvalidInput`. `Directory.next` and `next_async` return `Result.Ok(none)` only after
-all entries have been observed.
+`File` implements the blocking and asynchronous reader, writer, and seeker traits. A call disallowed by the file's
+`OpenOptions` returns an `IoError` whose `kind` is `IoErrorKind.InvalidInput`. `Directory.next` and `next_async` return
+`Result.Ok(none)` only after all entries have been observed.
 
-Every asynchronous filesystem declaration has the same result and ownership effect as its blocking counterpart. A target can
-implement it with a native completion source or a selected blocking lane, but that choice is not observable through the signature.
-Every consuming `close` resolves its owner on both result variants. A close failure reports the failure but does not return a live
-owner.
+Every asynchronous filesystem declaration has the same result and ownership effect as its blocking counterpart. A target
+can implement it with a native completion source or a selected blocking lane, but that choice is not observable through
+the signature. Every consuming `close` resolves its owner on both result variants. A close failure reports the failure
+but does not return a live owner.
 
 ### `std.process`
 
@@ -519,27 +522,29 @@ struct ChildProcess
 }
 ```
 
-`ChildInput` implements `Writer`. `ChildOutput` implements `Reader`. A piped handle can be taken at most once. Inherited and null
-policies produce no public pipe owner. Their consuming `close` operations resolve the pipe owner on both result variants.
+`ChildInput` implements `Writer`. `ChildOutput` implements `Reader`. A piped handle can be taken at most once. Inherited
+and null policies produce no public pipe owner. Their consuming `close` operations resolve the pipe owner on both result
+variants.
 
-`request_termination` requests the target's cooperative termination mechanism without consuming the owner, waiting, or reaping.
-Every returning `ChildProcess.wait` or `force_termination` path has reaped the child and resolved the owner, including
-`Result.Error`. An infrastructure failure detected before reaping is retained while cleanup continues and is returned only after
-ownership has been resolved. Normal scope exit requires an explicit consuming completion operation.
+`request_termination` requests the target's cooperative termination mechanism without consuming the owner, waiting, or
+reaping. Every returning `ChildProcess.wait` or `force_termination` path has reaped the child and resolved the owner,
+including `Result.Error`. An infrastructure failure detected before reaping is retained while cleanup continues and is
+returned only after ownership has been resolved. Normal scope exit requires an explicit consuming completion operation.
 
 The typed `Process<T>` declarations specified by the concurrency chapter remain separate from `ChildProcess`. They use
-`ChildProcess` internally and add the authenticated Bray protocol, asynchronous transport and completion, cancellation-safe forced
-termination and reaping, and the `RunResult<T>` contract. The raw child and pipe owners remain blocking-only so their APIs do not
-claim asynchronous behavior that merely blocks a cooperative worker.
+`ChildProcess` internally and add the authenticated Bray protocol, asynchronous transport and completion,
+cancellation-safe forced termination and reaping, and the `RunResult<T>` contract. The raw child and pipe owners remain
+blocking-only so their APIs do not claim asynchronous behavior that merely blocks a cooperative worker.
 
 ### `std.time`
 
-`std.time` provides exact durations, process-local monotonic instants, absolute timestamps, validated civil dates and local
-date-times, fixed UTC offsets, named IANA time zones, zoned date-times, and calendar periods. It exposes local-time conversion as
-unique, ambiguous, or nonexistent rather than silently selecting one side of a timezone transition.
+`std.time` provides exact durations, process-local monotonic instants, absolute timestamps, validated civil dates and
+local date-times, fixed UTC offsets, named IANA time zones, zoned date-times, and calendar periods. It exposes
+local-time conversion as unique, ambiguous, or nonexistent rather than silently selecting one side of a timezone
+transition.
 
-The complete public model, arithmetic rules, parsing and formatting contracts, and native-provider architecture are defined by
-[Time library](time.md).
+The complete public model, arithmetic rules, parsing and formatting contracts, and native-provider architecture are
+defined by [Time library](time.md).
 
 ### `std.random`
 
@@ -578,13 +583,13 @@ impl Generator
 
 `fill_entropy` and `fill_entropy_async` either initialize the entire destination or return an error whose nested
 `IoError.transferred` states the initialized prefix. `Generator` uses xoshiro256**. Its 32-byte seed is decoded as four
-little-endian `u64` state words. The all-zero state is replaced with state words
-`[11400714819323198485, 0, 0, 0]`. `fill` emits each `next_u64` result in little-endian byte order. Equal seeds therefore produce
-equal byte and `u64` sequences on every target. No generator method consults system entropy after construction.
+little-endian `u64` state words. The all-zero state is replaced with state words `[11400714819323198485, 0, 0, 0]`.
+`fill` emits each `next_u64` result in little-endian byte order. Equal seeds therefore produce equal byte and `u64`
+sequences on every target. No generator method consults system entropy after construction.
 
-The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking lane.
-direct await requires the current lane to permit blocking. This keeps operating-system entropy acquisition off cooperative workers
-without duplicating the platform entropy provider.
+The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking
+lane. direct await requires the current lane to permit blocking. This keeps operating-system entropy acquisition off
+cooperative workers without duplicating the platform entropy provider.
 
 ## Navigation
 

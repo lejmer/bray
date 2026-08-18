@@ -2,8 +2,8 @@
 
 Every package has a version following [Semantic Versioning](https://semver.org/).
 
-The package and build layer supplies the version outside Bray source. Package versions do not participate in module paths or
-source-level names.
+The package and build layer supplies the version outside Bray source. Package versions do not participate in module
+paths or source-level names.
 
 A package manifest may declare its version directly:
 
@@ -36,11 +36,11 @@ A workspace may provide a package version for packages that explicitly inherit i
 }
 ```
 
-Version inheritance applies only when requested by the package manifest. A workspace is a build container, not a package, and the
-workspace package metadata does not give the workspace its own package identity or version.
+Version inheritance applies only when requested by the package manifest. A workspace is a build container, not a
+package, and the workspace package metadata does not give the workspace its own package identity or version.
 
-Bray package versions identify selected and compiled package releases. They do not imply a registry, automatic dependency
-downloads, or version solving. A workspace selects exact project-owned package inputs.
+Bray package versions identify selected and compiled package releases. They do not imply a registry, automatic
+dependency downloads, or version solving. A workspace selects exact project-owned package inputs.
 
 ## Navigation
 

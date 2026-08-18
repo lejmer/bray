@@ -31,8 +31,8 @@ Inside a method body, `self` is the receiver keyword.
 
 The receiver is not written as an ordinary parameter in method declarations.
 
-The binding name `self` is reserved for the compiler-introduced receiver and cannot be declared as an ordinary parameter, local
-binding, or pattern binding.
+The binding name `self` is reserved for the compiler-introduced receiver and cannot be declared as an ordinary
+parameter, local binding, or pattern binding.
 
 In trait and implementation contexts, `func` declares an instance method by default.
 
@@ -66,10 +66,11 @@ A consuming receiver method requires ownership of the receiver value.
 
 A consuming receiver method makes the receiver’s old access path unavailable after the call unless reinitialized.
 
-A method call resolves through the receiver type and mode, inherent implementations, participating trait implementations, visible
-declarations, static constraints, target availability, and overload rules.
+A method call resolves through the receiver type and mode, inherent implementations, participating trait
+implementations, visible declarations, static constraints, target availability, and overload rules.
 
-Trait implementation participation for implementation-eligible type-form subjects follows [Trait method resolution](../types/implementations.md#trait-method-resolution).
+Trait implementation participation for implementation-eligible type-form subjects follows
+[Trait method resolution](../types/implementations.md#trait-method-resolution).
 
 ```bray
 values.iterate()        // checks implementations for Vec<T>
@@ -77,17 +78,17 @@ values.iterate()        // checks implementations for Vec<T>
 (&mut values).iterate() // checks implementations for &mut Vec<T>
 ```
 
-A method call first selects exactly one method through receiver compatibility, argument mapping and type compatibility, explicit
-generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates
-ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract guarantees for
-that selected method.
+A method call first selects exactly one method through receiver compatibility, argument mapping and type compatibility,
+explicit generic substitution and static constraints, target availability, and overload resolution. Ordinary call
+checking then validates ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted
+obligations, and contract guarantees for that selected method.
 
-For overloaded methods, receiver mode and compatibility, explicitly supplied argument mapping and type compatibility, explicit
-generic substitution and static constraints, and target availability select the overload arm.
+For overloaded methods, receiver mode and compatibility, explicitly supplied argument mapping and type compatibility,
+explicit generic substitution and static constraints, and target availability select the overload arm.
 
-For method calls through a trait implementation overload family, receiver mode and compatibility, member name, explicitly supplied
-argument mapping and type compatibility, explicit generic substitution and static constraints, and target availability select the
-implementation arm.
+For method calls through a trait implementation overload family, receiver mode and compatibility, member name,
+explicitly supplied argument mapping and type compatibility, explicit generic substitution and static constraints, and
+target availability select the implementation arm.
 
 Result type, expected type, and type-valued member outputs do not select an implementation arm.
 
@@ -105,14 +106,16 @@ There is no separate dynamic-dispatch call syntax.
 
 View formation is checked when an expression is expected to produce a type whose subject is a trait view.
 
-For a borrowed view, the source expression must produce a borrow whose reached concrete type satisfies the exact trait application.
+For a borrowed view, the source expression must produce a borrow whose reached concrete type satisfies the exact trait
+application.
 
 ```bray
 let sink: &view Sink = &file_sink;
 let sink: &mut view Sink = &mut file_sink;
 ```
 
-For an owned boxed view, the box construction expression stores the concrete value and records the selected implementation witness.
+For an owned boxed view, the box construction expression stores the concrete value and records the selected
+implementation witness.
 
 ```bray
 let sink: box[Heap] view Sink = box[Heap](file_sink);
@@ -120,21 +123,24 @@ let sink: box[Heap] view Sink = box[Heap](file_sink);
 
 The selected implementation must participate in the checking context.
 
-View formation does not permit downcasting, runtime type tests, field access on the hidden concrete type, or calls outside the view surface.
+View formation does not permit downcasting, runtime type tests, field access on the hidden concrete type, or calls
+outside the view surface.
 
 A synchronous method call produces the method's declared result.
 
-A call to an async method whose declared result is `T` produces an owned `Future<T>`. This rule makes the compiler-provided
-`Task<T>.join()` and `Task<T>.cancel()` calls produce `Future<RunResult<T>>` through ordinary method-call typing.
+A call to an async method whose declared result is `T` produces an owned `Future<T>`. This rule makes the
+compiler-provided `Task<T>.join()` and `Task<T>.cancel()` calls produce `Future<RunResult<T>>` through ordinary
+method-call typing.
 
-A synchronous method call makes the method's `ensures(...)` guarantees available after successful completion. An async method
-call establishes those conditions only after normal direct-await completion or within the `RunResult.Completed` arm after task
-observation. Constructing its `Future<T>` establishes no body postcondition and carries body effects, capabilities, execution
-requirements, and lifecycle behavior until execution.
+A synchronous method call makes the method's `ensures(...)` guarantees available after successful completion. An async
+method call establishes those conditions only after normal direct-await completion or within the `RunResult.Completed`
+arm after task observation. Constructing its `Future<T>` establishes no body postcondition and carries body effects,
+capabilities, execution requirements, and lifecycle behavior until execution.
 
 A method call can require ordinary or trusted preconditions through `requires(...)`.
 
-Trusted caller obligations must be present at that program point, acknowledged at a trust boundary, or exposed through the surrounding declaration’s contract.
+Trusted caller obligations must be present at that program point, acknowledged at a trust boundary, or exposed through
+the surrounding declaration’s contract.
 
 The receiver expression is evaluated before method argument expressions.
 

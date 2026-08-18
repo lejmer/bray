@@ -18,7 +18,8 @@ Trust boundaries visibly acknowledge trusted caller obligations for a specific o
 
 Trusted witness values carry trusted guarantees as part of ordinary value contracts.
 
-Contract reasonings are flow-sensitive and are invalidated by ownership, mutation, lifetime, capability, and storage-state changes.
+Contract reasonings are flow-sensitive and are invalidated by ownership, mutation, lifetime, capability, and
+storage-state changes.
 
 Trusted obligations used inside wrappers must be discharged or exposed.
 

@@ -25,19 +25,22 @@ Iteration bindings are scoped to the iteration body.
 
 Iteration bindings are not visible in the source expression.
 
-Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and finalization rules.
+Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction,
+and finalization rules.
 
 The iteration body is a block expression in generator-iteration context.
 
 Generator-iteration context is yield-capable when an enclosing generator region accepts yielded values.
 
-A general generator iteration body can yield zero or more values unless the enclosing generator region imposes a stricter cardinality rule.
+A general generator iteration body can yield zero or more values unless the enclosing generator region imposes a
+stricter cardinality rule.
 
 Each yielded value is supplied to the nearest enclosing generator region.
 
 A yielded value must be compatible with the enclosing generator’s expected element type when one is known.
 
-Expected generator element type can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, conversion checking, and nested expression checking inside yielded expressions.
+Expected generator element type can guide literal typing, variant shorthand, struct construction shorthand, box
+construction shorthand, conversion checking, and nested expression checking inside yielded expressions.
 
 Nested yield-capable regions capture their own yields.
 
@@ -49,12 +52,14 @@ A `yield` in the generator iteration body supplies the nearest enclosing generat
 
 `break` targets the nearest iteration region and exits that iteration expression.
 
-Because general generator iteration expressions complete as `unit`, a break that targets the iteration expression must supply
-`unit`.
+Because general generator iteration expressions complete as `unit`, a break that targets the iteration expression must
+supply `unit`.
 
-A general generator iteration expression can have unknown or runtime cardinality when the enclosing generator region accepts variable cardinality.
+A general generator iteration expression can have unknown or runtime cardinality when the enclosing generator region
+accepts variable cardinality.
 
-A general generator iteration expression must have statically provable cardinality when the enclosing generator region requires statically known cardinality.
+A general generator iteration expression must have statically provable cardinality when the enclosing generator region
+requires statically known cardinality.
 
 Array generator regions require statically provable cardinality matching the array length.
 
@@ -62,17 +67,22 @@ Effects of the source expression occur once before iteration.
 
 Effects of the iteration body occur once per executed iteration.
 
-Finalization obligations created inside an iteration body must be completed, transferred, converted into an explicit fallback ownership form, or moved into yielded values before the iteration body exits.
+Finalization obligations created inside an iteration body must be completed, transferred, converted into an explicit
+fallback ownership form, or moved into yielded values before the iteration body exits.
 
-Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration region.
+Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration
+region.
 
-Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into a yielded value or another surviving storage location.
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into a yielded
+value or another surviving storage location.
 
-A general generator iteration expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and condition refinement.
+A general generator iteration expression participates in ownership, borrowing, mutation authority, initialization,
+destruction, finalization, capability checking, effect checking, and condition refinement.
 
 The completion result of a generator iteration expression is `unit`.
 
-The values produced by `yield` are delivered to the enclosing generator region rather than becoming the direct completion result of the iteration expression.
+The values produced by `yield` are delivered to the enclosing generator region rather than becoming the direct
+completion result of the iteration expression.
 
 ## Navigation
 

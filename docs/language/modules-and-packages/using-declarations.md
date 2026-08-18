@@ -1,6 +1,7 @@
 # Using declarations
 
-A `using` declaration records that a module, package path, or declaration path is intentionally used by the current module.
+A `using` declaration records that a module, package path, or declaration path is intentionally used by the current
+module.
 
 ```bray
 using geometry.shapes;
@@ -17,9 +18,11 @@ using std.convert;
 
 `using` does not create aliases.
 
-`using` does not silently extend overload sets, implementation overload families, operators, conversions, behavioral contracts, or other polymorphic behavior.
+`using` does not silently extend overload sets, implementation overload families, operators, conversions, behavioral
+contracts, or other polymorphic behavior.
 
-Use of an internal module or declaration path outside its intended scope requires `using internal` or a local `internal` access acknowledgement.
+Use of an internal module or declaration path outside its intended scope requires `using internal` or a local `internal`
+access acknowledgement.
 
 ```bray
 using internal impl;

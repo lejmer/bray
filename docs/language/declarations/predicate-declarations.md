@@ -29,12 +29,14 @@ Trusted predicate calls establish trusted obligations according to the contract 
 
 Predicate bodies are checked in predicate-expression context.
 
-A predicate body is a [declaration-owned expression](declaration-owned-expressions.md). It is checked with its declaration even when
-no current contract calls the predicate.
+A predicate body is a [declaration-owned expression](declaration-owned-expressions.md). It is checked with its
+declaration even when no current contract calls the predicate.
 
-Checking a predicate body produces a semantic predicate definition. It does not evaluate the predicate once to one Boolean value.
+Checking a predicate body produces a semantic predicate definition. It does not evaluate the predicate once to one
+Boolean value.
 
-Predicate-expression rules are defined in [Predicates and predicate expressions](../contracts-and-trust/predicates-and-predicate-expressions.md).
+Predicate-expression rules are defined in
+[Predicates and predicate expressions](../contracts-and-trust/predicates-and-predicate-expressions.md).
 
 Predicate declarations can be module-level declarations.
 

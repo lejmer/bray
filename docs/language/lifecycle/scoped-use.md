@@ -8,10 +8,12 @@ Scope exit declarations define how scoped use is left.
 
 Scope enter bodies have a compiler-introduced `self` binding for the access path used as the `with` initializer.
 
-The enter declaration's receiver modifiers determine the required access. No modifier requires shared access, `mut` requires mutable
-access, `consume` consumes the value, and `consume mut` also grants mutable local authority during entry.
+The enter declaration's receiver modifiers determine the required access. No modifier requires shared access, `mut`
+requires mutable access, `consume` consumes the value, and `consume mut` also grants mutable local authority during
+entry.
 
-The selected enter declaration must be able to satisfy its declared ownership, borrowing, mutation, capability, effect, trusted, and lifecycle requirements from that access path.
+The selected enter declaration must be able to satisfy its declared ownership, borrowing, mutation, capability, effect,
+trusted, and lifecycle requirements from that access path.
 
 The successful enter result is the scoped capability matched by the `with` pattern.
 
@@ -32,13 +34,15 @@ Exit operates on the scoped capability.
 
 Exit can reach the original value only through access carried by that scoped capability.
 
-An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction, replacement, active-variant replacement, and partial moves of the value for the lifetime of the `with` body.
+An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction,
+replacement, active-variant replacement, and partial moves of the value for the lifetime of the `with` body.
 
 Fallible `enter` or `exit` behavior contributes its failure contract to the `with` expression.
 
 Asynchronous `enter` or `exit` behavior contributes its execution contract to the `with` expression.
 
-The surrounding context must be able to satisfy the `with` expression's type, failure, execution, effect, capability, task-obligation, and lifecycle contract.
+The surrounding context must be able to satisfy the `with` expression's type, failure, execution, effect, capability,
+task-obligation, and lifecycle contract.
 
 ## Navigation
 

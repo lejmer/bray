@@ -16,7 +16,8 @@ If the async computation completes normally with a value of type `T`, the await 
 
 Awaiting an async computation directly is not task observation and does not produce `RunResult<T>`.
 
-Await expression ownership, borrowing, cancellation, panic, capability, and effect rules are defined in [Await expressions](../async-and-concurrency/await-expressions.md).
+Await expression ownership, borrowing, cancellation, panic, capability, and effect rules are defined in
+[Await expressions](../async-and-concurrency/await-expressions.md).
 
 ## Navigation
 

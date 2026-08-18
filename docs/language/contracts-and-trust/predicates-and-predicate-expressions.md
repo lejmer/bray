@@ -50,7 +50,8 @@ Allowed in predicate expressions:
 - calls to predicates,
 - calls to functions and methods whose selected callable contract is valid in predicate-expression context,
 - conditional expressions whose condition and branches are valid predicate expressions,
-- `all(...)` and `any(...)` boolean fold expressions whose operands are predicate-valid, finite, bounded, and iterable as `bool`.
+- `all(...)` and `any(...)` boolean fold expressions whose operands are predicate-valid, finite, bounded, and iterable
+  as `bool`.
 
 Forbidden in predicate expressions:
 
@@ -67,7 +68,8 @@ Forbidden in predicate expressions:
 - method calls whose selected callable contract is not valid in predicate-expression context,
 - async execution, `await`, task start, `try`, or `catch`,
 - `with` expressions and resource-scope behavior,
-- runtime loops other than generator iteration expressions used to produce finite boolean operands for `all(...)` or `any(...)`,
+- runtime loops other than generator iteration expressions used to produce finite boolean operands for `all(...)` or
+  `any(...)`,
 - dynamic dispatch with effects,
 - trusted capability use,
 - reading mutable global state,

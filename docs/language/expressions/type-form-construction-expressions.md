@@ -4,7 +4,8 @@ A **type-form construction expression** is a construction expression associated 
 
 A type form is a compiler-recognized type-level construct.
 
-The `box` type form defines construction behavior because constructing owned indirection requires compiler-recognized semantics.
+The `box` type form defines construction behavior because constructing owned indirection requires compiler-recognized
+semantics.
 
 `box` is the sole type form with construction expression syntax.
 
@@ -21,7 +22,8 @@ The type form determines any compile-time arguments.
 
 The type form determines the relationship between the constructed value and the subject value.
 
-The type form can affect ownership, storage, borrowing, layout, lifetime behavior, initialization, destruction, finalization, access-path projection, effect checking, and capability checking.
+The type form can affect ownership, storage, borrowing, layout, lifetime behavior, initialization, destruction,
+finalization, access-path projection, effect checking, and capability checking.
 
 The square-bracket part of a type-form construction expression contains compile-time arguments for the type form.
 
@@ -37,31 +39,44 @@ An argument supplied in named runtime-parameter form writes the runtime paramete
 
 A type-form construction expression can use expected type context.
 
-Expected type context can supply the type form, compile-time arguments, subject type, storage policy type, or other type-form-specific expected information.
+Expected type context can supply the type form, compile-time arguments, subject type, storage policy type, or other
+type-form-specific expected information.
 
-Expected subject type can propagate inward to the subject value expression when the type form defines a single clear subject type.
+Expected subject type can propagate inward to the subject value expression when the type form defines a single clear
+subject type.
 
 A type-form construction expression is not an ordinary function call.
 
-A type-form construction expression is checked by the compiler according to the construction behavior defined for that type form.
+A type-form construction expression is checked by the compiler according to the construction behavior defined for that
+type form.
 
-The construction behavior can invoke ordinary declarations, trait behavior, lifecycle declarations, storage behavior, trusted declarations, and contract clauses, but the type-form construction expression itself remains a compiler-recognized expression form.
+The construction behavior can invoke ordinary declarations, trait behavior, lifecycle declarations, storage behavior,
+trusted declarations, and contract clauses, but the type-form construction expression itself remains a
+compiler-recognized expression form.
 
 No other type form has type-form construction expression syntax. Type syntax alone never creates construction syntax.
 
-A type-form construction expression produces a fully initialized value when all construction steps required by the type form have completed.
+A type-form construction expression produces a fully initialized value when all construction steps required by the type
+form have completed.
 
-If evaluation exits before construction completes, already-initialized values, partially initialized storage, temporaries, and acquired capabilities are handled by the corresponding control-flow, ownership, destruction, finalization, and capability rules.
+If evaluation exits before construction completes, already-initialized values, partially initialized storage,
+temporaries, and acquired capabilities are handled by the corresponding control-flow, ownership, destruction,
+finalization, and capability rules.
 
-A type-form construction expression participates in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted capability checking, and condition refinement.
+A type-form construction expression participates in type checking, ownership checking, initialization checking,
+destruction checking, finalization tracking, effect checking, capability checking, trusted capability checking, and
+condition refinement.
 
-A type-form construction expression can establish conditions at that program point according to the construction behavior of the type form.
+A type-form construction expression can establish conditions at that program point according to the construction
+behavior of the type form.
 
-Conditions established by a type-form construction expression remain valid only while the values, storage identities, lifetimes, capabilities, and versions they depend on remain valid.
+Conditions established by a type-form construction expression remain valid only while the values, storage identities,
+lifetimes, capabilities, and versions they depend on remain valid.
 
 Runtime construction arguments are evaluated in source order.
 
-Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction parameter declaration order.
+Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction
+parameter declaration order.
 
 ## Navigation
 

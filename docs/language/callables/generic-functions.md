@@ -22,7 +22,8 @@ Const parameters are declared with `const NAME: Type`.
 
 Generic function parameter lists contain type parameters and const parameters.
 
-Capability requirements and caller-visible effects are represented by the ordinary callable surface and contract clauses.
+Capability requirements and caller-visible effects are represented by the ordinary callable surface and contract
+clauses.
 
 Generic function calls supply generic arguments explicitly.
 
@@ -31,8 +32,8 @@ let value = identity<i32>(10);
 let count = element_count<u8, 4>(&bytes);
 ```
 
-Generic arguments are not inferred from ordinary arguments, expected result type, assignment target type, return type, or
-constraints.
+Generic arguments are not inferred from ordinary arguments, expected result type, assignment target type, return type,
+or constraints.
 
 A generic function body is checked against its declared constraints.
 
@@ -40,7 +41,8 @@ Generic function constraints are written with `with(...)` clauses.
 
 `with(...)` clauses contain static predicate expressions.
 
-Generic code can use the operations, ownership behavior, effects, capabilities, and contracts guaranteed by its constraints.
+Generic code can use the operations, ownership behavior, effects, capabilities, and contracts guaranteed by its
+constraints.
 
 Generic instantiation must satisfy the generic function's full callable contract.
 

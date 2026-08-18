@@ -1,6 +1,7 @@
 # Patterns
 
-Patterns structurally match values, refine control flow, introduce bindings, and determine how ownership or access paths flow into matched regions.
+Patterns structurally match values, refine control flow, introduce bindings, and determine how ownership or access paths
+flow into matched regions.
 
 ---
 

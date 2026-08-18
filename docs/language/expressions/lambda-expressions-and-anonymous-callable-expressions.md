@@ -22,7 +22,8 @@ lambda (parameters) -> Result
 
 The parameter list uses the same parameter grammar as function declarations.
 
-Lambda callable rules are defined in [Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
+Lambda callable rules are defined in
+[Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
 
 The result type is optional. An omitted result type means `unit`.
 
@@ -110,8 +111,8 @@ The lambda body is not evaluated when the lambda expression is evaluated.
 
 The lambda body is evaluated when the callable value is called.
 
-The callable value produced by a lambda has the callable type described by its parameters, result type, execution mode, contract
-clauses, and trusted obligations.
+The callable value produced by a lambda has the callable type described by its parameters, result type, execution mode,
+contract clauses, and trusted obligations.
 
 ## Navigation
 

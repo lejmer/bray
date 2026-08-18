@@ -6,8 +6,8 @@ The companion plain EBNF reference is `lexical-grammar.ebnf`.
 
 The source grammar is defined separately in `syntax-grammar.md` and `syntax-grammar.ebnf`.
 
-Lexical grammar defines token spelling. Literal typing, literal adaptation, scalar operations, and string value semantics belong to
-the scalar and literal rules.
+Lexical grammar defines token spelling. Literal typing, literal adaptation, scalar operations, and string value
+semantics belong to the scalar and literal rules.
 
 ---
 
@@ -54,8 +54,8 @@ When two token kinds have the same spelling length, the more specific token kind
 
 Whitespace and comments separate tokens and are otherwise trivia.
 
-Trivia is preserved by the syntax layer as leading and trailing trivia on syntax tokens so source text can be recreated from syntax
-trees.
+Trivia is preserved by the syntax layer as leading and trailing trivia on syntax tokens so source text can be recreated
+from syntax trees.
 
 Trivia is not represented as ordinary syntax nodes.
 
@@ -65,8 +65,8 @@ For example, `1 i` is an integer literal followed by identifier `i`, while `1i` 
 
 `1i32`, `1u8`, and `1.0r64` are invalid numeric-literal spellings.
 
-A keyword spelling is a keyword only when the full token exactly matches the keyword. For example, `if` is a keyword and `ifx`
-is an identifier.
+A keyword spelling is a keyword only when the full token exactly matches the keyword. For example, `if` is a keyword and
+`ifx` is an identifier.
 
 ```ebnf
 token =
@@ -139,8 +139,8 @@ Block comments can nest.
 
 Documentation comments are retained as structured trivia for documentation tooling.
 
-A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and ordinary
-comments, documents that declaration.
+A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and
+ordinary comments, documents that declaration.
 
 Documentation comments are valid before the first module declaration in a source unit.
 
@@ -155,7 +155,8 @@ identifier =
     ascii-letter { ascii-letter | decimal-digit | "_" } ;
 ```
 
-An identifier starts with an ASCII letter and can contain ASCII letters, decimal digits, and underscores after the first character.
+An identifier starts with an ASCII letter and can contain ASCII letters, decimal digits, and underscores after the first
+character.
 
 The single underscore token `_` is a discard pattern token, not an identifier.
 
@@ -462,7 +463,8 @@ operator-or-punctuation-token =
     | "_" ;
 ```
 
-The `@` token introduces directives in directive contexts and is the matrix/dot-product binary token in expression contexts.
+The `@` token introduces directives in directive contexts and is the matrix/dot-product binary token in expression
+contexts.
 
 The parser decides the role from grammar context.
 

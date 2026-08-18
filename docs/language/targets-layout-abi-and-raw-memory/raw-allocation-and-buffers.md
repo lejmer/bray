@@ -29,31 +29,38 @@ A `RawAllocation` value carries the trusted allocation ownership condition for i
 
 The trusted allocation ownership condition is not implied by the visible field values.
 
-Only compiler-recognized allocator declarations, trusted declarations that establish the required conditions, or movement of an existing `RawAllocation` can create a `RawAllocation` value that carries allocation ownership.
+Only compiler-recognized allocator declarations, trusted declarations that establish the required conditions, or
+movement of an existing `RawAllocation` can create a `RawAllocation` value that carries allocation ownership.
 
-Constructing a `RawAllocation` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership conditions for those fields.
+Constructing a `RawAllocation` value from arbitrary field values is rejected unless the surrounding trusted context
+establishes the required allocation ownership conditions for those fields.
 
 `std.memory.allocate(layout)` calls or wraps `core.memory.allocate(bytes = layout.bytes, align = layout.align)`.
 
-On normal completion, `std.memory.allocate(layout)` returns a `RawAllocation` whose fields identify the allocation and whose value carries the allocation ownership conditions.
+On normal completion, `std.memory.allocate(layout)` returns a `RawAllocation` whose fields identify the allocation and
+whose value carries the allocation ownership conditions.
 
 Allocation failure panics.
 
-`std.memory.allocate` must not report allocation failure through null pointers, sentinel layouts, partially initialized allocation owners, or target-specific status codes.
+`std.memory.allocate` must not report allocation failure through null pointers, sentinel layouts, partially initialized
+allocation owners, or target-specific status codes.
 
 `std.memory.deallocate(allocation)` consumes a `RawAllocation`.
 
 `std.memory.deallocate` releases the allocation ownership condition carried by the consumed value.
 
-Before deallocation, every initialized typed value, borrow, scoped capability, finalization obligation, and trusted guarantee tied to the allocation must already be resolved or invalidated according to its contract.
+Before deallocation, every initialized typed value, borrow, scoped capability, finalization obligation, and trusted
+guarantee tied to the allocation must already be resolved or invalidated according to its contract.
 
-Destroying a live `RawAllocation` deallocates the allocation when its contract proves that no initialized typed value, borrow, scoped capability, finalization obligation, or unresolved trusted guarantee remains tied to the allocation.
+Destroying a live `RawAllocation` deallocates the allocation when its contract proves that no initialized typed value,
+borrow, scoped capability, finalization obligation, or unresolved trusted guarantee remains tied to the allocation.
 
 If those obligations cannot be proven resolved at the destruction point, destruction of the `RawAllocation` is rejected.
 
 Moving a `RawAllocation` transfers the allocation ownership condition.
 
-Observing `allocation.pointer`, `allocation.bytes`, or `allocation.align` does not transfer the allocation ownership condition.
+Observing `allocation.pointer`, `allocation.bytes`, or `allocation.align` does not transfer the allocation ownership
+condition.
 
 Copying the raw pointer field does not copy allocation ownership.
 
@@ -127,34 +134,49 @@ The initialized prefix contains `initialized` contiguous `T` values starting at 
 
 Slots from `initialized` up to `capacity` are spare raw storage.
 
-Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to the initialized-prefix contract.
+Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to the
+initialized-prefix contract.
 
 The safe slice-producing helpers expose only the initialized prefix.
 
-`spare_pointer` exposes the beginning of the spare storage and preserves the trusted caller obligations needed to write into that storage.
+`spare_pointer` exposes the beginning of the spare storage and preserves the trusted caller obligations needed to write
+into that storage.
 
-`set_initialized_count` is trusted because the caller must prove that the new initialized prefix truly contains initialized `T` values and that every removed initialized value has had its destruction and finalization obligations resolved.
+`set_initialized_count` is trusted because the caller must prove that the new initialized prefix truly contains
+initialized `T` values and that every removed initialized value has had its destruction and finalization obligations
+resolved.
 
-Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in reverse initialization
-order, then deallocates the raw allocation.
+Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in reverse initialization order, then deallocates
+the raw allocation.
 
 Moving a `RawBuffer<T>` transfers the allocation ownership condition and the initialized-prefix contract.
 
 The standard library uses one internal `RawBuffer<T>` reservation policy for growable contiguous storage.
 
-When growth is required, exact reservation selects `initialized + additional` after checked addition. Amortized reservation starts at four elements and doubles until it reaches the required length. If the next doubling would overflow, it selects the already-validated required length. A request that fits the existing spare capacity does not allocate.
+When growth is required, exact reservation selects `initialized + additional` after checked addition. Amortized
+reservation starts at four elements and doubles until it reaches the required length. If the next doubling would
+overflow, it selects the already-validated required length. A request that fits the existing spare capacity does not
+allocate.
 
-Reservation allocates one replacement owner and relocates the initialized prefix with a compiler-recognized operation. Relocation requires distinct mutable buffer owners and enough destination capacity. It transfers the initialized values as one representation range, sets the destination initialized length, and clears the source initialized length as one semantic ownership operation. It does not invoke element copy behavior, constructors, finalizers, or destructors. This contract permits native bulk transfer while ensuring the old allocation cannot destroy relocated non-copy values.
+Reservation allocates one replacement owner and relocates the initialized prefix with a compiler-recognized operation.
+Relocation requires distinct mutable buffer owners and enough destination capacity. It transfers the initialized values
+as one representation range, sets the destination initialized length, and clears the source initialized length as one
+semantic ownership operation. It does not invoke element copy behavior, constructors, finalizers, or destructors. This
+contract permits native bulk transfer while ensuring the old allocation cannot destroy relocated non-copy values.
 
-Zero-sized values follow the same element-count and initialized-prefix rules even though their transferred byte count is zero. The selected target layout supplies the alignment for non-zero bulk transfers.
+Zero-sized values follow the same element-count and initialized-prefix rules even though their transferred byte count is
+zero. The selected target layout supplies the alignment for non-zero bulk transfers.
 
-Observing `buffer.pointer`, `buffer.capacity`, or `buffer.initialized` does not transfer ownership of the allocation or initialized elements.
+Observing `buffer.pointer`, `buffer.capacity`, or `buffer.initialized` does not transfer ownership of the allocation or
+initialized elements.
 
-Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership, valid-write, and initialized-prefix conditions for those fields.
+Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context
+establishes the required allocation ownership, valid-write, and initialized-prefix conditions for those fields.
 
 `RawBuffer<T>` is a low-level storage owner, not a growable collection contract.
 
-Higher-level collections can use `RawBuffer<T>` internally while exposing their own ownership, indexing, iteration, and capacity contracts.
+Higher-level collections can use `RawBuffer<T>` internally while exposing their own ownership, indexing, iteration, and
+capacity contracts.
 
 ## Navigation
 

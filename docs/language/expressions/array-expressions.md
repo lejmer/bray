@@ -12,9 +12,11 @@ The array length is the number of element expressions.
 
 An array expression with no supplied elements is rejected.
 
-The array element type is determined by the expected array type when one is available, or inferred from the element expressions when no expected array type is available.
+The array element type is determined by the expected array type when one is available, or inferred from the element
+expressions when no expected array type is available.
 
-When an expected array type is available, the expected array length must equal the number of supplied element expressions.
+When an expected array type is available, the expected array length must equal the number of supplied element
+expressions.
 
 ```bray
 let values: [i64; 3] = [1, 2, 3];
@@ -22,7 +24,8 @@ let values: [i64; 3] = [1, 2, 3];
 
 Each element expression is checked against the expected array element type.
 
-Expected element type can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, conversion checking, and nested expression checking.
+Expected element type can guide literal typing, variant shorthand, struct construction shorthand, box construction
+shorthand, conversion checking, and nested expression checking.
 
 When no expected array type is available, the element expressions must determine a coherent array element type.
 
@@ -52,11 +55,14 @@ Array element expressions are evaluated left to right.
 
 Each array element has its own initialization state while the array is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or
+another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the
+corresponding control-flow, ownership, destruction, and finalization rules.
 
 An array expression owns its elements when the element expressions produce owned values moved into the array.
 
-An array expression copies an element when the element expression is copied according to the element type’s copy contract.
+An array expression copies an element when the element expression is copied according to the element type’s copy
+contract.
 
 An array expression can contain borrowed values when element expressions produce borrow values.
 
@@ -70,7 +76,8 @@ Indexing into an array access path creates an access path to an element.
 
 Shared borrowing an array can provide shared access to elements according to Bray's borrowing rules.
 
-Mutable borrowing an array can provide mutable access to elements when the array access path, element access path, and element type permit mutation.
+Mutable borrowing an array can provide mutable access to elements when the array access path, element access path, and
+element type permit mutation.
 
 Moving an element out of an array is a partial move of the array when the array rules permit element moves.
 
@@ -88,13 +95,16 @@ Array expressions participate in effect checking and capability checking through
 
 The array expression’s effects are the combined effects of evaluating its element expressions.
 
-The array expression’s finalization obligations are the combined finalization obligations of values produced by its element expressions and retained by the resulting array.
+The array expression’s finalization obligations are the combined finalization obligations of values produced by its
+element expressions and retained by the resulting array.
 
 An array expression can establish conditions at that program point.
 
-Conditions can include array length, element initialization, element type, and conditions established by element expressions.
+Conditions can include array length, element initialization, element type, and conditions established by element
+expressions.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about array elements or the array as a whole.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
+conditions about array elements or the array as a whole.
 
 An array expression can be converted with `as` when the recursive explicit convertibility rules permit array conversion.
 
@@ -103,7 +113,8 @@ let a: [i32; 4] = [1, 2, 3, 4];
 let b: [i64; 4] = a as [i64; 4];
 ```
 
-Array-to-array conversion requires the same length and an explicitly valid conversion from the source element type to the target element type.
+Array-to-array conversion requires the same length and an explicitly valid conversion from the source element type to
+the target element type.
 
 Array conversion preserves length and shape.
 
@@ -127,13 +138,15 @@ The element expression is checked against the expected array element type when o
 
 The repeated element expression must be copyable or define a valid repeat contract.
 
-A repeated-element array expression evaluates the element expression according to the repeat contract and initializes each array element according to that contract.
+A repeated-element array expression evaluates the element expression according to the repeat contract and initializes
+each array element according to that contract.
 
 For copy-based repetition, the repeated value is copied into each element according to the element type’s copy contract.
 
 A repeated-element array expression is fully initialized when every array element has been initialized.
 
-Effects and finalization obligations of the repeated element expression and repeat operation become part of the repeated-element array expression.
+Effects and finalization obligations of the repeated element expression and repeat operation become part of the
+repeated-element array expression.
 
 ## Navigation
 

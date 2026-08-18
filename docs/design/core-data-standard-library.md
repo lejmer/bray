@@ -1,8 +1,8 @@
 # Core Data Standard Library
 
 This document defines the package structure and contracts for Bray's ordinary core data library. It covers text, bytes,
-collections, iteration utilities, formatting, hashing, ordering, and numeric utilities without turning those library APIs into
-language primitives.
+collections, iteration utilities, formatting, hashing, ordering, and numeric utilities without turning those library
+APIs into language primitives.
 
 ## Principles
 
@@ -18,9 +18,9 @@ The core data library follows these rules:
 - Formatting and iteration stream values instead of requiring intermediate collections or strings.
 - Errors are typed values. Absence and failure are not represented by sentinels.
 
-The public surface must remain usable by packages that provide their own allocators, containers, formatters, or I/O layers. Core
-data abstractions therefore depend on language contracts and narrow standard-library interfaces rather than on a particular host
-runtime or operating system.
+The public surface must remain usable by packages that provide their own allocators, containers, formatters, or I/O
+layers. Core data abstractions therefore depend on language contracts and narrow standard-library interfaces rather than
+on a particular host runtime or operating system.
 
 ## Module Layout
 
@@ -39,12 +39,13 @@ The public modules are:
 | `std.numeric`    | Numeric limits, checked arithmetic helpers, parsing, and explicit numeric policies |
 | `std.memory`     | The separately specified low-level memory and allocation surface                   |
 
-Submodules may group focused families without changing these ownership boundaries. A module must not re-export another module's
-complete surface merely to shorten paths. Cross-module convenience functions belong with the abstraction whose contract they
-implement.
+Submodules may group focused families without changing these ownership boundaries. A module must not re-export another
+module's complete surface merely to shorten paths. Cross-module convenience functions belong with the abstraction whose
+contract they implement.
 
-The `std` package root may expose a deliberately small set of universal operations such as recognized conversion functions. It
-must not make the complete core data surface ambient or duplicate every declaration from the modules above.
+The `std` package root may expose a deliberately small set of universal operations such as recognized conversion
+functions. It must not make the complete core data surface ambient or duplicate every declaration from the modules
+above.
 
 ## Language-Owned Identities
 
@@ -60,21 +61,21 @@ The core data library consumes the following compiler-known declarations directl
 - `Copyable`,
 - and the raw-memory declarations required by `std.memory`.
 
-These declarations retain their compiler-known identities and language-defined contracts. The standard library does not declare
-replacement `String`, `Character`, `Result`, `Ordering`, `Iterable`, or operator-trait types.
+These declarations retain their compiler-known identities and language-defined contracts. The standard library does not
+declare replacement `String`, `Character`, `Result`, `Ordering`, `Iterable`, or operator-trait types.
 
-The recognized `std.string` and `std.memory` declarations are exactly those in the language conformance catalog. Their stable
-package and declaration identities are part of compiler recognition. Other core data declarations are ordinary declarations even
-when the compiler optimizes their bodies.
+The recognized `std.string` and `std.memory` declarations are exactly those in the language conformance catalog. Their
+stable package and declaration identities are part of compiler recognition. Other core data declarations are ordinary
+declarations even when the compiler optimizes their bodies.
 
-Collection types, formatting traits, hashing traits, parsing errors, and iterator adapters are not compiler-known merely because
-they are widely used. Promoting any such declaration to a recognized identity requires an owning language-specification change and
-an update to the conformance catalog.
+Collection types, formatting traits, hashing traits, parsing errors, and iterator adapters are not compiler-known merely
+because they are widely used. Promoting any such declaration to a recognized identity requires an owning
+language-specification change and an update to the conformance catalog.
 
 ## Text
 
-`string` remains the immutable compiler-known UTF-8 text value. Its representation is protected and its language-defined copy
-contract preserves its abstract sequence of Unicode scalar values.
+`string` remains the immutable compiler-known UTF-8 text value. Its representation is protected and its language-defined
+copy contract preserves its abstract sequence of Unicode scalar values.
 
 `std.string` provides:
 
@@ -85,23 +86,24 @@ contract preserves its abstract sequence of Unicode scalar values.
 - searching, prefix, suffix, splitting, trimming, and comparison utilities,
 - and explicit conversions between text, characters, bytes, and parsed values.
 
-Text APIs distinguish byte offsets, Unicode scalar indexes, and collection positions with typed values or unambiguous parameter
-contracts. A byte offset is never silently interpreted as a scalar index. Operations that can encounter malformed external bytes
-return a typed error. Operations over an existing `string` may rely on its valid UTF-8 invariant.
+Text APIs distinguish byte offsets, Unicode scalar indexes, and collection positions with typed values or unambiguous
+parameter contracts. A byte offset is never silently interpreted as a scalar index. Operations that can encounter
+malformed external bytes return a typed error. Operations over an existing `string` may rely on its valid UTF-8
+invariant.
 
-Borrowed text views carry a dependency on their source text or source byte storage. An API returning such a view must express that
-dependency in its callable contract. An owning text transformation returns a new `string` and may allocate. An observing operation
-accepts a shared borrow unless ownership transfer is intrinsic to the operation.
+Borrowed text views carry a dependency on their source text or source byte storage. An API returning such a view must
+express that dependency in its callable contract. An owning text transformation returns a new `string` and may allocate.
+An observing operation accepts a shared borrow unless ownership transfer is intrinsic to the operation.
 
-Text comparison is defined over Unicode scalar values unless an API explicitly states bytewise behavior. Locale-sensitive
-collation, normalization, grapheme segmentation, and case conversion are separate policy-bearing facilities and must not be hidden
-inside basic equality, ordering, indexing, or slicing.
+Text comparison is defined over Unicode scalar values unless an API explicitly states bytewise behavior.
+Locale-sensitive collation, normalization, grapheme segmentation, and case conversion are separate policy-bearing
+facilities and must not be hidden inside basic equality, ordering, indexing, or slicing.
 
 ### Public Text Surface
 
-The text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not introduce
-`StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural forms. Scalar positions
-and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
+The text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not
+introduce `StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural
+forms. Scalar positions and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
 
 The recognized declarations have these exact signatures:
 
@@ -129,9 +131,9 @@ extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
 ```
 
 `scalar_at` returns `none` when `index` is outside the scalar sequence. `scalar_slice` uses the half-open scalar range
-`[start, end)`, allocates an owning result, and panics when `start > end` or either bound exceeds `scalar_count(value)`. `utf8`
-returns a view dependent on `value`. `from_utf8` returns `Utf8Error.InvalidEncoding` for malformed UTF-8 and otherwise constructs an
-owning `string` whose scalar sequence is the decoded input.
+`[start, end)`, allocates an owning result, and panics when `start > end` or either bound exceeds `scalar_count(value)`.
+`utf8` returns a view dependent on `value`. `from_utf8` returns `Utf8Error.InvalidEncoding` for malformed UTF-8 and
+otherwise constructs an owning `string` whose scalar sequence is the decoded input.
 
 Scalar iteration uses one public cursor identity and an ordinary named implementation:
 
@@ -150,9 +152,9 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
 }
 ```
 
-The cursor representation is private. The value returned by `scalars` carries the dependency of `value`, advances in Unicode
-scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and the ordinary
-slice iteration contract rather than a second string-specific byte cursor.
+The cursor representation is private. The value returned by `scalars` carries the dependency of `value`, advances in
+Unicode scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and
+the ordinary slice iteration contract rather than a second string-specific byte cursor.
 
 The `std.character` surface is:
 
@@ -175,22 +177,22 @@ extern func is_whitespace(value: char) -> bool;
 ```
 
 `from_scalar_value` returns `none` for values that are not Unicode scalar values. The character-classification contract
-uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact and its private runtime ABI must
-agree on that exact Unicode data version. Changing the classification data requires a deliberate runtime ABI compatibility update
-and rebuilt standard-library artifacts, so an unchanged artifact and ABI cannot silently acquire new classification behavior from
-a host toolchain update. Case conversion and normalization remain separate policy-bearing additions because one input scalar can
-produce multiple output scalars.
+uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact and its private
+runtime ABI must agree on that exact Unicode data version. Changing the classification data requires a deliberate
+runtime ABI compatibility update and rebuilt standard-library artifacts, so an unchanged artifact and ABI cannot
+silently acquire new classification behavior from a host toolchain update. Case conversion and normalization remain
+separate policy-bearing additions because one input scalar can produce multiple output scalars.
 
-The standard-library artifact metadata records the Unicode data version, the digests of every Unicode Character Database input,
-and the revision of the deterministic table generator. Generated tables are checked against those identities during the standard
-library build. A Unicode update changes this metadata, generated tables, runtime ABI compatibility identity, conformance fixtures,
-and every affected semantic operation in one coordinated change. Host libraries and host locale data are never an alternate source
-of Unicode behavior.
+The standard-library artifact metadata records the Unicode data version, the digests of every Unicode Character Database
+input, and the revision of the deterministic table generator. Generated tables are checked against those identities
+during the standard library build. A Unicode update changes this metadata, generated tables, runtime ABI compatibility
+identity, conformance fixtures, and every affected semantic operation in one coordinated change. Host libraries and host
+locale data are never an alternate source of Unicode behavior.
 
 ## Bytes And Buffers
 
-Borrowed byte data uses slice and borrow forms over `u8`. `std.bytes` may provide named views when they add a real contract, but a
-named wrapper must not exist solely to rename `&[u8]`.
+Borrowed byte data uses slice and borrow forms over `u8`. `std.bytes` may provide named views when they add a real
+contract, but a named wrapper must not exist solely to rename `&[u8]`.
 
 An owned byte buffer:
 
@@ -202,14 +204,14 @@ An owned byte buffer:
 - destroys its initialized values before releasing storage,
 - and uses explicit reserve, resize, truncate, append, and extraction operations.
 
-Growing a buffer may replace its allocation. Existing views prevent growth or mutation whenever ordinary borrowing rules make the
-operation incompatible. Capacity is not part of byte-sequence equality or ordering.
+Growing a buffer may replace its allocation. Existing views prevent growth or mutation whenever ordinary borrowing rules
+make the operation incompatible. Capacity is not part of byte-sequence equality or ordering.
 
-Safe byte operations are implemented over the `std.memory` contracts. Trusted code may bridge between raw allocation state and the
-safe buffer invariant, but callers of the safe surface do not inherit raw-memory obligations.
+Safe byte operations are implemented over the `std.memory` contracts. Trusted code may bridge between raw allocation
+state and the safe buffer invariant, but callers of the safe surface do not inherit raw-memory obligations.
 
-Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string` operations.
-No byte API silently assumes host endianness, native integer width, or null termination.
+Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string`
+operations. No byte API silently assumes host endianness, native integer width, or null termination.
 
 ### Public Buffer Surface
 
@@ -273,28 +275,30 @@ func append(
 func pop(pos buffer: &mut Buffer) -> u8?;
 ```
 
-`create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
-the language allocation panic contract. `equals` compares complete byte sequences without allocation. `reserve` guarantees
-capacity for `length(buffer) + additional` without changing the byte sequence and uses the stable geometric growth policy.
-`reserve_exact` grows only to the required capacity for callers that know the final size. `resize` preserves the existing prefix, truncates
-when shrinking, and appends `fill` bytes when growing. `truncate` leaves the buffer unchanged when
-`new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
+`create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation
+failure follows the language allocation panic contract. `equals` compares complete byte sequences without allocation.
+`reserve` guarantees capacity for `length(buffer) + additional` without changing the byte sequence and uses the stable
+geometric growth policy. `reserve_exact` grows only to the required capacity for callers that know the final size.
+`resize` preserves the existing prefix, truncates when shrinking, and appends `fill` bytes when growing. `truncate`
+leaves the buffer unchanged when `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
 
-`as_slice` and `as_slice_mut` return views dependent on `buffer`. Any operation requiring mutation or possible reallocation is
-rejected while an incompatible view remains live by ordinary borrowing rules. A caller therefore cannot pass a view reaching
-`buffer` as the `bytes` argument of `append` while also supplying the required mutable borrow of that buffer.
+`as_slice` and `as_slice_mut` return views dependent on `buffer`. Any operation requiring mutation or possible
+reallocation is rejected while an incompatible view remains live by ordinary borrowing rules. A caller therefore cannot
+pass a view reaching `buffer` as the `bytes` argument of `append` while also supplying the required mutable borrow of
+that buffer.
 
-Private standard-library support may transfer a `Buffer` to or from its `RawBuffer<u8>` representation. That bridge is not part of
-the public `std.bytes` surface and does not expose raw allocation details to ordinary callers.
+Private standard-library support may transfer a `Buffer` to or from its `RawBuffer<u8>` representation. That bridge is
+not part of the public `std.bytes` surface and does not expose raw allocation details to ordinary callers.
 
-Byte-buffer construction, append, and buffered I/O use the compiler-recognized byte-slice bulk transfer operation. The operation
-accepts an initialized source slice and distinct writable destination storage, so these paths lower to one native memory transfer
-instead of a standard-library loop while preserving slice bounds and aliasing checks at the caller boundary.
+Byte-buffer construction, append, and buffered I/O use the compiler-recognized byte-slice bulk transfer operation. The
+operation accepts an initialized source slice and distinct writable destination storage, so these paths lower to one
+native memory transfer instead of a standard-library loop while preserving slice bounds and aliasing checks at the
+caller boundary.
 
 ## Iteration
 
-The compiler-known `Iterable` and `Iterator` traits define source-to-cursor and cursor-advance semantics. `std.iteration` provides
-ordinary adapters and algorithms over those traits.
+The compiler-known `Iterable` and `Iterator` traits define source-to-cursor and cursor-advance semantics.
+`std.iteration` provides ordinary adapters and algorithms over those traits.
 
 Adapters preserve the operation mode of their source:
 
@@ -302,28 +306,29 @@ Adapters preserve the operation mode of their source:
 - iteration over a mutable borrow yields mutation authority only where the implementation contract permits it,
 - and consuming iteration may move elements from an owning source.
 
-An adapter that stores a cursor or callable owns those values. An adapter over borrowed storage carries the corresponding
-dependency. Lazy adapters do not evaluate source elements until iteration advances them. Terminal algorithms document whether
-they short-circuit and whether they preserve source order.
+An adapter that stores a cursor or callable owns those values. An adapter over borrowed storage carries the
+corresponding dependency. Lazy adapters do not evaluate source elements until iteration advances them. Terminal
+algorithms document whether they short-circuit and whether they preserve source order.
 
-Algorithms requiring multiple passes, exact size, stable ordering, random access, or contiguous storage use explicit additional
-contracts. They do not infer those properties from `Iterable` alone.
+Algorithms requiring multiple passes, exact size, stable ordering, random access, or contiguous storage use explicit
+additional contracts. They do not infer those properties from `Iterable` alone.
 
-The standard adapter surface covers transformation, filtering, flattening, bounded traversal, indexing, peeking, and chaining.
-Adapters such as `map`, `filter`, `flat_map`, `take`, `skip`, `enumerate`, `peekable`, and `chain` own their source cursors, advance
-them only when the adapter advances, and remain exhausted after their sources are exhausted. `take` produces at most the requested
-count. `skip` consumes at most the requested count before producing the remaining elements. `enumerate` pairs each produced
-element with a zero-based `usize` index and preserves source order.
+The standard adapter surface covers transformation, filtering, flattening, bounded traversal, indexing, peeking, and
+chaining. Adapters such as `map`, `filter`, `flat_map`, `take`, `skip`, `enumerate`, `peekable`, and `chain` own their
+source cursors, advance them only when the adapter advances, and remain exhausted after their sources are exhausted.
+`take` produces at most the requested count. `skip` consumes at most the requested count before producing the remaining
+elements. `enumerate` pairs each produced element with a zero-based `usize` index and preserves source order.
 
-Terminal algorithms cover element selection, searching, predicates, folds, comparison, counting, and collection. Operations such
-as `first`, `nth`, `find`, `any`, and `all` consume one cursor, do not allocate, and stop once their result is known. Folds and
-collection operations state their accumulation and allocation behavior. Algorithms that must exhaust a source require
-caller-visible contracts that establish finiteness rather than assuming every `Iterator` is finite.
+Terminal algorithms cover element selection, searching, predicates, folds, comparison, counting, and collection.
+Operations such as `first`, `nth`, `find`, `any`, and `all` consume one cursor, do not allocate, and stop once their
+result is known. Folds and collection operations state their accumulation and allocation behavior. Algorithms that must
+exhaust a source require caller-visible contracts that establish finiteness rather than assuming every `Iterator` is
+finite.
 
 ## Collections
 
-`std.collection` provides focused owning collection types rather than one universal container abstraction. Its collection families
-are:
+`std.collection` provides focused owning collection types rather than one universal container abstraction. Its
+collection families are:
 
 - growable contiguous sequences,
 - double-ended queues,
@@ -331,26 +336,26 @@ are:
 - ordered maps and ordered sets,
 - and narrow stack or queue adapters when they add a useful contract.
 
-Owning collections are movable and are not copyable because copying them can allocate and run element behavior. Explicit clone or
-duplicate operations state their element requirements and failure behavior. Shared and mutable collection views are borrows whose
-dependencies follow ordinary Bray rules.
+Owning collections are movable and are not copyable because copying them can allocate and run element behavior. Explicit
+clone or duplicate operations state their element requirements and failure behavior. Shared and mutable collection views
+are borrows whose dependencies follow ordinary Bray rules.
 
-Insertion transfers or constructs ownership according to the operation signature. Removal returns ownership of removed values
-when applicable. Reallocation moves elements according to their movement and lifecycle contracts. It does not bitwise-relocate
-values unless a recognized low-level contract permits that operation.
+Insertion transfers or constructs ownership according to the operation signature. Removal returns ownership of removed
+values when applicable. Reallocation moves elements according to their movement and lifecycle contracts. It does not
+bitwise-relocate values unless a recognized low-level contract permits that operation.
 
-Sequence operations preserve element order. Ordered maps and sets define iteration through their ordering policy. Hash-based maps
-and sets define lookup behavior but do not promise an order unless their concrete type explicitly provides one. Public output and
-tests must not treat unspecified hash iteration order as stable ordering.
+Sequence operations preserve element order. Ordered maps and sets define iteration through their ordering policy.
+Hash-based maps and sets define lookup behavior but do not promise an order unless their concrete type explicitly
+provides one. Public output and tests must not treat unspecified hash iteration order as stable ordering.
 
-Collection indexing uses the compiler-known indexing contracts where expression syntax participates. Named lookup operations use
-typed results for absence and do not return fabricated default values. Bounds errors follow the declared result or panic contract
-of the operation rather than relying on unchecked access.
+Collection indexing uses the compiler-known indexing contracts where expression syntax participates. Named lookup
+operations use typed results for absence and do not return fabricated default values. Bounds errors follow the declared
+result or panic contract of the operation rather than relying on unchecked access.
 
 ### Contiguous Sequence Surface
 
-`std.collection.List<T>` is an owning contiguous sequence. It keeps an initialized prefix and is movable but not copyable. Its
-public surface is:
+`std.collection.List<T>` is an owning contiguous sequence. It keeps an initialized prefix and is movable but not
+copyable. Its public surface is:
 
 ```bray
 module std.collection;
@@ -402,48 +407,49 @@ trusted func clear<T>(pos list: &mut List<T>) -> unit;
 func reverse<T>(pos list: &mut List<T>) -> unit;
 ```
 
-`reserve` uses deterministic geometric growth with a minimum non-zero capacity of four. `reserve_exact` grows only to the required
-capacity. Both preserve existing elements in source order and leave the sequence unchanged when current capacity is sufficient.
-Capacity arithmetic returns `MemoryLayoutError.SizeOverflow` rather than wrapping.
+`reserve` uses deterministic geometric growth with a minimum non-zero capacity of four. `reserve_exact` grows only to
+the required capacity. Both preserve existing elements in source order and leave the sequence unchanged when current
+capacity is sufficient. Capacity arithmetic returns `MemoryLayoutError.SizeOverflow` rather than wrapping.
 
-`insert` accepts positions from zero through `length(list)` and returns `false` without changing the list for larger indexes.
-`remove` and `pop` return `none` when no element exists at the requested position. `truncate` destroys removed elements from the
-end and leaves the list unchanged when the requested length is not smaller.
+`insert` accepts positions from zero through `length(list)` and returns `false` without changing the list for larger
+indexes. `remove` and `pop` return `none` when no element exists at the requested position. `truncate` destroys removed
+elements from the end and leaves the list unchanged when the requested length is not smaller.
 
-The `&List<T>`, `&mut List<T>`, and consuming `List<T>` implementations of `Iterable` preserve sequence order and respectively
-yield `&T`, `&mut T`, and owned `T` values. Shared and mutable cursors retain the corresponding slice borrow and its dependency.
-Consuming cursor destruction resolves every element that has not yet been produced before releasing its allocation.
+The `&List<T>`, `&mut List<T>`, and consuming `List<T>` implementations of `Iterable` preserve sequence order and
+respectively yield `&T`, `&mut T`, and owned `T` values. Shared and mutable cursors retain the corresponding slice
+borrow and its dependency. Consuming cursor destruction resolves every element that has not yet been produced before
+releasing its allocation.
 
 ### Double-Ended Sequence Surface
 
-`std.collection.Deque<T>` is an owning sequence optimized for insertion and removal at both ends. It provides front and back
-access, push and pop operations at either end, indexed access where its complexity contract permits it, capacity management, and
-shared, mutable, and consuming iteration in logical sequence order. Its representation may wrap internally, but public views never
-expose uninitialized or out-of-order storage.
+`std.collection.Deque<T>` is an owning sequence optimized for insertion and removal at both ends. It provides front and
+back access, push and pop operations at either end, indexed access where its complexity contract permits it, capacity
+management, and shared, mutable, and consuming iteration in logical sequence order. Its representation may wrap
+internally, but public views never expose uninitialized or out-of-order storage.
 
 ### Hash Collection Surface
 
-`std.collection.HashMap<Key, Value, Hasher>` and `std.collection.HashSet<Value, Hasher>` provide expected constant-time lookup under
-the selected hashing policy. Their construction makes the hashing policy explicit or selects the standard process-local policy.
-Stable hashing is used only where a caller explicitly requests deterministic cross-run hashes. Hash collections expose entry-style
-mutation, insertion, replacement, removal, containment, capacity management, and shared, mutable, and consuming iteration without
-claiming a stable iteration order.
+`std.collection.HashMap<Key, Value, Hasher>` and `std.collection.HashSet<Value, Hasher>` provide expected constant-time
+lookup under the selected hashing policy. Their construction makes the hashing policy explicit or selects the standard
+process-local policy. Stable hashing is used only where a caller explicitly requests deterministic cross-run hashes.
+Hash collections expose entry-style mutation, insertion, replacement, removal, containment, capacity management, and
+shared, mutable, and consuming iteration without claiming a stable iteration order.
 
-Hash collection keys require compatible hashing and equality contracts. Mutating a key through an alias while it belongs to a hash
-collection is prevented by ownership and borrowing rather than tolerated as an invalid table state.
+Hash collection keys require compatible hashing and equality contracts. Mutating a key through an alias while it belongs
+to a hash collection is prevented by ownership and borrowing rather than tolerated as an invalid table state.
 
 ### Ordered Collection Surface
 
-`std.collection.OrderedMap<Key, Value>` and `std.collection.OrderedSet<Value>` maintain keys according to their comparison contract.
-They provide ordered lookup, insertion, replacement, removal, range traversal, and shared, mutable, and consuming iteration.
-Ordering must be total and consistent for the stored key type. Range APIs represent inclusive and exclusive bounds explicitly and
-preserve ascending order unless the operation explicitly requests reverse traversal.
+`std.collection.OrderedMap<Key, Value>` and `std.collection.OrderedSet<Value>` maintain keys according to their
+comparison contract. They provide ordered lookup, insertion, replacement, removal, range traversal, and shared, mutable,
+and consuming iteration. Ordering must be total and consistent for the stored key type. Range APIs represent inclusive
+and exclusive bounds explicitly and preserve ascending order unless the operation explicitly requests reverse traversal.
 
 ### Collection Adapters
 
-Stack and queue types are narrow adapters over sequence storage when their restricted interfaces communicate a useful invariant.
-They do not duplicate storage engines solely to provide alternate names. Their public operations expose only the ordering policy
-that defines the adapter, while conversion to and from the underlying owning collection is explicit.
+Stack and queue types are narrow adapters over sequence storage when their restricted interfaces communicate a useful
+invariant. They do not duplicate storage engines solely to provide alternate names. Their public operations expose only
+the ordering policy that defines the adapter, while conversion to and from the underlying owning collection is explicit.
 
 ## Formatting
 
@@ -453,47 +459,51 @@ that defines the adapter, while conversion to and from the underlying owning col
 - the formatting request and options,
 - and the destination sink receiving text or bytes.
 
-Formatting writes incrementally to a sink. It does not require every formatted value to allocate an intermediate `string`.
-Convenience operations that return a `string` are explicit allocation-bearing wrappers over the sink-based contract.
+Formatting writes incrementally to a sink. It does not require every formatted value to allocate an intermediate
+`string`. Convenience operations that return a `string` are explicit allocation-bearing wrappers over the sink-based
+contract.
 
-Format arguments retain their semantic types until the selected formatting implementation consumes them. The implementation does
-not parse a type-erased host-language value or depend on debug reflection. Formatting options such as radix, precision, width,
-alignment, sign, and escaping are typed policy values with deterministic defaults.
+Format arguments retain their semantic types until the selected formatting implementation consumes them. The
+implementation does not parse a type-erased host-language value or depend on debug reflection. Formatting options such
+as radix, precision, width, alignment, sign, and escaping are typed policy values with deterministic defaults.
 
-The core formatting contract is independent of terminals, files, locales, and operating-system streams. `std.io` adapts its
-writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`. The standard formatting library is
-not a replacement for compiler message localization.
+The core formatting contract is independent of terminals, files, locales, and operating-system streams. `std.io` adapts
+its writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`. The standard
+formatting library is not a replacement for compiler message localization.
 
-Default formatting is deterministic for equal values and equal options. Container formatting follows the container's specified
-iteration order. A container without specified iteration order must not acquire a false stable order through default
-formatting.
+Default formatting is deterministic for equal values and equal options. Container formatting follows the container's
+specified iteration order. A container without specified iteration order must not acquire a false stable order through
+default formatting.
 
 ## Hashing And Ordering
 
-`std.hash` defines value-to-hash-state contribution separately from the chosen hash algorithm. Hashable implementations contribute
-their semantic components to an abstract hash state in a defined order. Containers choose the concrete state and policy they use.
+`std.hash` defines value-to-hash-state contribution separately from the chosen hash algorithm. Hashable implementations
+contribute their semantic components to an abstract hash state in a defined order. Containers choose the concrete state
+and policy they use.
 
-Hash equality obeys the equality contract: values equal under the selected equality policy must contribute equal hashes under the
-matching hash policy. A hash value is not an object identity, a serialization, or a persistence format unless a specifically named
-stable hashing API defines that contract.
+Hash equality obeys the equality contract: values equal under the selected equality policy must contribute equal hashes
+under the matching hash policy. A hash value is not an object identity, a serialization, or a persistence format unless
+a specifically named stable hashing API defines that contract.
 
-Hash-based containers own their hashing policy. Security-randomized and reproducible policies are distinct choices. Compiler and
-build determinism must not depend on unspecified process-randomized hashes or hash-table iteration order.
+Hash-based containers own their hashing policy. Security-randomized and reproducible policies are distinct choices.
+Compiler and build determinism must not depend on unspecified process-randomized hashes or hash-table iteration order.
 
-The reproducible hashing surface uses the named Bray stable hash algorithm. Its state starts at
-`14695981039346656037`. Each contributed `u128` component updates the state to
-`((state + component) mod 170141183460469231731687303715884105727 * 1099511628211) mod
-170141183460469231731687303715884105727`. Compound values contribute their semantic components in their documented order.
-Equal values therefore produce equal stable hashes across processes and supported targets. A different stable algorithm requires
-a separately named API rather than silently changing this contract.
+The reproducible hashing surface uses the named Bray stable hash algorithm. Its state starts at `14695981039346656037`.
+Each contributed `u128` component updates the state to
+`((state + component) mod 170141183460469231731687303715884105727 * 1099511628211) mod 170141183460469231731687303715884105727`.
+Compound values contribute their semantic components in their documented order. Equal values therefore produce equal
+stable hashes across processes and supported targets. A different stable algorithm requires a separately named API
+rather than silently changing this contract.
 
-`std.order` builds sorting, searching, minimum, maximum, and ordering adapters over the compiler-known `Comparable<Rhs>` contract
-and `Ordering` result. Stable and unstable algorithms are named or typed distinctly. A comparison callback must define a coherent
-ordering for the values presented to the algorithm. Algorithms do not repair inconsistent comparison behavior.
+`std.order` builds sorting, searching, minimum, maximum, and ordering adapters over the compiler-known `Comparable<Rhs>`
+contract and `Ordering` result. Stable and unstable algorithms are named or typed distinctly. A comparison callback must
+define a coherent ordering for the values presented to the algorithm. Algorithms do not repair inconsistent comparison
+behavior.
 
 ## Numeric Utilities
 
-`std.numeric` complements language-defined scalar operations without adding implicit conversions or promotions. It provides:
+`std.numeric` complements language-defined scalar operations without adding implicit conversions or promotions. It
+provides:
 
 - numeric limits and classification,
 - checked arithmetic and overflow results,
@@ -501,17 +511,18 @@ ordering for the values presented to the algorithm. Algorithms do not repair inc
 - explicit rounding, truncation, saturation, and wrapping policies,
 - and focused integer, real, and complex algorithms.
 
-Utilities preserve the exact operand and result types stated by their signatures. Machine-sized types use the selected target's
-defined width. Parsing never depends on the host process locale. Operations whose behavior differs for integer, real, or complex
-domains expose that difference through overloads, traits, or typed policy rather than an untyped mode flag.
+Utilities preserve the exact operand and result types stated by their signatures. Machine-sized types use the selected
+target's defined width. Parsing never depends on the host process locale. Operations whose behavior differs for integer,
+real, or complex domains expose that difference through overloads, traits, or typed policy rather than an untyped mode
+flag.
 
-The public `Integer` trait defines the common integer contract required by generic checked arithmetic. Every language-defined
-integer type implements that contract. Generic numeric APIs expose `Integer` when their validity depends on integer bounds rather
-than hiding those requirements behind an interface-private helper.
+The public `Integer` trait defines the common integer contract required by generic checked arithmetic. Every
+language-defined integer type implements that contract. Generic numeric APIs expose `Integer` when their validity
+depends on integer bounds rather than hiding those requirements behind an interface-private helper.
 
-The recognized conversion and numeric-policy operations at the `std` root retain the exact identities and semantics defined by the
-language specification. Named helpers may build on them but cannot weaken their range, representation, rounding, or failure
-contracts.
+The recognized conversion and numeric-policy operations at the `std` root retain the exact identities and semantics
+defined by the language specification. Named helpers may build on them but cannot weaken their range, representation,
+rounding, or failure contracts.
 
 ## Dependency Direction
 
@@ -525,22 +536,24 @@ Core data modules follow this dependency direction:
 6. `std.format` consumes text, bytes, iteration, and focused value contracts,
 7. I/O, testing, networking, concurrency, and higher libraries consume the core data surface.
 
-Cycles between public modules are not used to hide missing abstractions. A small shared contract belongs in the lowest module that
-semantically owns it. An implementation-only dependency may live in a private `std.*` support package when it requires a separate
-native or compilation boundary, but it does not become visible through the public package graph.
+Cycles between public modules are not used to hide missing abstractions. A small shared contract belongs in the lowest
+module that semantically owns it. An implementation-only dependency may live in a private `std.*` support package when
+it requires a separate native or compilation boundary, but it does not become visible through the public package graph.
 
 ## Target And Artifact Contract
 
-Target-independent declarations produce equal observable results for equal semantic inputs on every target. Behavior that depends
-on target width is explicit through types such as `usize`, `isize`, and target properties. Endianness, pointer width, native
-handles, and host locale do not leak into portable text, byte, collection, formatting, hashing, ordering, or numeric contracts.
+Target-independent declarations produce equal observable results for equal semantic inputs on every target. Behavior
+that depends on target width is explicit through types such as `usize`, `isize`, and target properties. Endianness,
+pointer width, native handles, and host locale do not leak into portable text, byte, collection, formatting, hashing,
+ordering, or numeric contracts.
 
-The core data modules compile as ordinary source in the stable `std:library` product. Their public declarations are published
-through the standard package interface. Native implementation support, when required, is selected through the standard-library
-artifact and private runtime contracts rather than through undeclared host calls.
+The core data modules compile as ordinary source in the stable `std:library` product. Their public declarations are
+published through the standard package interface. Native implementation support, when required, is selected through the
+standard-library artifact and private runtime contracts rather than through undeclared host calls.
 
-Package-interface compatibility records declaration identities and caller-visible semantic contracts. It does not expose private
-collection layouts, allocator bookkeeping, hash-table capacity, string representation, or formatting implementation details.
+Package-interface compatibility records declaration identities and caller-visible semantic contracts. It does not expose
+private collection layouts, allocator bookkeeping, hash-table capacity, string representation, or formatting
+implementation details.
 
 ## Conformance
 
@@ -559,5 +572,5 @@ Conformance coverage must verify:
 - target-independent behavior across supported target profiles,
 - and use of the public surface across compiled package boundaries.
 
-Tests should use ordinary Bray source and the same standard-library artifacts selected for user products. Host-language mirrors may
-test a private ABI or artifact boundary, but they cannot substitute for public Bray conformance.
+Tests should use ordinary Bray source and the same standard-library artifacts selected for user products. Host-language
+mirrors may test a private ABI or artifact boundary, but they cannot substitute for public Bray conformance.

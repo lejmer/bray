@@ -47,15 +47,18 @@ When an expected tuple type is available, the expected tuple arity must equal th
 
 Each element expression is checked against the corresponding expected element type.
 
-Expected element types can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, conversion checking, and nested expression checking.
+Expected element types can guide literal typing, variant shorthand, struct construction shorthand, box construction
+shorthand, conversion checking, and nested expression checking.
 
 ```bray
 let nested: ((i32, r64), bool) = ((1, 2.0), true);
 ```
 
-The outer expected tuple type gives the first element the expected type `(i32, r64)`. The nested tuple expression is then checked by the same tuple-expression rules.
+The outer expected tuple type gives the first element the expected type `(i32, r64)`. The nested tuple expression is
+then checked by the same tuple-expression rules.
 
-When no expected tuple type is available, each element expression is checked from its own context, and the resulting element types form the tuple type.
+When no expected tuple type is available, each element expression is checked from its own context, and the resulting
+element types form the tuple type.
 
 ```bray
 let pair = (1, 2.0);
@@ -77,11 +80,14 @@ Tuple element expressions are evaluated left to right.
 
 Each tuple element has its own initialization state while the tuple is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or
+another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the
+corresponding control-flow, ownership, destruction, and finalization rules.
 
 A tuple expression owns its elements when the element expressions produce owned values that are moved into the tuple.
 
-A tuple expression copies an element when the element expression is copied according to that element type’s copy contract.
+A tuple expression copies an element when the element expression is copied according to that element type’s copy
+contract.
 
 A tuple expression can contain borrowed values when an element expression produces a borrow value.
 
@@ -104,7 +110,8 @@ Tuples do not support bracket indexing or slicing.
 
 Shared borrowing a tuple can provide shared access to tuple elements according to Bray's borrowing rules.
 
-Mutable borrowing a tuple can provide mutable access to tuple elements when the tuple access path, element access path, and element type permit mutation.
+Mutable borrowing a tuple can provide mutable access to tuple elements when the tuple access path, element access path,
+and element type permit mutation.
 
 Moving an element out of a tuple is a partial move of the tuple.
 
@@ -122,13 +129,16 @@ Tuple expressions participate in effect checking and capability checking through
 
 The tuple expression’s effects are the combined effects of evaluating its element expressions.
 
-The tuple expression’s finalization obligations are the combined finalization obligations of values produced by its element expressions and retained by the resulting tuple.
+The tuple expression’s finalization obligations are the combined finalization obligations of values produced by its
+element expressions and retained by the resulting tuple.
 
 A tuple expression can establish conditions at that program point.
 
-Conditions can include tuple arity, element initialization, element types, and conditions established by element expressions.
+Conditions can include tuple arity, element initialization, element types, and conditions established by element
+expressions.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about tuple elements or the tuple as a whole.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
+conditions about tuple elements or the tuple as a whole.
 
 A tuple expression can be converted with `as` when the recursive explicit convertibility rules permit tuple conversion.
 
@@ -139,7 +149,8 @@ let b: (i64, r64) = a as (i64, r64);
 
 Tuple-to-tuple conversion requires the same arity and an explicitly valid conversion for each corresponding element.
 
-A two-element tuple can be explicitly converted to a built-in complex type when both elements can be explicitly converted to the complex type’s component real type.
+A two-element tuple can be explicitly converted to a built-in complex type when both elements can be explicitly
+converted to the complex type’s component real type.
 
 ```bray
 let z: c128 = (real, imag) as c128;

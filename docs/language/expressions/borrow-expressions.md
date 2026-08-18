@@ -28,13 +28,17 @@ A mutable borrow expression produces a value whose type uses the mutable-borrow 
 
 A shared borrow requires an access path that can be observed.
 
-A mutable borrow requires mutation authority over the reached storage and compatible exclusivity for the duration of the borrow.
+A mutable borrow requires mutation authority over the reached storage and compatible exclusivity for the duration of the
+borrow.
 
-A borrow expression can borrow a local binding, field access path, indexed access path, active union payload access path, dereferenced type-form projection, or another expression that produces a compatible access path.
+A borrow expression can borrow a local binding, field access path, indexed access path, active union payload access
+path, dereferenced type-form projection, or another expression that produces a compatible access path.
 
-[Borrow rules](../ownership-and-borrowing/borrow-rules.md) define borrow compatibility, storage requirements, and exclusivity.
+[Borrow rules](../ownership-and-borrowing/borrow-rules.md) define borrow compatibility, storage requirements, and
+exclusivity.
 
-[Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md) defines copying, movement, returning, reborrowing, nesting, and lifetime validity for borrow values.
+[Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md) defines copying, movement,
+returning, reborrowing, nesting, and lifetime validity for borrow values.
 
 Borrow expressions participate in flow-sensitive contract checking.
 
@@ -42,7 +46,8 @@ Conditions about borrowed storage can remain available through a borrow when obs
 
 Mutation through a mutable borrow invalidates conditions that depend on the changed storage.
 
-Movement, destruction, reinitialization, finalization, or capability loss invalidates conditions that depend on the borrowed storage.
+Movement, destruction, reinitialization, finalization, or capability loss invalidates conditions that depend on the
+borrowed storage.
 
 ## Navigation
 

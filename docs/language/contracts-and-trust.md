@@ -1,7 +1,7 @@
 # Contracts and trust
 
-Contracts and trust define caller obligations, postconditions, predicates, trusted capabilities, trusted obligations, witness values,
-flow-sensitive contract reasoning, and trust boundaries.
+Contracts and trust define caller obligations, postconditions, predicates, trusted capabilities, trusted obligations,
+witness values, flow-sensitive contract reasoning, and trust boundaries.
 
 ---
 

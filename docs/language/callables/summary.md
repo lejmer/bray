@@ -16,8 +16,8 @@ Callable result values are supplied explicitly through `return`.
 
 Parameters are bindings declared by function signatures.
 
-An ellipsis after fixed parameters declares a target-supported variadic foreign callable contract. Trailing arguments are
-positional and use the selected ABI's exact default promotions.
+An ellipsis after fixed parameters declares a target-supported variadic foreign callable contract. Trailing arguments
+are positional and use the selected ABI's exact default promotions.
 
 Owned parameters are immutable by default.
 

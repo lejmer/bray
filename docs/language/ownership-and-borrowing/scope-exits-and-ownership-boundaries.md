@@ -8,8 +8,8 @@ Values moved out of the scope are not destroyed as local owned values.
 
 Partially initialized local values resolve only initialized subparts.
 
-Reachable exits from a region must agree on ownership, borrowing, initialization, destruction, finalization, capabilities, effects,
-and which contract guarantees remain available.
+Reachable exits from a region must agree on ownership, borrowing, initialization, destruction, finalization,
+capabilities, effects, and which contract guarantees remain available.
 
 A value can cross a boundary only when the destination can preserve every dependency contract carried by that value.
 
@@ -24,38 +24,44 @@ Boundaries include:
 - forming a trait view,
 - using or exporting a declaration surface.
 
-A destination preserves a dependency contract when the destination's lifetime, ownership state, capability state, and semantic contract are proven to keep every required storage, borrow, capability, and obligation valid until the destination no longer uses or owns the value.
+A destination preserves a dependency contract when the destination's lifetime, ownership state, capability state, and
+semantic contract are proven to keep every required storage, borrow, capability, and obligation valid until the
+destination no longer uses or owns the value.
 
 Storing a dependency-carrying value never extends the source storage or scoped capability that the dependency requires.
 
 If the destination could outlive required storage or a required scoped capability, the transfer is rejected.
 
-If a dependency contract cannot be represented in the destination's declared semantic contract, the transfer is rejected.
+If a dependency contract cannot be represented in the destination's declared semantic contract, the transfer is
+rejected.
 
-Storing into a product static requires every carried dependency to be rooted in the same product or in a retained provider proven
-to outlive that storage. An exact-thread-rooted dependency cannot be stored in product-static storage.
+Storing into a product static requires every carried dependency to be rooted in the same product or in a retained
+provider proven to outlive that storage. An exact-thread-rooted dependency cannot be stored in product-static storage.
 
-Storing into a thread-local static requires every carried dependency to be rooted in the same exact attachment, its owning product,
-or a retained provider proven to outlive the attachment.
+Storing into a thread-local static requires every carried dependency to be rooted in the same exact attachment, its
+owning product, or a retained provider proven to outlive the attachment.
 
-Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred dependency contracts.
+Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred
+dependency contracts.
 
-At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, owned input values, async or task state available to that body, or other storage and capabilities that outlive the returned value.
+At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, owned input
+values, async or task state available to that body, or other storage and capabilities that outlive the returned value.
 
 Returning a borrow of local storage that ends at the callable exit is rejected.
 
-Returning a value that owns local state is valid when ownership moves into the result and the value's dependency contract no longer depends on the local binding.
+Returning a value that owns local state is valid when ownership moves into the result and the value's dependency
+contract no longer depends on the local binding.
 
-When multiple control-flow exits can produce a value, the merged dependency contract conservatively preserves every dependency
-that can be required by any reachable exit unless language-defined contract reasoning establishes a narrower alternative at the
-use site.
+When multiple control-flow exits can produce a value, the merged dependency contract conservatively preserves every
+dependency that can be required by any reachable exit unless language-defined contract reasoning establishes a narrower
+alternative at the use site.
 
 The expected result type, assignment target type, or overload result type does not invent missing dependency contracts.
 
 Dependency contracts are inferred from the producing expression and checked against the destination.
 
-A declaration whose public result, stored value, callable value, trait view, async computation, task handle, or lifecycle value
-carries non-local dependencies exposes those dependencies through its declared contract.
+A declaration whose public result, stored value, callable value, trait view, async computation, task handle, or
+lifecycle value carries non-local dependencies exposes those dependencies through its declared contract.
 
 This exposure is semantic metadata, not additional source syntax.
 
@@ -70,7 +76,8 @@ func same(pos item: &u8) -> &u8
 }
 ```
 
-The returned borrow remains valid only while the storage reached through `item` remains valid and while the returned borrow's capability requirements remain satisfied.
+The returned borrow remains valid only while the storage reached through `item` remains valid and while the returned
+borrow's capability requirements remain satisfied.
 
 This is rejected because the returned borrow depends on local storage that ends at the function exit:
 

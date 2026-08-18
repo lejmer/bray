@@ -2,26 +2,22 @@
 
 The standard library can provide operations whose contracts are known to the compiler.
 
-The exact recognized identities are listed by the
-[conformance catalog](conformance-catalog.md).
+The exact recognized identities are listed by the [conformance catalog](conformance-catalog.md).
 
-`std.convert<Target, Source>(source)` returns
-`Result<Target, Source(CheckedConvertTo<Target>).Error>`.
+`std.convert<Target, Source>(source)` returns `Result<Target, Source(CheckedConvertTo<Target>).Error>`.
 
-The recognized numeric-policy operations are `std.round_to`, `std.truncate_to`,
-`std.saturate_to`, and `std.wrap_to`.
+The recognized numeric-policy operations are `std.round_to`, `std.truncate_to`, `std.saturate_to`, and `std.wrap_to`.
 
 `std.round_to` accepts the recognized `std.RoundingRule` union.
 
-The recognized string operations are `std.string.scalar_count`, `std.string.is_empty`,
-`std.string.equals`, `std.string.scalar_at`, `std.string.scalar_slice`, `std.string.utf8`, and
-`std.string.from_utf8`.
+The recognized string operations are `std.string.scalar_count`, `std.string.is_empty`, `std.string.equals`,
+`std.string.scalar_at`, `std.string.scalar_slice`, `std.string.utf8`, and `std.string.from_utf8`.
 
-The recognized raw-memory operations, layout declarations, allocation owner, and raw-buffer
-declarations are the exact `std.memory` declarations listed by the conformance catalog.
+The recognized raw-memory operations, layout declarations, allocation owner, and raw-buffer declarations are the exact
+`std.memory` declarations listed by the conformance catalog.
 
-The recognized callback-context operation is `std.ffi.callback_state<State>(context)`. It can reconstruct a state borrow only for
-the live context parameter of an exported ABI callback entry and never synthesizes a callable capture.
+The recognized callback-context operation is `std.ffi.callback_state<State>(context)`. It can reconstruct a state borrow
+only for the live context parameter of an exported ABI callback entry and never synthesizes a callable capture.
 
 Device-memory helpers are not recognized.
 
@@ -31,7 +27,8 @@ They are ordinary declarations with ordinary name resolution.
 
 If the relevant standard-library declaration is not visible, the call is rejected by ordinary name resolution.
 
-If a visible declaration is not the recognized standard-library declaration, it is checked as an ordinary call to that declaration.
+If a visible declaration is not the recognized standard-library declaration, it is checked as an ordinary call to that
+declaration.
 
 ## Navigation
 

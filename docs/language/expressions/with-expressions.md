@@ -1,6 +1,7 @@
 # With expressions
 
-A **with expression** enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability is active.
+A **with expression** enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability
+is active.
 
 With expressions use `with`.
 
@@ -51,11 +52,13 @@ let count: usize = with file = File.open(path)
 };
 ```
 
-With expression lifecycle selection, scoped capability behavior, exit behavior, failure behavior, async behavior, escape rules, and checking rules are defined in [With expressions](../lifecycle/with-expressions.md).
+With expression lifecycle selection, scoped capability behavior, exit behavior, failure behavior, async behavior, escape
+rules, and checking rules are defined in [With expressions](../lifecycle/with-expressions.md).
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
 - Previous: [Loop expressions](loop-expressions.md)
-- Next: [Lambda expressions and anonymous callable expressions](lambda-expressions-and-anonymous-callable-expressions.md)
+- Next:
+  [Lambda expressions and anonymous callable expressions](lambda-expressions-and-anonymous-callable-expressions.md)

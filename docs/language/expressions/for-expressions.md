@@ -44,8 +44,8 @@ Iteration bindings are scoped to the for body.
 
 Iteration bindings are not visible in the source expression or else body.
 
-Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and
-finalization rules.
+Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction,
+and finalization rules.
 
 For each produced element, the pattern is applied and the body is evaluated once.
 
@@ -55,11 +55,11 @@ The syntactic body block of a for expression belongs to the for expression's bre
 
 The else body belongs to the same break-capable region.
 
-A for body does not capture `yield`. A `yield` inside a for body targets the nearest enclosing yield-capable region unless a nested
-yield-capable region captures it.
+A for body does not capture `yield`. A `yield` inside a for body targets the nearest enclosing yield-capable region
+unless a nested yield-capable region captures it.
 
-An else body does not capture `yield`. A `yield` inside an else body targets the nearest enclosing yield-capable region unless a
-nested yield-capable region captures it.
+An else body does not capture `yield`. A `yield` inside an else body targets the nearest enclosing yield-capable region
+unless a nested yield-capable region captures it.
 
 `break value` exits the for expression and supplies the for result.
 
@@ -73,25 +73,25 @@ If iteration reaches natural exhaustion, the else body is selected when one is p
 
 If iteration reaches natural exhaustion and no else body is present, the for expression completes as `unit`.
 
-Natural exhaustion does not occur on a path that exits through `break`, `return`, `yield`, panic, nullable propagation, result
-propagation, run-result propagation, or another outer-boundary exit.
+Natural exhaustion does not occur on a path that exits through `break`, `return`, `yield`, panic, nullable propagation,
+result propagation, run-result propagation, or another outer-boundary exit.
 
 An else body that completes naturally contributes `unit`.
 
 If a for expression has result type `unit`, natural exhaustion without an else body is valid.
 
-If a for expression has a result type other than `unit`, every reachable normal for exit path must supply a compatible value with
-`break` or end in a `never` expression.
+If a for expression has a result type other than `unit`, every reachable normal for exit path must supply a compatible
+value with `break` or end in a `never` expression.
 
 An else body is required when the for expression result type is not `unit` and natural exhaustion is reachable.
 
 If the compiler proves natural exhaustion unreachable, a missing else body does not contribute a normal path.
 
-The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available contract state
-after a for expression is the merge of all reachable normal for exits.
+The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available
+contract state after a for expression is the merge of all reachable normal for exits.
 
-Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into another surviving storage
-location.
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into another
+surviving storage location.
 
 ```bray
 for item in items

@@ -37,7 +37,8 @@ The number of listed element patterns must match the array length unless `..` is
 
 Each element pattern is checked against the array element type.
 
-A fixed-size array pattern is irrefutable when it accounts for the array shape and every listed element pattern is irrefutable.
+A fixed-size array pattern is irrefutable when it accounts for the array shape and every listed element pattern is
+irrefutable.
 
 `..` accounts for remaining elements and introduces no binding.
 

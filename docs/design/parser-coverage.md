@@ -1,10 +1,10 @@
 # Parser coverage matrix
 
-This document maps every source grammar nonterminal in `docs/language/syntax-grammar.ebnf` to its parser entry point and primary parser test coverage.
+This document maps every source grammar nonterminal in `docs/language/syntax-grammar.ebnf` to its parser entry point and
+primary parser test coverage.
 
-This is an audit aid, not a second grammar.
-The grammar remains the source of truth.
-When the grammar, parser, syntax tree, or parser tests change, update this matrix in the same change.
+This is an audit aid, not a second grammar. The grammar remains the source of truth. When the grammar, parser, syntax
+tree, or parser tests change, update this matrix in the same change.
 
 The parser column uses one of these forms:
 
@@ -14,8 +14,7 @@ The parser column uses one of these forms:
 - `precedence engine` when expression levels are represented by the precedence-climbing parser.
 - `token set` when the nonterminal is a closed set of token kinds consumed by a shared parser path.
 
-The test column lists the primary test anchor.
-It is not exhaustive.
+The test column lists the primary test anchor. It is not exhaustive.
 
 ## Compilation And Modules
 
@@ -399,8 +398,8 @@ It is not exhaustive.
 
 ## Lexical Terminals Used By Syntax Parser
 
-These are not syntax grammar productions in `syntax-grammar.ebnf`, but they are referenced by syntax productions.
-Their lexical shape is owned by `docs/language/lexical-grammar.ebnf`.
+These are not syntax grammar productions in `syntax-grammar.ebnf`, but they are referenced by syntax productions. Their
+lexical shape is owned by `docs/language/lexical-grammar.ebnf`.
 
 | Lexical terminal      | Parser handling                                                                  | Primary parser tests                                                                                       |
 |-----------------------|----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|

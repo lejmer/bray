@@ -21,13 +21,13 @@ The exported declaration must be visible to the exporting module.
 
 An export declaration can appear only in a module body.
 
-The exported final name occupies the ordinary lookup namespace of the module's exported lookup surface and must not conflict with
-another declaration or export in that surface.
+The exported final name occupies the ordinary lookup namespace of the module's exported lookup surface and must not
+conflict with another declaration or export in that surface.
 
 An export does not create a new declaration identity.
 
-Re-exporting a static preserves its open instance template and canonical static instance identity. It does not materialize storage,
-duplicate an instance, change the owning product or attachment, or add an initialization event.
+Re-exporting a static preserves its open instance template and canonical static instance identity. It does not
+materialize storage, duplicate an instance, change the owning product or attachment, or add an initialization event.
 
 An export does not rename the declaration.
 
@@ -37,7 +37,8 @@ An export does not introduce the declaration as an unqualified name inside the e
 
 Exporting a named implementation makes that implementation declaration reachable through the exported path.
 
-It does not make the implementation participate in another coherence domain unless that coherence domain explicitly makes the implementation visible according to implementation coherence rules.
+It does not make the implementation participate in another coherence domain unless that coherence domain explicitly
+makes the implementation visible according to implementation coherence rules.
 
 If a different public name or different public contract is needed, source code declares an explicit wrapper.
 

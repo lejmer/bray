@@ -1,6 +1,7 @@
 # Arguments
 
-An **argument** is an expression supplied to a callable parameter, constructor parameter, method parameter, static function parameter, named constructor parameter, or another callable-like parameter.
+An **argument** is an expression supplied to a callable parameter, constructor parameter, method parameter, static
+function parameter, named constructor parameter, or another callable-like parameter.
 
 ```bray
 left = 1
@@ -15,7 +16,8 @@ Callable parameter surfaces and `pos` parameter rules are defined in [Parameters
 
 A named argument identifies the parameter being supplied by name.
 
-A positional argument identifies the parameter being supplied by position and is valid only for a parameter marked `pos`.
+A positional argument identifies the parameter being supplied by position and is valid only for a parameter marked
+`pos`.
 
 The argument expression supplies the value or access path checked against that parameter.
 
@@ -44,7 +46,8 @@ A required parameter without a supplied argument and without a default is an err
 
 An argument expression is checked in the expected context of the corresponding parameter.
 
-Expected parameter context can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
+Expected parameter context can guide literal typing, variant shorthand, struct construction shorthand, box construction
+shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
 draw(Circle(center = origin, radius = 1.0))
@@ -76,11 +79,14 @@ Arguments can supply values constructed inline.
 draw(Point { x = 1.0, y = 2.0 })
 ```
 
-Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and condition refinement.
+Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization,
+capability checking, effect checking, and condition refinement.
 
-A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not marked `pos`.
+A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not
+marked `pos`.
 
-Tuple expressions and array expressions remain positional structural expressions because their positions are the structure being constructed, not callable parameter binding.
+Tuple expressions and array expressions remain positional structural expressions because their positions are the
+structure being constructed, not callable parameter binding.
 
 ## Navigation
 

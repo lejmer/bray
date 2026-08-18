@@ -1,6 +1,7 @@
 # Lifecycle declarations
 
-Lifecycle declarations attach construction, finalization, destruction, or scoped-use behavior to a type or implementation subject.
+Lifecycle declarations attach construction, finalization, destruction, or scoped-use behavior to a type or
+implementation subject.
 
 Lifecycle declarations can appear in:
 
@@ -13,11 +14,14 @@ Type-body and inherent implementation lifecycle declarations are type-wide lifec
 
 Trait lifecycle requirements describe lifecycle behavior that an implementing subject must satisfy.
 
-Trait implementation lifecycle declarations can define only `enter` and `exit` fulfillments required by the trait being implemented.
+Trait implementation lifecycle declarations can define only `enter` and `exit` fulfillments required by the trait being
+implemented.
 
-`Self` in a lifecycle declaration means the declaring type or implementation subject according to the declaration context.
+`Self` in a lifecycle declaration means the declaring type or implementation subject according to the declaration
+context.
 
-Lifecycle declarations use callable parameter lists, callable result clauses, callable contract clauses, and callable bodies where the declaration form permits a body.
+Lifecycle declarations use callable parameter lists, callable result clauses, callable contract clauses, and callable
+bodies where the declaration form permits a body.
 
 Constructors use `construct`.
 
@@ -79,7 +83,8 @@ Destructors are infallible and return `unit`.
 
 Finalizers, destructors, and scope exit declarations can omit the result clause when the result type is `unit`.
 
-Scope enter declarations require a result clause because the result type is the scoped capability value made available to the `with` body.
+Scope enter declarations require a result clause because the result type is the scoped capability value made available
+to the `with` body.
 
 Scope exit declarations take exactly one scoped-capability parameter.
 
@@ -87,8 +92,8 @@ Constructors have no receiver and no `self` binding.
 
 Finalizers have an implicit mutable receiver. Destructors have an implicit consuming mutable receiver.
 
-Scope enter declarations use the same receiver modifiers as instance methods. The default receiver is shared. `mut`, `consume`, and
-`consume mut` select the corresponding receiver modes.
+Scope enter declarations use the same receiver modifiers as instance methods. The default receiver is shared. `mut`,
+`consume`, and `consume mut` select the corresponding receiver modes.
 
 Scope exit declarations have no receiver. Their scoped-capability parameter is their only value input.
 

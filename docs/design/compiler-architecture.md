@@ -2,14 +2,14 @@
 
 This document defines the goal-state architecture for the Bray compiler implementation.
 
-Design specifications describe the complete intended architecture and behavior. Delivery may proceed in dependency order, but a
-design requirement cannot be weakened for a delivery stage. Any staged delivery described here must preserve the final ownership
-boundaries, public contracts, identities, and sources of truth at every stage.
+Design specifications describe the complete intended architecture and behavior. Delivery may proceed in dependency
+order, but a design requirement cannot be weakened for a delivery stage. Any staged delivery described here must
+preserve the final ownership boundaries, public contracts, identities, and sources of truth at every stage.
 
 The language design documents define Bray semantics.
 
-The compiler architecture defines how the implementation is organized so those semantics remain maintainable, testable, and
-extendable.
+The compiler architecture defines how the implementation is organized so those semantics remain maintainable, testable,
+and extendable.
 
 Implementation coding rules live in `docs/contributing/coding-conventions.md`.
 
@@ -41,8 +41,8 @@ Native linker integration rules live in `docs/design/linker.md`.
 
 Standard-library I/O and private platform-service boundary rules live in `docs/design/io-and-platform-services.md`.
 
-Foreign ABI conveniences, dynamic loading, native resource ownership, callbacks, and target-specific operating-system rules live
-in `docs/design/foreign-and-platform-interoperability.md`.
+Foreign ABI conveniences, dynamic loading, native resource ownership, callbacks, and target-specific operating-system
+rules live in `docs/design/foreign-and-platform-interoperability.md`.
 
 This document is the design-level contract those implementation documents should follow.
 
@@ -58,24 +58,24 @@ Language features should be added by extending the relevant phase models, not by
 
 Diagnostics should stay source-correlated and structured until the boundary where user-facing messages are rendered.
 
-Syntax representation should be lossless. Whitespace and comments are preserved as token trivia so compiler tools can recreate
-source text from syntax trees.
+Syntax representation should be lossless. Whitespace and comments are preserved as token trivia so compiler tools can
+recreate source text from syntax trees.
 
-Published compiler representations should be immutable. Mutation is allowed inside local builders while constructing a value, but
-the value becomes immutable before it is shared through the compiler graph.
+Published compiler representations should be immutable. Mutation is allowed inside local builders while constructing a
+value, but the value becomes immutable before it is shared through the compiler graph.
 
-Compiler query results should be evaluated on demand through explicit queries. Laziness applies to when a compiler query result is requested, not
-to whether a requested query result is allowed to be partially completed.
+Compiler query results should be evaluated on demand through explicit queries. Laziness applies to when a compiler query
+result is requested, not to whether a requested query result is allowed to be partially completed.
 
 Compiler behavior should be deterministic.
 
 The compiler should be designed for parallel execution from the start.
 
-Serial execution should be supported and should use the same phase contracts, dependency graph, and diagnostics behavior as
-parallel execution.
+Serial execution should be supported and should use the same phase contracts, dependency graph, and diagnostics behavior
+as parallel execution.
 
-Compilation speed is a product requirement. Quick single-threaded shortcuts should not become the default architecture when they
-would make later parallelization invasive.
+Compilation speed is a product requirement. Quick single-threaded shortcuts should not become the default architecture
+when they would make later parallelization invasive.
 
 Malformed user input should produce diagnostics, not compiler panics.
 
@@ -85,20 +85,19 @@ Compiler panics are for violated compiler invariants.
 
 ## Pipeline
 
-Project-oriented tools first load explicit workspace and package manifests through `bray-project`. That boundary validates
-project-owned paths, enumerates declared source roots, resolves exact package-product dependency edges against the workspace
-inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language tooling consume that graph.
-they do not search for packages or consult ambient dependency state.
+Project-oriented tools first load explicit workspace and package manifests through `bray-project`. That boundary
+validates project-owned paths, enumerates declared source roots, resolves exact package-product dependency edges against
+the workspace inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language
+tooling consume that graph. they do not search for packages or consult ambient dependency state.
 
 The user-facing command boundary and its explicit acquisition non-goals are defined in
 [Bray Tack build tool](bray-tack.md).
 
-Bray Tack remains a project orchestrator rather than a container for compiler, formatter, or
-language-server implementations. It communicates with the independently installable `brayc`,
-`brayfmt`, and `bray-lsp` executables through explicit process arguments, structured command output,
-compiled package interfaces, and protocol streams. Shared crates may define narrow presentation or
-project contracts, but `bray` must not acquire direct dependencies on compiler phases, formatter
-implementation, or language-server implementation.
+Bray Tack remains a project orchestrator rather than a container for compiler, formatter, or language-server
+implementations. It communicates with the independently installable `brayc`, `brayfmt`, and `bray-lsp` executables
+through explicit process arguments, structured command output, compiled package interfaces, and protocol streams. Shared
+crates may define narrow presentation or project contracts, but `bray` must not acquire direct dependencies on compiler
+phases, formatter implementation, or language-server implementation.
 
 The compiler pipeline is a logical dependency order:
 
@@ -118,11 +117,11 @@ source text
 
 The arrows show query result dependencies, not mandatory whole-program scheduling barriers.
 
-A source unit, module, declaration, function body, type body, predicate body, implementation body, or backend unit can move to the
-next relevant phase when its required inputs are available.
+A source unit, module, declaration, function body, type body, predicate body, implementation body, or backend unit can
+move to the next relevant phase when its required inputs are available.
 
-The compiler should represent work as dependency-tracked tasks or queries. A task can run when its explicit inputs are available.
-The scheduler can run independent tasks concurrently.
+The compiler should represent work as dependency-tracked tasks or queries. A task can run when its explicit inputs are
+available. The scheduler can run independent tasks concurrently.
 
 Each phase consumes earlier phases through public output contracts.
 
@@ -138,47 +137,48 @@ The main durable representations are:
 - an authoritative source-shaped bound high-level IR with independently published semantic query results,
 - a backend-independent mid-level IR.
 
-No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR through a
-validated view containing only the immutable semantic query results required by that consumer.
+No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR
+through a validated view containing only the immutable semantic query results required by that consumer.
 
-Lowering receives one such view over a published bound unit and its required typed side query results.
-It publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
+Lowering receives one such view over a published bound unit and its required typed side query results. It publishes one
+execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
 
 ## Demand-Driven Evaluation
 
-Compiler work should be lazy by default. Code should expose typed APIs for compiler query results and compute those query results when they are
-requested. A caller should ask for the query result it needs, such as a syntax tree, a declaration surface, an expression type, body
-diagnostics, or an emitted artifact. It should not have to request intermediate phase work unless it needs that intermediate query result
-directly.
+Compiler work should be lazy by default. Code should expose typed APIs for compiler query results and compute those
+query results when they are requested. A caller should ask for the query result it needs, such as a syntax tree, a
+declaration surface, an expression type, body diagnostics, or an emitted artifact. It should not have to request
+intermediate phase work unless it needs that intermediate query result directly.
 
 Demand-driven evaluation must not change which diagnostics or semantic query results a fully checked program produces.
 
-Lazy evaluation should use ordinary compiler APIs. If computing the type of an expression needs parsed syntax, declaration
-surfaces, symbols, binding, and constraint solving, the type API obtains those dependencies internally through the owning phase
-APIs.
+Lazy evaluation should use ordinary compiler APIs. If computing the type of an expression needs parsed syntax,
+declaration surfaces, symbols, binding, and constraint solving, the type API obtains those dependencies internally
+through the owning phase APIs.
 
-`Compilation` exposes declaration chunks and the merged declaration table as cached query results. A source-unit chunk query requests that
-source unit's syntax. A declaration-table query requests all source-unit chunks and performs one deterministic merge. Declaration
-diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
-query result dependency rather than through a phase-execution command.
+`Compilation` exposes declaration chunks and the merged declaration table as cached query results. A source-unit chunk
+query requests that source unit's syntax. A declaration-table query requests all source-unit chunks and performs one
+deterministic merge. Declaration diagnostics are a projection of the merged result, so a check-diagnostics query
+materializes declaration discovery through that query result dependency rather than through a phase-execution command.
 
-`Compilation` also exposes package semantic diagnostics as a cached query result. That query result discovers the source package's declared
-semantic units, requests their bound-unit and required checker query results, follows published nested-unit keys, and merges the diagnostics
-owned by those query results deterministically. A check-diagnostics query requests this package query result beside source, syntax, and declaration
-diagnostics. Neither the command driver nor the check-diagnostics query enumerates semantic units or invokes binder entry points
-directly.
+`Compilation` also exposes package semantic diagnostics as a cached query result. That query result discovers the source
+package's declared semantic units, requests their bound-unit and required checker query results, follows published
+nested-unit keys, and merges the diagnostics owned by those query results deterministically. A check-diagnostics query
+requests this package query result beside source, syntax, and declaration diagnostics. Neither the command driver nor
+the check-diagnostics query enumerates semantic units or invokes binder entry points directly.
 
-One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
-lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs construct their read-only query result
-context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from
-another syntax, symbol, target, or semantic-value universe.
+One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that
+identity and lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs
+construct their read-only query result context internally from compilation-owned inputs. They must not accept arbitrary
+caller contexts that could populate one cache from another syntax, symbol, target, or semantic-value universe.
 
-Dependency interfaces and the current library product's encoded package interface are also lazy query results. An imported identity-skeleton
-query requests structural interface validation and deterministic external-key mapping. An imported symbol query result requests only its
-length-delimited semantic payload. An interface-artifact query requests the reachable completed public surface and deterministic
-encoding without requiring callers to sequence those phases manually.
+Dependency interfaces and the current library product's encoded package interface are also lazy query results. An
+imported identity-skeleton query requests structural interface validation and deterministic external-key mapping. An
+imported symbol query result requests only its length-delimited semantic payload. An interface-artifact query requests
+the reachable completed public surface and deterministic encoding without requiring callers to sequence those phases
+manually.
 
 Compiler query results should generally be lazy across stable compiler boundaries:
 
@@ -196,27 +196,30 @@ Compiler query results should generally be lazy across stable compiler boundarie
 - MIR units,
 - backend codegen units.
 
-A lazy query result must be complete within the boundary promised by its API. An expression-type accessor returns the complete immutable
-expression-type query result for its key. A selected-call accessor returns the complete immutable call-selection query result for its key. Neither
-accessor implies that unrelated storage, effect, contract, or lowering query results were evaluated.
+A lazy query result must be complete within the boundary promised by its API. An expression-type accessor returns the
+complete immutable expression-type query result for its key. A selected-call accessor returns the complete immutable
+call-selection query result for its key. Neither accessor implies that unrelated storage, effect, contract, or lowering
+query results were evaluated.
 
-A declaration-surface type accessor can promise a complete source type-expression template rather than a checked `TypeId`. Such a
-template preserves embedded constant-expression occurrences and their expected-type sources without demanding expression typing,
-selection, target validation, or constant evaluation. A separate checked type or signature accessor resolves only the occurrences
-required by that request through the cooperating semantic fixed point.
+A declaration-surface type accessor can promise a complete source type-expression template rather than a checked
+`TypeId`. Such a template preserves embedded constant-expression occurrences and their expected-type sources without
+demanding expression typing, selection, target validation, or constant evaluation. A separate checked type or signature
+accessor resolves only the occurrences required by that request through the cooperating semantic fixed point.
 
-Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side query results keyed to that
-unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. A consumer that needs a
-set of query results requests that exact set through typed accessors. There is no universal whole-unit completion query.
+Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side query results
+keyed to that unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete.
+A consumer that needs a set of query results requests that exact set through typed accessors. There is no universal
+whole-unit completion query.
 
-Typed query result keys and accessors are the public compiler model. The same keys identify cached evaluation internally. Dependency
-recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are private mechanics behind those
-accessors. The compiler must not mirror query results with public query objects, generic query result wrappers, dynamic registries, duplicate query
-identities, or progress-wrapper representation families.
+Typed query result keys and accessors are the public compiler model. The same keys identify cached evaluation
+internally. Dependency recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are
+private mechanics behind those accessors. The compiler must not mirror query results with public query objects, generic
+query result wrappers, dynamic registries, duplicate query identities, or progress-wrapper representation families.
 
-Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
-a declaration surface or a type signature. A completion implementation can ask for the local query results needed at a source position.
-These are separate contracts, not partial executions of a broader diagnostic or lowering request.
+Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation
+can ask for a declaration surface or a type signature. A completion implementation can ask for the local query results
+needed at a source position. These are separate contracts, not partial executions of a broader diagnostic or lowering
+request.
 
 Compiler commands and language-server entry points request the result they need:
 
@@ -226,39 +229,42 @@ Compiler commands and language-server entry points request the result they need:
 - a package check asks for package validation,
 - emission asks for product artifacts.
 
-The implementation computes whatever intermediate query results are needed to answer each request. Evaluation order, cache hits, worker
-count, and language-server request order must not affect the semantic query results or diagnostics produced for the same requested result.
-Diagnostics from lazily evaluated query results must be merged and ordered deterministically when a diagnostic result is materialized.
+The implementation computes whatever intermediate query results are needed to answer each request. Evaluation order,
+cache hits, worker count, and language-server request order must not affect the semantic query results or diagnostics
+produced for the same requested result. Diagnostics from lazily evaluated query results must be merged and ordered
+deterministically when a diagnostic result is materialized.
 
 ---
 
 ## Selected Target Query Results
 
-One product compilation selects one immutable target context before requesting target-dependent semantic query results. The context owns
-the stable `bray_target::TargetProfile`, the applicable runtime compatibility query results, and the capabilities used to derive the
-target-available compiler-known declaration view. Product formation selects a runtime only after reachable requirements are known.
-None of these values may be inferred from the compiler host.
+One product compilation selects one immutable target context before requesting target-dependent semantic query results.
+The context owns the stable `bray_target::TargetProfile`, the applicable runtime compatibility query results, and the
+capabilities used to derive the target-available compiler-known declaration view. Product formation selects a runtime
+only after reachable requirements are known. None of these values may be inferred from the compiler host.
 
-The target profile contains the complete typed language-defined query result surface. Pointer, endian, architecture, and target-name query results
-are derived from the profile's identity and machine properties so independently supplied values cannot contradict them. Profile
-construction rejects incomplete query result groups, values outside the target `usize` range, scalar dependencies that contradict each
-other, ABI contracts that accept unavailable representations, and cross-group alignment contradictions before source checking
-begins. Compiler-known declaration availability is derived from this validated profile rather than supplied as a second capability
-model.
+The target profile contains the complete typed language-defined query result surface. Pointer, endian, architecture, and
+target-name query results are derived from the profile's identity and machine properties so independently supplied
+values cannot contradict them. Profile construction rejects incomplete query result groups, values outside the target
+`usize` range, scalar dependencies that contradict each other, ABI contracts that accept unavailable representations,
+and cross-group alignment contradictions before source checking begins. Compiler-known declaration availability is
+derived from this validated profile rather than supplied as a second capability model.
 
-The selected target is a typed compilation query result. Binder and checker requests borrow the same target profile instead of copying its
-identity, machine properties, or widths into phase-specific models. Target-sized literals and constants always use the profile's
-pointer width. Post-selection layout and ABI checks consume the same context after type and operation selection. Lowering and
-output contracts derive their target-facing inputs from those selected query results rather than rediscovering target properties.
+The selected target is a typed compilation query result. Binder and checker requests borrow the same target profile
+instead of copying its identity, machine properties, or widths into phase-specific models. Target-sized literals and
+constants always use the profile's pointer width. Post-selection layout and ABI checks consume the same context after
+type and operation selection. Lowering and output contracts derive their target-facing inputs from those selected query
+results rather than rediscovering target properties.
 
-Post-selection target validity is keyed by the complete source-correlated representation, callable ABI, or layout requirement.
-Foreign ABI requirements include every by-value parameter and result representation plus the selected aggregate layout contract.
-The semantic query result that establishes such a requirement requests its validity and retains its diagnostics, preserving ordinary
-diagnostic projection without introducing a mutable global registry of previously requested checks.
+Post-selection target validity is keyed by the complete source-correlated representation, callable ABI, or layout
+requirement. Foreign ABI requirements include every by-value parameter and result representation plus the selected
+aggregate layout contract. The semantic query result that establishes such a requirement requests its validity and
+retains its diagnostics, preserving ordinary diagnostic projection without introducing a mutable global registry of
+previously requested checks.
 
-Target-independent query results do not depend on the selected-target property. A target change invalidates declaration availability and the
-semantic, lowering, and output query results that requested target data while allowing source, syntax, declaration discovery, and other
-target-independent query results to remain reusable.
+Target-independent query results do not depend on the selected-target property. A target change invalidates declaration
+availability and the semantic, lowering, and output query results that requested target data while allowing source,
+syntax, declaration discovery, and other target-independent query results to remain reusable.
 
 ---
 
@@ -280,20 +286,21 @@ Compiler work should be split at stable semantic boundaries:
 
 The scheduler should run independent work in parallel whenever the dependency graph allows it.
 
-Lexing and parsing should be demand-driven. A parser asks a token source for the next token, a lookahead token, or a recoverable
-token window. The lexer produces tokens as needed and can cache produced tokens for repeated parser access, diagnostics, and
-incremental reuse.
+Lexing and parsing should be demand-driven. A parser asks a token source for the next token, a lookahead token, or a
+recoverable token window. The lexer produces tokens as needed and can cache produced tokens for repeated parser access,
+diagnostics, and incremental reuse.
 
-Whole-source-unit tokenization is allowed as an implementation strategy when it is beneficial, but it is not a semantic phase
-boundary. Later compiler architecture must not require all source units to be fully lexed before any parser work can start.
+Whole-source-unit tokenization is allowed as an implementation strategy when it is beneficial, but it is not a semantic
+phase boundary. Later compiler architecture must not require all source units to be fully lexed before any parser work
+can start.
 
 Declaration discovery can run independently for syntax trees whose module context is known.
 
-Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces, target
-query results, and contract dependencies are available.
+Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces,
+target query results, and contract dependencies are available.
 
-MIR construction can run independently for bound units whose exact lowering query results are available. Code generation can run
-independently for validated `bray-ir` units once their immutable emission-plan artifact requests are available.
+MIR construction can run independently for bound units whose exact lowering query results are available. Code generation
+can run independently for validated `bray-ir` units once their immutable emission-plan artifact requests are available.
 
 Parallel execution must be deterministic:
 
@@ -306,13 +313,14 @@ Scheduler queues and internal caches can use synchronization, but they must not 
 
 Hidden mutable global state is not allowed in compiler logic.
 
-Request priority is scheduling policy, not semantic identity. Interactive tooling requests may receive bounded preference over
-ordinary and background work, but ordinary work must continue to make progress under sustained interactive demand. Priority,
-waiter count, worker assignment, and completion order must not enter query result keys or change published results.
+Request priority is scheduling policy, not semantic identity. Interactive tooling requests may receive bounded
+preference over ordinary and background work, but ordinary work must continue to make progress under sustained
+interactive demand. Priority, waiter count, worker assignment, and completion order must not enter query result keys or
+change published results.
 
-Cancellation belongs to an interested request. Cancelling a waiter stops that waiter without cancelling a shared computation still
-needed by another request. Work with no remaining interested request may be abandoned, but abandoned work publishes no partial query result
-or partial diagnostic bag.
+Cancellation belongs to an interested request. Cancelling a waiter stops that waiter without cancelling a shared
+computation still needed by another request. Work with no remaining interested request may be abandoned, but abandoned
+work publishes no partial query result or partial diagnostic bag.
 
 ---
 
@@ -324,16 +332,16 @@ The CLI exposes this budget as `--cpu-count <N>`.
 
 `N` must be a positive integer.
 
-If `--cpu-count` is omitted, the compiler chooses the available host parallelism as the default worker budget, subject to host or
-embedding constraints.
+If `--cpu-count` is omitted, the compiler chooses the available host parallelism as the default worker budget, subject
+to host or embedding constraints.
 
-`--cpu-count 1` means serial execution. Serial execution uses the same task graph and query contracts as parallel execution, but
-the scheduler runs at most one compiler-owned CPU task at a time.
+`--cpu-count 1` means serial execution. Serial execution uses the same task graph and query contracts as parallel
+execution, but the scheduler runs at most one compiler-owned CPU task at a time.
 
 The compiler must not intentionally run more compiler-owned CPU workers than the worker budget allows.
 
-I/O waits, child tool execution, and linker execution can be represented separately, but any compiler-owned CPU-heavy work must
-respect the worker budget.
+I/O waits, child tool execution, and linker execution can be represented separately, but any compiler-owned CPU-heavy
+work must respect the worker budget.
 
 ---
 
@@ -341,7 +349,8 @@ respect the worker budget.
 
 ### Source
 
-The source layer owns source inputs, source IDs, source text, source ranges, spans, line mapping, and source-map utilities.
+The source layer owns source inputs, source IDs, source text, source ranges, spans, line mapping, and source-map
+utilities.
 
 The source layer does not know Bray syntax.
 
@@ -357,12 +366,13 @@ The lexer supports lazy token production for parser peek and consume operations.
 
 The lexer can cache produced tokens, trivia, and lexical diagnostics for repeated access.
 
-The lexer can also eagerly tokenize a source unit when the implementation chooses to, but eager tokenization is not required by
-later phases.
+The lexer can also eagerly tokenize a source unit when the implementation chooses to, but eager tokenization is not
+required by later phases.
 
 The lexer does not perform parsing, name resolution, type checking, or semantic validation.
 
-The lexer can classify keywords, identifiers, literals, comments, documentation comments, punctuation, and invalid tokens.
+The lexer can classify keywords, identifiers, literals, comments, documentation comments, punctuation, and invalid
+tokens.
 
 ### Parser
 
@@ -374,8 +384,8 @@ The parser owns token lookahead, token consumption, parser recovery, and syntax-
 
 The parser does not own the policy for scanning all source text up front.
 
-Syntax trees are lossless. They preserve token width, token order, trivia width, trivia order, and recovered syntax markers needed
-to reconstruct the original source text.
+Syntax trees are lossless. They preserve token width, token order, trivia width, trivia order, and recovered syntax
+markers needed to reconstruct the original source text.
 
 Syntax trees, syntax nodes, syntax tokens, and syntax trivia are immutable after construction.
 
@@ -388,20 +398,22 @@ The syntax-tree storage is green-style storage:
 - green tokens and green trivia store kind plus width, not absolute source offsets,
 - green subtrees can be shared across syntax trees and source snapshots when their text shape is identical.
 
-Typed syntax nodes are red-style wrappers over green storage. A typed node provides source context, absolute ranges, parent/path
-context where needed, and named component accessors. Typed nodes must not duplicate child storage that already exists in green
-storage.
+Typed syntax nodes are red-style wrappers over green storage. A typed node provides source context, absolute ranges,
+parent/path context where needed, and named component accessors. Typed nodes must not duplicate child storage that
+already exists in green storage.
 
-Trivia is attached to syntax tokens as ordered leading and trailing trivia. Trivia is not represented as ordinary syntax nodes.
+Trivia is attached to syntax tokens as ordered leading and trailing trivia. Trivia is not represented as ordinary syntax
+nodes.
 
 Each trivia segment is attached exactly once.
 
-Every syntax token in a source unit is reachable by walking the green tree in source order and synthesizing range-bearing syntax
-tokens from the source-unit start offset. Source text is recreated by walking green tokens in source order and slicing the source
-text by each token's synthesized leading trivia range, token range, and trailing trivia range.
+Every syntax token in a source unit is reachable by walking the green tree in source order and synthesizing
+range-bearing syntax tokens from the source-unit start offset. Source text is recreated by walking green tokens in
+source order and slicing the source text by each token's synthesized leading trivia range, token range, and trailing
+trivia range.
 
-The end-of-file token is part of the syntax token sequence and can carry final trivia when trivia appears after the last ordinary
-token.
+The end-of-file token is part of the syntax token sequence and can carry final trivia when trivia appears after the last
+ordinary token.
 
 Typed syntax nodes expose named components.
 
@@ -413,11 +425,12 @@ A typed syntax node component can be:
 - an optional named child-node slot,
 - a named child-node list.
 
-Keywords, punctuation, delimiters, and operators that belong to a grammar production should be exposed through named token slots
-on the owning typed syntax node. They should not be hidden in anonymous side tables or represented only by source spans.
+Keywords, punctuation, delimiters, and operators that belong to a grammar production should be exposed through named
+token slots on the owning typed syntax node. They should not be hidden in anonymous side tables or represented only by
+source spans.
 
-For example, an `if` expression node should expose token slots for its `if` keyword and any present `else` keyword, along with
-named child slots for the condition and branch bodies.
+For example, an `if` expression node should expose token slots for its `if` keyword and any present `else` keyword,
+along with named child slots for the condition and branch bodies.
 
 The parser does not perform semantic validation.
 
@@ -438,26 +451,27 @@ Declaration discovery walks syntax trees and records declared surfaces.
 
 The implementation contract is defined in `docs/design/declaration-discovery.md`.
 
-It owns the early catalog of modules, imports, exports, functions, constants, predicates, callable contracts, types, traits,
-implementations, overloads, fields, variants, parameters, and member declarations.
+It owns the early catalog of modules, imports, exports, functions, constants, predicates, callable contracts, types,
+traits, implementations, overloads, fields, variants, parameters, and member declarations.
 
 Declaration discovery does not bind expression bodies.
 
-Declaration discovery produces immutable declaration tables from immutable per-source-unit discovery chunks.
-Source-unit discovery can run in parallel with task-local builders. The deterministic merge step borrows the chunks, assigns
+Declaration discovery produces immutable declaration tables from immutable per-source-unit discovery chunks. Source-unit
+discovery can run in parallel with task-local builders. The deterministic merge step borrows the chunks, assigns
 declaration and container IDs, aggregates partial modules, and publishes the final immutable table.
 
-Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which declarations
-create semantic symbols.
+Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which
+declarations create semantic symbols.
 
-Declaration records carry stable syntax anchors and syntax-backed surface query results such as visibility, modifiers, directives,
-constraints, and callable contract clauses. Those query results are still syntax-level data, not bound semantics.
+Declaration records carry stable syntax anchors and syntax-backed surface query results such as visibility, modifiers,
+directives, constraints, and callable contract clauses. Those query results are still syntax-level data, not bound
+semantics.
 
-Partial modules are represented as logical module containers with one or more source module parts.
-Other declaration spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
+Partial modules are represented as logical module containers with one or more source module parts. Other declaration
+spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
 
-Declaration discovery reports duplicate names within explicit declaration domains and conflicting visibility or trust state across
-split module parts. Recovered declarations are excluded from these checks to avoid cascading diagnostics.
+Declaration discovery reports duplicate names within explicit declaration domains and conflicting visibility or trust
+state across split module parts. Recovered declarations are excluded from these checks to avoid cascading diagnostics.
 
 ### Symbols
 
@@ -466,15 +480,16 @@ Symbol construction creates stable semantic identities for declarations.
 The implementation contract is defined in `docs/design/symbols.md`.
 
 Compiler-known and compiler-provided declaration surfaces come from the immutable catalog defined in
-`docs/design/compiler-known-catalog.md`. Checked-in `.braydef` sources are parsed and validated by development tooling, which emits
-deterministic checked-in Rust tables. Production compiler processes consume those static tables without parsing catalog sources or
-embedded Bray fragments. The catalog supplies stable language identities, prevalidated declaration surfaces, typed representation
-roles, compiler-provided implementation hooks, and target-availability rules. It does not construct symbols itself.
+`docs/design/compiler-known-catalog.md`. Checked-in `.braydef` sources are parsed and validated by development tooling,
+which emits deterministic checked-in Rust tables. Production compiler processes consume those static tables without
+parsing catalog sources or embedded Bray fragments. The catalog supplies stable language identities, prevalidated
+declaration surfaces, typed representation roles, compiler-provided implementation hooks, and target-availability rules.
+It does not construct symbols itself.
 
 Imported declaration surfaces come from immutable compiled package interfaces defined in
-`docs/design/compiled-package-interfaces.md`. Imported symbols use the same kind-specific symbol records as source symbols. The
-interface codec remains outside `bray-symbols`, and compilation maps stable external keys to deterministic compilation-local symbol
-IDs before lazy imported query results are requested.
+`docs/design/compiled-package-interfaces.md`. Imported symbols use the same kind-specific symbol records as source
+symbols. The interface codec remains outside `bray-symbols`, and compilation maps stable external keys to deterministic
+compilation-local symbol IDs before lazy imported query results are requested.
 
 A symbol answers "which declared thing is this?".
 
@@ -484,37 +499,39 @@ Symbols should be typed IDs with explicit entity kinds.
 
 Different concepts need different ID types.
 
-For example, module symbols, type symbols, function symbols, trait symbols, implementation symbols, field symbols, local symbols,
-and overload symbols should not be interchangeable raw integers.
+For example, module symbols, type symbols, function symbols, trait symbols, implementation symbols, field symbols, local
+symbols, and overload symbols should not be interchangeable raw integers.
 
-Bray uses kind-specific symbol records and typed relationships rather than an inheritance hierarchy or one generic child-symbol
-list. Modules, types, traits, implementations, callables, variants, overload families, and parameters expose the children and query results
-meaningful to their exact semantic category.
+Bray uses kind-specific symbol records and typed relationships rather than an inheritance hierarchy or one generic
+child-symbol list. Modules, types, traits, implementations, callables, variants, overload families, and parameters
+expose the children and query results meaningful to their exact semantic category.
 
-A deterministic eager identity skeleton makes symbol IDs independent of lazy request order and worker scheduling. Expensive symbol
-query results are evaluated on demand through compilation-owned queries and publish immutable values with query result-owned diagnostics.
+A deterministic eager identity skeleton makes symbol IDs independent of lazy request order and worker scheduling.
+Expensive symbol query results are evaluated on demand through compilation-owned queries and publish immutable values
+with query result-owned diagnostics.
 
-Source, imported, compiler-known, compiler-provided, synthesized, and body-local symbols follow the same typed identity contracts.
-Constructed types, trait applications, callable instances, and selected implementation witnesses use separate semantic identities
-and do not pretend to be declaration symbols.
+Source, imported, compiler-known, compiler-provided, synthesized, and body-local symbols follow the same typed identity
+contracts. Constructed types, trait applications, callable instances, and selected implementation witnesses use separate
+semantic identities and do not pretend to be declaration symbols.
 
-The immutable symbol graph is a forest rooted in package symbols and one dedicated compiler-known environment symbol. There is no
-compilation-root symbol. A closed root-ID family supports traversal and completion while package and compiler-known roots retain
-kind-specific APIs. Ambient compiler-known visibility is a lookup relationship and does not reparent source modules away from their
-packages.
+The immutable symbol graph is a forest rooted in package symbols and one dedicated compiler-known environment symbol.
+There is no compilation-root symbol. A closed root-ID family supports traversal and completion while package and
+compiler-known roots retain kind-specific APIs. Ambient compiler-known visibility is a lookup relationship and does not
+reparent source modules away from their packages.
 
-Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide declaration
-symbol IDs. A body or declaration-owned expression publishes its bound representation, local snapshot, and binding diagnostics as
-one immutable bound-unit query result. Checker services publish separate immutable typed query results. This keeps lazy and parallel semantic work
-from mutating the global symbol graph.
+Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide
+declaration symbol IDs. A body or declaration-owned expression publishes its bound representation, local snapshot, and
+binding diagnostics as one immutable bound-unit query result. Checker services publish separate immutable typed query
+results. This keeps lazy and parallel semantic work from mutating the global symbol graph.
 
-Force completion requests all declaration-surface query results for a symbol and its semantically contained children in deterministic order.
-It does not bind or check executable bodies, which remain separate lazy bound-body query results.
+Force completion requests all declaration-surface query results for a symbol and its semantically contained children in
+deterministic order. It does not bind or check executable bodies, which remain separate lazy bound-body query results.
 
-Declaration-owned expressions such as runtime defaults, constant definition templates, predicate definitions, generic constraints,
-and contract clauses are declaration-surface query results. Their bound units and semantic side query results are requested independently and
-summarized through typed symbol APIs. Runtime-default providers are synthesized semantic symbols and are lowered only when
-reachable. The exact query result contracts and provider APIs are defined in `docs/design/symbols.md`.
+Declaration-owned expressions such as runtime defaults, constant definition templates, predicate definitions, generic
+constraints, and contract clauses are declaration-surface query results. Their bound units and semantic side query
+results are requested independently and summarized through typed symbol APIs. Runtime-default providers are synthesized
+semantic symbols and are lowered only when reachable. The exact query result contracts and provider APIs are defined in
+`docs/design/symbols.md`.
 
 ### Binding
 
@@ -525,37 +542,39 @@ required during binding.
 
 The bound tree is the compiler's source-shaped high-level intermediate representation.
 
-The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the stable bound
-unit and their other declared inputs are available.
+The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the
+stable bound unit and their other declared inputs are available.
 
-The binder can use mutable builders internally, but the published bound representation is immutable. The compiler should not
-recreate equivalent bound nodes only to add semantic information later.
+The binder can use mutable builders internally, but the published bound representation is immutable. The compiler should
+not recreate equivalent bound nodes only to add semantic information later.
 
-The binder can construct a mutable lexical scope graph and local symbol tables while binding one semantic region. The published
-scope graph and local symbols are immutable, region-owned data attached to that bound unit. Lexical scopes are not symbols, and
-semantic symbol containment does not imply lexical lookup ancestry.
+The binder can construct a mutable lexical scope graph and local symbol tables while binding one semantic region. The
+published scope graph and local symbols are immutable, region-owned data attached to that bound unit. Lexical scopes are
+not symbols, and semantic symbol containment does not imply lexical lookup ancestry.
 
-Bound nodes preserve source correlation and carry decisions established during binding. Later semantic analyses publish typed side
-query results keyed to the same bound unit rather than recreating its nodes.
+Bound nodes preserve source correlation and carry decisions established during binding. Later semantic analyses publish
+typed side query results keyed to the same bound unit rather than recreating its nodes.
 
-Binding can report unresolved names, ambiguous names, invalid lexical scopes, invalid shadowing, and reference-form errors.
+Binding can report unresolved names, ambiguous names, invalid lexical scopes, invalid shadowing, and reference-form
+errors.
 
 Compilation owns semantic-analysis orchestration. Binding does not define every semantic rule itself.
 
-Type checking, ownership checking, borrowing, aliasing, effect checking, contract solving, and target-availability checking live
-in focused semantic checker services.
+Type checking, ownership checking, borrowing, aliasing, effect checking, contract solving, and target-availability
+checking live in focused semantic checker services.
 
-Those services return diagnostics and typed semantic query results for compilation to publish beside the published bound unit.
+Those services return diagnostics and typed semantic query results for compilation to publish beside the published bound
+unit.
 
-Some semantic query results require data-flow over an already published bound unit. Their queries depend on that unit and publish only their
-own durable results.
+Some semantic query results require data-flow over an already published bound unit. Their queries depend on that unit
+and publish only their own durable results.
 
 ### Semantic Checker Services
 
 Semantic checker services determine whether bound declarations, bodies, and semantic query results are valid Bray.
 
-The focused domain taxonomy, dependency graph, convergence contracts, recovery policy, and durable checker outputs are defined in
-`docs/design/checker.md`.
+The focused domain taxonomy, dependency graph, convergence contracts, recovery policy, and durable checker outputs are
+defined in `docs/design/checker.md`.
 
 Semantic checker services are responsibility modules, not a second durable tree-producing phase.
 
@@ -577,43 +596,48 @@ Checker services own:
 - const-evaluation validity,
 - target-availability checking.
 
-Semantic query results such as expression types, selected overloads, selected trait implementations, move states, borrow states,
-conversion choices, contract query results, and capability query results belong to typed side query results associated with the bound HIR.
+Semantic query results such as expression types, selected overloads, selected trait implementations, move states, borrow
+states, conversion choices, contract query results, and capability query results belong to typed side query results
+associated with the bound HIR.
 
-The bound HIR uses Bray's storage terminology rather than a separate compiler-theory "place" model. Unit-local storage identities
-represent exact or symbolic storage origins. Storage-access identities represent evaluated access-path occurrences and retain ordered
-projections. They are distinct because ID equality between access occurrences cannot establish storage equality or disjointness.
+The bound HIR uses Bray's storage terminology rather than a separate compiler-theory "place" model. Unit-local storage
+identities represent exact or symbolic storage origins. Storage-access identities represent evaluated access-path
+occurrences and retain ordered projections. They are distinct because ID equality between access occurrences cannot
+establish storage equality or disjointness.
 
-Portable dependency-contract templates belong to `bray-symbols` and use formal receiver, parameter, result, capability, and witness
-subjects. The binder instantiates them into unit-local bound contracts that can reference exact storage, access, borrow-capability,
-and obligation identities. Compiled package interfaces encode template structure rather than compilation-local IDs.
+Portable dependency-contract templates belong to `bray-symbols` and use formal receiver, parameter, result, capability,
+and witness subjects. The binder instantiates them into unit-local bound contracts that can reference exact storage,
+access, borrow-capability, and obligation identities. Compiled package interfaces encode template structure rather than
+compilation-local IDs.
 
-Initialization, movement, active borrows, alias relationships, and other query results that vary by program point remain checker-local
-analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation query results promised by
-its typed query contract, not its complete transfer state or work lists.
+Initialization, movement, active borrows, alias relationships, and other query results that vary by program point remain
+checker-local analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and
+operation query results promised by its typed query contract, not its complete transfer state or work lists.
 
-Each semantic unit that requires unit-scoped flow analysis has one immutable checker-internal control-flow graph constructed from
-its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
-dependency-contract propagation share that graph while retaining focused typed analysis states. Mutually dependent storage,
-ownership, movement, borrowing, mutation-authority, and lifecycle query results use one composite storage-flow domain rather than circular
-independent passes.
+Each semantic unit that requires unit-scoped flow analysis has one immutable checker-internal control-flow graph
+constructed from its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle,
+refinement, liveness, and dependency-contract propagation share that graph while retaining focused typed analysis
+states. Mutually dependent storage, ownership, movement, borrowing, mutation-authority, and lifecycle query results use
+one composite storage-flow domain rather than circular independent passes.
 
-The control-flow graph is task-local checker infrastructure. It is neither bound HIR nor published Bray MIR, and
-its block, edge, operation, and program-point IDs do not enter symbols, package interfaces, or published checked nodes. A separately
-requested tooling view can later project source-correlated control flow without exposing checker-private identity.
+The control-flow graph is task-local checker infrastructure. It is neither bound HIR nor published Bray MIR, and its
+block, edge, operation, and program-point IDs do not enter symbols, package interfaces, or published checked nodes. A
+separately requested tooling view can later project source-correlated control flow without exposing checker-private
+identity.
 
-Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one graph can run
-in parallel when their explicit input query results are available and doing so is profitable. Deterministic fixed points, diagnostics, and
-published query results must not depend on worker scheduling.
+Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one
+graph can run in parallel when their explicit input query results are available and doing so is profitable.
+Deterministic fixed points, diagnostics, and published query results must not depend on worker scheduling.
 
-There is no single checked-program or checked-unit representation. A diagnostic, tooling, lowering, or emission request observes
-the bound HIR together with the exact immutable semantic query results required by that consumer.
+There is no single checked-program or checked-unit representation. A diagnostic, tooling, lowering, or emission request
+observes the bound HIR together with the exact immutable semantic query results required by that consumer.
 
-Checker services should publish query results precise enough that lowering can consume its declared inputs without re-checking source
-semantics. Lowering does not use the existence of unrelated cached query results as evidence that its requirements are satisfied.
+Checker services should publish query results precise enough that lowering can consume its declared inputs without
+re-checking source semantics. Lowering does not use the existence of unrelated cached query results as evidence that its
+requirements are satisfied.
 
-Checker services should not lower control flow merely to make checking convenient unless that lowered form is an explicit
-checker-local representation.
+Checker services should not lower control flow merely to make checking convenient unless that lowered form is an
+explicit checker-local representation.
 
 ### Lowering
 
@@ -641,27 +665,28 @@ Lowering makes implicit behavior explicit:
 
 Lowering should not make new semantic decisions.
 
-If lowering discovers that it needs a semantic query result absent from `LoweringInput`, the lowering-input contract is incomplete.
+If lowering discovers that it needs a semantic query result absent from `LoweringInput`, the lowering-input contract is
+incomplete.
 
-Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts, state-indexed
-affinity query results, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
-operations rather than calls selected by source-level runtime or standard-library names. `docs/design/async-runtime.md` defines the
-phase ownership and runtime boundary.
+Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts,
+state-indexed affinity query results, postcondition templates, and two-phase scope cleanup plans with distinct
+descriptor visitors. It emits typed MIR operations rather than calls selected by source-level runtime or
+standard-library names. `docs/design/async-runtime.md` defines the phase ownership and runtime boundary.
 
-Task-local lowering builders may use private intermediate forms while constructing MIR. Those forms are not separately published,
-cached, or exposed as another durable compiler representation.
+Task-local lowering builders may use private intermediate forms while constructing MIR. Those forms are not separately
+published, cached, or exposed as another durable compiler representation.
 
 ### IR
 
 `bray-ir` is the compiler's backend-independent mid-level IR, abbreviated MIR.
 
-It represents explicit control flow, storage, operations, calls, cleanup behavior, concrete semantic instances, and the typed target
-query results required by code generation.
+It represents explicit control flow, storage, operations, calls, cleanup behavior, concrete semantic instances, and the
+typed target query results required by code generation.
 
 It should not contain parser-only syntax details.
 
-`bray-ir` owns generic MIR builders and validates representation invariants as construction commits nodes and control-flow blocks.
-Lowering may retain additional private task-local state while driving those builders.
+`bray-ir` owns generic MIR builders and validates representation invariants as construction commits nodes and
+control-flow blocks. Lowering may retain additional private task-local state while driving those builders.
 
 MIR validation checks compiler invariants after lowering.
 
@@ -669,77 +694,81 @@ MIR validation failures indicate compiler bugs.
 
 ### Code Generation
 
-Code generation converts validated Bray MIR into semantically complete backend-specific low-level IR through a coarse typed backend
-contract.
+Code generation converts validated Bray MIR into semantically complete backend-specific low-level IR through a coarse
+typed backend contract.
 
-LLVM is Bray's primary conforming native backend. LLVM bindings, types, modules, target machines, optimization pipelines, and
-diagnostics are isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation
-query results, or emission APIs.
+LLVM is Bray's primary conforming native backend. LLVM bindings, types, modules, target machines, optimization
+pipelines, and diagnostics are isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral
+codegen contracts, compilation query results, or emission APIs.
 
-`bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection, backend
-identity, capabilities, requests, and outcomes. It packages defined layout, ABI, symbol, target, runtime, and linkage query results that
-earlier phases already resolved. It does not reinterpret source directives or rediscover language semantics.
+`bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection,
+backend identity, capabilities, requests, and outcomes. It packages defined layout, ABI, symbol, target, runtime, and
+linkage query results that earlier phases already resolved. It does not reinterpret source directives or rediscover
+language semantics.
 
-The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
-its lazy query results without depending on `bray-codegen-llvm` or inspecting backend-private state.
+The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation`
+coordinates its lazy query results without depending on `bray-codegen-llvm` or inspecting backend-private state.
 
-Native ahead-of-time generation is a supported product model. `bray-codegen-llvm` constructs LLVM IR in task-local modules. An
-emitter-owned artifact request determines which supported artifacts the backend must serialize from those modules. Backend
-selection is valid only when the backend declares capabilities for the requested product kind, target, artifact kinds, runtime
-contract, debug policy, optimization policy, and reproducibility contract.
+Native ahead-of-time generation is a supported product model. `bray-codegen-llvm` constructs LLVM IR in task-local
+modules. An emitter-owned artifact request determines which supported artifacts the backend must serialize from those
+modules. Backend selection is valid only when the backend declares capabilities for the requested product kind, target,
+artifact kinds, runtime contract, debug policy, optimization policy, and reproducibility contract.
 
 Code generation does not own language semantics.
 
 Code generation does not own CLI policy, package policy, source discovery, artifact layout, or linking policy.
 
-Compilation owns typed development and release build configurations. The selected configuration participates in lazy native-product
-query result identity and determines backend-neutral optimization, debug-information, and link-retention policy. Command drivers only select
-and forward that typed policy. Configuration-specific artifact directories prevent development and release products from overwriting
-each other.
+Compilation owns typed development and release build configurations. The selected configuration participates in lazy
+native-product query result identity and determines backend-neutral optimization, debug-information, and link-retention
+policy. Command drivers only select and forward that typed policy. Configuration-specific artifact directories prevent
+development and release products from overwriting each other.
 
-Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
-Backend-specific legalization preserves those decisions rather than replacing them.
+Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code
+generation. Backend-specific legalization preserves those decisions rather than replacing them.
 
-Stable target identities, machine-model contracts, and target-output naming query results belong to `bray-target`. Code generation,
-emission, and linking consume that shared lower boundary without depending on one another for target vocabulary.
+Stable target identities, machine-model contracts, and target-output naming query results belong to `bray-target`. Code
+generation, emission, and linking consume that shared lower boundary without depending on one another for target
+vocabulary.
 
-Codegen units are lazy compilation query results with stable structural keys. Independent units can be generated in parallel, while mutable
-backend module construction remains task-local. The immutable emission plan and per-unit artifact request participate in the exact
-query result key beside backend identity, target configuration, options, and backend-library revision.
+Codegen units are lazy compilation query results with stable structural keys. Independent units can be generated in
+parallel, while mutable backend module construction remains task-local. The immutable emission plan and per-unit
+artifact request participate in the exact query result key beside backend identity, target configuration, options, and
+backend-library revision.
 
 The complete backend contract is defined in `docs/design/codegen.md`.
 
 ### Emission
 
-Emission is the lifecycle that turns completed backend artifact contributions and independently constructed package-interface
-artifacts into named external compilation artifacts.
+Emission is the lifecycle that turns completed backend artifact contributions and independently constructed
+package-interface artifacts into named external compilation artifacts.
 
-`bray-emitter` owns the emission request, immutable emission plan, requested artifact kinds, output names and sinks, deterministic
-serialization coordination, staging, atomic publication, artifact bookkeeping, emission diagnostics, and construction of the
-typed link plan.
+`bray-emitter` owns the emission request, immutable emission plan, requested artifact kinds, output names and sinks,
+deterministic serialization coordination, staging, atomic publication, artifact bookkeeping, emission diagnostics, and
+construction of the typed link plan.
 
-The emission plan can logically precede code generation. Each codegen task receives an immutable derived artifact request. Its
-backend builds, finalizes, and serializes the task-local module, then returns immutable contributions. The emitter merges and
-publishes those contributions in deterministic plan order.
+The emission plan can logically precede code generation. Each codegen task receives an immutable derived artifact
+request. Its backend builds, finalizes, and serializes the task-local module, then returns immutable contributions. The
+emitter merges and publishes those contributions in deterministic plan order.
 
-Package-interface bytes and hashes are produced by `bray-package-interface`, not a codegen backend. The emitter includes a completed
-interface artifact when the product requests `.brayi`, assigns its output, and publishes it through the same deterministic atomic
-artifact policy.
+Package-interface bytes and hashes are produced by `bray-package-interface`, not a codegen backend. The emitter includes
+a completed interface artifact when the product requests `.brayi`, assigns its output, and publishes it through the same
+deterministic atomic artifact policy.
 
-Emission does not inspect syntax trees, bound trees, or MIR to decide language behavior. It does not implement backend-specific
-serialization or perform the final native link.
+Emission does not inspect syntax trees, bound trees, or MIR to decide language behavior. It does not implement
+backend-specific serialization or perform the final native link.
 
 ### Linking
 
-`bray-linker` consumes emitted objects or bitcode together with an immutable typed link plan. It owns linker selection, embedded or
-system linker adapters, process invocation, argument construction, linker diagnostics, and production of the final linked artifact.
+`bray-linker` consumes emitted objects or bitcode together with an immutable typed link plan. It owns linker selection,
+embedded or system linker adapters, process invocation, argument construction, linker diagnostics, and production of the
+final linked artifact.
 
-The link plan contains already selected entry-point, startup, runtime, distinguished main-thread-lane, structured-shutdown,
-task/thread/process hard-limit, native-library, export, search-path, and platform-option requirements. The linker does not discover
-semantic dependencies, inspect MIR, or choose product policy.
+The link plan contains already selected entry-point, startup, runtime, distinguished main-thread-lane,
+structured-shutdown, task/thread/process hard-limit, native-library, export, search-path, and platform-option
+requirements. The linker does not discover semantic dependencies, inspect MIR, or choose product policy.
 
-The linker writes to an emitter-owned staging destination. A successful linked artifact is atomically published through the
-emitter's artifact policy.
+The linker writes to an emitter-owned staging destination. A successful linked artifact is atomically published through
+the emitter's artifact policy.
 
 ---
 
@@ -751,11 +780,12 @@ Shared data should be shared through typed IDs, typed references, immutable tabl
 
 Durable compiler representations are immutable after publication.
 
-This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes, checked semantic
-query results, MIR nodes, emission plans, emitted artifact descriptors, link plans, and diagnostic records.
+This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes,
+checked semantic query results, MIR nodes, emission plans, emitted artifact descriptors, link plans, and diagnostic
+records.
 
-Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable construction
-state must not be exposed as shared compiler data.
+Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable
+construction state must not be exposed as shared compiler data.
 
 Do not pass loosely typed strings, raw indexes, or ad hoc maps across phase boundaries.
 
@@ -765,20 +795,22 @@ Syntax nodes belong to syntax and parser layers.
 
 Typed syntax nodes are structured records of named token and child components, not untyped bags of children.
 
-Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic query results
-should not duplicate trivia.
+Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but
+semantic query results should not duplicate trivia.
 
-Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The generated
-catalog is an immutable language-definition input to symbol construction and later semantic query results, not source syntax or a source
-package. Runtime compiler work does not parse or structurally validate the checked-in catalog definitions.
+Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The
+generated catalog is an immutable language-definition input to symbol construction and later semantic query results, not
+source syntax or a source package. Runtime compiler work does not parse or structurally validate the checked-in catalog
+definitions.
 
 Compiled package interface bytes, validated section directories, artifact hashes, and lazy wire decoders belong to
-`bray-package-interface`. Imported semantic identities and normalized symbol-facing query results still belong to `bray-symbols`, while
-serializable checked-template value contracts belong to their bound-representation owner.
+`bray-package-interface`. Imported semantic identities and normalized symbol-facing query results still belong to
+`bray-symbols`, while serializable checked-template value contracts belong to their bound-representation owner.
 
 Symbols belong to symbol construction and semantic reference layers.
 
-Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound representation.
+Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound
+representation.
 
 Source-shaped bound nodes must belong to `bray-bound-tree`.
 
@@ -788,31 +820,33 @@ Semantic query results associated with source-shaped bound nodes belong to seman
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
-Stable native runtime symbols and call layouts belong to `bray-runtime-abi`. Dependency-light protected-frame and execution
-semantics belong to `bray-runtime-model`. Compiler-owned role contracts, artifact metadata, product requirements, and compatibility
-validation belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime. Executable and test
-products select one target-specific runtime before code generation and linking.
+Stable native runtime symbols and call layouts belong to `bray-runtime-abi`. Dependency-light protected-frame and
+execution semantics belong to `bray-runtime-model`. Compiler-owned role contracts, artifact metadata, product
+requirements, and compatibility validation belong to `bray-runtime-interface`. Libraries publish requirements without
+selecting a runtime. Executable and test products select one target-specific runtime before code generation and linking.
 
-Test products additionally publish a native test host and immutable test catalog derived from checked product query results. Bray Tack
-discovers and filters tests from that catalog without reparsing source, then communicates with the host through the bounded
-[testing protocol](testing.md). The protocol keeps runner control separate from per-test stdout and stderr so sequential and bounded
-parallel execution share one capture, cancellation, timeout, cleanup, and reporting model.
+Test products additionally publish a native test host and immutable test catalog derived from checked product query
+results. Bray Tack discovers and filters tests from that catalog without reparsing source, then communicates with the
+host through the bounded [testing protocol](testing.md). The protocol keeps runner control separate from per-test stdout
+and stderr so sequential and bounded parallel execution share one capture, cancellation, timeout, cleanup, and reporting
+model.
 
-Standard-library bundle manifests and configured roots follow `docs/design/standard-library.md`. Project loading supplies the
-explicit root and compilation demand-resolves only the interface and target artifacts required by the current request. Compilation
-does not search for an installation, acquire packages, or eagerly load every bundled artifact.
+Standard-library bundle manifests and configured roots follow `docs/design/standard-library.md`. Project loading
+supplies the explicit root and compilation demand-resolves only the interface and target artifacts required by the
+current request. Compilation does not search for an installation, acquire packages, or eagerly load every bundled
+artifact.
 
 Core data package structure, ownership, formatting, and cross-module dependency contracts follow
-`docs/design/core-data-standard-library.md`. These APIs remain ordinary declarations in the `std` package and reuse compiler-known
-language contracts rather than introducing a parallel semantic substrate.
+`docs/design/core-data-standard-library.md`. These APIs remain ordinary declarations in the `std` package and reuse
+compiler-known language contracts rather than introducing a parallel semantic substrate.
 
-Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated machine
-properties belong to `bray-target`.
+Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated
+machine properties belong to `bray-target`.
 
 Backend-neutral codegen-unit, backend identity, capability, outcome, and artifact contracts belong to `bray-codegen`.
 
-LLVM contexts, modules, builders, target machines, verification, optimization, and artifact construction belong exclusively to
-`bray-codegen-llvm`.
+LLVM contexts, modules, builders, target machines, verification, optimization, and artifact construction belong
+exclusively to `bray-codegen-llvm`.
 
 Emission plans, output policies, and emitted artifact records belong to `bray-emitter`.
 
@@ -822,11 +856,11 @@ Link plans, linker drivers, and linked artifact records belong to `bray-linker`.
 
 ## Reusable Compiler Primitives
 
-Compiler primitives are implementation patterns and data types reused throughout the compiler. They are not Bray language
-primitives.
+Compiler primitives are implementation patterns and data types reused throughout the compiler. They are not Bray
+language primitives.
 
-Reusable compiler primitives should have one owning crate or module. New features should use these primitives instead of creating
-local variants.
+Reusable compiler primitives should have one owning crate or module. New features should use these primitives instead of
+creating local variants.
 
 ### Kinds
 
@@ -834,13 +868,14 @@ A kind is a classification enum.
 
 Kinds answer "what category of thing is this?".
 
-Examples include syntax kinds, symbol kinds, declaration kinds, bound kinds, location kinds, operator kinds, diagnostic kinds, and
-IR operation kinds.
+Examples include syntax kinds, symbol kinds, declaration kinds, bound kinds, location kinds, operator kinds, diagnostic
+kinds, and IR operation kinds.
 
-Kinds are useful for typed dispatch, pattern matching, diagnostics, debugging, snapshots, and exhaustive handling in visitors.
+Kinds are useful for typed dispatch, pattern matching, diagnostics, debugging, snapshots, and exhaustive handling in
+visitors.
 
-Kinds are not identities. Two different syntax nodes can have the same `SyntaxKind`. Two different symbols can have the same
-`SymbolKind`.
+Kinds are not identities. Two different syntax nodes can have the same `SyntaxKind`. Two different symbols can have the
+same `SymbolKind`.
 
 ### Typed IDs
 
@@ -855,8 +890,8 @@ Typed IDs should not be interchangeable raw integers.
 
 Tables keyed by typed IDs should live in the crate that owns the identified concept.
 
-Kinds and IDs should both be explicit in APIs when both are relevant. A `SyntaxNodeId` identifies a specific syntax node. A
-`SyntaxKind` classifies that node.
+Kinds and IDs should both be explicit in APIs when both are relevant. A `SyntaxNodeId` identifies a specific syntax
+node. A `SyntaxKind` classifies that node.
 
 ### Spans And Ranges
 
@@ -876,15 +911,15 @@ A walker can maintain task-local state while walking, but it must not mutate the
 
 Walker traversal order must be deterministic.
 
-Walker APIs should make descent behavior explicit. A walker can visit all children by default, skip a subtree deliberately, or stop
-early with an explicit result.
+Walker APIs should make descent behavior explicit. A walker can visit all children by default, skip a subtree
+deliberately, or stop early with an explicit result.
 
-Walkers must belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound walkers belong
-in `bray-bound-tree`, and MIR walkers belong in `bray-ir`.
+Walkers must belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound
+walkers belong in `bray-bound-tree`, and MIR walkers belong in `bray-ir`.
 
-Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
-representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic
-sinks.
+Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots,
+use the representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs
+through deterministic sinks.
 
 ### Visitors
 
@@ -896,14 +931,15 @@ Visitors should not hide traversal policy. If a visitor descends into children, 
 
 Visitors should not mutate immutable compiler representations.
 
-Shared visitors belong with the representation they dispatch over. Feature-specific visitors can live in the owning feature module
-when they are not broadly reusable.
+Shared visitors belong with the representation they dispatch over. Feature-specific visitors can live in the owning
+feature module when they are not broadly reusable.
 
 ### Builders
 
 A builder is local mutable construction state for an immutable compiler representation.
 
-Builders can allocate nodes, collect fields, attach diagnostics, attach query results, and validate construction invariants.
+Builders can allocate nodes, collect fields, attach diagnostics, attach query results, and validate construction
+invariants.
 
 Builders must publish immutable output.
 
@@ -913,7 +949,8 @@ Published output should not expose builder internals or mutable collections.
 
 A cursor is a lightweight position inside a token stream, node list, child list, or IR block.
 
-Cursors should be used when traversal needs stable local movement, lookahead, or peeking without exposing mutable collections.
+Cursors should be used when traversal needs stable local movement, lookahead, or peeking without exposing mutable
+collections.
 
 Parser token cursors and syntax cursors should preserve lossless token and trivia access.
 
@@ -933,88 +970,90 @@ A query computes a meaningful compiler query result with explicit inputs and a c
 
 A query can be evaluated lazily when its query result is requested.
 
-Queries should feel like ordinary typed compiler APIs. A caller asks for the query result it needs and the query implementation obtains its
-own dependencies internally.
+Queries should feel like ordinary typed compiler APIs. A caller asks for the query result it needs and the query
+implementation obtains its own dependencies internally.
 
-"Query" names this private evaluation behavior. It does not require a public query object, a `Query<T>` wrapper, a second identity
-beside the query result key, or a dynamic registry. Public APIs expose typed query results directly.
+"Query" names this private evaluation behavior. It does not require a public query object, a `Query<T>` wrapper, a
+second identity beside the query result key, or a dynamic registry. Public APIs expose typed query results directly.
 
 A task is schedulable compiler work with explicit dependencies.
 
 Queries and tasks should use immutable inputs and publish immutable outputs.
 
-Query contracts must be complete within their promised boundary. Do not model one query result as evidence that unrelated semantic query results
-were evaluated.
+Query contracts must be complete within their promised boundary. Do not model one query result as evidence that
+unrelated semantic query results were evaluated.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
 
 ### Profiling And Measurement
 
-Compiler profiling is an explicit observation mode of one invocation. It is not part of source semantics, compilation identity,
-query result identity, cache validity, scheduling policy, or deterministic output. The same request must produce the same compiler results
-with profiling enabled or disabled.
+Compiler profiling is an explicit observation mode of one invocation. It is not part of source semantics, compilation
+identity, query result identity, cache validity, scheduling policy, or deterministic output. The same request must
+produce the same compiler results with profiling enabled or disabled.
 
 Contributor commands and report interpretation are documented in [Compiler profiling](../contributing/profiling.md).
 
-The disabled path does not create a profiling session, read a clock, update a counter, allocate event storage, enter a lock, access
-thread-local profiling state, or construct a report. An instrumented boundary performs at most one predictable optional-session
-check when profiling is disabled. Measurement code must stay behind that check so descriptor lookup and subject construction also
-disappear from the disabled path.
+The disabled path does not create a profiling session, read a clock, update a counter, allocate event storage, enter a
+lock, access thread-local profiling state, or construct a report. An instrumented boundary performs at most one
+predictable optional-session check when profiling is disabled. Measurement code must stay behind that check so
+descriptor lookup and subject construction also disappear from the disabled path.
 
-Profiling uses a stable descriptor registry for operation kinds, query kinds, metric names, and metric units. Compiler code opens
-generic operation spans and adds typed counters through this registry. Phase implementations do not each invent clocks, report
-schemas, event buffers, or formatting logic.
+Profiling uses a stable descriptor registry for operation kinds, query kinds, metric names, and metric units. Compiler
+code opens generic operation spans and adds typed counters through this registry. Phase implementations do not each
+invent clocks, report schemas, event buffers, or formatting logic.
 
 Summary mode records aggregate duration, execution outcome, query request, query evaluation, cache hit, cache miss,
 cross-snapshot reuse, invalidation, dependency wait, and compiler unit and byte statistics. The operation surface covers
-compilation loading, scheduling delay, query evaluation, dependency waiting, lowering, code generation, interface export, linking,
-and artifact emission. Nested spans retain inclusive and same-thread self time. External tool work, scheduler delay, and dependency
-wait remain separate from in-process work. Unit statistics cover the representations and products that the invocation actually
-constructs, including source input, semantic and MIR work, concrete code generation, interface sections, link input, and emitted
-artifact sizes.
+compilation loading, scheduling delay, query evaluation, dependency waiting, lowering, code generation, interface
+export, linking, and artifact emission. Nested spans retain inclusive and same-thread self time. External tool work,
+scheduler delay, and dependency wait remain separate from in-process work. Unit statistics cover the representations and
+products that the invocation actually constructs, including source input, semantic and MIR work, concrete code
+generation, interface sections, link input, and emitted artifact sizes.
 
-Trace mode includes the summary and a bounded event timeline. Events use monotonic session-relative timestamps, stable numeric and
-defined operation and query identities, schema-scoped subject fingerprints, worker-local sequence, and explicit completed,
-failed, cancelled, or abandoned outcomes. Report context identifies the stable package, product, and target. Per-worker fixed
-aggregate storage and bounded event buffers avoid a process-wide synchronization point. A report declares how many events were
-dropped after the configured bound was reached.
+Trace mode includes the summary and a bounded event timeline. Events use monotonic session-relative timestamps, stable
+numeric and defined operation and query identities, schema-scoped subject fingerprints, worker-local sequence, and
+explicit completed, failed, cancelled, or abandoned outcomes. Report context identifies the stable package, product, and
+target. Per-worker fixed aggregate storage and bounded event buffers avoid a process-wide synchronization point. A
+report declares how many events were dropped after the configured bound was reached.
 
-Reports use a versioned machine-readable schema. The report declares operation, query, and metric descriptors once, then references
-their stable numeric identities from sparse nonzero observations and trace events. This keeps aggregate reports proportional to the
-observed compiler surface and prevents trace events from repeating descriptor text. Machine artifacts use compact encoding because
-their supported human interface is the compiler profile tooling rather than manual JSON inspection.
+Reports use a versioned machine-readable schema. The report declares operation, query, and metric descriptors once, then
+references their stable numeric identities from sparse nonzero observations and trace events. This keeps aggregate
+reports proportional to the observed compiler surface and prevents trace events from repeating descriptor text. Machine
+artifacts use compact encoding because their supported human interface is the compiler profile tooling rather than
+manual JSON inspection.
 
-Human summaries are rendered through `bray-messages`. A summary identifies the package, product, and target, distinguishes elapsed
-time from worker time summed across parallel execution, reports active work and scheduler, dependency, and external waits separately,
-and ranks the dominant operations and queries. It also reports cache effectiveness and nonzero compiler unit, artifact, and byte
-measurements. Ranked tables have a fixed useful bound so terminal output remains usable for large compilations.
+Human summaries are rendered through `bray-messages`. A summary identifies the package, product, and target,
+distinguishes elapsed time from worker time summed across parallel execution, reports active work and scheduler,
+dependency, and external waits separately, and ranks the dominant operations and queries. It also reports cache
+effectiveness and nonzero compiler unit, artifact, and byte measurements. Ranked tables have a fixed useful bound so
+terminal output remains usable for large compilations.
 
-`brayc` owns direct report publication, while Bray Tack forwards profiling to every compiler process, preserves each detailed report
-under a distinct product and target identity, and surfaces compiler-rendered summaries. Bray Tack can render a stored report and
-compare two compatible reports without invoking the compiler. Comparisons show elapsed and worker-time changes, the largest operation
-and query changes, and changed unit and artifact measurements. Report I/O, decoding, schema, and descriptor-reference failures are
-structured diagnostics and fail the command.
+`brayc` owns direct report publication, while Bray Tack forwards profiling to every compiler process, preserves each
+detailed report under a distinct product and target identity, and surfaces compiler-rendered summaries. Bray Tack can
+render a stored report and compare two compatible reports without invoking the compiler. Comparisons show elapsed and
+worker-time changes, the largest operation and query changes, and changed unit and artifact measurements. Report I/O,
+decoding, schema, and descriptor-reference failures are structured diagnostics and fail the command.
 
-Tests prove that profiling preserves compiler outcomes, summary mode emits no trace events, trace storage remains bounded, parallel
-aggregation is race-free, and the machine schema round-trips. Performance validation compares disabled profiling against an
-uninstrumented invocation and guards against material regression in representative no-op, cache-hit, and ordinary compilation
-workloads.
+Tests prove that profiling preserves compiler outcomes, summary mode emits no trace events, trace storage remains
+bounded, parallel aggregation is race-free, and the machine schema round-trips. Performance validation compares disabled
+profiling against an uninstrumented invocation and guards against material regression in representative no-op,
+cache-hit, and ordinary compilation workloads.
 
 ### Snapshots, Invalidation, And Reuse
 
-Every compiler request evaluates against an immutable `CompilationSnapshot` identified by the selected project graph, source
-snapshots, product, target profile, compiler semantic revision, and toolchain inputs. Every published query result has a typed key, content
-fingerprint, and exact typed dependency keys and fingerprints. The query graph retains reverse dependencies so replacing an input
-invalidates exactly its transitive consumers.
+Every compiler request evaluates against an immutable `CompilationSnapshot` identified by the selected project graph,
+source snapshots, product, target profile, compiler semantic revision, and toolchain inputs. Every published query
+result has a typed key, content fingerprint, and exact typed dependency keys and fingerprints. The query graph retains
+reverse dependencies so replacing an input invalidates exactly its transitive consumers.
 
-Complete immutable query results may be structurally shared between snapshots or loaded from a process-local or persistent
-content-addressed store only when their schema, compiler semantic revision, typed key, direct inputs, target dependencies, and
-recorded dependency fingerprints match exactly. Cancellation, invariant failure, and incomplete computation publish no reusable
-entry. Discarding any cache cannot change compilation semantics.
+Complete immutable query results may be structurally shared between snapshots or loaded from a process-local or
+persistent content-addressed store only when their schema, compiler semantic revision, typed key, direct inputs, target
+dependencies, and recorded dependency fingerprints match exactly. Cancellation, invariant failure, and incomplete
+computation publish no reusable entry. Discarding any cache cannot change compilation semantics.
 
-Numeric arena and semantic IDs are snapshot-local handles. Persistent data uses stable structural keys and source anchors, and a
-snapshot deterministically remaps reused values into its local IDs. Raw pointers, arena slots, request order, worker order, process
-identity, and process-global mutable state are never persistent identities.
+Numeric arena and semantic IDs are snapshot-local handles. Persistent data uses stable structural keys and source
+anchors, and a snapshot deterministically remaps reused values into its local IDs. Raw pointers, arena slots, request
+order, worker order, process identity, and process-global mutable state are never persistent identities.
 
 ### Context Handles
 
@@ -1022,8 +1061,8 @@ A context handle provides read-only access to shared compiler state needed by a 
 
 Context handles should expose typed APIs, not raw maps or global mutable state.
 
-Phase-specific context handles should stay narrow. A parser context should not expose semantic checking APIs, and a checker service
-context should not expose emission policy.
+Phase-specific context handles should stay narrow. A parser context should not expose semantic checking APIs, and a
+checker service context should not expose emission policy.
 
 ### Interners And Tables
 
@@ -1031,15 +1070,17 @@ Interners and intern tables deduplicate stable compiler values.
 
 They should expose typed handles and deterministic behavior.
 
-Defined semantic types, closed constant values, open constant terms, generic substitutions, trait applications, and callable or
-implementation instances use a semantic value store whose value types and APIs are owned by `bray-symbols`. The compilation or
-immutable symbol snapshot owns the store instance because its entries reference compilation-local symbol IDs.
+Defined semantic types, closed constant values, open constant terms, generic substitutions, trait applications, and
+callable or implementation instances use a semantic value store whose value types and APIs are owned by `bray-symbols`.
+The compilation or immutable symbol snapshot owns the store instance because its entries reference compilation-local
+symbol IDs.
 
-Inference variables, unification state, evaluation stacks, and solver traces are not interned semantic values. They remain local to
-the checker operation that owns them.
+Inference variables, unification state, evaluation stacks, and solver traces are not interned semantic values. They
+remain local to the checker operation that owns them.
 
-Semantic value IDs are opaque store-local handles. Numeric assignment can vary with lazy demand without affecting semantics because
-serialization, diagnostics, sorting, and incremental reuse use stable structural keys rather than numeric ID order.
+Semantic value IDs are opaque store-local handles. Numeric assignment can vary with lazy demand without affecting
+semantics because serialization, diagnostics, sorting, and incremental reuse use stable structural keys rather than
+numeric ID order.
 
 Interning should not be used to hide ownership boundaries or to avoid defining a real semantic identity.
 
@@ -1066,7 +1107,8 @@ The compiler should recover from malformed user input when recovery improves dia
 
 Recovery data must be explicit.
 
-Do not represent recovered or erroneous state with ordinary valid nodes unless the node carries an explicit error marker.
+Do not represent recovered or erroneous state with ordinary valid nodes unless the node carries an explicit error
+marker.
 
 Downstream phases should be able to distinguish:
 
@@ -1097,30 +1139,31 @@ Do not make every helper a query.
 
 A query should represent a meaningful compiler query result with a clear invalidation story.
 
-Language-server entry points should request the narrow result they need. Intermediate compiler query results should be computed internally
-by the lazy APIs that own those query results.
+Language-server entry points should request the narrow result they need. Intermediate compiler query results should be
+computed internally by the lazy APIs that own those query results.
 
-Language-tooling accessors should accept a source position or source-versioned syntax identity and return explicit available,
-recovered, or unavailable states. Position-based accessors should resolve a syntax identity and delegate to the same semantic path.
-Diagnostics should be requestable at source, semantic-unit, and package scope without introducing protocol or rendering concerns.
+Language-tooling accessors should accept a source position or source-versioned syntax identity and return explicit
+available, recovered, or unavailable states. Position-based accessors should resolve a syntax identity and delegate to
+the same semantic path. Diagnostics should be requestable at source, semantic-unit, and package scope without
+introducing protocol or rendering concerns.
 
 Query inputs and outputs should be suitable for parallel scheduling.
 
-A query should not rely on worker-local mutable state unless that state is an implementation cache that cannot affect observable
-compiler behavior.
+A query should not rely on worker-local mutable state unless that state is an implementation cache that cannot affect
+observable compiler behavior.
 
-Variable-size query result caches must have an explicit finite retention policy. Retention order and eviction are performance choices, not
-semantic state. Completed immutable query results may be reclaimed and recomputed, while in-flight single-flight entries must remain
-coordinated until they publish or are abandoned. Snapshot invalidation removes obsolete entries through the ordinary dependency
-graph.
+Variable-size query result caches must have an explicit finite retention policy. Retention order and eviction are
+performance choices, not semantic state. Completed immutable query results may be reclaimed and recomputed, while
+in-flight single-flight entries must remain coordinated until they publish or are abandoned. Snapshot invalidation
+removes obsolete entries through the ordinary dependency graph.
 
-Resource limits that can change a semantic answer or diagnostic are part of the corresponding request and query result identity.
-Cancellation, priority, worker count, and cache retention are not result-affecting resource limits and must not enter that
-identity.
+Resource limits that can change a semantic answer or diagnostic are part of the corresponding request and query result
+identity. Cancellation, priority, worker count, and cache retention are not result-affecting resource limits and must
+not enter that identity.
 
-Semantic-analysis requests carry deterministic limits for active recursive analysis and package-level pair comparisons. Query Results
-whose answers depend on those limits must be invalidated when a revised snapshot changes them. Unrelated syntax and semantic query results
-remain reusable through their ordinary dependency identities.
+Semantic-analysis requests carry deterministic limits for active recursive analysis and package-level pair comparisons.
+Query Results whose answers depend on those limits must be invalidated when a revised snapshot changes them. Unrelated
+syntax and semantic query results remain reusable through their ordinary dependency identities.
 
 ---
 
@@ -1145,11 +1188,11 @@ If a feature can be added by changing only parser code and codegen, that is a wa
 
 Core language rules belong in the relevant model and checker contracts, not in backend-specific code.
 
-Backend support should be selected after the feature is represented in the bound HIR, its required semantic query results, and the
-backend-independent MIR owned by `bray-ir`.
+Backend support should be selected after the feature is represented in the bound HIR, its required semantic query
+results, and the backend-independent MIR owned by `bray-ir`.
 
-A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates, reinterpret
-source semantics, or extend Bray MIR with backend-owned values.
+A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates,
+reinterpret source semantics, or extend Bray MIR with backend-owned values.
 
 ---
 
@@ -1173,8 +1216,8 @@ Do not place checking behavior in bound-tree definitions.
 
 Do not place lowering behavior in checker types.
 
-Do not place emission policy, output layout, publication, or linking behavior in codegen interfaces. Backend-specific serialization
-remains a codegen capability selected through an emitter-owned artifact request.
+Do not place emission policy, output layout, publication, or linking behavior in codegen interfaces. Backend-specific
+serialization remains a codegen capability selected through an emitter-owned artifact request.
 
 ---
 
@@ -1184,8 +1227,8 @@ Each phase should have focused tests for its own contract.
 
 Lexer tests should validate token streams, trivia, invalid tokens, and source ranges.
 
-Parser tests should validate syntax trees, named token slots, named child slots, lossless source reconstruction, and syntax
-diagnostics.
+Parser tests should validate syntax trees, named token slots, named child slots, lossless source reconstruction, and
+syntax diagnostics.
 
 Declaration tests should validate discovered declaration surfaces.
 
@@ -1193,19 +1236,22 @@ Binding tests should validate symbol resolution and scope behavior.
 
 Checker tests should validate language semantics, diagnostics, and recovery behavior.
 
-Lowering and MIR tests should validate checked-HIR-to-`bray-ir` translation, explicit control flow and cleanup behavior, and MIR
-invariants.
+Lowering and MIR tests should validate checked-HIR-to-`bray-ir` translation, explicit control flow and cleanup behavior,
+and MIR invariants.
 
-Codegen tests should validate MIR-to-backend-IR translation and backend conformance independently of artifact naming and sinks.
+Codegen tests should validate MIR-to-backend-IR translation and backend conformance independently of artifact naming and
+sinks.
 
-Emitter tests should validate artifact requests, deterministic naming, serialization coordination, atomic publication, package
-interface inclusion, and link-plan construction.
+Emitter tests should validate artifact requests, deterministic naming, serialization coordination, atomic publication,
+package interface inclusion, and link-plan construction.
 
-Linker tests should validate typed-plan translation, target driver selection, invocation diagnostics, and staged linked outputs.
+Linker tests should validate typed-plan translation, target driver selection, invocation diagnostics, and staged linked
+outputs.
 
 End-to-end tests should validate compiler behavior across phases.
 
-Diagnostic tests should check diagnostic identity, spans, labels, notes, suggestions, and rendered output where rendering matters.
+Diagnostic tests should check diagnostic identity, spans, labels, notes, suggestions, and rendered output where
+rendering matters.
 
 Fuzz tests should be part of the regular compiler test strategy.
 
@@ -1214,14 +1260,15 @@ Fuzzing is a separate test surface from ordinary unit tests, integration tests, 
 Fuzz harnesses, corpora, minimized reproducers, and tool-specific fuzz configuration belong under the top-level `fuzz/`
 directory, not inside ordinary crate test modules.
 
-Fuzzing should cover lexer, parser, syntax recovery, lossless source reconstruction, diagnostic production, and binder entry
-points.
+Fuzzing should cover lexer, parser, syntax recovery, lossless source reconstruction, diagnostic production, and binder
+entry points.
 
-Fuzz-generated input can be valid or invalid. Invalid input should produce diagnostics or recovery data, not compiler panics.
+Fuzz-generated input can be valid or invalid. Invalid input should produce diagnostics or recovery data, not compiler
+panics.
 
 Fuzz tests should include deterministic replay artifacts for discovered failures.
 
-When a fuzz failure exposes a stable language or compiler behavior, a small focused regression test should be added to the
-ordinary test suite as well.
+When a fuzz failure exposes a stable language or compiler behavior, a small focused regression test should be added to
+the ordinary test suite as well.
 
 Fixtures should be small and focused.

@@ -1,6 +1,7 @@
 # Lifecycle
 
-Lifecycle rules define construction, finalization, destruction, scoped use, lifecycle ordering, and lifecycle obligations.
+Lifecycle rules define construction, finalization, destruction, scoped use, lifecycle ordering, and lifecycle
+obligations.
 
 ---
 

@@ -68,7 +68,8 @@ A field initializer expression is checked against the declared field type.
 
 The declared field type can provide expected type context to the initializer expression.
 
-Expected field type can guide literal typing, union variant shorthand, nested struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
+Expected field type can guide literal typing, union variant shorthand, nested struct construction shorthand, box
+construction shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
 let shape: Shape =
@@ -78,45 +79,58 @@ let shape: Shape =
 };
 ```
 
-A struct construction expression is fully initialized when every required field has been initialized and every omitted defaulted field has been initialized from its default.
+A struct construction expression is fully initialized when every required field has been initialized and every omitted
+defaulted field has been initialized from its default.
 
 Each field has its own initialization state during construction.
 
-If evaluation exits before construction completes, already-initialized field values and temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation exits before construction completes, already-initialized field values and temporaries are handled by the
+corresponding control-flow, ownership, destruction, and finalization rules.
 
 A struct construction expression produces an owned value of the constructed struct type.
 
-Each supplied initializer value is moved into its field unless the value is copied according to its type’s copy contract or another explicit rule applies.
+Each supplied initializer value is moved into its field unless the value is copied according to its type’s copy contract
+or another explicit rule applies.
 
-Each defaulted field value is moved into its field unless the default expression produces a copied value or another explicit rule applies.
+Each defaulted field value is moved into its field unless the default expression produces a copied value or another
+explicit rule applies.
 
 Effects of supplied field initializer expressions are effects of the struct construction expression.
 
 Effects of evaluated default expressions are effects of the struct construction expression.
 
-Finalization obligations created by supplied field initializer expressions or evaluated default expressions become obligations of the constructed value, local temporaries, or surrounding context according to ownership and lifecycle rules.
+Finalization obligations created by supplied field initializer expressions or evaluated default expressions become
+obligations of the constructed value, local temporaries, or surrounding context according to ownership and lifecycle
+rules.
 
 A struct construction expression participates in capability checking.
 
 A field initializer can use only the capabilities available in the construction expression’s surrounding context.
 
-A field default can use only the capabilities available to the declaration that defines the default and to the construction context according to the default-expression rules.
+A field default can use only the capabilities available to the declaration that defines the default and to the
+construction context according to the default-expression rules.
 
-Trusted capabilities used by defaults or field initializers must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
+Trusted capabilities used by defaults or field initializers must be permitted by the surrounding trusted declaration or
+rejected according to the contract and trust rules.
 
 A struct construction expression can establish conditions at that program point.
 
-Conditions can include the constructed type, full initialization of the constructed value, initialized fields, and conditions established by field initializer expressions.
+Conditions can include the constructed type, full initialization of the constructed value, initialized fields, and
+conditions established by field initializer expressions.
 
-Conditions about omitted defaulted fields can be established when the default expression establishes those conditions and the conditions remain valid after construction.
+Conditions about omitted defaulted fields can be established when the default expression establishes those conditions
+and the conditions remain valid after construction.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about the constructed value or its fields.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
+conditions about the constructed value or its fields.
 
-A struct construction expression creates a new value. Initialization performed by the construction expression is initialization, not ordinary mutation.
+A struct construction expression creates a new value. Initialization performed by the construction expression is
+initialization, not ordinary mutation.
 
 A value being constructed has no stable observable identity until construction is complete.
 
-Field mutability controls post-initialization mutation of fields. It does not restrict initialization of fields during construction.
+Field mutability controls post-initialization mutation of fields. It does not restrict initialization of fields during
+construction.
 
 ```bray
 struct Counter
@@ -130,7 +144,8 @@ let c: Counter =
 };
 ```
 
-The field `value` is initialized during construction. Its `mut` field declaration controls later mutation through compatible mutable access paths.
+The field `value` is initialized during construction. Its `mut` field declaration controls later mutation through
+compatible mutable access paths.
 
 Supplied field initializer expressions are evaluated in source order.
 

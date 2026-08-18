@@ -8,13 +8,15 @@ Local destructuring requires an irrefutable pattern.
 
 Iteration patterns require an irrefutable pattern for the iteration element type.
 
-Union variant matching and match expressions accept refutable patterns and perform coverage checking according to the subject type.
+Union variant matching and match expressions accept refutable patterns and perform coverage checking according to the
+subject type.
 
 A context that accepts refutable patterns defines what happens when a pattern does not match.
 
 A context that requires irrefutable patterns rejects refutable patterns during checking.
 
-The syntax grammar names this split with `irrefutable-pattern` for irrefutable-only contexts and `case-pattern` for match arms.
+The syntax grammar names this split with `irrefutable-pattern` for irrefutable-only contexts and `case-pattern` for
+match arms.
 
 The syntax root does not prove refutability by itself. Refutability is checked against the subject type.
 

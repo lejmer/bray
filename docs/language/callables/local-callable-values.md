@@ -26,8 +26,8 @@ A `return` inside the lambda exits the lambda.
 
 Block expressions support local binding declarations.
 
-They do not support nested named function declarations, nested type declarations, nested trait declarations, nested implementation
-declarations, nested module declarations, or nested package declarations.
+They do not support nested named function declarations, nested type declarations, nested trait declarations, nested
+implementation declarations, nested module declarations, or nested package declarations.
 
 Lambdas are capture-free.
 

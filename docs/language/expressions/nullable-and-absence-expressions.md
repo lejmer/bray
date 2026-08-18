@@ -14,9 +14,11 @@ count = 10;
 count = none;
 ```
 
-Nullable initialization and assignment rules are defined by the [nullable type form](../types/type-forms.md#nullable-type-form).
+Nullable initialization and assignment rules are defined by the
+[nullable type form](../types/type-forms.md#nullable-type-form).
 
-Nullable patterns match nullable state in pattern-bearing expressions according to [Nullable patterns](../patterns/nullable-patterns.md).
+Nullable patterns match nullable state in pattern-bearing expressions according to
+[Nullable patterns](../patterns/nullable-patterns.md).
 
 ```bray
 match count
@@ -44,8 +46,8 @@ Nullable patterns are the ordinary unwrapping mechanism.
 
 There is no separate forced unwrap expression.
 
-A value of type `T?` can be unwrapped to `T` only by proving present state through a nullable pattern or by using nullable
-propagation.
+A value of type `T?` can be unwrapped to `T` only by proving present state through a nullable pattern or by using
+nullable propagation.
 
 The nullable propagation expression is:
 
@@ -68,14 +70,15 @@ A nullable propagation boundary is:
 
 If no nullable propagation boundary is available, `expression?` is rejected.
 
-On the absent path, propagation supplies `none` to the target boundary and the current control-flow path has no normal continuation.
+On the absent path, propagation supplies `none` to the target boundary and the current control-flow path has no normal
+continuation.
 
 For a callable execution scope, this has the same boundary behavior as returning `none`.
 
 For a single-yield region, this has the same boundary behavior as yielding `none` to that region.
 
-Nested callable execution scopes and nested yield-capable regions create their own propagation boundaries when their result type is
-nullable.
+Nested callable execution scopes and nested yield-capable regions create their own propagation boundaries when their
+result type is nullable.
 
 The operand is evaluated exactly once.
 

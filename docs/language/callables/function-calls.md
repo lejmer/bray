@@ -9,12 +9,12 @@ print("hello");
 
 Evaluation-order rules are defined by expression evaluation order.
 
-A call is valid when every argument satisfies the corresponding parameter's type, ownership, borrowing, mutation, lifetime,
-capability, effect, and contract requirements.
+A call is valid when every argument satisfies the corresponding parameter's type, ownership, borrowing, mutation,
+lifetime, capability, effect, and contract requirements.
 
-For a selected variadic foreign callable, arguments after the fixed parameters are positional and undergo the selected ABI's exact
-default argument promotions. They do not acquire Bray ownership, borrow, or representation conversions merely because the callee
-is variadic.
+For a selected variadic foreign callable, arguments after the fixed parameters are positional and undergo the selected
+ABI's exact default argument promotions. They do not acquire Bray ownership, borrow, or representation conversions
+merely because the callee is variadic.
 
 ## Parameter evaluation and ownership transfer
 

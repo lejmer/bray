@@ -6,7 +6,8 @@ Expressions can produce values, access paths, control-flow outcomes, or compile-
 
 Block expressions always have a type.
 
-Sequenced expressions use semicolons. Self-delimiting block-shaped expressions can instead appear directly as block items.
+Sequenced expressions use semicolons. Self-delimiting block-shaped expressions can instead appear directly as block
+items.
 
 Callable results are supplied with `return`.
 
@@ -18,7 +19,8 @@ Construction expressions use named fields where field identity matters.
 
 Struct construction can omit the type when the expected type is known.
 
-Union variant construction can use leading-dot or contextually resolved unqualified shorthand when the expected union type is known.
+Union variant construction can use leading-dot or contextually resolved unqualified shorthand when the expected union
+type is known.
 
 No-payload union variants construct without parentheses.
 
@@ -36,7 +38,8 @@ Match expressions are expressions and produce the selected arm result.
 
 Predicate expressions use a restricted contract-expression context.
 
-Expressions participate in ownership, borrowing, initialization, destruction, finalization, effects, capabilities, and condition refinement.
+Expressions participate in ownership, borrowing, initialization, destruction, finalization, effects, capabilities, and
+condition refinement.
 
 ## Navigation
 

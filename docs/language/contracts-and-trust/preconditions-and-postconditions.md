@@ -12,10 +12,11 @@ Ordinary requirements are checked in value predicate context.
 
 They must be pure, deterministic, total, terminating, and observational.
 
-Calls inside ordinary requirements must resolve to predicates, compiler-known predicate-valid operations, or const callables valid in predicate-expression context.
+Calls inside ordinary requirements must resolve to predicates, compiler-known predicate-valid operations, or const
+callables valid in predicate-expression context.
 
-An ordinary requirement can be established by the language-defined contract reasoning available at the call site or checked at
-runtime where the declaration permits a runtime check.
+An ordinary requirement can be established by the language-defined contract reasoning available at the call site or
+checked at runtime where the declaration permits a runtime check.
 
 A failed runtime check of an ordinary requirement panics.
 
@@ -35,11 +36,11 @@ func clamp(pos value: i32, min: i32, max: i32) -> i32
 }
 ```
 
-Postconditions are available after successful normal completion while their referenced values, storage identities, lifetimes,
-capabilities, and versions remain valid.
+Postconditions are available after successful normal completion while their referenced values, storage identities,
+lifetimes, capabilities, and versions remain valid.
 
-Postconditions are not available on panic, cancellation, propagation, or any path that does not complete normally through the
-declaration result described by the clause.
+Postconditions are not available on panic, cancellation, propagation, or any path that does not complete normally
+through the declaration result described by the clause.
 
 After a successful assertion, its asserted condition is available for subsequent contract reasoning.
 

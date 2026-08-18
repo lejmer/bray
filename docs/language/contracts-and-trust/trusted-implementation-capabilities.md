@@ -2,10 +2,11 @@
 
 A trusted implementation capability is authority used inside a trusted declaration body.
 
-Trusted implementation capabilities are compiler-known names in the ordinary lookup namespace. They are not values or predicates,
-cannot be called, and are only valid where the grammar expects a trusted capability.
+Trusted implementation capabilities are compiler-known names in the ordinary lookup namespace. They are not values or
+predicates, cannot be called, and are only valid where the grammar expects a trusted capability.
 
-A trusted declaration that uses trusted implementation capabilities declares the exact capabilities used by its body with `uses(...)`.
+A trusted declaration that uses trusted implementation capabilities declares the exact capabilities used by its body
+with `uses(...)`.
 
 ```bray
 trusted func copy_bytes(
@@ -49,7 +50,8 @@ A non-`trusted` declaration cannot have a `uses(...)` clause with trusted capabi
 
 `trusted expression` does not grant trusted implementation capabilities.
 
-Trusted implementation capabilities cover low-level operations named by the trust rules, such as raw memory, manual allocation, foreign calls, unchecked initialization, and other compiler-known capabilities.
+Trusted implementation capabilities cover low-level operations named by the trust rules, such as raw memory, manual
+allocation, foreign calls, unchecked initialization, and other compiler-known capabilities.
 
 ## Navigation
 

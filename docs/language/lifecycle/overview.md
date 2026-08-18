@@ -18,12 +18,14 @@ Destructors perform synchronous cleanup when ownership ends.
 
 Scope enter and scope exit declarations define scoped capability behavior for `with` expressions.
 
-Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, trusted capability checking, and contract checking.
+Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects,
+trusted capability checking, and contract checking.
 
-Lifecycle rules apply to product types, union types, implementation-eligible type forms with lifecycle behavior, and compiler-known types whose language-defined contract includes lifecycle behavior.
+Lifecycle rules apply to product types, union types, implementation-eligible type forms with lifecycle behavior, and
+compiler-known types whose language-defined contract includes lifecycle behavior.
 
-They also apply when a product host or exact native-thread attachment resolves a static owner. Every materialized static instance
-has one cleanup owner and one deterministic position in its instantiated lifecycle dependency graph.
+They also apply when a product host or exact native-thread attachment resolves a static owner. Every materialized static
+instance has one cleanup owner and one deterministic position in its instantiated lifecycle dependency graph.
 
 ## Navigation
 

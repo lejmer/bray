@@ -1,6 +1,7 @@
 # Types
 
-Types describe the values, storage, operations, ownership behavior, lifecycle behavior, and contracts accepted by Bray programs.
+Types describe the values, storage, operations, ownership behavior, lifecycle behavior, and contracts accepted by Bray
+programs.
 
 ---
 

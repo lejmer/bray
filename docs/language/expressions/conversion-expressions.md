@@ -18,9 +18,12 @@ The target type is syntactically present in a plain conversion expression.
 
 A plain `as` conversion is explicit, total, and value-preserving.
 
-A plain `as` conversion is valid only when every possible source value can be represented by the target type without failure, truncation, wrapping, saturation, rounding loss, domain loss, shape change, layout reinterpretation, allocation change, or hidden construction behavior.
+A plain `as` conversion is valid only when every possible source value can be represented by the target type without
+failure, truncation, wrapping, saturation, rounding loss, domain loss, shape change, layout reinterpretation, allocation
+change, or hidden construction behavior.
 
-A conversion expression evaluates the source expression and produces a value of the target type when the conversion is valid.
+A conversion expression evaluates the source expression and produces a value of the target type when the conversion is
+valid.
 
 A conversion expression consumes the source value unless the source is copyable or borrowed explicitly.
 
@@ -28,23 +31,30 @@ If the source expression reaches a non-copyable owned value, the conversion move
 
 After a conversion moves from a source access path, the source access path is moved-from until reinitialized.
 
-If the source expression reaches a copyable value and the conversion context uses copy behavior, the conversion copies according to the source type's copy contract.
+If the source expression reaches a copyable value and the conversion context uses copy behavior, the conversion copies
+according to the source type's copy contract.
 
-If the source expression is a borrow, the conversion operates through the borrow according to the borrow and conversion contracts.
+If the source expression is a borrow, the conversion operates through the borrow according to the borrow and conversion
+contracts.
 
 A conversion expression cannot silently drop, complete, or erase a finalization obligation.
 
-A conversion that changes finalization behavior must be an explicitly declared conversion operation with a contract defining that lifecycle behavior.
+A conversion that changes finalization behavior must be an explicitly declared conversion operation with a contract
+defining that lifecycle behavior.
 
 Plain `as` supports recursive explicit convertibility.
 
 A value of source type `S` can be converted to target type `T` with plain `as` when one of these rules applies:
 
 1. `S` and `T` are the same type.
-2. `S` and `T` are built-in scalar numeric types and Bray defines a total value-preserving explicit scalar conversion from `S` to `T`.
-3. `S` is a two-element tuple and `T` is a built-in complex type, and both tuple element types are explicitly convertible to `T`'s component real type.
-4. `S` and `T` are tuple types with the same arity, and each source element type is explicitly convertible to the corresponding target element type.
-5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element type.
+2. `S` and `T` are built-in scalar numeric types and Bray defines a total value-preserving explicit scalar conversion
+   from `S` to `T`.
+3. `S` is a two-element tuple and `T` is a built-in complex type, and both tuple element types are explicitly
+   convertible to `T`'s component real type.
+4. `S` and `T` are tuple types with the same arity, and each source element type is explicitly convertible to the
+   corresponding target element type.
+5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target
+   element type.
 6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
 7. `S` has a participating `ConvertTo<T>` implementation.
 
@@ -52,7 +62,8 @@ Composite conversion preserves structure.
 
 Composite conversion can convert elements recursively.
 
-Composite conversion does not reshape, flatten, transpose, reinterpret layout, allocate a different container shape, or infer user-defined construction.
+Composite conversion does not reshape, flatten, transpose, reinterpret layout, allocate a different container shape, or
+infer user-defined construction.
 
 Tuple-to-tuple conversion requires the same arity.
 
@@ -63,7 +74,8 @@ let b: (i64, r64) = a as (i64, r64);
 
 Each source tuple element is converted to the corresponding target tuple element.
 
-A two-element tuple can be converted to a built-in complex type when both tuple elements can be explicitly converted to the complex type's component real type.
+A two-element tuple can be converted to a built-in complex type when both tuple elements can be explicitly converted to
+the complex type's component real type.
 
 ```bray
 let z: c128 = (real, imag) as c128;
@@ -118,9 +130,11 @@ r32 -> r64
 c64 -> c128
 ```
 
-Signed-to-unsigned and unsigned-to-signed integer conversion is valid with plain `as` only when every source value is representable in the target type.
+Signed-to-unsigned and unsigned-to-signed integer conversion is valid with plain `as` only when every source value is
+representable in the target type.
 
-Integer-to-real conversion is valid with plain `as` only when every source value is exactly representable in the target real type.
+Integer-to-real conversion is valid with plain `as` only when every source value is exactly representable in the target
+real type.
 
 Real-to-integer conversion is not a plain `as` conversion.
 
@@ -147,13 +161,15 @@ The standard library fallible conversion operation is `std.convert<Target>(sourc
 
 `std.convert<Target>(source)` produces `Result<Target, E>`.
 
-[Compiler-known declarations and standard library recognition](../compiler-known-and-standard-library.md) defines visibility and compiler recognition for standard-library operations.
+[Compiler-known declarations and standard library recognition](../compiler-known-and-standard-library.md) defines
+visibility and compiler recognition for standard-library operations.
 
 For built-in fallible scalar conversions, `E` is the compiler-known `ConversionError` type.
 
 `ConversionError` reports the built-in conversion failure category as `OutOfRange`, `NonFinite`, or `NonRepresentable`.
 
-For user-defined fallible conversions, `E` is the selected `Error` type from the `CheckedConvertTo<Target>` implementation.
+For user-defined fallible conversions, `E` is the selected `Error` type from the `CheckedConvertTo<Target>`
+implementation.
 
 User-defined fallible conversions are declared by implementing `CheckedConvertTo<Target>` for the source type.
 
@@ -177,9 +193,11 @@ impl TextToPort = string(CheckedConvertTo<Port>)
 }
 ```
 
-For a source expression of type `S`, `source as T` selects `S(ConvertTo<T>)` when no built-in recursive conversion rule applies.
+For a source expression of type `S`, `source as T` selects `S(ConvertTo<T>)` when no built-in recursive conversion rule
+applies.
 
-For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)` when no built-in fallible conversion rule applies.
+For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)` when no built-in fallible
+conversion rule applies.
 
 ```bray
 let parsed: Result<Port, ParseError> = std.convert<Port>(text);
@@ -210,29 +228,37 @@ For `source as T`, the target type is the type after `as`.
 
 For `std.convert<T>(source)`, the target type is the explicit type argument.
 
-The expected type of the surrounding expression does not select the target type, error type, or conversion implementation.
+The expected type of the surrounding expression does not select the target type, error type, or conversion
+implementation.
 
-The source type, target type, selected conversion operation, and compiler-known conversion member name can select a conversion implementation.
+The source type, target type, selected conversion operation, and compiler-known conversion member name can select a
+conversion implementation.
 
 Result type, expected type, and type-valued member outputs do not select a conversion implementation.
 
 Conversion implementation selection performs no ranking.
 
-If no participating conversion implementation matches, the conversion expression or fallible conversion call is rejected.
+If no participating conversion implementation matches, the conversion expression or fallible conversion call is
+rejected.
 
-If more than one participating conversion implementation remains possible, the conversion expression or fallible conversion call is rejected as ambiguous.
+If more than one participating conversion implementation remains possible, the conversion expression or fallible
+conversion call is rejected as ambiguous.
 
-Conversion expressions do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
+Conversion expressions do not create implicit conversions for calls, assignments, operators, overload selection,
+construction, or pattern matching.
 
-Fallible conversion calls do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
+Fallible conversion calls do not create implicit conversions for calls, assignments, operators, overload selection,
+construction, or pattern matching.
 
-Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted obligation checking, and condition refinement.
+Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking,
+finalization tracking, effect checking, capability checking, trusted obligation checking, and condition refinement.
 
 A conversion expression can require conditions declared by the selected conversion contract.
 
 A conversion expression can establish conditions declared by the selected conversion contract.
 
-Trusted caller obligations used by a conversion expression must be available at that program point, explicitly acknowledged at a trust boundary, or exposed through the surrounding declaration's contract.
+Trusted caller obligations used by a conversion expression must be available at that program point, explicitly
+acknowledged at a trust boundary, or exposed through the surrounding declaration's contract.
 
 ## Navigation
 

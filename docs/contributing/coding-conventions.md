@@ -16,15 +16,18 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 ## Compiler architecture
 
 - Keep compiler phases separated by responsibility.
-- Do not mix parsing, binding, checking, lowering, code generation, emission, and linking logic in the same module unless there is a
-  narrow local reason.
+- Do not mix parsing, binding, checking, lowering, code generation, emission, and linking logic in the same module
+  unless there is a narrow local reason.
 - Syntax-level crates must not perform semantic validation.
 - Parser code should produce syntax trees and syntax diagnostics only.
-- Binder code should resolve names and semantic references, but should not perform full type, ownership, aliasing, or effect validation.
-- Checker code owns type checking, ownership checking, borrow checking, alias checking, mutation authority, initialization tracking, move/drop legality, and effect/capability validation.
+- Binder code should resolve names and semantic references, but should not perform full type, ownership, aliasing, or
+  effect validation.
+- Checker code owns type checking, ownership checking, borrow checking, alias checking, mutation authority,
+  initialization tracking, move/drop legality, and effect/capability validation.
 - Lowering code makes checked semantics explicit before IR/codegen.
 - Codegen should not own CLI policy, package policy, output path policy, or linking policy.
-- Emitter code owns artifact policy, serialization coordination, publication, and typed link-plan construction. Linker code owns
+- Emitter code owns artifact policy, serialization coordination, publication, and typed link-plan construction. Linker
+  code owns
   final native linker and archiver invocation.
 - Keep source-correlated semantic information available long enough to produce good diagnostics.
 - Prefer structured compiler data over strings, flags, and ad hoc side channels.
@@ -47,25 +50,31 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Avoid changing public APIs unintentionally.
 - Document public APIs with `///` doc comments.
 - Include minimal examples in public docs when they clarify the contract.
-- If a breaking public API change is intentional, update in-repo call sites, tests, examples, and docs in the same change.
+- If a breaking public API change is intentional, update in-repo call sites, tests, examples, and docs in the same
+  change.
 - Boundary APIs should use typed inputs and typed outputs, not loosely structured strings or maps.
-- If more than one optional override is needed, prefer a typed configuration or contract object instead of constructor proliferation.
-- Avoid passthrough wrappers unless they add boundary value such as validation, policy injection, type conversion, error mapping, or telemetry.
+- If more than one optional override is needed, prefer a typed configuration or contract object instead of constructor
+  proliferation.
+- Avoid passthrough wrappers unless they add boundary value such as validation, policy injection, type conversion, error
+  mapping, or telemetry.
 
 ## Do not repeat yourself
 
 - Before adding a helper, function, type, or module, search for equivalent or near-equivalent behavior.
-- If equivalent behavior exists, reuse it or move it to one shared implementation in the appropriate owning crate or module.
+- If equivalent behavior exists, reuse it or move it to one shared implementation in the appropriate owning crate or
+  module.
 - If similar behavior exists, extend the existing implementation when that keeps the design clearer.
-- If no equivalent helper exists but the behavior is reusable beyond the immediate local context, place it where future callers can find it.
+- If no equivalent helper exists but the behavior is reusable beyond the immediate local context, place it where future
+  callers can find it.
 - Keep behavior local only when it is tightly coupled to one function or module.
 - Do not repeat chunks of code without a real reason.
 
 ## General code quality
 
 - Never use unsafe operations, blocks, functions, traits, or implementations.
-- An unsafe attribute is allowed only in a dedicated native ABI boundary when Rust requires it to publish a stable symbol. Keep the
-  item body safe and add a narrow `#[expect(unsafe_code, reason = "...")]` explaining the boundary requirement.
+- An unsafe attribute is allowed only in a dedicated native ABI boundary when Rust requires it to publish a stable
+  symbol. Keep the item body safe and add a narrow `#[expect(unsafe_code, reason = "...")]` explaining the boundary
+  requirement.
 - Do not use wildcard imports such as `::*`.
 - Always import items explicitly.
 - Keep invariants represented in types where practical.
@@ -84,15 +93,21 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - If a file exceeds roughly 800 lines, add new functionality in a new module unless there is a strong reason not to.
 - Prefer adding helpers over growing large functions.
 - Target functions under 100 lines of code.
-- If a function exceeds roughly 200 lines, add new behavior in a new helper or function unless there is a strong reason not to.
+- If a function exceeds roughly 200 lines, add new behavior in a new helper or function unless there is a strong reason
+  not to.
 - Do not use the legacy `mod.rs` module layout.
-- When a module needs to be split into smaller files, keep the parent module as a thin module root containing only submodule declarations, reexports, crate-local wiring, and minimal documentation.
-- Store split implementation in aptly named files under a same-named subdirectory, using the modern layout: `foo.rs` plus `foo/bar.rs`, `foo/baz.rs`, etc., not `foo/mod.rs`.
-- When splitting an existing large module, move implementation out of the old module file. The old file should become the thin module root, not remain a mixed root-and-implementation file.
+- When a module needs to be split into smaller files, keep the parent module as a thin module root containing only
+  submodule declarations, reexports, crate-local wiring, and minimal documentation.
+- Store split implementation in aptly named files under a same-named subdirectory, using the modern layout: `foo.rs`
+  plus `foo/bar.rs`, `foo/baz.rs`, etc., not `foo/mod.rs`.
+- When splitting an existing large module, move implementation out of the old module file. The old file should become
+  the thin module root, not remain a mixed root-and-implementation file.
 - Avoid repeating the parent module name as a filename prefix.
-- If a module grows large enough that related code would require prefixed sibling files, split the module using the modern layout instead.
+- If a module grows large enough that related code would require prefixed sibling files, split the module using the
+  modern layout instead.
 - Prefer `foo.rs` plus `foo/bar.rs` over `foo.rs` plus `foo_bar.rs`.
-- Files inside a module subdirectory should be named for the local concept they contain, not for the full module path. The directory already provides the parent context.
+- Files inside a module subdirectory should be named for the local concept they contain, not for the full module path.
+  The directory already provides the parent context.
 
 ## Ownership and borrowing
 
@@ -101,7 +116,8 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Accept slices such as `&[T]` instead of `Vec<T>` when ownership is not needed.
 - Avoid unnecessary clones.
 - Do not use `.clone()` just to make the borrow checker happy. Restructure the code first.
-- Any `.clone()` added in compiler core code must be on a small Copy-like type or have a comment explaining why cloning is the best tradeoff.
+- Any `.clone()` added in compiler core code must be on a small Copy-like type or have a comment explaining why cloning
+  is the best tradeoff.
 - If cloning is needed to decouple a lifetime or avoid holding a lock, say so in a short comment.
 - Prefer iterators over indexing.
 - Avoid indexing patterns that can panic from out-of-bounds access.
@@ -124,7 +140,8 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 See [Compiler diagnostics](diagnostics.md) for the structured producer, rendering, suggestion, and readiness contracts.
 
 - Compiler logic must emit structured diagnostics, not hardcoded user-facing English strings.
-- Use diagnostic codes, severities, spans, labels, notes, suggestions, related locations, message IDs, and typed message arguments.
+- Use diagnostic codes, severities, spans, labels, notes, suggestions, related locations, message IDs, and typed message
+  arguments.
 - User-facing text must be rendered through the locale-aware `bray-messages` infrastructure.
 - Do not use semicolons or em dash characters in user-facing prose, comments, or documentation.
   A semicolon is allowed only when it is part of literal code syntax.
@@ -134,9 +151,12 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Diagnostic data must be designed so multiple locales can be added without changing compiler logic.
 - Do not construct user-facing prose inside parser, binder, checker, lowering, codegen, emitter, or linker logic.
 - Do not pre-render diagnostic arguments into any one language before passing them to message rendering.
-- Pass typed arguments such as symbols, types, declaration kinds, operator kinds, spans, counts, and source snippets to the renderer.
-- Let localization handle argument ordering, plural forms, list formatting, quotation style, and grammar-specific phrasing.
-- Diagnostics should explain the cause, point at the relevant source locations, and prefer actionable suggestions when the suggestion is mechanically reliable.
+- Pass typed arguments such as symbols, types, declaration kinds, operator kinds, spans, counts, and source snippets to
+  the renderer.
+- Let localization handle argument ordering, plural forms, list formatting, quotation style, and grammar-specific
+  phrasing.
+- Diagnostics should explain the cause, point at the relevant source locations, and prefer actionable suggestions when
+  the suggestion is mechanically reliable.
 - Do not emit vague diagnostics when the compiler has enough structure to be precise.
 - Snapshot tests for diagnostics should validate diagnostic structure and rendered output where appropriate.
 
@@ -146,11 +166,13 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Use crate-local error enums for library layers when appropriate.
 - Convert internal errors to user-facing diagnostics or boundary errors at the appropriate boundary.
 - Do not use `unwrap()` or `expect()` in production paths.
-- `unwrap()` and `expect()` are allowed only in tests, benchmarks, or when guarded by an invariant and accompanied by a comment explaining that invariant.
+- `unwrap()` and `expect()` are allowed only in tests, benchmarks, or when guarded by an invariant and accompanied by a
+  comment explaining that invariant.
 - Prefer clear validation errors or diagnostics over panics.
 - Panics are for violated compiler invariants, not ordinary user input errors.
 - User source code should not be able to crash the compiler.
-- If malformed input reaches a later compiler phase, report a compiler bug or recover through a deliberate error path rather than panicking silently.
+- If malformed input reaches a later compiler phase, report a compiler bug or recover through a deliberate error path
+  rather than panicking silently.
 
 ## Control flow
 
@@ -228,13 +250,16 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Short math-oriented names are acceptable when expressing a mathematical formula directly.
 - Name types after the concept they represent, not after the implementation detail that currently stores them.
 - Name modules for the local concept they contain. Do not repeat the full parent path in the filename.
-- Use `fact` only for generic demand-driven query machinery whose contract is independent of a particular compiler domain.
-- Name domain modules, types, methods, variables, tests, and documentation after their semantic meaning, such as properties, analyses, records, contracts, or plans. Lazy evaluation alone does not make a domain value a fact.
+- Use `fact` only for generic demand-driven query machinery whose contract is independent of a particular compiler
+  domain.
+- Name domain modules, types, methods, variables, tests, and documentation after their semantic meaning, such as
+  properties, analyses, records, contracts, or plans. Lazy evaluation alone does not make a domain value a fact.
 - Do not replace an imprecise `fact` name with another vague suffix such as `data` or `info`.
 
 ## Comments and structure
 
-- Comments should explain intent, structure, non-obvious constraints, invariants, or what the code does not clearly state.
+- Comments should explain intent, structure, non-obvious constraints, invariants, or what the code does not clearly
+  state.
 - Comments must not restate code mechanically.
 - Use comments sparingly.
 - Use standard keyboard symbols only, except where mathematical notation is genuinely needed.
@@ -244,47 +269,70 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 
 - Treat blank lines as paragraph boundaries between statements with different semantic purposes.
 - Use one blank line between logical phases such as setup, validation, transformation, I/O, and publication or return.
-- Start a new paragraph whenever the statement purpose changes, including transitions from deriving or assigning values to actions and transitions back to further derivation after actions.
+- Start a new paragraph whenever the statement purpose changes, including transitions from deriving or assigning values
+  to actions and transitions back to further derivation after actions.
 - Separate consecutive guard clauses when each enforces a different invariant.
-- Separate dependent construction layers when each introduces a distinct semantic level, such as package, module, and declaration identities.
-- Keep homogeneous declarations or assertions together when they form one conceptual group. Separate groups that construct different cases or verify different properties.
+- Separate dependent construction layers when each introduces a distinct semantic level, such as package, module, and
+  declaration identities.
+- Keep homogeneous declarations or assertions together when they form one conceptual group. Separate groups that
+  construct different cases or verify different properties.
 - Do not add blank lines between near-identical statements that form one conceptual group.
 - Do not compress unrelated statements together just to minimize vertical space.
 
-`cargo xtask style` applies automatic fixes and then runs every structural check. Use `cargo xtask style check` to run the same diagnostics without changing files.
+`cargo xtask style` applies automatic fixes and then runs every structural check. Use `cargo xtask style check` to run
+the same diagnostics without changing files.
 
 ### Mechanically enforced blank-line rules
 
-- Isolate `let ... else` guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
+- Isolate `let ... else` guard clauses from both the setup before them and the work after them, even when the guard
+  directly validates the preceding value.
 - Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, or match cases.
 - Use one blank line as a separator. Do not add multiple consecutive blank lines for decoration.
 - Separate multiline statements and expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
 - In blocks, always put a blank line above any comment unless the comment is the absolute first thing in that block.
-- Tuple and bracket destructuring `let` expressions (`let (a, b) = ...` and `let [a, b] = ...`) should be separated with blank lines.
-- Separate every returned expression from preceding statements or expressions in the same block. This applies both to explicit `return value;` expressions and to implicit tail expressions. When a comment documents the returned expression, place the boundary above the comment so the comment stays attached to the expression.
+- Tuple and bracket destructuring `let` expressions (`let (a, b) = ...` and `let [a, b] = ...`) should be separated with
+  blank lines.
+- Separate every returned expression from preceding statements or expressions in the same block. This applies both to
+  explicit `return value;` expressions and to implicit tail expressions. When a comment documents the returned
+  expression, place the boundary above the comment so the comment stays attached to the expression.
 
 ### Automated structural checks
 
-A check-only rule runs in both modes, but the command reports the problem instead of trying to rewrite the source. Error diagnostics fail the command, while warning diagnostics do not.
+A check-only rule runs in both modes, but the command reports the problem instead of trying to rewrite the source. Error
+diagnostics fail the command, while warning diagnostics do not.
 
 The following structural rules apply to Rust source:
 
-- A production module over 800 physical source lines produces a warning at its 801st production line. Test-only items and dedicated test sources do not count.
-- A production function over 250 physical source lines produces an error. Keep the design target at roughly 200 lines so functions do not routinely approach the enforced limit. Tests, dedicated test sources, and helpers inside test-only modules do not count.
-- `lib.rs` and a module file paired with a same-named directory must be thin roots. They may contain documentation and attributes, external module declarations, and visible reexports, but no implementation, declarations, private imports, or inline modules.
+- A production module over 800 physical source lines produces a warning at its 801st production line. Test-only items
+  and dedicated test sources do not count.
+- A production function over 250 physical source lines produces an error. Keep the design target at roughly 200 lines so
+  functions do not routinely approach the enforced limit. Tests, dedicated test sources, and helpers inside test-only
+  modules do not count.
+- `lib.rs` and a module file paired with a same-named directory must be thin roots. They may contain documentation and
+  attributes, external module declarations, and visible reexports, but no implementation, declarations, private imports,
+  or inline modules.
 - The legacy `mod.rs` layout is an error.
-- A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it `foo/parser.rs`. The directory already supplies the parent context.
+- A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it
+  `foo/parser.rs`. The directory already supplies the parent context.
 - Wildcard imports and reexports are errors regardless of visibility.
 
-Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty reason:
+Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty
+reason:
 
 ```rust
 // rust-style: allow(module-too-large, reason = "locale argument catalog is intentionally a flat list")
 ```
 
-File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or `repeated-module-prefix`. Item-level exemptions must appear immediately before the affected item and apply only to `function-too-large`, `non-thin-lib-root`, `non-thin-module-root`, or `wildcard-import`. Unknown rules, malformed directives, empty reasons, and invalid placement are errors. An exemption that does not suppress a diagnostic produces a warning.
+File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or
+`repeated-module-prefix`. Item-level exemptions must appear immediately before the affected item and apply only to
+`function-too-large`, `non-thin-lib-root`, `non-thin-module-root`, or `wildcard-import`. Unknown rules, malformed
+directives, empty reasons, and invalid placement are errors. An exemption that does not suppress a diagnostic produces a
+warning.
 
-Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exemption is appropriate only when naming the symbols explicitly is unreasonable to maintain, such as a machine-generated file or an API whose names are defined by macros. A module-size exemption is appropriate for a genuinely flat catalog or similar list whose cohesion would be harmed by an arbitrary split.
+Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exemption is appropriate only when naming the
+symbols explicitly is unreasonable to maintain, such as a machine-generated file or an API whose names are defined by
+macros. A module-size exemption is appropriate for a genuinely flat catalog or similar list whose cohesion would be
+harmed by an arbitrary split.
 
 ## Documentation
 
@@ -308,8 +356,10 @@ Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exempti
 - Do not add broad fallbacks unless the invariant is genuinely optional.
 - Fail loudly on impossible states.
 - Do not special-case current input data. Identify the general invariant first.
-- Do not introduce a new abstraction merely because code could be shared. Introduce one when it clarifies a real concept or prevents a real duplication problem.
-- Keep user-visible progress and failure information useful. Commands should not appear to hang silently during meaningful work.
+- Do not introduce a new abstraction merely because code could be shared. Introduce one when it clarifies a real concept
+  or prevents a real duplication problem.
+- Keep user-visible progress and failure information useful. Commands should not appear to hang silently during
+  meaningful work.
 - After changing behavior, run the relevant formatting, compile, and test commands.
 
 ## Review checklist

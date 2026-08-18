@@ -8,7 +8,8 @@ A full payload variant construction expression names the union type and variant.
 let shape = Shape.Circle(center = origin, radius = 10.0);
 ```
 
-An expected-type payload variant construction expression uses leading-dot shorthand when the expected union type is known.
+An expected-type payload variant construction expression uses leading-dot shorthand when the expected union type is
+known.
 
 ```bray
 let shape: Shape = .Circle(center = origin, radius = 10.0);
@@ -26,7 +27,8 @@ A full no-payload variant construction expression names the union type and varia
 let result = ParseResult<i32>.EndOfInput;
 ```
 
-An expected-type no-payload variant construction expression uses leading-dot shorthand when the expected union type is known.
+An expected-type no-payload variant construction expression uses leading-dot shorthand when the expected union type is
+known.
 
 ```bray
 let result: ParseResult<i32> = .EndOfInput;
@@ -38,21 +40,28 @@ An expected-type no-payload variant construction expression can also use an unqu
 let result: ParseResult<i32> = EndOfInput;
 ```
 
-A leading-dot variant construction expression is valid when expression context provides a known union type and that union contains the named variant.
+A leading-dot variant construction expression is valid when expression context provides a known union type and that
+union contains the named variant.
 
-An unqualified variant name first uses ordinary lexical value and callable lookup. An ordinary declaration with the same name is selected normally and prevents contextual variant lookup.
+An unqualified variant name first uses ordinary lexical value and callable lookup. An ordinary declaration with the same
+name is selected normally and prevents contextual variant lookup.
 
-When ordinary lookup finds no declaration, an unqualified variant name can resolve against a known concrete expected union type. Return types, explicit local type annotations, known callable parameter types, and other expression contexts can provide that expected type.
+When ordinary lookup finds no declaration, an unqualified variant name can resolve against a known concrete expected
+union type. Return types, explicit local type annotations, known callable parameter types, and other expression contexts
+can provide that expected type.
 
 Contextual variant lookup does not introduce union variants into lexical scope.
 
-Contextual variant lookup does not search visible union types, infer a union type from the variant name, or use the expected type to choose among callable overloads or implementation candidates.
+Contextual variant lookup does not search visible union types, infer a union type from the variant name, or use the
+expected type to choose among callable overloads or implementation candidates.
 
 If the expected union type is absent or insufficient, the union and variant must be explicitly qualified.
 
-If the expected union type is known but does not contain the unqualified variant, the expression is rejected as an unknown variant of that union.
+If the expected union type is known but does not contain the unqualified variant, the expression is rejected as an
+unknown variant of that union.
 
-Leading-dot construction remains available even when an ordinary lexical declaration has the same name because the leading dot explicitly requests expected-type-directed variant lookup.
+Leading-dot construction remains available even when an ordinary lexical declaration has the same name because the
+leading dot explicitly requests expected-type-directed variant lookup.
 
 A no-payload variant construction expression uses no parentheses.
 
@@ -95,7 +104,8 @@ A payload field with a default can be omitted.
 
 An omitted defaulted payload field is initialized from its declared default expression.
 
-Variant payload default declaration rules are defined in [Union Types](../types/union-types.md#variant-payload-defaults).
+Variant payload default declaration rules are defined in
+[Union Types](../types/union-types.md#variant-payload-defaults).
 
 A variant payload default is evaluated when the payload field is omitted during construction.
 
@@ -105,7 +115,8 @@ A payload field initializer expression is checked against the declared payload f
 
 The declared payload field type can provide expected type context to the initializer expression.
 
-Expected payload field type can guide literal typing, union variant shorthand, nested struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
+Expected payload field type can guide literal typing, union variant shorthand, nested struct construction shorthand, box
+construction shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
 let event: Event = Nested(
@@ -121,51 +132,65 @@ A successful variant construction can establish conditions declared by the varia
 
 A successful variant construction establishes that the produced union value has the selected active variant.
 
-For a payload variant, successful construction establishes that the selected payload exists and that its initialized payload fields are initialized.
+For a payload variant, successful construction establishes that the selected payload exists and that its initialized
+payload fields are initialized.
 
 For a no-payload variant, successful construction establishes the active variant and introduces no payload fields.
 
-A union variant construction expression is fully initialized when the active tag has been initialized and the selected variant payload, if any, has been fully initialized.
+A union variant construction expression is fully initialized when the active tag has been initialized and the selected
+variant payload, if any, has been fully initialized.
 
 Inactive variant payloads have no initialized values.
 
-If evaluation exits before construction completes, already-initialized payload values and temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation exits before construction completes, already-initialized payload values and temporaries are handled by the
+corresponding control-flow, ownership, destruction, and finalization rules.
 
 A union variant construction expression produces an owned value of the union type.
 
-Each supplied payload initializer value is moved into its payload field unless the value is copied according to its type’s copy contract or another explicit rule applies.
+Each supplied payload initializer value is moved into its payload field unless the value is copied according to its
+type’s copy contract or another explicit rule applies.
 
-Each defaulted payload value is moved into its payload field unless the default expression produces a copied value or another explicit rule applies.
+Each defaulted payload value is moved into its payload field unless the default expression produces a copied value or
+another explicit rule applies.
 
 Effects of supplied payload initializer expressions are effects of the union variant construction expression.
 
 Effects of evaluated payload defaults are effects of the union variant construction expression.
 
-Finalization obligations created by supplied payload initializer expressions or evaluated payload defaults become obligations of the constructed union value, local temporaries, or surrounding context according to ownership and lifecycle rules.
+Finalization obligations created by supplied payload initializer expressions or evaluated payload defaults become
+obligations of the constructed union value, local temporaries, or surrounding context according to ownership and
+lifecycle rules.
 
 A union variant construction expression participates in capability checking.
 
 A payload initializer can use only the capabilities available in the construction expression’s surrounding context.
 
-A payload default can use only the capabilities available to the declaration that defines the default and to the construction context according to the default-expression rules.
+A payload default can use only the capabilities available to the declaration that defines the default and to the
+construction context according to the default-expression rules.
 
-Trusted capabilities used by defaults, payload initializers, or variant contracts must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
+Trusted capabilities used by defaults, payload initializers, or variant contracts must be permitted by the surrounding
+trusted declaration or rejected according to the contract and trust rules.
 
 A union variant construction expression can establish conditions at that program point.
 
-Conditions can include the union type, selected active variant, initialized active payload, initialized payload fields, and conditions established by payload initializer expressions, defaults, or variant contracts.
+Conditions can include the union type, selected active variant, initialized active payload, initialized payload fields,
+and conditions established by payload initializer expressions, defaults, or variant contracts.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about the constructed union value or active payload.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
+conditions about the constructed union value or active payload.
 
-A union variant construction expression creates a new value. Initialization performed by the construction expression is initialization, not ordinary mutation.
+A union variant construction expression creates a new value. Initialization performed by the construction expression is
+initialization, not ordinary mutation.
 
 A value being constructed has no stable observable identity until construction is complete.
 
-Payload field mutability controls post-initialization mutation of payload fields. It does not restrict initialization of payload fields during construction.
+Payload field mutability controls post-initialization mutation of payload fields. It does not restrict initialization of
+payload fields during construction.
 
 Supplied payload field initializer expressions are evaluated in source order.
 
-Omitted payload field defaults are evaluated after supplied payload field initializers, in payload field declaration order.
+Omitted payload field defaults are evaluated after supplied payload field initializers, in payload field declaration
+order.
 
 ## Navigation
 

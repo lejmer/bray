@@ -20,9 +20,11 @@ Explicit expected-subject shorthand:
 .Circle(center = c, radius = r)
 ```
 
-The unqualified expected-subject form is valid when pattern resolution finds the variant through the subject type or another visible pattern-capable declaration.
+The unqualified expected-subject form is valid when pattern resolution finds the variant through the subject type or
+another visible pattern-capable declaration.
 
-The leading-dot form is valid when the expected subject type is a known union type and that union contains the named variant. It is an explicit subject-member shorthand, not the required form.
+The leading-dot form is valid when the expected subject type is a known union type and that union contains the named
+variant. It is an explicit subject-member shorthand, not the required form.
 
 A no-payload variant pattern uses no parentheses.
 
@@ -88,7 +90,8 @@ Exhaustive handling of a closed union accounts for every variant.
 
 Coverage checking for unions uses the union's closed variant set.
 
-Control-flow merges after union variant matching require coherent type, ownership, initialization, destruction, capability, and finalization state.
+Control-flow merges after union variant matching require coherent type, ownership, initialization, destruction,
+capability, and finalization state.
 
 ## Navigation
 

@@ -1,7 +1,7 @@
 # Contract and borrow validity
 
-An established guarantee and a borrow remain usable only while their required storage, initialization state, capability state,
-ownership state, and dependency contract remain valid.
+An established guarantee and a borrow remain usable only while their required storage, initialization state, capability
+state, ownership state, and dependency contract remain valid.
 
 Mutation through a valid mutable borrow makes guarantees that depend on the changed storage unavailable.
 
@@ -13,11 +13,11 @@ Reinitialization makes guarantees and borrows that depend on the old value unava
 
 Finalization can make guarantees and borrows unavailable according to the finalizer's contract.
 
-Active-variant replacement makes active-variant guarantees, payload guarantees, and borrows that depend on the previous active
-variant or old payload storage unavailable.
+Active-variant replacement makes active-variant guarantees, payload guarantees, and borrows that depend on the previous
+active variant or old payload storage unavailable.
 
-Assigning `none` to a nullable access path makes guarantees and borrows that depend on the previous present contained value or
-borrow unavailable.
+Assigning `none` to a nullable access path makes guarantees and borrows that depend on the previous present contained
+value or borrow unavailable.
 
 Capability loss makes guarantees and borrows that require the lost capability unavailable.
 
@@ -29,8 +29,8 @@ A borrow becomes invalid when:
 - the nullable access path holding the borrow is assigned `none`,
 - a type-specific invalidation rule invalidates the borrow.
 
-Observation through a shared borrow preserves guarantees when the observation cannot mutate, move, destroy, reinitialize,
-finalize, or otherwise change their dependencies.
+Observation through a shared borrow preserves guarantees when the observation cannot mutate, move, destroy,
+reinitialize, finalize, or otherwise change their dependencies.
 
 ## Navigation
 

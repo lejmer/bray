@@ -8,8 +8,8 @@ A destructor returns `unit`.
 
 Destructor bodies have a compiler-introduced `self` binding for the whole value being destroyed.
 
-That binding is an implicit consuming mutable receiver. The consuming mode represents the end of ownership, while mutable local
-authority permits representational teardown before remaining initialized parts are destroyed.
+That binding is an implicit consuming mutable receiver. The consuming mode represents the end of ownership, while
+mutable local authority permits representational teardown before remaining initialized parts are destroyed.
 
 The destructor has exclusive destruction authority over `self` for the duration of the destructor.
 
@@ -17,15 +17,18 @@ A destructor can observe and mutate represented parts when its declaration contr
 
 A destructor cannot create a finalization obligation that remains unresolved after the destructor returns.
 
-During panic or cancellation cleanup, destruction can follow an attempted fallible finalizer that returned `Result.Error`. In that
-case graceful finalization has been abandoned, the error is retained as an owned suppressed cleanup incident, and the destructor
-performs infallible representational teardown.
+During panic or cancellation cleanup, destruction can follow an attempted fallible finalizer that returned
+`Result.Error`. In that case graceful finalization has been abandoned, the error is retained as an owned suppressed
+cleanup incident, and the destructor performs infallible representational teardown.
 
-A destructor cannot let `self`, a represented-part access path, a borrow from `self`, or a capability derived from `self` escape.
+A destructor cannot let `self`, a represented-part access path, a borrow from `self`, or a capability derived from
+`self` escape.
 
-If a destructor consumes or destroys a represented part, that part becomes uninitialized and is not destroyed again after the destructor returns.
+If a destructor consumes or destroys a represented part, that part becomes uninitialized and is not destroyed again
+after the destructor returns.
 
-Any initialized represented parts remaining after the destructor returns are destroyed in the type's represented-part destruction order.
+Any initialized represented parts remaining after the destructor returns are destroyed in the type's represented-part
+destruction order.
 
 Destroying a fully initialized product value runs any whole-product destructor before field destruction.
 

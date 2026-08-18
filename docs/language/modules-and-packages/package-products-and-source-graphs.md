@@ -14,15 +14,16 @@ The language-defined product kinds are:
 
 Package identity is shared by all products of the package.
 
-Product identity, selected source inputs, selected dependencies, and target constraints are supplied by the package and build layer.
+Product identity, selected source inputs, selected dependencies, and target constraints are supplied by the package and
+build layer.
 
 A product is not a module and does not create a declaration container or lookup scope.
 
-A runtime **product instance** is one activation of a formed executable, test, or loadable library product. Product-static storage
-identity and cleanup ownership use that activation identity, not package identity alone.
+A runtime **product instance** is one activation of a formed executable, test, or loadable library product.
+Product-static storage identity and cleanup ownership use that activation identity, not package identity alone.
 
-A source declaration can contribute to more than one product when it is present in each product's selected source graph and is valid
-under each product's product kind and target constraints.
+A source declaration can contribute to more than one product when it is present in each product's selected source graph
+and is valid under each product's product kind and target constraints.
 
 ## Source graphs
 
@@ -38,16 +39,17 @@ Module declarations define module identity.
 
 Source origins and source graph order do not define module identity.
 
-Split module declarations are valid when all contributing source inputs are part of the same selected source graph and satisfy the
-split module rules.
+Split module declarations are valid when all contributing source inputs are part of the same selected source graph and
+satisfy the split module rules.
 
 The same source input cannot appear more than once in the same product source graph.
 
-Source graph construction is deterministic. The same package identity, product kind, selected source graph, selected dependency
-graph, and target profile produce the same compiler input.
+Source graph construction is deterministic. The same package identity, product kind, selected source graph, selected
+dependency graph, and target profile produce the same compiler input.
 
-Closed static instance identity is independent of source graph ordering. The selected source and dependency graphs determine which
-declarations and imported templates can be demanded, while the final product instance owns the realized storage.
+Closed static instance identity is independent of source graph ordering. The selected source and dependency graphs
+determine which declarations and imported templates can be demanded, while the final product instance owns the realized
+storage.
 
 ## Navigation
 

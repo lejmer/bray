@@ -18,7 +18,8 @@ Inside a method body, `self` is the compiler-introduced receiver binding.
 
 `self` cannot be declared as an ordinary parameter, local binding, or pattern binding.
 
-The type name `Self` can still be used in ordinary parameter, result, local binding, and field types wherever `Self` is in scope.
+The type name `Self` can still be used in ordinary parameter, result, local binding, and field types wherever `Self` is
+in scope.
 
 ```bray
 func distance_to(pos other: &Self) -> r64
@@ -51,14 +52,15 @@ Inside a mutable receiver method, `self` is an exclusive mutable receiver access
 
 Inside a consuming receiver method, `self` is an owned receiver value.
 
-`consume mut func` declares a method that consumes the receiver and gives the method body mutable local authority over `self`.
+`consume mut func` declares a method that consumes the receiver and gives the method body mutable local authority over
+`self`.
 
 Receiver mode is part of the method's callable contract.
 
 Receiver mode participates in method call checking and method overload selection.
 
-Const, trusted, asynchronous, generic, and contract clauses compose with receiver-mode syntax according to their ordinary declaration
-rules.
+Const, trusted, asynchronous, generic, and contract clauses compose with receiver-mode syntax according to their
+ordinary declaration rules.
 
 ```bray
 trusted mut func reserve(pos count: usize)

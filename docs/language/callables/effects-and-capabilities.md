@@ -2,11 +2,11 @@
 
 Function signatures include effects and capability contracts.
 
-A function can use only the capabilities available through its parameters, local bindings, including pattern-introduced bindings,
-generic constraints, execution mode, lifecycle state, trusted declarations, and surrounding context.
+A function can use only the capabilities available through its parameters, local bindings, including pattern-introduced
+bindings, generic constraints, execution mode, lifecycle state, trusted declarations, and surrounding context.
 
-An effect is a semantic property of evaluating, driving, or resolving a callable that matters to call checking, context validity,
-generic satisfaction, dynamic dispatch, or public API compatibility.
+An effect is a semantic property of evaluating, driving, or resolving a callable that matters to call checking, context
+validity, generic satisfaction, dynamic dispatch, or public API compatibility.
 
 The caller-visible effect surface is:
 
@@ -50,9 +50,9 @@ The computed body effect summary must be valid for the callable's declaration su
 
 Constant-evaluation eligibility is declared with the `const` function modifier.
 
-`requires(...)` declares caller obligations and preconditions. For an async callable, requirements about supplied values and
-invocation state are checked while constructing the frame, while requirements about the execution context are carried by the
-resulting computation until execution.
+`requires(...)` declares caller obligations and preconditions. For an async callable, requirements about supplied values
+and invocation state are checked while constructing the frame, while requirements about the execution context are
+carried by the resulting computation until execution.
 
 `ensures(...)` declares established conditions after normal completion.
 
@@ -62,8 +62,8 @@ A trusted callable's `uses(...)` clause must exactly describe the trusted implem
 
 Trusted implementation capabilities cover low-level operations named by the trust rules.
 
-Ordinary safe allocation, ordinary I/O, and ordinary mutation are checked as body effects and as caller-visible effects when they
-cross the callable boundary or are constrained by the surrounding context.
+Ordinary safe allocation, ordinary I/O, and ordinary mutation are checked as body effects and as caller-visible effects
+when they cross the callable boundary or are constrained by the surrounding context.
 
 ### Mutation effects
 
@@ -80,16 +80,16 @@ Caller-reachable mutation must be visible through one of:
 - a trusted raw-memory contract,
 - a type, lifecycle, or trait contract that exposes mutation authority.
 
-Internal mutation occurs when a callable mutates storage that is created inside the callable or owned exclusively by the callable
-and is not reachable by the caller except through the callable's returned value.
+Internal mutation occurs when a callable mutates storage that is created inside the callable or owned exclusively by the
+callable and is not reachable by the caller except through the callable's returned value.
 
 Internal mutation is still a runtime effect.
 
-Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts require
-callables without internal mutation.
+Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts
+require callables without internal mutation.
 
-Internal mutation is represented in callable types only when it creates a caller-visible requirement through the ordinary callable
-surface.
+Internal mutation is represented in callable types only when it creates a caller-visible requirement through the
+ordinary callable surface.
 
 ### Allocation and I/O effects
 
@@ -99,26 +99,27 @@ Deallocation releases runtime storage.
 
 Safe allocation and safe deallocation are ordinary runtime effects.
 
-Low-level allocation, raw allocation conditions, and allocator manipulation require trusted capabilities such as `manual_alloc` or
-`raw_memory` when the selected operation's contract names those capabilities.
+Low-level allocation, raw allocation conditions, and allocator manipulation require trusted capabilities such as
+`manual_alloc` or `raw_memory` when the selected operation's contract names those capabilities.
 
-Constant-evaluation context, predicate-expression context, static constraint context, and other allocation-free contexts require
-callables without allocation or deallocation.
+Constant-evaluation context, predicate-expression context, static constraint context, and other allocation-free contexts
+require callables without allocation or deallocation.
 
-Allocation and deallocation become caller-visible when the callable's signature, type contracts, lifecycle contracts, or result
-obligations require the caller to preserve, destroy, finalize, join, cancel, or otherwise resolve storage produced by the call.
+Allocation and deallocation become caller-visible when the callable's signature, type contracts, lifecycle contracts, or
+result obligations require the caller to preserve, destroy, finalize, join, cancel, or otherwise resolve storage
+produced by the call.
 
-I/O is any interaction with external state outside the Bray abstract machine, including files, terminals, network connections,
-devices, clocks, environment state, randomness, and foreign callbacks with externally visible behavior.
+I/O is any interaction with external state outside the Bray abstract machine, including files, terminals, network
+connections, devices, clocks, environment state, randomness, and foreign callbacks with externally visible behavior.
 
-I/O enters Bray through compiler-known, standard-library, foreign, or user declarations whose contracts describe the resource,
-capability, ownership, borrowing, finalization, and panic behavior involved.
+I/O enters Bray through compiler-known, standard-library, foreign, or user declarations whose contracts describe the
+resource, capability, ownership, borrowing, finalization, and panic behavior involved.
 
-Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts require
-callables without I/O.
+Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts
+require callables without I/O.
 
-I/O becomes caller-visible when the callable's signature or contracts require an I/O resource, return an I/O resource, mutate an
-I/O resource, transfer an I/O obligation, or state conditions about external behavior.
+I/O becomes caller-visible when the callable's signature or contracts require an I/O resource, return an I/O resource,
+mutate an I/O resource, transfer an I/O obligation, or state conditions about external behavior.
 
 ### Cancellation effects
 
@@ -129,52 +130,56 @@ There are two distinct cancellation properties:
 - ownership authority to request cancellation of another run,
 - abnormal control propagation that ends the current run.
 
-Authority is represented by the ordinary owner or host contract, such as `Task<T>`, `Thread<T>`, `Process<T>`, or a trusted product
-binding. It cannot be manufactured by a callable modifier.
+Authority is represented by the ordinary owner or host contract, such as `Task<T>`, `Thread<T>`, `Process<T>`, or a
+trusted product binding. It cannot be manufactured by a callable modifier.
 
-Current-run cancellation is a panic-like implicit abnormal-control effect. A runtime callable can enter it by observing a pending
-request at a checkpoint or cancellation-aware operation, or by forwarding `RunResult.Cancelled` with `try`. It propagates through
-ordinary synchronous calls and direct awaits while executing lexical cleanup until the current run boundary. `catch` does not
-intercept it.
+Current-run cancellation is a panic-like implicit abnormal-control effect. A runtime callable can enter it by observing
+a pending request at a checkpoint or cancellation-aware operation, or by forwarding `RunResult.Cancelled` with `try`. It
+propagates through ordinary synchronous calls and direct awaits while executing lexical cleanup until the current run
+boundary. `catch` does not intercept it.
 
-No source-level `cancel` effect modifier or callable-type clause exists. Like panic propagation, current-run cancellation does not
-change overload selection or callable assignment compatibility. The compiler nevertheless records `may_cancel_current_run` in the
-checked body effect summary and compiled declaration metadata so diagnostics, effect-free-context checks, lowering, and inspection
-can preserve the abnormal edge. Absence of that summary term is not a promise that arbitrary foreign or catastrophic host
-termination cannot occur.
+No source-level `cancel` effect modifier or callable-type clause exists. Like panic propagation, current-run
+cancellation does not change overload selection or callable assignment compatibility. The compiler nevertheless records
+`may_cancel_current_run` in the checked body effect summary and compiled declaration metadata so diagnostics,
+effect-free-context checks, lowering, and inspection can preserve the abnormal edge. Absence of that summary term is not
+a promise that arbitrary foreign or catastrophic host termination cannot occur.
 
-An `async` callable type carries suspendable execution and cooperative request-observation participation. This means its computation
-can be cancelled by its owning task or root according to the async observation rules. It is separate from the implicit effect of a
-synchronous callable that explicitly checkpoints or forwards an observed child cancellation.
+An `async` callable type carries suspendable execution and cooperative request-observation participation. This means its
+computation can be cancelled by its owning task or root according to the async observation rules. It is separate from
+the implicit effect of a synchronous callable that explicitly checkpoints or forwards an observed child cancellation.
 
-Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
-Body effects, body capabilities, execution-context requirements, and normal-completion conditions belong to the computation's execution
-contract. They are not effects or conditions of inactive-frame construction.
+Calling an async function creates an async computation whose cancellation behavior is governed by
+[Async and concurrency](../async-and-concurrency.md). Body effects, body capabilities, execution-context requirements,
+and normal-completion conditions belong to the computation's execution contract. They are not effects or conditions of
+inactive-frame construction.
 
-Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
-the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
+Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary
+must satisfy the async computation's ownership, borrowing, capability, effect, finalization, and cancellation
+obligations.
 
-A synchronous callable can request another task's cancellation only through an owner operation whose execution contract permits it.
-it cannot drive an async cancellation computation or end an unresolved task obligation without an async execution context. It can
-still end its own current run through `std.run.checkpoint()`, a cancellation-aware synchronous operation, or `try RunResult`.
+A synchronous callable can request another task's cancellation only through an owner operation whose execution contract
+permits it. it cannot drive an async cancellation computation or end an unresolved task obligation without an async
+execution context. It can still end its own current run through `std.run.checkpoint()`, a cancellation-aware synchronous
+operation, or `try RunResult`.
 
 That authority is represented by the parameter, receiver, or field type that carries the task obligation.
 
-Cancellation authority is represented through task, thread, process, and host ownership contracts. Current-run cancellation
-propagation is represented in checked control flow and body-effect metadata, not by another keyword.
+Cancellation authority is represented through task, thread, process, and host ownership contracts. Current-run
+cancellation propagation is represented in checked control flow and body-effect metadata, not by another keyword.
 
-`blocking_execution()`, `compute_execution()`, and `main_thread_execution()` are compiler-provided context predicates used in
-`requires(...)`. For synchronous calls they are immediate preconditions. Async invocation defers them into `Future<T>` because
-invocation does not execute the body. Direct await validates them against the current lane and task start selects a satisfying
-lane. The same phase distinction applies to body effects and capabilities: direct await requires them from the current execution
-context, while task start proves that the selected lane and every dependency transferred into it satisfy them.
+`blocking_execution()`, `compute_execution()`, and `main_thread_execution()` are compiler-provided context predicates
+used in `requires(...)`. For synchronous calls they are immediate preconditions. Async invocation defers them into
+`Future<T>` because invocation does not execute the body. Direct await validates them against the current lane and task
+start selects a satisfying lane. The same phase distinction applies to body effects and capabilities: direct await
+requires them from the current execution context, while task start proves that the selected lane and every dependency
+transferred into it satisfy them.
 
 ### Effects in callable types
 
 A callable type includes every caller-visible contract clause needed to call a value of that type.
 
-Two callable declarations with the same parameter and result shape but incompatible caller-visible contracts have different
-callable types.
+Two callable declarations with the same parameter and result shape but incompatible caller-visible contracts have
+different callable types.
 
 Callable types represent caller-visible effects through the ordinary callable type surface:
 
@@ -183,25 +188,28 @@ Callable types represent caller-visible effects through the ordinary callable ty
 - `@abi(...)` for explicit callable ABI contracts,
 - receiver and parameter modes for ownership, borrowing, movement, and mutation requirements,
 - trusted `uses(...)` for trusted implementation capability envelopes that must be preserved,
-- contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, conditions, and resource obligations,
-- parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and resource
-  ownership.
+- contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, conditions, and
+  resource obligations,
+- parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and
+  resource ownership.
 
-Implicit panic and current-run cancellation propagation are not separate callable-type clauses. A higher-order caller cannot use
-callable assignment to promise that an ordinary runtime callable never panics or never cancels its current run.
+Implicit panic and current-run cancellation propagation are not separate callable-type clauses. A higher-order caller
+cannot use callable assignment to promise that an ordinary runtime callable never panics or never cancels its current
+run.
 
-Callable type assignment, trait implementation checking, dynamic dispatch, and public API compatibility preserve caller-visible
-effects.
+Callable type assignment, trait implementation checking, dynamic dispatch, and public API compatibility preserve
+caller-visible effects.
 
-An ordinary runtime callable that allocates internally, mutates internal temporary storage, or performs internal safe bookkeeping can
-match an ordinary runtime callable type when those effects remain internal and impose no caller-visible obligations.
+An ordinary runtime callable that allocates internally, mutates internal temporary storage, or performs internal safe
+bookkeeping can match an ordinary runtime callable type when those effects remain internal and impose no caller-visible
+obligations.
 
-A callable can match a callable type or context when its body effect summary is valid for every effect requirement of that type or
-context.
+A callable can match a callable type or context when its body effect summary is valid for every effect requirement of
+that type or context.
 
-After overload resolution selects exactly one overload arm by explicit argument mapping and type compatibility, receiver rules,
-explicit generic substitution and static constraints, and target availability, contract checking verifies that the caller's context
-satisfies the selected arm's caller-visible obligations.
+After overload resolution selects exactly one overload arm by explicit argument mapping and type compatibility, receiver
+rules, explicit generic substitution and static constraints, and target availability, contract checking verifies that
+the caller's context satisfies the selected arm's caller-visible obligations.
 
 Overload resolution does not rank or distinguish overloads by effect or capability contracts.
 

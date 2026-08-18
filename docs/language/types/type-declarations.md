@@ -30,17 +30,19 @@ struct FILE;
 struct NativeMutex;
 ```
 
-Without an explicit size and alignment, the type is incomplete and cannot exist by value. With a valid opaque layout, it can
-occupy storage while remaining structurally inaccessible. Bodyless structs have no implicit constructor and cannot be structurally
-constructed or matched.
+Without an explicit size and alignment, the type is incomplete and cannot exist by value. With a valid opaque layout, it
+can occupy storage while remaining structurally inaccessible. Bodyless structs have no implicit constructor and cannot
+be structurally constructed or matched.
 
 A type declaration defines the type’s primary semantic surface.
 
-A type declaration can contain representation members, lifecycle declarations, constructors, and other type-owned declarations according to the rules for that type category.
+A type declaration can contain representation members, lifecycle declarations, constructors, and other type-owned
+declarations according to the rules for that type category.
 
-The complete type-associated surface combines those direct members with members from inherent implementations owned by the type's
-semantic owner. Aggregation preserves each member's original declaration identity and follows the conflict, applicability,
-visibility, and ordering rules defined by [Implementations](implementations.md#type-associated-member-aggregation).
+The complete type-associated surface combines those direct members with members from inherent implementations owned by
+the type's semantic owner. Aggregation preserves each member's original declaration identity and follows the conflict,
+applicability, visibility, and ordering rules defined by
+[Implementations](implementations.md#type-associated-member-aggregation).
 
 A type declaration can be `public` or `internal`.
 

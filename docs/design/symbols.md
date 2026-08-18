@@ -2,14 +2,14 @@
 
 This document defines how Bray symbols and symbol construction should be implemented.
 
-Symbols belong to `bray-symbols`. They consume declaration surfaces from `bray-declarations` and provide precise semantic
-identities and typed symbol relationships to binding, checking, tooling, lowering, and emission.
+Symbols belong to `bray-symbols`. They consume declaration surfaces from `bray-declarations` and provide precise
+semantic identities and typed symbol relationships to binding, checking, tooling, lowering, and emission.
 
-The compiler architecture overview is defined in `docs/design/compiler-architecture.md`. Declaration discovery is defined in
-`docs/design/declaration-discovery.md`. The compiler-known catalog is defined in
+The compiler architecture overview is defined in `docs/design/compiler-architecture.md`. Declaration discovery is
+defined in `docs/design/declaration-discovery.md`. The compiler-known catalog is defined in
 `docs/design/compiler-known-catalog.md`. Compiled package interfaces are defined in
-`docs/design/compiled-package-interfaces.md`. This document is the implementation contract for symbols, their semantics, and the
-queries that produce them.
+`docs/design/compiled-package-interfaces.md`. This document is the implementation contract for symbols, their semantics,
+and the queries that produce them.
 
 ---
 
@@ -29,8 +29,8 @@ The symbol model should:
 - recover from malformed source with error-aware symbols and lookup results,
 - preserve enough source correlation for precise diagnostics and tooling.
 
-The design takes inspiration from compilers that model symbols deeply and complete them lazily. Bray should keep that semantic
-precision without reproducing an inheritance-heavy object model.
+The design takes inspiration from compilers that model symbols deeply and complete them lazily. Bray should keep that
+semantic precision without reproducing an inheritance-heavy object model.
 
 ---
 
@@ -98,8 +98,8 @@ IDs and kinds are different concepts:
 - `SymbolId` answers "which exact symbol is this",
 - `FunctionSymbolId` answers "which exact function symbol is this".
 
-Numeric symbol IDs are compilation-local handles. They are not serialized language identities and are not required to remain
-numerically equal across different compilation snapshots.
+Numeric symbol IDs are compilation-local handles. They are not serialized language identities and are not required to
+remain numerically equal across different compilation snapshots.
 
 ### Symbol Key
 
@@ -116,15 +116,16 @@ A key can include:
 
 Keys must not include memory addresses, thread IDs, worker completion order, or lazy query order.
 
-Public symbol APIs should normally use typed IDs. Symbol keys are infrastructure for deterministic construction, caches, imported
-interfaces, and incremental remapping.
+Public symbol APIs should normally use typed IDs. Symbol keys are infrastructure for deterministic construction, caches,
+imported interfaces, and incremental remapping.
 
 ### Symbol Semantics
 
 Symbol semantics are immutable information associated with a symbol.
 
-Semantics can be eager or lazy. Examples include members, generic parameters, a resolved declared type, a callable signature, generic
-constraints, an implementation subject, a trait application, a constant value, or a decoded directive surface.
+Semantics can be eager or lazy. Examples include members, generic parameters, a resolved declared type, a callable
+signature, generic constraints, an implementation subject, a trait application, a constant value, or a decoded directive
+surface.
 
 ### Completion
 
@@ -156,9 +157,10 @@ It publishes:
 
 Symbol construction does not consume executable bodies to create the global symbol identity graph.
 
-Binding resolves syntax references to symbols and computes binding-dependent symbol semantics through compilation-owned queries. Checking
-owns type compatibility, ownership, borrowing, effects, contracts, constant-evaluation validity, and body correctness. A semantic value can be
-presented as a property of a symbol without requiring `bray-symbols` to compute that value directly.
+Binding resolves syntax references to symbols and computes binding-dependent symbol semantics through compilation-owned
+queries. Checking owns type compatibility, ownership, borrowing, effects, contracts, constant-evaluation validity, and
+body correctness. A semantic value can be presented as a property of a symbol without requiring `bray-symbols` to
+compute that value directly.
 
 This separation prevents a crate dependency cycle:
 
@@ -169,8 +171,8 @@ bray-declarations -> bray-symbols <- bray-binder
                      bray-compilation queries
 ```
 
-`bray-symbols` owns symbol types and semantic query contracts. `bray-binder` and checker services compute values whose implementation
-requires binding or checking. `bray-compilation` coordinates the queries and caches their results.
+`bray-symbols` owns symbol types and semantic query contracts. `bray-binder` and checker services compute values whose
+implementation requires binding or checking. `bray-compilation` coordinates the queries and caches their results.
 
 ---
 
@@ -178,7 +180,8 @@ requires binding or checking. `bray-compilation` coordinates the queries and cac
 
 ### Eager Identity Skeleton
 
-The compilation constructs a cheap deterministic symbol identity skeleton before expensive symbol semantics are demanded.
+The compilation constructs a cheap deterministic symbol identity skeleton before expensive symbol semantics are
+demanded.
 
 The skeleton establishes:
 
@@ -189,17 +192,19 @@ The skeleton establishes:
 - immediate semantic containers,
 - stable keys for synthesized declaration-surface symbols.
 
-This work must not require resolved type expressions, checked constraints, evaluated constants, or executable body binding.
+This work must not require resolved type expressions, checked constraints, evaluated constants, or executable body
+binding.
 
-Identity assignment cannot happen in arbitrary first-request order. Otherwise two equivalent compilations could assign different IDs
-because different IDE requests or worker schedules demanded different symbols first.
+Identity assignment cannot happen in arbitrary first-request order. Otherwise two equivalent compilations could assign
+different IDs because different IDE requests or worker schedules demanded different symbols first.
 
 ### Source Declarations
 
-A source declaration that introduces an independent semantic entity receives its own symbol identity even when the program is
-invalid because another declaration conflicts with it.
+A source declaration that introduces an independent semantic entity receives its own symbol identity even when the
+program is invalid because another declaration conflicts with it.
 
-Invalid duplicate declarations must remain distinguishable so diagnostics and ambiguous lookup can point to every participant.
+Invalid duplicate declarations must remain distinguishable so diagnostics and ambiguous lookup can point to every
+participant.
 
 Declarations merge into one symbol only when the language explicitly defines merging behavior.
 
@@ -209,12 +214,13 @@ Current merging behavior includes logical modules:
 - the module symbol retains all contributing declaration IDs and source locations,
 - a module part is not itself a symbol.
 
-Overload declarations do not merge their arms into one arm symbol. An overload family symbol references independently named arm
-symbols, and every arm retains its own identity.
+Overload declarations do not merge their arms into one arm symbol. An overload family symbol references independently
+named arm symbols, and every arm retains its own identity.
 
 ### Synthesized Symbols
 
-Synthesized symbols use deterministic keys based on their semantic owner, synthesized role, and stable ordinal where needed.
+Synthesized symbols use deterministic keys based on their semantic owner, synthesized role, and stable ordinal where
+needed.
 
 Examples include:
 
@@ -230,8 +236,8 @@ Compiler implementation temporaries, lowering blocks, hidden storage, and backen
 
 A typed symbol ID is valid only for the compilation or immutable symbol snapshot that issued it.
 
-Cross-compilation tooling and persisted interfaces must use stable symbol keys or a dedicated serialized identity format rather than
-persisting raw numeric IDs.
+Cross-compilation tooling and persisted interfaces must use stable symbol keys or a dedicated serialized identity format
+rather than persisting raw numeric IDs.
 
 ---
 
@@ -247,16 +253,16 @@ Symbol origin is explicit and separate from symbol kind.
 - compiler-provided symbols whose implementation is supplied by the compiler,
 - synthesized symbols introduced by semantic rules.
 
-A standard-library declaration remains an ordinary source or imported symbol unless the language specification explicitly marks it
-compiler-known.
+A standard-library declaration remains an ordinary source or imported symbol unless the language specification
+explicitly marks it compiler-known.
 
-Origin does not create parallel symbol class hierarchies. A source function and an imported function should provide the same
-`FunctionSymbol` contract, with origin-specific backing data hidden behind semantic query providers.
+Origin does not create parallel symbol class hierarchies. A source function and an imported function should provide the
+same `FunctionSymbol` contract, with origin-specific backing data hidden behind semantic query providers.
 
-Every symbol is assigned exactly one of these origins. Adding an origin requires one coordinated design change covering its stable
-construction key, provider ownership, snapshot and reuse behavior, compiled-interface encoding when it can cross a package
-boundary, diagnostics, and conformance tests. Providers cannot introduce private origin categories or infer origin from missing
-source data.
+Every symbol is assigned exactly one of these origins. Adding an origin requires one coordinated design change covering
+its stable construction key, provider ownership, snapshot and reuse behavior, compiled-interface encoding when it can
+cross a package boundary, diagnostics, and conformance tests. Providers cannot introduce private origin categories or
+infer origin from missing source data.
 
 ---
 
@@ -278,8 +284,8 @@ pub struct ParameterSymbolId(SymbolId);
 
 The exact representation can be generated mechanically, but distinct public types must prevent accidental interchange.
 
-Family IDs can exist where a language operation intentionally accepts several specific symbol kinds. Examples can include
-`NamedTypeSymbolId`, `CallableSymbolId`, `TypeMemberSymbolId`, or `ValueSymbolId`.
+Family IDs can exist where a language operation intentionally accepts several specific symbol kinds. Examples can
+include `NamedTypeSymbolId`, `CallableSymbolId`, `TypeMemberSymbolId`, or `ValueSymbolId`.
 
 Family IDs must be closed enums or validated wrappers. They must not weaken every API back to `SymbolId`.
 
@@ -325,8 +331,8 @@ Private components can hold truly common identity data, such as:
 
 Common composition must not absorb category-specific semantics merely to reduce field repetition.
 
-Macros can generate repetitive ID declarations, conversions, common accessors, visitors, and typed table plumbing. They must not
-generate or hide language policy.
+Macros can generate repetitive ID declarations, conversions, common accessors, visitors, and typed table plumbing. They
+must not generate or hide language policy.
 
 ### Any-Symbol Erasure
 
@@ -345,8 +351,8 @@ Core APIs must not return `Vec<AnySymbolId>` when a semantic relationship has a 
 
 ### Context-Bound Views
 
-Many useful symbol properties require lazy compilation queries. A context-bound symbol view can pair a typed ID with read-only access
-to the compilation query graph.
+Many useful symbol properties require lazy compilation queries. A context-bound symbol view can pair a typed ID with
+read-only access to the compilation query graph.
 
 Conceptually:
 
@@ -356,8 +362,8 @@ FunctionSymbolView<'compilation>
   queries: ReadOnlyCompilationSymbolQueries<'compilation>
 ```
 
-Calling `parameters()`, `return_type()`, or `contracts()` can request the corresponding cached semantics without placing binder logic in
-`bray-symbols`.
+Calling `parameters()`, `return_type()`, or `contracts()` can request the corresponding cached semantics without placing
+binder logic in `bray-symbols`.
 
 The exact Rust API can use views, query methods, or another ownership-safe shape. It must preserve these properties:
 
@@ -378,23 +384,25 @@ The symbol categories below cover the complete language symbol model.
 - `PackageSymbol`
 - `ModuleSymbol`
 
-A compiler-known environment symbol is the unnamed semantic owner of ambient compiler-known declarations and compiler-known module
-symbols. It has a dedicated `CompilerKnownEnvironmentSymbolId` and `SymbolKind::CompilerKnownEnvironment`. It is not a source or
-imported package, does not occupy the ordinary lookup namespace, and has no visibility or source declaration location.
+A compiler-known environment symbol is the unnamed semantic owner of ambient compiler-known declarations and
+compiler-known module symbols. It has a dedicated `CompilerKnownEnvironmentSymbolId` and
+`SymbolKind::CompilerKnownEnvironment`. It is not a source or imported package, does not occupy the ordinary lookup
+namespace, and has no visibility or source declaration location.
 
-A package symbol represents package identity supplied by the package layer. A product is a selected compilation surface and does not
-create a declaration container or lookup scope, so a product is not a symbol.
+A package symbol represents package identity supplied by the package layer. A product is a selected compilation surface
+and does not create a declaration container or lookup scope, so a product is not a symbol.
 
-A module symbol represents one logical module path. A source or imported module aggregates enabled package module contributions. A
-compiler-known module is supplied by the compiler-known catalog.
+A module symbol represents one logical module path. A source or imported module aggregates enabled package module
+contributions. A compiler-known module is supplied by the compiler-known catalog.
 
-Module declarations are package-level and cannot nest. Source and imported module symbols are semantically contained by their
-package symbol. Compiler-known module symbols such as `core.memory` and `target` are semantically contained by the compiler-known
-environment symbol. Modules with dotted paths remain directly contained by their semantic owner. Path-prefix indexes support module
-path resolution but do not invent containing module symbols for undeclared path prefixes.
+Module declarations are package-level and cannot nest. Source and imported module symbols are semantically contained by
+their package symbol. Compiler-known module symbols such as `core.memory` and `target` are semantically contained by the
+compiler-known environment symbol. Modules with dotted paths remain directly contained by their semantic owner.
+Path-prefix indexes support module path resolution but do not invent containing module symbols for undeclared path
+prefixes.
 
-The compilation does not create a `CompilationRootSymbol`. An immutable symbol graph owns a forest of package roots plus exactly one
-compiler-known environment root. APIs that intentionally accept either root use a closed family:
+The compilation does not create a `CompilationRootSymbol`. An immutable symbol graph owns a forest of package roots plus
+exactly one compiler-known environment root. APIs that intentionally accept either root use a closed family:
 
 ```rust
 pub enum SymbolRootId {
@@ -403,8 +411,8 @@ pub enum SymbolRootId {
 }
 ```
 
-`SymbolRootId` is a typed family ID, not a generic root-symbol record. Package and compiler-known environment symbols retain their
-own kind-specific storage and APIs.
+`SymbolRootId` is a typed family ID, not a generic root-symbol record. Package and compiler-known environment symbols
+retain their own kind-specific storage and APIs.
 
 Conceptually, the graph publishes its roots through:
 
@@ -415,8 +423,8 @@ pub struct SymbolGraphRoots {
 }
 ```
 
-The process-wide compiler-known catalog is not a symbol and has no `SymbolId`. Each compilation or immutable symbol snapshot maps it
-to exactly one compilation-local compiler-known environment symbol.
+The process-wide compiler-known catalog is not a symbol and has no `SymbolId`. Each compilation or immutable symbol
+snapshot maps it to exactly one compilation-local compiler-known environment symbol.
 
 ### Module-Level Symbols
 
@@ -435,9 +443,9 @@ to exactly one compilation-local compiler-known environment symbol.
 
 Using and export declarations do not create symbols.
 
-Compiler-known trusted implementation capabilities use `TrustedCapabilitySymbol`. They occupy the ordinary lookup namespace so
-`uses(...)` can resolve them by name, but they are neither values nor predicates and cannot be invoked. Callable contracts retain
-exact `TrustedCapabilitySymbolId` values rather than type-erased symbol identities.
+Compiler-known trusted implementation capabilities use `TrustedCapabilitySymbol`. They occupy the ordinary lookup
+namespace so `uses(...)` can resolve them by name, but they are neither values nor predicates and cannot be invoked.
+Callable contracts retain exact `TrustedCapabilitySymbolId` values rather than type-erased symbol identities.
 
 ### Type Symbols And Members
 
@@ -455,8 +463,8 @@ exact `TrustedCapabilitySymbolId` values rather than type-erased symbol identiti
 - `InherentTypeMemberSymbol`
 - type-associated `CallableOverloadSymbol`
 
-Struct and union declarations are named type definition symbols. Their concrete generic applications are type values, not additional
-declaration symbols.
+Struct and union declarations are named type definition symbols. Their concrete generic applications are type values,
+not additional declaration symbols.
 
 An inherent implementation is a symbol even though its members become associated with the implementing type for lookup.
 
@@ -471,7 +479,8 @@ An inherent implementation is a symbol even though its members become associated
 - `TraitScopeEnterRequirementSymbol`
 - `TraitScopeExitRequirementSymbol`
 
-Required and defaulted members use the same member-symbol identity. Required/defaulted state belongs to the specific member kind.
+Required and defaulted members use the same member-symbol identity. Required/defaulted state belongs to the specific
+member kind.
 
 ### Implementation Fulfillment Symbols
 
@@ -486,15 +495,15 @@ The implementation fulfillment categories are:
 - `TraitScopeEnterFulfillmentSymbol`,
 - `TraitScopeExitFulfillmentSymbol`.
 
-The symbol category is selected from the implementation context and the trait member being fulfilled, not only from the syntax kind
-used by the member declaration.
+The symbol category is selected from the implementation context and the trait member being fulfilled, not only from the
+syntax kind used by the member declaration.
 
-Constructors, finalizers, destructors, and callable overload declarations can occur in inherent implementations according to their
-ordinary type-associated rules. They cannot become trait implementation fulfillments because the language does not permit those
-fulfillment forms.
+Constructors, finalizers, destructors, and callable overload declarations can occur in inherent implementations
+according to their ordinary type-associated rules. They cannot become trait implementation fulfillments because the
+language does not permit those fulfillment forms.
 
-An implementation member symbol links to the exact trait member it fulfills after implementation binding. It is not replaced by the
-trait member symbol.
+An implementation member symbol links to the exact trait member it fulfills after implementation binding. It is not
+replaced by the trait member symbol.
 
 This distinction is needed for:
 
@@ -513,17 +522,18 @@ This distinction is needed for:
 - `PredicateParameterSymbol`
 - `ReceiverParameterSymbol`
 
-Parameter identity includes its semantic owner and stable ordinal. Parameter names remain immutable declaration attributes used by named
-argument binding and diagnostics.
+Parameter identity includes its semantic owner and stable ordinal. Parameter names remain immutable declaration
+attributes used by named argument binding and diagnostics.
 
-The implicit method receiver is represented by a receiver parameter symbol because it has a type, receiver mode, capability rules,
-and ownership behavior. It is not part of the written ordinary parameter list.
+The implicit method receiver is represented by a receiver parameter symbol because it has a type, receiver mode,
+capability rules, and ownership behavior. It is not part of the written ordinary parameter list.
 
-Receiver signatures use the shared, mutable, consuming, and consuming-mutable modes. Constructors and scope exits have no
-receiver. Finalizers use mutable receivers, destructors use consuming-mutable receivers, and scope enter declarations use the mode
-selected by their receiver modifiers.
+Receiver signatures use the shared, mutable, consuming, and consuming-mutable modes. Constructors and scope exits have
+no receiver. Finalizers use mutable receivers, destructors use consuming-mutable receivers, and scope enter declarations
+use the mode selected by their receiver modifiers.
 
-Inferred implementation parameters are generic parameter symbols with synthesized origin and syntax-correlated inference sources.
+Inferred implementation parameters are generic parameter symbols with synthesized origin and syntax-correlated inference
+sources.
 
 ### Runtime Default Provider Symbols
 
@@ -531,20 +541,21 @@ Inferred implementation parameters are generic parameter symbols with synthesize
 - `StructFieldDefaultProviderSymbol`
 - `UnionPayloadDefaultProviderSymbol`
 
-A runtime default provider is a synthesized declaration-surface callable used to preserve runtime default behavior across package
-boundaries. It has a typed symbol ID and deterministic synthesized key derived from the exact parameter, struct field, or union
-payload field that owns the default.
+A runtime default provider is a synthesized declaration-surface callable used to preserve runtime default behavior
+across package boundaries. It has a typed symbol ID and deterministic synthesized key derived from the exact parameter,
+struct field, or union payload field that owns the default.
 
-A parameter provider is semantically contained by the callable that owns the parameter and references that parameter. A struct field
-provider is contained by the struct and references its field. A union payload provider is contained by the union variant and
-references its payload field.
+A parameter provider is semantically contained by the callable that owns the parameter and references that parameter. A
+struct field provider is contained by the struct and references its field. A union payload provider is contained by the
+union variant and references its payload field.
 
-Providers do not have source-level names, do not enter ordinary lookup, and do not appear in typed member collections. The owning
-parameter or field exposes the provider through its checked default. Any-symbol erasure can include providers for diagnostics,
-debugging, interface serialization, and tooling that explicitly requests synthesized symbols.
+Providers do not have source-level names, do not enter ordinary lookup, and do not appear in typed member collections.
+The owning parameter or field exposes the provider through its checked default. Any-symbol erasure can include providers
+for diagnostics, debugging, interface serialization, and tooling that explicitly requests synthesized symbols.
 
-The provider body is the already checked declaration-owned default expression. It is not checked again as an ordinary callable body.
-Lowering and emission request the provider lazily only when a reachable call or construction can use the default.
+The provider body is the already checked declaration-owned default expression. It is not checked again as an ordinary
+callable body. Lowering and emission request the provider lazily only when a reachable call or construction can use the
+default.
 
 ### Body-Local Symbols
 
@@ -556,39 +567,41 @@ Lowering and emission request the provider lazily only when a reachable call or 
 - pattern-introduced local binding symbols,
 - contextual postcondition result bindings where semantic lookup requires identity.
 
-A binding pattern creates one local binding symbol for each logical binding name, not one symbol for the entire pattern. Occurrences of
-the same coherent binding across alternative patterns contribute syntax anchors to one symbol rather than creating competing locals.
+A binding pattern creates one local binding symbol for each logical binding name, not one symbol for the entire pattern.
+Occurrences of the same coherent binding across alternative patterns contribute syntax anchors to one symbol rather than
+creating competing locals.
 
-Body-local and contextual local symbols are created deterministically by binding and belong to immutable local semantic-region
-snapshots. They use a separate typed local identity space rather than consuming compilation-wide declaration `SymbolId` values.
-They can still participate in erased symbol and diagnostic APIs.
+Body-local and contextual local symbols are created deterministically by binding and belong to immutable local
+semantic-region snapshots. They use a separate typed local identity space rather than consuming compilation-wide
+declaration `SymbolId` values. They can still participate in erased symbol and diagnostic APIs.
 
-Lambdas receive anonymous callable symbols because they own callable parameters, results, contracts, an execution scope, and
-a body. Their lack of a source-level name does not remove semantic identity.
+Lambdas receive anonymous callable symbols because they own callable parameters, results, contracts, an execution scope,
+and a body. Their lack of a source-level name does not remove semantic identity.
 
-The contextual type `Self` is a semantic type value tied to a trait or implementation context, not a separately declared named type
-symbol. The contextual receiver value `self` is represented by the receiver parameter symbol. The postcondition name `result` is a
-compiler-introduced contextual binding, not an ordinary source parameter.
+The contextual type `Self` is a semantic type value tied to a trait or implementation context, not a separately declared
+named type symbol. The contextual receiver value `self` is represented by the receiver parameter symbol. The
+postcondition name `result` is a compiler-introduced contextual binding, not an ordinary source parameter.
 
 ### Compiler-Known And Imported Symbols
 
-Compiler-known scalar types, traits, functions, constants, unions, variants, and other declared surfaces use the same specific symbol
-categories as source declarations.
+Compiler-known scalar types, traits, functions, constants, unions, variants, and other declared surfaces use the same
+specific symbol categories as source declarations.
 
-Compiler-provided implementation bodies are not Bray source bodies, but their declaration surfaces still produce ordinary typed
-symbols.
+Compiler-provided implementation bodies are not Bray source bodies, but their declaration surfaces still produce
+ordinary typed symbols.
 
 `Future<T>`, `Task<T>`, `RunResult<T>`, `PanicReport`, `blocking_execution()`, `compute_execution()`,
-`main_thread_execution()`, and the inherent `start`, `join`, and `cancel` members use ordinary category-specific symbols backed by
-closed compiler-known roles. Their semantic phases select them by role identity, never spelling. Hidden async frame identities are
-semantic values or lowering identities, not declaration symbols.
+`main_thread_execution()`, and the inherent `start`, `join`, and `cancel` members use ordinary category-specific symbols
+backed by closed compiler-known roles. Their semantic phases select them by role identity, never spelling. Hidden async
+frame identities are semantic values or lowering identities, not declaration symbols.
 
 Compiler-known surfaces are supplied by the immutable descriptor catalog defined in
-`docs/design/compiler-known-catalog.md`. Stable catalog keys identify language-defined entries across compilations. Symbol
-construction maps those keys to compilation-local typed symbol IDs and exposes catalog-backed semantics through the same kind-specific
-contracts used by source and imported symbols.
+`docs/design/compiler-known-catalog.md`. Stable catalog keys identify language-defined entries across compilations.
+Symbol construction maps those keys to compilation-local typed symbol IDs and exposes catalog-backed semantics through
+the same kind-specific contracts used by source and imported symbols.
 
-Imported package interfaces reconstruct the same public symbol categories and relationships without requiring source syntax.
+Imported package interfaces reconstruct the same public symbol categories and relationships without requiring source
+syntax.
 
 ---
 
@@ -626,13 +639,14 @@ These concepts should use separate typed identities where interning or cross-ref
 - `ImplementationInstanceId`,
 - bound-node, storage-identity, and storage-access IDs owned by the bound representation.
 
-A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's symbol ID
-as though construction had not occurred.
+A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's
+symbol ID as though construction had not occurred.
 
 `bray-symbols` owns source type-expression templates, interned semantic types, constant values, open constant terms,
-substitutions, portable dependency-contract templates, and their interner APIs because they directly compose from typed symbol IDs
-and are returned by symbol queries. They remain separate semantic categories and do not become symbols merely because the symbol crate
-owns their dependency-safe representation. The full contract is defined in `docs/design/binder.md`.
+substitutions, portable dependency-contract templates, and their interner APIs because they directly compose from typed
+symbol IDs and are returned by symbol queries. They remain separate semantic categories and do not become symbols merely
+because the symbol crate owns their dependency-safe representation. The full contract is defined in
+`docs/design/binder.md`.
 
 ---
 
@@ -663,8 +677,8 @@ Examples:
 
 Defined storage and public APIs must use typed semantic relationships.
 
-A generic `children()` operation can exist only as a derived visitor or tooling projection. It must not be the source of truth used by
-binding or diagnostics.
+A generic `children()` operation can exist only as a derived visitor or tooling projection. It must not be the source of
+truth used by binding or diagnostics.
 
 ### Package And Module Relationships
 
@@ -679,8 +693,8 @@ pub enum ModuleOwnerId {
 }
 ```
 
-Only module symbols supplied by the compiler-known catalog can use the compiler-known environment owner. Ordinary source and
-imported modules always use a package owner.
+Only module symbols supplied by the compiler-known catalog can use the compiler-known environment owner. Ordinary source
+and imported modules always use a package owner.
 
 A module exposes typed collections such as:
 
@@ -709,19 +723,19 @@ The compiler-known environment exposes:
 - stable catalog-key-to-symbol-ID indexes,
 - typed accessors for compiler-known roles needed by semantic phases.
 
-The compiler-known symbol provider must publish one immutable compilation-local role registry derived from the generated catalog
-role indexes. It must map representation roles and implementation hooks to exact symbol IDs, retain special-value targets as typed
-catalog value IDs, and support reverse symbol-to-role classification. The registry must never infer roles from symbol names or
-stable-key strings.
+The compiler-known symbol provider must publish one immutable compilation-local role registry derived from the generated
+catalog role indexes. It must map representation roles and implementation hooks to exact symbol IDs, retain
+special-value targets as typed catalog value IDs, and support reverse symbol-to-role classification. The registry must
+never infer roles from symbol names or stable-key strings.
 
-Target-available views must apply their existing availability result to both forward and reverse role queries for symbols and
-special values. The complete provider and its registry remain unchanged.
+Target-available views must apply their existing availability result to both forward and reverse role queries for
+symbols and special values. The complete provider and its registry remain unchanged.
 
-Its ambient collections remain category-specific. They must not use a generic stable child list merely because several symbol
-kinds are ambient.
+Its ambient collections remain category-specific. They must not use a generic stable child list merely because several
+symbol kinds are ambient.
 
-Declaration categories that can be owned either by a module or directly by the compiler-known environment use a closed owner family
-specific to that relationship. Conceptually:
+Declaration categories that can be owned either by a module or directly by the compiler-known environment use a closed
+owner family specific to that relationship. Conceptually:
 
 ```rust
 pub enum ModuleLevelOwnerId {
@@ -751,8 +765,9 @@ A struct exposes:
 - callable overload families,
 - inherent implementations associated with the struct.
 
-Members declared directly in the type body and members contributed by inherent implementations retain their declaring-symbol and
-implementation ownership while participating in the type-associated lookup surface defined by the language.
+Members declared directly in the type body and members contributed by inherent implementations retain their
+declaring-symbol and implementation ownership while participating in the type-associated lookup surface defined by the
+language.
 
 ### Union Relationships
 
@@ -782,52 +797,57 @@ Every named type definition has one lazy immutable type-associated surface. The 
 - typed lifecycle slots,
 - the inherent implementation symbols that contributed members.
 
-A source type's defining package is its semantic owner. A compiler-known type is owned by the compiler-known environment. Only the
-semantic owner can contribute inherent implementations unless a language rule explicitly defines another owner. All enabled inherent
-implementations from the owning package's selected source graph contribute automatically, regardless of their source module. A
-`using` declaration or export does not activate or deactivate an inherent implementation.
+A source type's defining package is its semantic owner. A compiler-known type is owned by the compiler-known
+environment. Only the semantic owner can contribute inherent implementations unless a language rule explicitly defines
+another owner. All enabled inherent implementations from the owning package's selected source graph contribute
+automatically, regardless of their source module. A `using` declaration or export does not activate or deactivate an
+inherent implementation.
 
-Trait implementation fulfillments are not added to the type-associated surface. Trait method and member resolution query exact
-participating trait implementations separately. Union payload fields remain in their variant payload scope rather than the
-union-wide surface.
+Trait implementation fulfillments are not added to the type-associated surface. Trait method and member resolution query
+exact participating trait implementations separately. Union payload fields remain in their variant payload scope rather
+than the union-wide surface.
 
-Aggregation stores existing typed symbol IDs. It does not clone or reparent symbols. A direct member remains contained by its type,
-an inherent member remains contained by its inherent implementation, and both expose the owning type-definition ID. This keeps
-source provenance and implementation ownership available to diagnostics, navigation, and public API analysis.
+Aggregation stores existing typed symbol IDs. It does not clone or reparent symbols. A direct member remains contained
+by its type, an inherent member remains contained by its inherent implementation, and both expose the owning
+type-definition ID. This keeps source provenance and implementation ownership available to diagnostics, navigation, and
+public API analysis.
 
-The aggregate ordinary-name index enforces one name across direct members and every contributing inherent implementation. Member
-kind, source location, visibility, and generic constraints do not partition that index. A direct declaration has no precedence over
-an inherent declaration, and one inherent implementation has no precedence over another. An explicit callable overload family is
-the only mechanism that places separately named callables behind a shared call name.
+The aggregate ordinary-name index enforces one name across direct members and every contributing inherent
+implementation. Member kind, source location, visibility, and generic constraints do not partition that index. A direct
+declaration has no precedence over an inherent declaration, and one inherent implementation has no precedence over
+another. An explicit callable overload family is the only mechanism that places separately named callables behind a
+shared call name.
 
-Primary construction, finalization, destruction, scope entry, and scope exit use typed lifecycle slots rather than the ordinary-name
-index. One declaration template can occupy each slot for a type definition. Named constructors occupy ordinary names. Generic
-constraints do not create alternative declarations for the same ordinary name or lifecycle slot.
+Primary construction, finalization, destruction, scope entry, and scope exit use typed lifecycle slots rather than the
+ordinary-name index. One declaration template can occupy each slot for a type definition. Named constructors occupy
+ordinary names. Generic constraints do not create alternative declarations for the same ordinary name or lifecycle slot.
 
-Aggregation occurs at the type-definition level. Generic inherent members remain declaration templates in that surface. A constructed
-`TypeId` requests an applicable view that substitutes the type arguments, matches the implementation subject, and proves the
-implementation constraints. A member with unproved constraints is not applicable, but its declaration still reserves its ordinary
-name or lifecycle slot in the definition-level surface. A generic checking context can use the member only when its available static
-proofs establish those constraints.
+Aggregation occurs at the type-definition level. Generic inherent members remain declaration templates in that surface.
+A constructed `TypeId` requests an applicable view that substitutes the type arguments, matches the implementation
+subject, and proves the implementation constraints. A member with unproved constraints is not applicable, but its
+declaration still reserves its ordinary name or lifecycle slot in the definition-level surface. A generic checking
+context can use the member only when its available static proofs establish those constraints.
 
-The full surface retains inaccessible and inapplicable entries so lookup can distinguish not found, wrong semantic category,
-inaccessible, unsatisfied constraints, malformed, and conflicting declarations. Effective reachability is capped by the associated
-type, the member's declaring module, and the member's own visibility. An inherent implementation does not create another visibility
-or activation boundary.
+The full surface retains inaccessible and inapplicable entries so lookup can distinguish not found, wrong semantic
+category, inaccessible, unsatisfied constraints, malformed, and conflicting declarations. Effective reachability is
+capped by the associated type, the member's declaring module, and the member's own visibility. An inherent
+implementation does not create another visibility or activation boundary.
 
-Stable enumeration lists direct members in source order, followed by inherent implementations in stable declaration-table order
-and each implementation's members in source order. This order is observable only for deterministic metadata, diagnostics, tooling,
-and tests. It is never lookup precedence. A conflict retains every candidate and emits diagnostics in stable order rather than
-selecting the first declaration.
+Stable enumeration lists direct members in source order, followed by inherent implementations in stable
+declaration-table order and each implementation's members in source order. This order is observable only for
+deterministic metadata, diagnostics, tooling, and tests. It is never lookup precedence. A conflict retains every
+candidate and emits diagnostics in stable order rather than selecting the first declaration.
 
 The type-associated surface owns aggregation diagnostics. Successful publication caches the immutable surface and its
-diagnostic bag together so concurrent requests cannot observe a member index without the diagnostics produced while building it.
+diagnostic bag together so concurrent requests cannot observe a member index without the diagnostics produced while
+building it.
 
-If an inherent implementation subject cannot be resolved to an owned named type definition, the implementation remains an
-error-aware symbol with its own diagnostics and is not attached to an arbitrary type surface.
+If an inherent implementation subject cannot be resolved to an owned named type definition, the implementation remains
+an error-aware symbol with its own diagnostics and is not attached to an arbitrary type surface.
 
-Public APIs over this surface remain kind-specific. Types expose typed field, variant, callable, constructor, lifecycle, constant,
-predicate, type-valued-member, overload-family, and inherent-implementation collections rather than a generic child list.
+Public APIs over this surface remain kind-specific. Types expose typed field, variant, callable, constructor, lifecycle,
+constant, predicate, type-valued-member, overload-family, and inherent-implementation collections rather than a generic
+child list.
 
 ### Trait Relationships
 
@@ -855,24 +875,24 @@ An implementation exposes:
 - its coherence key or coherence-key set,
 - its optional implementation-overload-family membership.
 
-The implementation-coherence query publishes a typed key containing the checked subject type and the optional checked trait
-application. It must resolve those prerequisites and must not report success after merely requesting them. Candidate aggregation
-and conflict diagnostics consume this key through checker-owned coherence queries.
+The implementation-coherence query publishes a typed key containing the checked subject type and the optional checked
+trait application. It must resolve those prerequisites and must not report success after merely requesting them.
+Candidate aggregation and conflict diagnostics consume this key through checker-owned coherence queries.
 
-An implementation candidate set must be keyed by one exact checked subject type and trait application. Its immutable candidates
-must be origin-neutral across source, imported, and compiler-known declarations and must be ordered by stable semantic implementation
-key. Each candidate must retain its implementation identity, inferred generic substitution, declaration-ordered generic constraint
-templates, selected target-property dependencies, and coherence evidence.
+An implementation candidate set must be keyed by one exact checked subject type and trait application. Its immutable
+candidates must be origin-neutral across source, imported, and compiler-known declarations and must be ordered by stable
+semantic implementation key. Each candidate must retain its implementation identity, inferred generic substitution,
+declaration-ordered generic constraint templates, selected target-property dependencies, and coherence evidence.
 
-A candidate set must record declarations that require applicability checking. It must not prove generic constraints, target
-availability, or coherence, and it must not manufacture a selected implementation instance. `ImplementationSelectionQuery` must
-represent a separate checked commitment and may only be requested after the checker has evaluated the retained evidence and reached
-the required semantic fixed point.
+A candidate set must record declarations that require applicability checking. It must not prove generic constraints,
+target availability, or coherence, and it must not manufacture a selected implementation instance.
+`ImplementationSelectionQuery` must represent a separate checked commitment and may only be requested after the checker
+has evaluated the retained evidence and reached the required semantic fixed point.
 
 An inherent implementation has no implemented trait application.
 
-A named trait implementation has a source-level implementation name. An unnamed implementation remains a symbol but is not
-referenced through an implementation name.
+A named trait implementation has a source-level implementation name. An unnamed implementation remains a symbol but is
+not referenced through an implementation name.
 
 ### Callable Relationships
 
@@ -891,7 +911,8 @@ A callable symbol exposes the relationships meaningful to its exact kind:
 - trusted obligations,
 - optional executable body reference.
 
-Predicate symbols expose predicate parameters and predicate context rather than pretending to be ordinary runtime functions.
+Predicate symbols expose predicate parameters and predicate context rather than pretending to be ordinary runtime
+functions.
 
 Callable contract symbols describe callable surfaces and do not own executable bodies.
 
@@ -906,33 +927,36 @@ Body-bearing symbol views expose cheap body presence and lazy category-specific 
 
 Bray has exactly one general identifier lookup namespace: the ordinary lookup namespace.
 
-The namespace determines whether the same spelling may identify more than one entity in the same lookup scope. Symbol kind and
-lookup context do not create additional namespaces. Types, values, traits, predicates, callable contracts, named implementations,
-members, generic parameters, callable parameters, local bindings, and other named declarations therefore compete for the same
-ordinary name in a scope.
+The namespace determines whether the same spelling may identify more than one entity in the same lookup scope. Symbol
+kind and lookup context do not create additional namespaces. Types, values, traits, predicates, callable contracts,
+named implementations, members, generic parameters, callable parameters, local bindings, and other named declarations
+therefore compete for the same ordinary name in a scope.
 
-For example, a type and constant cannot share a name in one module, a generic type parameter and generic const parameter cannot
-share a name on one declaration, and a field and callable member cannot share a name on one type. An explicit overload family
-occupies its ordinary name once. Its arms retain separate identities without introducing the family name again.
+For example, a type and constant cannot share a name in one module, a generic type parameter and generic const parameter
+cannot share a name on one declaration, and a field and callable member cannot share a name on one type. An explicit
+overload family occupies its ordinary name once. Its arms retain separate identities without introducing the family name
+again.
 
-Packages and modules require specialized path indexes, but they are not additional lookup namespaces. A visible package identity,
-module path component, or declaration that can occupy the same path position participates in the same ordinary name surface. A
-module remains a declaration container and lookup provider rather than a separate name-collision partition.
+Packages and modules require specialized path indexes, but they are not additional lookup namespaces. A visible package
+identity, module path component, or declaration that can occupy the same path position participates in the same ordinary
+name surface. A module remains a declaration container and lookup provider rather than a separate name-collision
+partition.
 
-Symbol APIs represent the ordinary namespace directly and do not expose a one-variant `LookupNamespace` enum. Any change to the
-namespace model must begin as a language-specification change and update lookup, collision, interface, and diagnostic contracts
-together.
+Symbol APIs represent the ordinary namespace directly and do not expose a one-variant `LookupNamespace` enum. Any change
+to the namespace model must begin as a language-specification change and update lookup, collision, interface, and
+diagnostic contracts together.
 
-Ambient compiler-known visibility is an explicit lookup relationship, not semantic containment. A source module remains contained
-by its package while its lookup context consults the compiler-known environment's ambient index. The compiler-known environment is
-not imported into, cloned into, or made the semantic parent of each source module.
+Ambient compiler-known visibility is an explicit lookup relationship, not semantic containment. A source module remains
+contained by its package while its lookup context consults the compiler-known environment's ambient index. The
+compiler-known environment is not imported into, cloned into, or made the semantic parent of each source module.
 
-Ambient declarations participate in the module's effective ordinary-name surface according to the language's collision and lookup
-rules. The environment symbol itself has no ordinary name and is never returned as an ordinary lookup candidate.
+Ambient declarations participate in the module's effective ordinary-name surface according to the language's collision
+and lookup rules. The environment symbol itself has no ordinary name and is never returned as an ordinary lookup
+candidate.
 
-The symbol layer must not interpret the ordinary namespace as permission to use one global `Map<String, AnySymbolId>`. Lookup remains
-owner-specific and typed. The namespace defines collision behavior, while the owner and lookup operation define which index is
-queried and which result kinds are valid.
+The symbol layer must not interpret the ordinary namespace as permission to use one global `Map<String, AnySymbolId>`.
+Lookup remains owner-specific and typed. The namespace defines collision behavior, while the owner and lookup operation
+define which index is queried and which result kinds are valid.
 
 The following relationships are not ordinary name lookup:
 
@@ -944,8 +968,9 @@ The following relationships are not ordinary name lookup:
 - contextual `Self`, `self`, and `result` bindings,
 - directives and `using` declarations, which introduce no ordinary names.
 
-An export does not create a symbol or introduce an unqualified name inside the exporting module. It projects the target symbol's
-ordinary name into the module's exported lookup surface, where that name participates in ordinary collision checking.
+An export does not create a symbol or introduce an unqualified name inside the exporting module. It projects the target
+symbol's ordinary name into the module's exported lookup surface, where that name participates in ordinary collision
+checking.
 
 ### Typed Indexes
 
@@ -963,9 +988,9 @@ Examples:
 
 Indexes are derived views over stable typed child collections.
 
-A context-specific lookup such as type lookup or value lookup first resolves the ordinary name and then validates the resolved
-entity's semantic category. Finding an entity of the wrong category must remain distinguishable from not finding the name. Typed
-entry points should expose that distinction without creating parallel type and value namespaces.
+A context-specific lookup such as type lookup or value lookup first resolves the ordinary name and then validates the
+resolved entity's semantic category. Finding an entity of the wrong category must remain distinguishable from not
+finding the name. Typed entry points should expose that distinction without creating parallel type and value namespaces.
 
 ### Lookup Results
 
@@ -1015,38 +1040,40 @@ This is a dependency order, not a requirement to eagerly complete every step for
 
 ### Conditional Contributions
 
-Only enabled `@test` and `@target(...)` module contributions participate in source symbol identity, module surface agreement, name
-lookup, overload families, implementation coherence, and symbol diagnostics for the selected product.
+Only enabled `@test` and `@target(...)` module contributions participate in source symbol identity, module surface
+agreement, name lookup, overload families, implementation coherence, and symbol diagnostics for the selected product.
 
-Gate evaluation is a prerequisite query for the affected module contribution. It must use the selected product, target profile,
-target properties, and the restricted semantic environment allowed by directive rules.
+Gate evaluation is a prerequisite query for the affected module contribution. It must use the selected product, target
+profile, target properties, and the restricted semantic environment allowed by directive rules.
 
-Disabled declarations remain available through syntax and declaration-discovery APIs but do not produce active source symbols for
-that product.
+Disabled declarations remain available through syntax and declaration-discovery APIs but do not produce active source
+symbols for that product.
 
 ### Cyclic Module References
 
 The package dependency graph is acyclic, but the module declaration and reference graph can be cyclic.
 
-Module identities and named member skeletons must therefore be available before import/export and signature resolution requires the
-referenced modules to be complete.
+Module identities and named member skeletons must therefore be available before import/export and signature resolution
+requires the referenced modules to be complete.
 
 Construction must not recursively force an entire referenced module merely to establish a name edge.
 
 ### Imported Symbols
 
-Compiled package interfaces provide immutable declaration-surface semantics sufficient to reconstruct public symbols and relationships.
+Compiled package interfaces provide immutable declaration-surface semantics sufficient to reconstruct public symbols and
+relationships.
 
-Imported symbols use deterministic identities within the consuming compilation and preserve stable external keys for interface and
-tooling references.
+Imported symbols use deterministic identities within the consuming compilation and preserve stable external keys for
+interface and tooling references.
 
 Import loading must not require executable dependency bodies.
 
-The complete artifact, stable-key, identity-skeleton, lazy-decoding, target-compatibility, and checked-template contracts are defined
-in `docs/design/compiled-package-interfaces.md`.
+The complete artifact, stable-key, identity-skeleton, lazy-decoding, target-compatibility, and checked-template
+contracts are defined in `docs/design/compiled-package-interfaces.md`.
 
-`bray-symbols` owns imported identity-surface input values and imported semantic keys, but it does not depend on the package-interface
-codec. `bray-package-interface` depends on symbol contracts and translates validated wire records into those inputs.
+`bray-symbols` owns imported identity-surface input values and imported semantic keys, but it does not depend on the
+package-interface codec. `bray-package-interface` depends on symbol contracts and translates validated wire records into
+those inputs.
 
 ---
 
@@ -1054,10 +1081,11 @@ codec. `bray-package-interface` depends on symbol contracts and translates valid
 
 ### Logical Immutability
 
-A lazy symbol query is computed at most once successfully for one compilation query key and publishes an immutable value.
+A lazy symbol query is computed at most once successfully for one compilation query key and publishes an immutable
+value.
 
-Internal cache mutation is permitted only to transition from absent to a completed immutable result. It must not change an already
-published semantic answer.
+Internal cache mutation is permitted only to transition from absent to a completed immutable result. It must not change
+an already published semantic answer.
 
 Repeated requests return the same semantic value and diagnostics.
 
@@ -1066,8 +1094,8 @@ Repeated requests return the same semantic value and diagnostics.
 Every semantic query that can diagnose source owns its diagnostic bag.
 
 Lazy symbol queries use the shared `DiagnosticResult<T>` contract defined in
-[Compiler diagnostics](compiler-diagnostics.md#diagnostic-results). Compilation owns lazy caching and publication around it. Symbol
-logic must not append diagnostics into one global mutable bag according to request timing.
+[Compiler diagnostics](compiler-diagnostics.md#diagnostic-results). Compilation owns lazy caching and publication around
+it. Symbol logic must not append diagnostics into one global mutable bag according to request timing.
 
 ### Query Keys
 
@@ -1101,11 +1129,11 @@ Query categories should be explicit enums or typed query functions. String keys 
 
 ### Cohesive Query Groups
 
-The implementation can group related work when one computation naturally produces several inseparable values. It should not compute
-unrelated expensive semantics merely because they belong to the same symbol.
+The implementation can group related work when one computation naturally produces several inseparable values. It should
+not compute unrelated expensive semantics merely because they belong to the same symbol.
 
-For example, constructing ordered callable parameters and the parameter-name index can be one query. Checking an executable function
-body is not part of that query.
+For example, constructing ordered callable parameters and the parameter-name index can be one query. Checking an
+executable function body is not part of that query.
 
 ### Binding-Dependent Semantics
 
@@ -1120,13 +1148,14 @@ Some symbol properties require name binding or checking:
 - checked predicate definitions,
 - decoded contract meanings.
 
-These remain symbol-facing semantics but are computed by the compiler phase that owns the semantic operation. The compilation query graph
-bridges the symbol API to the binder or checker without introducing a crate cycle.
+These remain symbol-facing semantics but are computed by the compiler phase that owns the semantic operation. The
+compilation query graph bridges the symbol API to the binder or checker without introducing a crate cycle.
 
 ### Declaration-Owned Expression Semantics
 
-Declaration-owned expressions are symbol-facing semantics even when their full checked representation belongs to binding and
-checking. They include runtime defaults, constant definition templates, predicate definitions, constraints, and contract clauses.
+Declaration-owned expressions are symbol-facing semantics even when their full checked representation belongs to binding
+and checking. They include runtime defaults, constant definition templates, predicate definitions, constraints, and
+contract clauses.
 
 The completion boundary is based on semantic ownership rather than syntax shape:
 
@@ -1151,21 +1180,21 @@ The completion boundary is based on semantic ownership rather than syntax shape:
 - typed context-bound view methods,
 - completion requirements for each symbol kind.
 
-`bray-compilation` owns exact query-key composition, thread-safe caches, dependency scheduling, cancellation, and publication of
-immutable results. Typed domain key components remain owned by the lower representation that defines their meaning so those
-representations do not depend back on compilation.
+`bray-compilation` owns exact query-key composition, thread-safe caches, dependency scheduling, cancellation, and
+publication of immutable results. Typed domain key components remain owned by the lower representation that defines
+their meaning so those representations do not depend back on compilation.
 
-`bray-binder` and checker services bind and validate declaration-owned expressions. `bray-bound-tree` owns their full checked
-source-shaped representation. A symbol record or `bray-symbols` summary must not store or depend on a bound-tree node ID because the
-bound tree already depends on symbols.
+`bray-binder` and checker services bind and validate declaration-owned expressions. `bray-bound-tree` owns their full
+checked source-shaped representation. A symbol record or `bray-symbols` summary must not store or depend on a bound-tree
+node ID because the bound tree already depends on symbols.
 
-Lowering consumes the binder-owned checked HIR when it materializes a reachable runtime default provider. Symbol-facing summaries
-are not a second executable representation.
+Lowering consumes the binder-owned checked HIR when it materializes a reachable runtime default provider. Symbol-facing
+summaries are not a second executable representation.
 
 #### Runtime Default API
 
-Default presence is cheap identity-level information derived from the declaration syntax. It must distinguish absence from written
-or recovered default syntax without forcing semantic checking.
+Default presence is cheap identity-level information derived from the declaration syntax. It must distinguish absence
+from written or recovered default syntax without forcing semantic checking.
 
 Conceptually:
 
@@ -1205,12 +1234,12 @@ impl UnionPayloadFieldSymbolView<'_> {
 }
 ```
 
-The exact implementation can avoid `Arc` in the public signature when a borrowed immutable result has a sufficient lifetime. It must
-not return an untyped `CheckedDefault` that forces callers to inspect the owner kind.
+The exact implementation can avoid `Arc` in the public signature when a borrowed immutable result has a sufficient
+lifetime. It must not return an untyped `CheckedDefault` that forces callers to inspect the owner kind.
 
-`default()` returns `None` exactly when `default_presence()` is `Absent` and must not request a checked default in that case.
-Both `Present` and `Recovered` return `Some(...)`. Recovered or semantically invalid defaults publish their diagnostics and an
-error-aware value through the same owner-specific query contract.
+`default()` returns `None` exactly when `default_presence()` is `Absent` and must not request a checked default in that
+case. Both `Present` and `Recovered` return `Some(...)`. Recovered or semantically invalid defaults publish their
+diagnostics and an error-aware value through the same owner-specific query contract.
 
 Each checked result exposes its exact provider ID and an error-aware typed value. Conceptually:
 
@@ -1231,8 +1260,8 @@ impl CheckedCallableParameterDefault {
 }
 ```
 
-Struct field and union payload defaults use their corresponding provider IDs, valid surface types, and error types. A macro can
-generate common storage and accessors, but the public result types remain specific.
+Struct field and union payload defaults use their corresponding provider IDs, valid surface types, and error types. A
+macro can generate common storage and accessors, but the public result types remain specific.
 
 A valid runtime-default surface contains at least:
 
@@ -1245,16 +1274,16 @@ A valid runtime-default surface contains at least:
 - finalization obligations,
 - source and declaration anchors needed by diagnostics and tooling.
 
-The provider ID is assigned deterministically from the owner identity when written or recovered default syntax is discovered. An
-erroneous default retains that provider identity but cannot be lowered or emitted as a valid provider.
+The provider ID is assigned deterministically from the owner identity when written or recovered default syntax is
+discovered. An erroneous default retains that provider identity but cannot be lowered or emitted as a valid provider.
 
 #### Constant Definition And Instance API
 
 Constant checking is split between a definition template and a concrete instance value.
 
-Context-bound constant, trait constant member, and trait constant fulfillment views expose kind-specific definition methods returning
-checked templates. The constant evaluator accepts an internal constant-definition erasure only at the shared evaluation
-boundary.
+Context-bound constant, trait constant member, and trait constant fulfillment views expose kind-specific definition
+methods returning checked templates. The constant evaluator accepts an internal constant-definition erasure only at the
+shared evaluation boundary.
 
 Conceptually, a concrete value query uses:
 
@@ -1274,16 +1303,16 @@ impl Compilation {
 }
 ```
 
-`AnyConstantDefinitionId` is a closed internal adapter over ordinary constant, trait constant member, and trait constant fulfillment
-IDs. The fields of `ConstantInstanceKey` remain private and category-specific symbol views construct the key. Typed symbol APIs must
-not expose the erased definition ID when the exact constant category is known.
+`AnyConstantDefinitionId` is a closed internal adapter over ordinary constant, trait constant member, and trait constant
+fulfillment IDs. The fields of `ConstantInstanceKey` remain private and category-specific symbol views construct the
+key. Typed symbol APIs must not expose the erased definition ID when the exact constant category is known.
 
-A non-generic closed constant uses an empty substitution and no selected implementation. Declaration-surface completion evaluates
-that one concrete instance. Generic and trait-selected templates are checked at definition completion but produce concrete values
-only for requested instance keys.
+A non-generic closed constant uses an empty substitution and no selected implementation. Declaration-surface completion
+evaluates that one concrete instance. Generic and trait-selected templates are checked at definition completion but
+produce concrete values only for requested instance keys.
 
-Definition diagnostics belong to the checked template. Substitution-, implementation-, or target-specific diagnostics belong
-to the concrete instance and are not published as diagnostics for unrelated instances.
+Definition diagnostics belong to the checked template. Substitution-, implementation-, or target-specific diagnostics
+belong to the concrete instance and are not published as diagnostics for unrelated instances.
 
 #### Predicate And Contract API
 
@@ -1298,16 +1327,18 @@ pub enum PredicateDefinitionState<T> {
 }
 ```
 
-The public implementation can use separate ordinary-predicate and trait-predicate state enums if that prevents impossible variants
-for either category. A defined state contains a checked semantic predicate summary, not one evaluated Boolean value.
+The public implementation can use separate ordinary-predicate and trait-predicate state enums if that prevents
+impossible variants for either category. A defined state contains a checked semantic predicate summary, not one
+evaluated Boolean value.
 
-Callable and declaration views expose checked contract and constraint collections through their existing typed `contracts()` and
-`constraints()` collections. Predicate application and proof queries are keyed by the checked definition and exact semantic
-arguments.
+Callable and declaration views expose checked contract and constraint collections through their existing typed
+`contracts()` and `constraints()` collections. Predicate application and proof queries are keyed by the checked
+definition and exact semantic arguments.
 
 #### Runtime Default Provider Surface
 
-A runtime default provider exposes only the compiler-facing callable surface needed by interface emission, lowering, and codegen:
+A runtime default provider exposes only the compiler-facing callable surface needed by interface emission, lowering, and
+codegen:
 
 - its typed provider symbol ID,
 - its owning parameter or field ID,
@@ -1317,43 +1348,43 @@ A runtime default provider exposes only the compiler-facing callable surface nee
 - effects, capabilities, trusted obligations, and finalization behavior,
 - source-independent checked provider representation or stable interface reference.
 
-Provider inputs are explicit. A parameter default can depend on the receiver and earlier parameters, but not itself, later parameters,
-or arbitrary call-site locals. Field and payload defaults cannot depend on `self` or sibling fields.
+Provider inputs are explicit. A parameter default can depend on the receiver and earlier parameters, but not itself,
+later parameters, or arbitrary call-site locals. Field and payload defaults cannot depend on `self` or sibling fields.
 
-Imported package interfaces reconstruct provider symbols and their checked surfaces without dependency source syntax. Generic
-providers include a source-independent checked or lowerable template sufficient for downstream instantiation. The consuming compiler
-must not rebind a dependency's default expression.
+Imported package interfaces reconstruct provider symbols and their checked surfaces without dependency source syntax.
+Generic providers include a source-independent checked or lowerable template sufficient for downstream instantiation.
+The consuming compiler must not rebind a dependency's default expression.
 
-Compiler-known runtime construction defaults use the same checked-default and provider contract through their compiler-known
-construction surfaces. Their typed parameter and provider categories follow the owning declaration kind, and their symbols are
-contained beneath the compiler-known environment through ordinary typed owner relationships. They must not be forced into a source
-callable parameter ID.
+Compiler-known runtime construction defaults use the same checked-default and provider contract through their
+compiler-known construction surfaces. Their typed parameter and provider categories follow the owning declaration kind,
+and their symbols are contained beneath the compiler-known environment through ordinary typed owner relationships. They
+must not be forced into a source callable parameter ID.
 
 #### Query Dependencies And Cycles
 
-Declaration-owned expression queries depend on identity, generic parameters, declared types, and the minimum contracts needed by
-that expression. They must use signature-only queries when resolving a recursive reference to the owning declaration rather than
-forcing the owner's defaults again.
+Declaration-owned expression queries depend on identity, generic parameters, declared types, and the minimum contracts
+needed by that expression. They must use signature-only queries when resolving a recursive reference to the owning
+declaration rather than forcing the owner's defaults again.
 
-Parameter defaults are checked in parameter declaration order and can depend only on the receiver and earlier parameters. Field and
-payload defaults are checked in their declaration order but cannot depend on siblings.
+Parameter defaults are checked in parameter declaration order and can depend only on the receiver and earlier
+parameters. Field and payload defaults are checked in their declaration order but cannot depend on siblings.
 
-Constant definition templates form a checked dependency graph. Concrete constant instances form a separate evaluation graph. Illegal
-constant cycles produce structured diagnostics and error constant values. Predicate recursion and termination follow predicate
-checking rules rather than being treated as cache deadlocks.
+Constant definition templates form a checked dependency graph. Concrete constant instances form a separate evaluation
+graph. Illegal constant cycles produce structured diagnostics and error constant values. Predicate recursion and
+termination follow predicate checking rules rather than being treated as cache deadlocks.
 
-A declaration-owned query can request a checked executable body when its semantics require execution. Constant evaluation can, for
-example, request a const callable body. The body remains owned by the body checker and is not added to every symbol's declaration
-completion boundary.
+A declaration-owned query can request a checked executable body when its semantics require execution. Constant
+evaluation can, for example, request a const callable body. The body remains owned by the body checker and is not added
+to every symbol's declaration completion boundary.
 
 #### Diagnostics And Publication
 
 Each checked default, constant template, constant instance, predicate definition, and contract owns its diagnostic bag.
-Definition diagnostics are published once with the definition. A call or construction that encounters an error-aware default
-uses the error result without duplicating the original definition diagnostic.
+Definition diagnostics are published once with the definition. A call or construction that encounters an error-aware
+default uses the error result without duplicating the original definition diagnostic.
 
-Successful publication caches the immutable semantic summary, provider relationship where applicable, and diagnostics together.
-Canceled work and failed speculative work publish none of them.
+Successful publication caches the immutable semantic summary, provider relationship where applicable, and diagnostics
+together. Canceled work and failed speculative work publish none of them.
 
 ---
 
@@ -1378,8 +1409,8 @@ Identity completion does not bind types or build all members.
 
 #### Declaration-Surface Completion
 
-Declaration-surface completion guarantees all semantics needed to describe and use the declared surface, including the values
-applicable to that symbol kind:
+Declaration-surface completion guarantees all semantics needed to describe and use the declared surface, including the
+values applicable to that symbol kind:
 
 - typed child symbols,
 - member and parameter indexes,
@@ -1410,8 +1441,8 @@ A symbol can be declaration-surface complete while its executable body has never
 
 ### Force Complete
 
-`force_complete(symbol)` requests declaration-surface completion for the symbol, every symbol it semantically contains, and any
-explicitly owned declaration-surface relationship defined for that symbol kind.
+`force_complete(symbol)` requests declaration-surface completion for the symbol, every symbol it semantically contains,
+and any explicitly owned declaration-surface relationship defined for that symbol kind.
 
 It traverses typed containment relationships in deterministic order.
 
@@ -1419,28 +1450,29 @@ It does not recursively complete symbols that are only referenced.
 
 Examples:
 
-- completing a function completes its generic parameters, receiver, ordinary parameters, parameter defaults, and contracts,
-- completing a struct or union materializes its type-associated surface and completes the direct and inherent members that
-  contribute to that surface without changing their containment,
+- completing a function completes its generic parameters, receiver, ordinary parameters, parameter defaults, and
+  contracts,
+- completing a struct or union materializes its type-associated surface and completes the direct and inherent members
+  that contribute to that surface without changing their containment,
 - completing a struct or union checks its field or payload defaults in declaration order,
 - completing a constant checks its definition template and evaluates its value when the instance is closed,
 - completing a predicate checks its predicate definition but does not evaluate it once to a Boolean value,
-- completing an implementation completes its own parameters and fulfillment members but does not recursively complete the trait it
-  references,
+- completing an implementation completes its own parameters and fulfillment members but does not recursively complete
+  the trait it references,
 - completing an overload family resolves and validates its arm references but does not reparent those arms,
 - completing a package completes all active modules and their contained source symbols,
 - completing the compiler-known environment completes its ambient declarations and compiler-known modules,
 - completing a callable symbol does not bind its executable body.
 
-Compiler-known completion must use the same immutable containment traversal as other symbol roots. Its environment root owns both
-top-level compiler-known modules and ambient declarations for completion purposes, while each module or declaration contributes its
-ordinary typed semantic children. A complete catalog audit must prove that this traversal reaches every generated compiler-known
-declaration exactly once.
+Compiler-known completion must use the same immutable containment traversal as other symbol roots. Its environment root
+owns both top-level compiler-known modules and ambient declarations for completion purposes, while each module or
+declaration contributes its ordinary typed semantic children. A complete catalog audit must prove that this traversal
+reaches every generated compiler-known declaration exactly once.
 
 Completion is idempotent. It returns or exposes diagnostics through the same cached values used by ordinary requests.
 
-Compilation-wide symbol diagnostics are obtained by forcing the compiler-known environment and selected package symbol roots to
-declaration-surface completion and deterministically merging the diagnostics of all requested symbol semantics.
+Compilation-wide symbol diagnostics are obtained by forcing the compiler-known environment and selected package symbol
+roots to declaration-surface completion and deterministically merging the diagnostics of all requested symbol semantics.
 
 ### Partial Completion
 
@@ -1471,8 +1503,8 @@ Examples include:
 - implementation and trait relationships,
 - import/export cycles inside a package.
 
-Plain nested one-time initialization is insufficient when a query can recursively request itself. It can deadlock, recurse forever,
-or publish an incomplete value.
+Plain nested one-time initialization is insufficient when a query can recursively request itself. It can deadlock,
+recurse forever, or publish an incomplete value.
 
 The query engine must track:
 
@@ -1484,7 +1516,8 @@ The query engine must track:
 
 A same-request cycle must be detected before waiting.
 
-Cross-worker dependencies must not deadlock. The implementation must not hold a query lock while recursively computing dependencies.
+Cross-worker dependencies must not deadlock. The implementation must not hold a query lock while recursively computing
+dependencies.
 
 Cycle policy is query-specific:
 
@@ -1494,7 +1527,8 @@ Cycle policy is query-specific:
 - module reference cycles remain legal when the language permits them,
 - compiler invariant cycles fail loudly rather than being reported as user errors.
 
-Canceled or aborted computations must not publish a value as complete and must not leak diagnostics into completed results.
+Canceled or aborted computations must not publish a value as complete and must not leak diagnostics into completed
+results.
 
 ---
 
@@ -1523,8 +1557,8 @@ Thread-safe caches are implementation state. They must not become hidden semanti
 
 ### Ownership
 
-Symbol construction owns diagnostics for violations that require semantic identity or symbol-table construction but do not require
-executable body checking.
+Symbol construction owns diagnostics for violations that require semantic identity or symbol-table construction but do
+not require executable body checking.
 
 Examples include:
 
@@ -1536,12 +1570,13 @@ Examples include:
 - invalid symbol directive targets or combinations when their meaning is symbol-owned,
 - symbol graph cycles that are illegal for the affected query category.
 
-Binding owns name and path resolution diagnostics, including unresolved or ambiguous references used by symbol-facing semantics.
-Checker services own overload validity and selection, implementation coherence and fulfillment validity, type compatibility,
-ownership, borrowing, contracts, effects, constant evaluation, target availability, and body-validity diagnostics.
+Binding owns name and path resolution diagnostics, including unresolved or ambiguous references used by symbol-facing
+semantics. Checker services own overload validity and selection, implementation coherence and fulfillment validity, type
+compatibility, ownership, borrowing, contracts, effects, constant evaluation, target availability, and body-validity
+diagnostics.
 
-A diagnostic remains owned by the phase that performs the semantic operation even when its immutable result is cached and exposed as
-a property of a symbol.
+A diagnostic remains owned by the phase that performs the semantic operation even when its immutable result is cached
+and exposed as a property of a symbol.
 
 ### Structure
 
@@ -1549,8 +1584,9 @@ Symbol diagnostics use `bray-diagnostics` kinds, typed arguments, labels, notes,
 
 Compiler logic must not construct user-facing English. Rendering goes through `bray-messages`.
 
-Diagnostics should carry typed symbol IDs only when the diagnostic contract remains valid for the lifetime of the consuming symbol
-snapshot. Persisted or external output uses rendered names, stable keys, and source locations according to its contract.
+Diagnostics should carry typed symbol IDs only when the diagnostic contract remains valid for the lifetime of the
+consuming symbol snapshot. Persisted or external output uses rendered names, stable keys, and source locations according
+to its contract.
 
 ### Lazy Collection
 
@@ -1560,8 +1596,8 @@ Compilation diagnostic queries request the required completion boundary and merg
 
 Repeated query requests do not duplicate diagnostics.
 
-Abandoned speculative computations do not publish semantic diagnostics. Diagnostics become observable only with a successfully
-published result.
+Abandoned speculative computations do not publish semantic diagnostics. Diagnostics become observable only with a
+successfully published result.
 
 ---
 
@@ -1581,8 +1617,8 @@ A recovered symbol records:
 
 Missing names do not become ordinary empty-string names.
 
-Conflicting declarations are not silently collapsed. Lookup returns ambiguity or a typed conflict result containing the relevant
-symbols.
+Conflicting declarations are not silently collapsed. Lookup returns ambiguity or a typed conflict result containing the
+relevant symbols.
 
 Error modeling should remain category-specific:
 
@@ -1593,8 +1629,8 @@ Error modeling should remain category-specific:
 
 One universal error symbol must not erase the semantic category needed for recovery.
 
-Ordinary user source must never cause symbol construction to panic. Panics are reserved for violated compiler invariants such as an
-invalid internal ID or impossible symbol-kind/table mismatch.
+Ordinary user source must never cause symbol construction to panic. Panics are reserved for violated compiler invariants
+such as an invalid internal ID or impossible symbol-kind/table mismatch.
 
 ---
 
@@ -1602,8 +1638,9 @@ invalid internal ID or impossible symbol-kind/table mismatch.
 
 ### Storage Boundary
 
-Compilation-wide symbol storage contains declaration-surface, imported, compiler-known, compiler-provided, and synthesized surface
-symbols. It does not append locals when an executable body or declaration-owned expression is requested.
+Compilation-wide symbol storage contains declaration-surface, imported, compiler-known, compiler-provided, and
+synthesized surface symbols. It does not append locals when an executable body or declaration-owned expression is
+requested.
 
 Each independently checked semantic region owns an immutable `LocalSymbolSnapshot`. Regions include:
 
@@ -1611,12 +1648,12 @@ Each independently checked semantic region owns an immutable `LocalSymbolSnapsho
 - an anonymous callable together with its signature and body,
 - a declaration-owned expression that introduces contextual lookup symbols.
 
-The binder constructs the local snapshot together with the region's checked bound representation. The compilation query publishes
-the bound representation, local snapshot, and diagnostic bag atomically as one immutable publication. Cancellation, failed
-speculation, or abandoned work publishes none of them.
+The binder constructs the local snapshot together with the region's checked bound representation. The compilation query
+publishes the bound representation, local snapshot, and diagnostic bag atomically as one immutable publication.
+Cancellation, failed speculation, or abandoned work publishes none of them.
 
-This boundary allows bodies and declaration-owned expressions to be requested, cached, replaced, and checked in parallel without
-mutating the compilation-wide symbol graph.
+This boundary allows bodies and declaration-owned expressions to be requested, cached, replaced, and checked in parallel
+without mutating the compilation-wide symbol graph.
 
 ### Region Identity
 
@@ -1629,16 +1666,16 @@ Every region has a deterministic `LocalSymbolRegionKey` derived from:
 - the region's stable `SyntaxAnchor`,
 - a defined role or ordinal when one owner has multiple regions at the same anchor.
 
-A declared callable body uses its callable symbol and body anchor. An anonymous callable region uses the nearest declared or
-synthesized root plus the normalized path of lambda anchors leading to that lambda. A declaration-owned expression uses its owning
-symbol, exact semantic category, and expression anchor.
+A declared callable body uses its callable symbol and body anchor. An anonymous callable region uses the nearest
+declared or synthesized root plus the normalized path of lambda anchors leading to that lambda. A declaration-owned
+expression uses its owning symbol, exact semantic category, and expression anchor.
 
-The lambda region owns the anonymous callable symbol, its parameter symbols, its contracts, and its body-local symbols. The enclosing
-bound lambda expression references that deterministic anonymous callable ID. The ID can therefore be derived before the lambda body
-is checked without publishing a partial enclosing snapshot or allocating a global symbol.
+The lambda region owns the anonymous callable symbol, its parameter symbols, its contracts, and its body-local symbols.
+The enclosing bound lambda expression references that deterministic anonymous callable ID. The ID can therefore be
+derived before the lambda body is checked without publishing a partial enclosing snapshot or allocating a global symbol.
 
-Region keys must not contain memory addresses, worker IDs, cache insertion order, or lazy request order. Numeric region IDs are
-compilation-local handles and need not survive source edits.
+Region keys must not contain memory addresses, worker IDs, cache insertion order, or lazy request order. Numeric region
+IDs are compilation-local handles and need not survive source edits.
 
 ### Typed Local IDs
 
@@ -1678,16 +1715,17 @@ pub struct LocalScopeId {
 }
 ```
 
-Fields remain private. Typed constructors are available only to the local-symbol builder. Public accessors can expose the region ID
-when routing a reference to its owning snapshot is necessary.
+Fields remain private. Typed constructors are available only to the local-symbol builder. Public accessors can expose
+the region ID when routing a reference to its owning snapshot is necessary.
 
 `LocalScopeId` uses the same region protection but is not a symbol ID.
 
-`AnyLocalSymbolId` is a closed erasure over the exact local categories. `AnySymbolId` can include local variants for diagnostics,
-debugging, visitors, and tooling, but core binding and checking APIs use exact IDs or narrow family IDs.
+`AnyLocalSymbolId` is a closed erasure over the exact local categories. `AnySymbolId` can include local variants for
+diagnostics, debugging, visitors, and tooling, but core binding and checking APIs use exact IDs or narrow family IDs.
 
-An ID from one region is never valid against another region's snapshot. Checked accessors return `None` or a typed lookup error for
-a mismatched region. Unchecked indexing is crate-private and reserved for compiler invariants already established by the caller.
+An ID from one region is never valid against another region's snapshot. Checked accessors return `None` or a typed
+lookup error for a mismatched region. Unchecked indexing is crate-private and reserved for compiler invariants already
+established by the caller.
 
 ### Snapshot Shape And API
 
@@ -1724,11 +1762,11 @@ impl LocalSymbolSnapshot {
 }
 ```
 
-The exact storage can use dense per-category tables generated by shared infrastructure. Public APIs remain category-specific and do
-not expose one general heterogeneous child list.
+The exact storage can use dense per-category tables generated by shared infrastructure. Public APIs remain
+category-specific and do not expose one general heterogeneous child list.
 
-The checked-region API exposes its local snapshot directly. Lowering receives the checked bound HIR and its local snapshot together
-rather than resolving locals through a mutable compilation-wide registry.
+The checked-region API exposes its local snapshot directly. Lowering receives the checked bound HIR and its local
+snapshot together rather than resolving locals through a mutable compilation-wide registry.
 
 ### Lexical Scopes
 
@@ -1742,22 +1780,23 @@ The immutable scope graph records:
 - typed ordinary-name indexes,
 - source anchors needed by tooling and diagnostics.
 
-Published scope indexes support deterministic tooling queries. The binder can use a mutable scope stack while constructing them, but
-that mutable stack is not durable compiler state.
+Published scope indexes support deterministic tooling queries. The binder can use a mutable scope stack while
+constructing them, but that mutable stack is not durable compiler state.
 
-Semantic containment and lexical lookup ancestry are separate relationships. An anonymous callable symbol is semantically contained
-by its nearest declared or anonymous callable owner, while its symbols are stored in its own lambda region snapshot. Its body begins a
-new callable lookup boundary. Because Bray lambdas are capture-free, the lambda body does not inherit the enclosing region's local
-names or receiver. It receives only its own parameters and the declarations available from its declaration context.
+Semantic containment and lexical lookup ancestry are separate relationships. An anonymous callable symbol is
+semantically contained by its nearest declared or anonymous callable owner, while its symbols are stored in its own
+lambda region snapshot. Its body begins a new callable lookup boundary. Because Bray lambdas are capture-free, the
+lambda body does not inherit the enclosing region's local names or receiver. It receives only its own parameters and the
+declarations available from its declaration context.
 
-Named callable parameters, predicate parameters, generic parameters, and receiver parameters remain declaration-surface symbols.
-The root local scope references the applicable surface symbols without cloning them into local storage.
+Named callable parameters, predicate parameters, generic parameters, and receiver parameters remain declaration-surface
+symbols. The root local scope references the applicable surface symbols without cloning them into local storage.
 
 ### Deterministic Construction And Recovery
 
-Local slots are assigned in stable syntax order within each category. Pattern bindings use their language-defined logical binding
-order. Stable keys combine the region key, introducing syntax anchor, exact local category, and a role or ordinal where one syntax
-form introduces multiple symbols.
+Local slots are assigned in stable syntax order within each category. Pattern bindings use their language-defined
+logical binding order. Stable keys combine the region key, introducing syntax anchor, exact local category, and a role
+or ordinal where one syntax form introduces multiple symbols.
 
 Construction follows these rules:
 
@@ -1770,24 +1809,25 @@ Construction follows these rules:
 - recovered names create recovered symbols when their identity remains usable,
 - synthesized contextual symbols use fixed semantic roles rather than invented source names as identity.
 
-Name-index insertion and symbol retention are separate. An invalid duplicate remains addressable for diagnostics and bound recovery
-without silently replacing the valid lookup entry.
+Name-index insertion and symbol retention are separate. An invalid duplicate remains addressable for diagnostics and
+bound recovery without silently replacing the valid lookup entry.
 
 ### Local Symbol Lifetime And Resolution
 
-A local ID is valid only while its owning `LocalSymbolSnapshot` and compilation snapshot are valid. Persisted tooling data uses the
-region key, local stable key, and source anchors rather than raw local slots.
+A local ID is valid only while its owning `LocalSymbolSnapshot` and compilation snapshot are valid. Persisted tooling
+data uses the region key, local stable key, and source anchors rather than raw local slots.
 
-Bound name, declaration, pattern, and callable nodes store exact typed local or surface symbol references. A narrow resolved-value or
-resolved-callable family can close over both identity spaces where a language operation accepts either. It must not erase every
-reference to `AnySymbolId` merely for storage convenience.
+Bound name, declaration, pattern, and callable nodes store exact typed local or surface symbol references. A narrow
+resolved-value or resolved-callable family can close over both identity spaces where a language operation accepts
+either. It must not erase every reference to `AnySymbolId` merely for storage convenience.
 
-Diagnostics owned by a checked region can carry local IDs because the local snapshot and diagnostic bag are published and retained
-together. External diagnostic formats use source locations, rendered names, and stable keys according to their lifetime contract.
+Diagnostics owned by a checked region can carry local IDs because the local snapshot and diagnostic bag are published
+and retained together. External diagnostic formats use source locations, rendered names, and stable keys according to
+their lifetime contract.
 
-Local bindings are symbols, but storage identities, storage accesses, projections, temporaries, control-flow blocks, and borrow-state
-records are not.
-Those remain owned by the source-shaped bound representation, checker state, or backend-independent MIR as appropriate.
+Local bindings are symbols, but storage identities, storage accesses, projections, temporaries, control-flow blocks, and
+borrow-state records are not. Those remain owned by the source-shaped bound representation, checker state, or
+backend-independent MIR as appropriate.
 
 ---
 
@@ -1811,8 +1851,8 @@ Binding must not reconstruct symbol ownership or declaration groups by walking s
 
 Symbol APIs should return typed semantics and typed lookup results rather than loosely structured maps or strings.
 
-The binder creates local symbols while constructing a checked semantic region. Those symbols remain owned by the region's immutable
-local snapshot and are published atomically with the checked bound representation.
+The binder creates local symbols while constructing a checked semantic region. Those symbols remain owned by the
+region's immutable local snapshot and are published atomically with the checked bound representation.
 
 ---
 
@@ -1839,19 +1879,22 @@ The same separation applies to:
 
 This prevents definition identity, generic substitution, and use-site selection from being conflated.
 
-Original-definition queries are explicit on application values. They must not rely on stripping information from a reused symbol ID.
+Original-definition queries are explicit on application values. They must not rely on stripping information from a
+reused symbol ID.
 
-Defined semantic types, constant values, open constant terms, and generic substitutions are stored in a compilation- or immutable
-symbol-snapshot-scoped semantic value store owned by `bray-symbols`. The store interns immutable structural keys and returns opaque
-typed IDs. Numeric IDs are never persisted or used for deterministic output ordering.
+Defined semantic types, constant values, open constant terms, and generic substitutions are stored in a compilation- or
+immutable symbol-snapshot-scoped semantic value store owned by `bray-symbols`. The store interns immutable structural
+keys and returns opaque typed IDs. Numeric IDs are never persisted or used for deterministic output ordering.
 
-Inference variables are checker-local and never appear as `TypeId`. Closed constant values use `ConstantValueId`. Open const
-parameters and checked terms used in generic type identity use `ConstantTermId`. An open `GenericSubstitutionId` is distinct from a
-validated `ConcreteGenericSubstitutionId` required by concrete constant evaluation and code generation.
+Inference variables are checker-local and never appear as `TypeId`. Closed constant values use `ConstantValueId`. Open
+const parameters and checked terms used in generic type identity use `ConstantTermId`. An open `GenericSubstitutionId`
+is distinct from a validated `ConcreteGenericSubstitutionId` required by concrete constant evaluation and code
+generation.
 
-Portable inferred dependency contracts use `DependencyContractTemplateId`. Their formal subjects use stable receiver, parameter,
-result, projection, capability, and implementation-witness identities. Unit-local storage identities, storage accesses, borrow
-capabilities, and instantiated contracts remain owned by `bray-bound-tree` and never enter symbol-store templates.
+Portable inferred dependency contracts use `DependencyContractTemplateId`. Their formal subjects use stable receiver,
+parameter, result, projection, capability, and implementation-witness identities. Unit-local storage identities, storage
+accesses, borrow capabilities, and instantiated contracts remain owned by `bray-bound-tree` and never enter symbol-store
+templates.
 
 The detailed representation, equality, ownership, and interning contract is defined in `docs/design/binder.md`.
 
@@ -1859,12 +1902,13 @@ The detailed representation, equality, ownership, and interning contract is defi
 
 ## Incrementality And Sharing
 
-Symbols follow the compiler-wide snapshot, invalidation, and reuse contract in `compiler-architecture.md`. Source, imported,
-compiler-known, compiler-provided, and synthesized records use the same reuse rule and retain their exact provider dependencies.
+Symbols follow the compiler-wide snapshot, invalidation, and reuse contract in `compiler-architecture.md`. Source,
+imported, compiler-known, compiler-provided, and synthesized records use the same reuse rule and retain their exact
+provider dependencies.
 
-Numeric symbol IDs are snapshot-local and need not survive edits. Stable symbol keys establish deterministic remapping into each
-snapshot and provide persistent references for interfaces and tooling. Reuse never persists or compares raw numeric IDs across
-snapshots.
+Numeric symbol IDs are snapshot-local and need not survive edits. Stable symbol keys establish deterministic remapping
+into each snapshot and provide persistent references for interfaces and tooling. Reuse never persists or compares raw
+numeric IDs across snapshots.
 
 ---
 
@@ -1892,8 +1936,8 @@ The public API should avoid:
 - callers manually sequencing phase workflows,
 - eager whole-program completion as a prerequisite for ordinary queries.
 
-Crate-private traits can express genuinely shared behavior when static dispatch or testability benefits. They must not recreate an
-inheritance hierarchy whose primary purpose is field reuse.
+Crate-private traits can express genuinely shared behavior when static dispatch or testability benefits. They must not
+recreate an inheritance hierarchy whose primary purpose is field reuse.
 
 ---
 
@@ -1927,7 +1971,8 @@ Required coverage includes:
 - runtime default providers remaining absent from ordinary lookup and typed member collections,
 - kind-specific default APIs retaining recovered and error-aware defaults,
 - invalid runtime defaults diagnosing even when every use supplies an explicit value,
-- parameter defaults accepting receiver and earlier-parameter dependencies while rejecting self and later-parameter dependencies,
+- parameter defaults accepting receiver and earlier-parameter dependencies while rejecting self and later-parameter
+  dependencies,
 - completion checking declaration-owned defaults, predicates, contracts, and closed constants,
 - completion recording but not checking defaulted trait callable bodies,
 - generic constant definition templates producing separately cached concrete instance values,
@@ -1956,20 +2001,21 @@ Required coverage includes:
 - cancellation not publishing partial values,
 - stable diagnostics under different worker schedules.
 
-Integration tests should verify that `Compilation` exposes symbol roots and diagnostics through lazy queries derived from declaration
-tables, the compiler-known catalog, and compiled dependency interfaces.
+Integration tests should verify that `Compilation` exposes symbol roots and diagnostics through lazy queries derived
+from declaration tables, the compiler-known catalog, and compiled dependency interfaces.
 
 ---
 
 ## Dependency And Conformance Order
 
-Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries
+defined above:
 
 1. Define symbol kinds, typed IDs, semantic value IDs, origins, keys, and common immutable identity data.
-2. Define interned semantic type, constant value, open constant term, generic substitution, dependency-contract-template, and
-   semantic-store contracts.
-3. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
-   symbols, and deterministic source declaration-to-symbol identity mapping.
+2. Define interned semantic type, constant value, open constant term, generic substitution,
+   dependency-contract-template, and semantic-store contracts.
+3. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner
+   families, module symbols, and deterministic source declaration-to-symbol identity mapping.
 4. Define typed module member collections and lookup-result primitives.
 5. Define the compilation-owned lazy query and completion protocol with cycle and concurrency contracts.
 6. Add named type, trait, implementation, overload, member, and parameter symbol records.

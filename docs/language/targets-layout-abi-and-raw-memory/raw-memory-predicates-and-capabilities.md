@@ -43,21 +43,24 @@ trusted predicate callable_address_valid<F>(pointer: RawPointer<F>);
 
 `same_allocation` means both pointers are derived from the same allocation.
 
-`callable_address_valid` requires `F` to be an ABI-qualified capture-free callable type and means the pointer is non-null, denotes
-executable code with exactly that callable contract, uses a target-supported code-address representation, and retains every
-provider dependency needed to call it.
+`callable_address_valid` requires `F` to be an ABI-qualified capture-free callable type and means the pointer is
+non-null, denotes executable code with exactly that callable contract, uses a target-supported code-address
+representation, and retains every provider dependency needed to call it.
 
-`shared_alias_valid` and `exclusive_alias_valid` state that creating the corresponding language
-borrow preserves ordinary alias rules. `epoch_current` ties the pointer to its current allocation
-or mapping epoch. `synchronized_access` states that mutable access is covered by active
-synchronization authority. `movement_stable` prevents relocation while a dependent borrow is
-active. `finalization_pending` prevents access after finalization or destruction begins.
+`shared_alias_valid` and `exclusive_alias_valid` state that creating the corresponding language borrow preserves
+ordinary alias rules. `epoch_current` ties the pointer to its current allocation or mapping epoch. `synchronized_access`
+states that mutable access is covered by active synchronization authority. `movement_stable` prevents relocation while a
+dependent borrow is active. `finalization_pending` prevents access after finalization or destruction begins.
 
-An `owned_allocation` condition can establish `aligned_for<T>` for pointers into the allocation when the allocation alignment, offset, and target type alignment prove the typed pointer is aligned for `T`.
+An `owned_allocation` condition can establish `aligned_for<T>` for pointers into the allocation when the allocation
+alignment, offset, and target type alignment prove the typed pointer is aligned for `T`.
 
-Trusted raw memory conditions are tied to the allocation, storage state, pointer value, element type, count, alignment, capability state, and epoch they mention.
+Trusted raw memory conditions are tied to the allocation, storage state, pointer value, element type, count, alignment,
+capability state, and epoch they mention.
 
-Trusted raw memory conditions are invalidated by deallocation, reallocation, movement out of raw storage, destruction, finalization, initialization-state changes, layout reinterpretation, device transfer, foreign calls, unchecked aliasing, or any other operation whose contract can affect the mentioned storage.
+Trusted raw memory conditions are invalidated by deallocation, reallocation, movement out of raw storage, destruction,
+finalization, initialization-state changes, layout reinterpretation, device transfer, foreign calls, unchecked aliasing,
+or any other operation whose contract can affect the mentioned storage.
 
 ## Capability mapping
 
@@ -76,7 +79,8 @@ Raw memory operations use trusted capabilities according to the operation they p
 
 A trusted declaration must declare exactly the trusted capabilities it uses.
 
-A standard-library wrapper over a trusted raw memory operation must preserve the same trusted caller obligations unless it proves or establishes those obligations itself.
+A standard-library wrapper over a trusted raw memory operation must preserve the same trusted caller obligations unless
+it proves or establishes those obligations itself.
 
 ## Navigation
 

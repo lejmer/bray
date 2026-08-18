@@ -15,8 +15,8 @@ Examples:
 - destruction can make guarantees about destroyed storage unavailable,
 - trusted declarations can establish trusted guarantees through `ensures(...)`.
 
-An implementation must produce the same acceptance and rejection decisions required by these rules. The specification does not
-prescribe an internal representation for the available conditions.
+An implementation must produce the same acceptance and rejection decisions required by these rules. The specification
+does not prescribe an internal representation for the available conditions.
 
 ## Navigation
 

@@ -12,7 +12,8 @@ let xs: [i32; 4] =
 ];
 ```
 
-An array generator expression is the bracketed array expression form whose top-level child is a generator iteration expression.
+An array generator expression is the bracketed array expression form whose top-level child is a generator iteration
+expression.
 
 The expression has the form:
 
@@ -39,7 +40,8 @@ Iteration bindings are scoped to the iteration body.
 
 Iteration bindings are not visible in the source expression.
 
-Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and finalization rules.
+Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction,
+and finalization rules.
 
 The iteration body is a block expression in array-generator context.
 
@@ -55,28 +57,35 @@ The resulting array length must be greater than zero.
 
 The compiler must be able to prove the required cardinality.
 
-When the compiler cannot prove that the array generator yields exactly the required number of elements, the array generator expression is rejected.
+When the compiler cannot prove that the array generator yields exactly the required number of elements, the array
+generator expression is rejected.
 
 The yielded value is checked against the array element type.
 
-Expected array element type can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, conversion checking, and nested expression checking inside yielded expressions.
+Expected array element type can guide literal typing, variant shorthand, struct construction shorthand, box construction
+shorthand, conversion checking, and nested expression checking inside yielded expressions.
 
-A yielded value is moved into the array unless it is copied according to the element type’s copy contract or another explicit rule applies.
+A yielded value is moved into the array unless it is copied according to the element type’s copy contract or another
+explicit rule applies.
 
 The array is fully initialized when every required element has been yielded and initialized.
 
-If iteration exits before the array is fully initialized through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
+If iteration exits before the array is fully initialized through `return`, `yield`, `break`, `continue`, `never`,
+cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the
+corresponding ownership, destruction, and finalization rules.
 
 `continue` targets the nearest iteration region.
 
 `break` targets the nearest iteration region and exits that iteration expression.
 
-Because the generator iteration expression inside an array generator completes as `unit`, a break that targets the iteration
-expression must supply `unit`.
+Because the generator iteration expression inside an array generator completes as `unit`, a break that targets the
+iteration expression must supply `unit`.
 
-In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s required element is rejected unless the compiler can prove the required yield still occurs.
+In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s
+required element is rejected unless the compiler can prove the required yield still occurs.
 
-In a fixed-size array generator, any control-flow path that breaks the iteration before yielding every required element is rejected unless the compiler can prove the required yield count is still satisfied.
+In a fixed-size array generator, any control-flow path that breaks the iteration before yielding every required element
+is rejected unless the compiler can prove the required yield count is still satisfied.
 
 Nested yield-capable regions capture their own yields.
 
@@ -103,20 +112,24 @@ The source expression of each generator is evaluated once for that generator.
 
 Nested array generator expressions are checked recursively.
 
-Array generator expressions participate in effect checking and capability checking through the source expression, selected
-`Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded expressions.
+Array generator expressions participate in effect checking and capability checking through the source expression,
+selected `Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded
+expressions.
 
 Effects of the source expression occur once before iteration.
 
 Effects of the iteration body occur once per executed iteration.
 
-Finalization obligations created in an iteration body must be completed, transferred, or moved into yielded values before the iteration body exits.
+Finalization obligations created in an iteration body must be completed, transferred, or moved into yielded values
+before the iteration body exits.
 
 Finalization obligations of yielded values become part of the resulting array.
 
-Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration region.
+Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration
+region.
 
-Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into the yielded value or another surviving storage location.
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into the yielded
+value or another surviving storage location.
 
 ## Navigation
 

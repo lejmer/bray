@@ -55,7 +55,8 @@ impl PointEquatable = Point(Equatable<Point>)
 
 It is not a type, a type alias, or a wrapper around the implementing subject.
 
-The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being implemented for.
+The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being implemented
+for.
 
 The trait application inside the parentheses determines the contract being fulfilled.
 
@@ -87,7 +88,8 @@ A trait implementation makes the implementing subject satisfy the specified trai
 
 Trait satisfaction is explicit.
 
-An implementing subject satisfies a trait application through an accepted participating implementation declaration for that exact subject and trait application.
+An implementing subject satisfies a trait application through an accepted participating implementation declaration for
+that exact subject and trait application.
 
 Matching member names and signatures alone gives no trait satisfaction.
 
@@ -95,16 +97,16 @@ Matching member names and signatures alone gives no trait satisfaction.
 
 A source type's defining package owns its inherent implementation surface.
 
-Only that package can declare an inherent implementation for the type. The implementation can appear in any module included in the
-selected source graph for the package product.
+Only that package can declare an inherent implementation for the type. The implementation can appear in any module
+included in the selected source graph for the package product.
 
-A compiler-known type is owned by the compiler-known environment. Source and standard-library packages cannot add inherent
-implementations to a compiler-known type unless an owning language rule explicitly assigns that authority.
+A compiler-known type is owned by the compiler-known environment. Source and standard-library packages cannot add
+inherent implementations to a compiler-known type unless an owning language rule explicitly assigns that authority.
 
 Trait implementations remain the extension mechanism for behavior declared outside the semantic owner of a type.
 
-Every enabled inherent implementation from the owning package's selected source graph contributes automatically to the associated
-type. A `using` declaration or export does not activate or deactivate an inherent implementation.
+Every enabled inherent implementation from the owning package's selected source graph contributes automatically to the
+associated type. A `using` declaration or export does not activate or deactivate an inherent implementation.
 
 ## Trait implementation subjects
 
@@ -169,7 +171,8 @@ An implementation for `&T` does not make `T` satisfy the same trait application.
 
 An implementation for `&mut T` does not make `&T` satisfy the same trait application.
 
-A value of type `&mut T` can reach an implementation for `&T` only when ordinary expression rules create an explicit shared reborrow and method resolution is then performed on the shared-borrow type.
+A value of type `&mut T` can reach an implementation for `&T` only when ordinary expression rules create an explicit
+shared reborrow and method resolution is then performed on the shared-borrow type.
 
 For a trait implementation with an implementation-eligible type-form subject, `Self` is the whole type form.
 
@@ -177,7 +180,8 @@ Inside `impl VecReadIterable = &Vec<T>(Iterable)`, `Self` is `&Vec<T>`.
 
 Inside `impl VecWriteIterable = &mut Vec<T>(Iterable)`, `Self` is `&mut Vec<T>`.
 
-Values returned by callable members can carry borrow dependencies from a borrow implementation subject according to ordinary dependency-contract rules.
+Values returned by callable members can carry borrow dependencies from a borrow implementation subject according to
+ordinary dependency-contract rules.
 
 Such values cannot outlive or extend the borrow represented by the implementation subject.
 
@@ -211,11 +215,11 @@ A trait implementation must satisfy every lifecycle requirement.
 
 A trait implementation can provide a callable member or constant-valued member that has default behavior in the trait.
 
-When a trait implementation provides a callable member or constant-valued member with default behavior, the implementation member
-is used for that implementation.
+When a trait implementation provides a callable member or constant-valued member with default behavior, the
+implementation member is used for that implementation.
 
-When a trait implementation omits a callable member or constant-valued member with default behavior, the trait’s default behavior
-is used for that implementation.
+When a trait implementation omits a callable member or constant-valued member with default behavior, the trait’s default
+behavior is used for that implementation.
 
 An inherent implementation can bind a type-valued member for its implementation subject.
 
@@ -228,9 +232,11 @@ impl Buffer<T>
 
 An inherent type-valued member binding introduces a type-associated member of the implementation subject.
 
-The selected type can depend on `Self`, inferred implementation parameters, and static constraints established by the implementation.
+The selected type can depend on `Self`, inferred implementation parameters, and static constraints established by the
+implementation.
 
-The selected type cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
+The selected type cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use
+site.
 
 An inherent type-valued member is reached through ordinary type-associated lookup.
 
@@ -242,13 +248,17 @@ An inherent type-valued member binding is not a module-level type alias.
 
 An inherent type-valued member binding participates in the type-associated aggregation and conflict rules defined below.
 
-A trait implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
+A trait implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names,
+parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member
+bindings have been applied.
 
 A trait implementation constant-valued member must match a constant-valued member declared by the implemented trait.
 
-A trait implementation constant-valued member must use the same declared type as the fulfilled trait member after type-valued member bindings have been applied.
+A trait implementation constant-valued member must use the same declared type as the fulfilled trait member after
+type-valued member bindings have been applied.
 
-A trait implementation constant-valued member initializer must be a constant expression valid in the implementation context.
+A trait implementation constant-valued member initializer must be a constant expression valid in the implementation
+context.
 
 A trait implementation cannot provide the same constant-valued member more than once.
 
@@ -256,7 +266,8 @@ A trait implementation cannot provide extra constant-valued members that are not
 
 A trait implementation type-valued member binding must match a type-valued member declared by the implemented trait.
 
-A trait implementation type-valued member binding must select a concrete type that is valid in the implementation context.
+A trait implementation type-valued member binding must select a concrete type that is valid in the implementation
+context.
 
 A trait implementation cannot bind the same type-valued member more than once.
 
@@ -270,24 +281,28 @@ A trait implementation cannot provide the same predicate member more than once.
 
 A trait implementation cannot provide extra predicate members that are not declared by the trait.
 
-A trait implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented trait.
+A trait implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the
+implemented trait.
 
-A trait implementation lifecycle declaration must satisfy the lifecycle signature and contract clauses of the requirement it
-fulfills after type-valued member bindings have been applied.
+A trait implementation lifecycle declaration must satisfy the lifecycle signature and contract clauses of the
+requirement it fulfills after type-valued member bindings have been applied.
 
 A trait implementation cannot provide `finalize` or `destruct` as trait implementation members.
 
-A trait implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the trait.
+A trait implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the
+trait.
 
 A trait implementation cannot provide constructor declarations.
 
 A trait implementation cannot provide callable overload declarations.
 
-An inherent member's effective reachability is governed by its implementation subject type, declaring module, and member visibility.
+An inherent member's effective reachability is governed by its implementation subject type, declaring module, and member
+visibility.
 
 Individual trait implementation members cannot use `public` or `internal` modifiers.
 
-Implementation members in a trait implementation are fulfillments of a trait contract, not independent visibility surfaces.
+Implementation members in a trait implementation are fulfillments of a trait contract, not independent visibility
+surfaces.
 
 ## Type-associated member aggregation
 
@@ -301,8 +316,8 @@ That surface contains:
 - the type's lifecycle declarations,
 - the inherent implementation declarations that contributed those members.
 
-Trait implementation members are not part of this surface. They remain fulfillments of an exact trait application and participate
-through trait implementation and method-resolution rules.
+Trait implementation members are not part of this surface. They remain fulfillments of an exact trait application and
+participate through trait implementation and method-resolution rules.
 
 Union payload fields remain in the scope of their variant payload. They do not become union-wide associated members.
 
@@ -310,11 +325,12 @@ Union payload fields remain in the scope of their variant payload. They do not b
 
 Aggregation does not create replacement declarations.
 
-A member declared directly in a type body remains declared by that type. A member declared in an inherent implementation remains
-declared by that implementation. Both are associated with the same type definition and participate in lookup through that type.
+A member declared directly in a type body remains declared by that type. A member declared in an inherent implementation
+remains declared by that implementation. Both are associated with the same type definition and participate in lookup
+through that type.
 
-Declaration identity, source location, effective visibility, implementation constraints, and declaring implementation remain
-observable for diagnostics, documentation, navigation, and public API compatibility.
+Declaration identity, source location, effective visibility, implementation constraints, and declaring implementation
+remain observable for diagnostics, documentation, navigation, and public API compatibility.
 
 ### Associated name conflicts
 
@@ -328,52 +344,53 @@ The same ordinary name cannot be introduced by:
 - members with different visibility,
 - members guarded by different generic constraints.
 
-A direct declaration does not take precedence over an inherent declaration. Source order, module order, visibility, and apparently
-more-specific constraints do not choose a winner.
+A direct declaration does not take precedence over an inherent declaration. Source order, module order, visibility, and
+apparently more-specific constraints do not choose a winner.
 
-Different constrained inherent implementations cannot introduce the same associated name even when their valid substitutions can
-be proven disjoint. Such declarations would make ordinary lookup an implicit form of constraint-based overloading.
+Different constrained inherent implementations cannot introduce the same associated name even when their valid
+substitutions can be proven disjoint. Such declarations would make ordinary lookup an implicit form of constraint-based
+overloading.
 
-Callable alternatives must use separately named callables and an explicit callable overload family. The overload family occupies
-its shared ordinary name once.
+Callable alternatives must use separately named callables and an explicit callable overload family. The overload family
+occupies its shared ordinary name once.
 
-A conflict is rejected and retains every conflicting declaration for diagnostics. Lookup does not select the first declaration.
+A conflict is rejected and retains every conflicting declaration for diagnostics. Lookup does not select the first
+declaration.
 
 ### Generic applicability
 
-Members are aggregated at the named type-definition level. A generic inherent member is a declaration template associated with that
-definition.
+Members are aggregated at the named type-definition level. A generic inherent member is a declaration template
+associated with that definition.
 
-For a constructed type, member applicability substitutes the type arguments, matches the inherent implementation subject, and
-proves the implementation's static constraints.
+For a constructed type, member applicability substitutes the type arguments, matches the inherent implementation
+subject, and proves the implementation's static constraints.
 
-If those constraints are not proven, the member is not applicable to that constructed type. In generic code, the surrounding static
-constraints must establish the member's implementation constraints before the member can be used.
+If those constraints are not proven, the member is not applicable to that constructed type. In generic code, the
+surrounding static constraints must establish the member's implementation constraints before the member can be used.
 
-An inapplicable declaration still reserves its ordinary name in the type-definition surface. Another constrained implementation
-cannot reuse that name as an alternative.
+An inapplicable declaration still reserves its ordinary name in the type-definition surface. Another constrained
+implementation cannot reuse that name as an alternative.
 
-Name lookup distinguishes an absent member from an inaccessible member, a member of the wrong semantic category, a member whose
-constraints are not satisfied, a malformed member, and a conflicting member set.
+Name lookup distinguishes an absent member from an inaccessible member, a member of the wrong semantic category, a
+member whose constraints are not satisfied, a malformed member, and a conflicting member set.
 
 ### Lifecycle slots
 
-The primary constructor, finalizer, destructor, scope enter declaration, and scope exit declaration occupy typed lifecycle slots
-rather than ordinary names.
+The primary constructor, finalizer, destructor, scope enter declaration, and scope exit declaration occupy typed
+lifecycle slots rather than ordinary names.
 
-At most one declaration template can occupy each lifecycle slot across the type body and all inherent implementations. Generic
-constraints do not create alternative declarations for the same slot.
+At most one declaration template can occupy each lifecycle slot across the type body and all inherent implementations.
+Generic constraints do not create alternative declarations for the same slot.
 
 A named constructor occupies an ordinary name and follows the ordinary associated-name conflict rules.
 
 ### Visibility and deterministic order
 
-The type-associated member surface retains both accessible and inaccessible members. Effective reachability is capped by the
-implementation subject type,
-the member's declaring module, and the member's own visibility.
+The type-associated member surface retains both accessible and inaccessible members. Effective reachability is capped by
+the implementation subject type, the member's declaring module, and the member's own visibility.
 
-An inherent implementation does not create another visibility boundary. It also does not make a member reachable when its type,
-declaring module, or member visibility prevents access.
+An inherent implementation does not create another visibility boundary. It also does not make a member reachable when
+its type, declaring module, or member visibility prevents access.
 
 The deterministic enumeration order is:
 
@@ -434,7 +451,8 @@ point.distance_to(other)
 
 The binding name `self` is reserved for the compiler-introduced receiver.
 
-Static function bodies use `Self` for the implementing subject and receive ordinary parameters through their parameter list.
+Static function bodies use `Self` for the implementing subject and receive ordinary parameters through their parameter
+list.
 
 ## Generic traits
 
@@ -480,13 +498,16 @@ Generic implementation parameters are inferred from the implementing subject and
 impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
 ```
 
-An otherwise unresolved generic name that appears in the implementing subject or trait application becomes an implementation parameter.
+An otherwise unresolved generic name that appears in the implementing subject or trait application becomes an
+implementation parameter.
 
-If a name resolves to an existing type, constant, or other visible declaration, it is not inferred as an implementation parameter.
+If a name resolves to an existing type, constant, or other visible declaration, it is not inferred as an implementation
+parameter.
 
 The implementation name is written without a generic parameter list.
 
-The implementing subject, trait application, `with(...)` clause, and implementation body can use inferred implementation parameters.
+The implementing subject, trait application, `with(...)` clause, and implementation body can use inferred implementation
+parameters.
 
 The `with(...)` clause can constrain inferred implementation parameters.
 
@@ -522,17 +543,20 @@ For each valid substitution of the implementation parameters, the implementation
 (SubstitutedImplementingSubject, SubstitutedTraitApplication)
 ```
 
-A substitution is valid only when it satisfies the implementation’s `with(...)` clause and makes the implementing subject and trait application well formed.
+A substitution is valid only when it satisfies the implementation’s `with(...)` clause and makes the implementing
+subject and trait application well formed.
 
 The implementation body is checked once under the implementation’s static constraints.
 
-The body can use only operations, type-valued members, constants, effects, capabilities, and conditions established by the implementation’s `with(...)` clause and surrounding declaration context.
+The body can use only operations, type-valued members, constants, effects, capabilities, and conditions established by
+the implementation’s `with(...)` clause and surrounding declaration context.
 
 Generic implementation overlap is rejected.
 
 Two implementation declarations overlap when some valid substitutions can produce the same exact coherence key.
 
-If the compiler cannot prove that two participating generic implementations are disjoint, they are rejected as overlapping.
+If the compiler cannot prove that two participating generic implementations are disjoint, they are rejected as
+overlapping.
 
 Bray does not use specialization ranking between generic implementations.
 
@@ -587,10 +611,11 @@ After a cursor returns `none`, later calls to `next` on the same cursor must ret
 
 An iterator cursor can mutate its own state while advancing.
 
-An iterator that yields borrowed elements must preserve Bray aliasing and borrowing rules for every live yielded element.
+An iterator that yields borrowed elements must preserve Bray aliasing and borrowing rules for every live yielded
+element.
 
-If a yielded borrow is still live and the compiler cannot prove that advancing the cursor is compatible with that borrow, the next
-advance is rejected.
+If a yielded borrow is still live and the compiler cannot prove that advancing the cursor is compatible with that
+borrow, the next advance is rejected.
 
 `Iterable` is the source contract:
 
@@ -608,8 +633,8 @@ trait Iterable
 
 `Cursor` is the cursor type returned by `iterate`.
 
-An `Iterable` implementation is valid only when its selected `Cursor` type satisfies `Iterator` and the cursor element type matches
-the iterable element type:
+An `Iterable` implementation is valid only when its selected `Cursor` type satisfies `Iterator` and the cursor element
+type matches the iterable element type:
 
 ```text
 Cursor: Iterator
@@ -634,10 +659,11 @@ The cursor cannot outlive or extend the source access it depends on.
 
 They do not require separate cardinality, boundedness, or finiteness members.
 
-Cardinality, boundedness, finiteness, iteration order, and element-borrowing conditions are established by the selected implementation
-contracts, source type conditions, cursor contracts, and compiler-known declarations.
+Cardinality, boundedness, finiteness, iteration order, and element-borrowing conditions are established by the selected
+implementation contracts, source type conditions, cursor contracts, and compiler-known declarations.
 
-An expression form that requires one of those conditions is rejected when the condition is not established in the checking context.
+An expression form that requires one of those conditions is rejected when the condition is not established in the
+checking context.
 
 For example:
 
@@ -678,8 +704,8 @@ impl VecMoveIterable = Vec<T>(Iterable)
 
 These three implementations satisfy different exact implementing subjects.
 
-The `for`, `each`, `all`, and `any` expression forms use `Iterable` and `Iterator` through their expression-specific iteration
-source rules.
+The `for`, `each`, `all`, and `any` expression forms use `Iterable` and `Iterator` through their expression-specific
+iteration source rules.
 
 ## Trait implementation overload families
 
@@ -689,7 +715,9 @@ Implementation overload families are explicit.
 
 Different trait applications do not automatically form an implementation overload family.
 
-When an implementing subject needs multiple applications of the same generic trait, each application is declared as a named implementation, and an overload declaration groups those implementation names under the shared subject and trait surface.
+When an implementing subject needs multiple applications of the same generic trait, each application is declared as a
+named implementation, and an overload declaration groups those implementation names under the shared subject and trait
+surface.
 
 ```bray
 trait Reader<Mode>
@@ -757,7 +785,8 @@ The grouped subject form is required for implementation-eligible type-form subje
 
 `ImplementationName` names a previously declared named trait implementation.
 
-Each listed implementation must implement the same implementing subject and an application of the named trait declaration.
+Each listed implementation must implement the same implementing subject and an application of the named trait
+declaration.
 
 The overload declaration does not implement the trait.
 
@@ -803,9 +832,11 @@ overload Buffer(Reader) =
 }
 ```
 
-For generic implementation arms, overlap checking is performed on the exact coherence keys produced by valid substitutions of each arm.
+For generic implementation arms, overlap checking is performed on the exact coherence keys produced by valid
+substitutions of each arm.
 
-Every possible exact coherence key produced by one arm must be disjoint from every possible exact coherence key produced by every other arm in the same implementation overload family.
+Every possible exact coherence key produced by one arm must be disjoint from every possible exact coherence key produced
+by every other arm in the same implementation overload family.
 
 This is rejected:
 
@@ -857,13 +888,15 @@ impl BufferBytesReader = Buffer(Reader<Bytes>)
 impl BufferOtherBytesReader = Buffer(Reader<Bytes>) // invalid
 ```
 
-If more than one participating implementation for the same implementing subject and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
+If more than one participating implementation for the same implementing subject and generic trait declaration exists in
+a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
 
 A concrete non-overloaded trait implementation can use the unnamed `impl ImplementingSubject(TraitApplication)` form.
 
 A generic trait implementation is a named implementation declaration with inferred generic parameters.
 
-Inferred implementation parameters are type parameters or const parameters that appear in the implementing subject or trait application.
+Inferred implementation parameters are type parameters or const parameters that appear in the implementing subject or
+trait application.
 
 The `with(...)` clause can constrain inferred implementation parameters, but it cannot introduce them.
 
@@ -875,9 +908,9 @@ The arm's static constraints and target availability also participate in applica
 
 Result type, expected type, and type-valued member outputs do not select an overload arm.
 
-Caller ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
-obligations, requirements, and postconditions are checked after one arm is selected. They do not make resolution fall back to
-another arm.
+Caller ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities,
+trusted obligations, requirements, and postconditions are checked after one arm is selected. They do not make resolution
+fall back to another arm.
 
 If no arm matches, the call is rejected.
 
@@ -891,7 +924,8 @@ buffer(Reader<Bytes>).read_next()
 
 This selects the `Reader<Bytes>` implementation for the receiver before method lookup.
 
-Trait-qualified receiver expression rules are defined in [Path expressions](../expressions/path-expressions.md#method-paths-and-method-calls).
+Trait-qualified receiver expression rules are defined in
+[Path expressions](../expressions/path-expressions.md#method-paths-and-method-calls).
 
 ## Trait use in constraints
 
@@ -917,7 +951,8 @@ func max<T>(left: T, right: T) -> T
 
 The left side of a trait satisfaction constraint is an implementing subject.
 
-It can be a named type subject, a generic parameter used as a type subject, or an implementation-eligible type-form subject.
+It can be a named type subject, a generic parameter used as a type subject, or an implementation-eligible type-form
+subject.
 
 ```bray
 with(&T: Iterable)
@@ -930,7 +965,8 @@ The trait application in a trait satisfaction constraint must be exact.
 with(T: Comparable<T>)
 ```
 
-If the trait declaration is generic, the constraint must supply the generic arguments required by that trait application.
+If the trait declaration is generic, the constraint must supply the generic arguments required by that trait
+application.
 
 If the trait declaration is not generic, the trait name alone is the exact trait application.
 
@@ -974,7 +1010,8 @@ func zip_same<A, B>(left: A, right: B)
 
 Constraint conditions are unordered.
 
-The type-valued member equality can appear before or after the trait satisfaction constraint that makes the qualified reference valid.
+The type-valued member equality can appear before or after the trait satisfaction constraint that makes the qualified
+reference valid.
 
 The same constraint set must establish the exact trait application for the type-valued member reference to be accepted.
 
@@ -1000,7 +1037,8 @@ Type equality does not choose an arm from an implementation overload family.
 
 Result type and expected type do not infer missing trait satisfaction constraints.
 
-A generic body can use only operations, type-valued members, constants, effects, capabilities, and conditions established by its static constraints and by surrounding declaration context.
+A generic body can use only operations, type-valued members, constants, effects, capabilities, and conditions
+established by its static constraints and by surrounding declaration context.
 
 ## Trait method resolution
 
@@ -1022,13 +1060,15 @@ Method resolution uses:
 
 The selected method must match the receiver mode and argument binding supplied by the call.
 
-The selected method must satisfy type checking, ownership checking, borrowing checking, capability checking, effect checking, and contract checking.
+The selected method must satisfy type checking, ownership checking, borrowing checking, capability checking, effect
+checking, and contract checking.
 
 A method call resolves to exactly one callable.
 
 Ambiguous method calls are rejected.
 
-When method resolution sees an implementation overload family, resolution uses the same overload principles as callable overloads.
+When method resolution sees an implementation overload family, resolution uses the same overload principles as callable
+overloads.
 
 The receiver mode, receiver compatibility, member name, and explicitly supplied method arguments may select one arm.
 
@@ -1036,7 +1076,8 @@ Result type, expected type, and type-valued member outputs do not select an arm.
 
 A trait-qualified receiver expression can select an exact trait application before member lookup.
 
-Trait implementations for implementation-eligible type-form subjects participate in method resolution only when the receiver expression has that exact receiver type.
+Trait implementations for implementation-eligible type-form subjects participate in method resolution only when the
+receiver expression has that exact receiver type.
 
 Method resolution does not create a shared borrow or mutable borrow solely to search for a type-form implementation.
 
@@ -1046,7 +1087,8 @@ values.iterate()        // checks implementations for Vec<T>
 (&mut values).iterate() // checks implementations for &mut Vec<T>
 ```
 
-Expression forms that define their own access mode can create the relevant borrow before method resolution according to that expression form's rules.
+Expression forms that define their own access mode can create the relevant borrow before method resolution according to
+that expression form's rules.
 
 Method-call expression rules are defined in [Method call expressions](../expressions/method-call-expressions.md).
 
@@ -1058,13 +1100,15 @@ A static function call can resolve to an inherent static function or trait stati
 Point.origin()
 ```
 
-The path before the static function name determines the type, trait application, module, or package context used for resolution.
+The path before the static function name determines the type, trait application, module, or package context used for
+resolution.
 
 A static function call has no receiver.
 
 Static function arguments follow the callable's parameter call surface.
 
-Static function call expression rules are defined in [Static function call expressions](../expressions/static-function-call-expressions.md).
+Static function call expression rules are defined in
+[Static function call expressions](../expressions/static-function-call-expressions.md).
 
 ## Trait coherence
 
@@ -1076,13 +1120,15 @@ For a given coherence domain, the exact coherence key for a trait implementation
 
 Any package can declare a trait implementation for any reachable implementing subject and trait application.
 
-An implementation participates in a coherence domain only when the implementation is declared in that domain or explicitly made visible in it.
+An implementation participates in a coherence domain only when the implementation is declared in that domain or
+explicitly made visible in it.
 
 A package dependency makes implementation declarations reachable for explicit visibility.
 
 A package dependency does not silently make dependency implementations participate in the dependent coherence domain.
 
-Transitive dependency implementations do not participate unless using declarations or re-exports explicitly make them visible according to module and implementation coherence rules.
+Transitive dependency implementations do not participate unless using declarations or re-exports explicitly make them
+visible according to module and implementation coherence rules.
 
 For each exact coherence key, Bray requires at most one participating implementation in a coherence domain.
 
@@ -1123,11 +1169,13 @@ impl VecReadIterable = &Vec<T>(Iterable)
 impl VecOtherReadIterable = &Vec<T>(Iterable)
 ```
 
-An implementation overload family groups multiple exact coherence keys that share an implementing subject and trait declaration.
+An implementation overload family groups multiple exact coherence keys that share an implementing subject and trait
+declaration.
 
 It does not allow duplicate exact coherence keys.
 
-For generic implementations, the set of exact coherence keys produced by all valid substitutions must be disjoint from every other participating implementation in the same coherence domain.
+For generic implementations, the set of exact coherence keys produced by all valid substitutions must be disjoint from
+every other participating implementation in the same coherence domain.
 
 Overlapping generic implementations are rejected.
 
@@ -1188,7 +1236,8 @@ func write_one(pos sink: &view Sink, pos message: string)
 }
 ```
 
-The trait-view type form, view-surface rules, receiver restrictions, and ownership behavior are defined by the trait-view type form.
+The trait-view type form, view-surface rules, receiver restrictions, and ownership behavior are defined by the
+trait-view type form.
 
 ## Inherent implementation API compatibility
 
@@ -1196,11 +1245,12 @@ The reachable type-associated surface is part of a named type's API.
 
 Adding, removing, or changing a public or otherwise reachable inherent member can be an API change.
 
-Changing an inherent member's name, semantic category, generic applicability, effective reachability, callable surface, selected
-type or value, lifecycle slot, contract, or behavior can be an API change.
+Changing an inherent member's name, semantic category, generic applicability, effective reachability, callable surface,
+selected type or value, lifecycle slot, contract, or behavior can be an API change.
 
-Moving a member between the type body and an inherent implementation changes declaration identity and can affect diagnostics,
-documentation, navigation, and interface metadata even when its callable or value surface remains otherwise equivalent.
+Moving a member between the type body and an inherent implementation changes declaration identity and can affect
+diagnostics, documentation, navigation, and interface metadata even when its callable or value surface remains otherwise
+equivalent.
 
 ## Trait API compatibility
 
@@ -1232,30 +1282,37 @@ Adding a required constant-valued member to a public trait is a public API chang
 
 Removing a constant-valued member from a public trait is a public API change.
 
-Changing a constant-valued member name, declared type, default value, or selected implementation value can be a public API change.
+Changing a constant-valued member name, declared type, default value, or selected implementation value can be a public
+API change.
 
 Adding a required predicate member to a public trait is a public API change.
 
 Removing a predicate member from a public trait is a public API change.
 
-Changing a predicate member name, parameters, body, trusted state, or selected implementation predicate can be a public API change.
+Changing a predicate member name, parameters, body, trusted state, or selected implementation predicate can be a public
+API change.
 
 Adding a lifecycle requirement to a public trait is a public API change.
 
 Removing a lifecycle requirement from a public trait is a public API change.
 
-Changing a lifecycle requirement kind, signature, execution mode, result shape, contract clauses, or required scoped-capability
-type can be a public API change.
+Changing a lifecycle requirement kind, signature, execution mode, result shape, contract clauses, or required
+scoped-capability type can be a public API change.
 
-Changing member contract clauses can be a public API change when requirements, guarantees, effects, capabilities, trusted obligations, or caller-visible behavior change.
+Changing member contract clauses can be a public API change when requirements, guarantees, effects, capabilities,
+trusted obligations, or caller-visible behavior change.
 
-Changing a default member body can be a public API change when observable behavior changes for implementations that use the default.
+Changing a default member body can be a public API change when observable behavior changes for implementations that use
+the default.
 
 Changing trait visibility is a public API change.
 
-Changing trait implementation reachability can be a public API change when it affects method resolution or generic satisfaction.
+Changing trait implementation reachability can be a public API change when it affects method resolution or generic
+satisfaction.
 
-Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, predicate member selection, lifecycle requirement satisfaction, or generic satisfaction.
+Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method
+resolution, type-valued member selection, predicate member selection, lifecycle requirement satisfaction, or generic
+satisfaction.
 
 ## Navigation
 

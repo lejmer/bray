@@ -2,7 +2,8 @@
 
 Declarations are collected from the selected source graph for a package product.
 
-The selected source graph, package identity, product kind, dependency graph, target profile, test selection, and target gates determine which declarations participate in the product being checked.
+The selected source graph, package identity, product kind, dependency graph, target profile, test selection, and target
+gates determine which declarations participate in the product being checked.
 
 Split module contributions are merged before module-level declaration checking finishes.
 
@@ -14,8 +15,8 @@ Order between source units does not affect name resolution.
 
 Within a declaration body, source order matters where the containing grammar or semantic rule makes it matter.
 
-Declarations that introduce the same ordinary name in the same declaration scope are rejected unless the declaration form explicitly
-defines merging or overload-family behavior.
+Declarations that introduce the same ordinary name in the same declaration scope are rejected unless the declaration
+form explicitly defines merging or overload-family behavior.
 
 Declarations are checked against:
 
@@ -34,13 +35,15 @@ Declarations in disabled module contributions are not semantically checked for t
 
 They must still be lexically and syntactically valid Bray source.
 
-A declaration that exports public interface metadata exposes its public declaration surface, including visibility, name, generic
-parameters, parameter surfaces, runtime default providers, result types, constant definition or value surfaces, predicate definitions,
-constraints, contracts, trusted obligations, effects, layout contracts, ABI contracts, and lifecycle obligations.
+A declaration that exports public interface metadata exposes its public declaration surface, including visibility, name,
+generic parameters, parameter surfaces, runtime default providers, result types, constant definition or value surfaces,
+predicate definitions, constraints, contracts, trusted obligations, effects, layout contracts, ABI contracts, and
+lifecycle obligations.
 
 For a reachable static declaration, that surface also includes the open static-instance template, selected-witness and
-target-property requirements, dependency roots, lifecycle dependency template, and external retention requirements. Source graph
-and declaration checking order do not affect the identity or materialization order of closed static instances.
+target-property requirements, dependency roots, lifecycle dependency template, and external retention requirements.
+Source graph and declaration checking order do not affect the identity or materialization order of closed static
+instances.
 
 ## Navigation
 

@@ -8,7 +8,8 @@ return value;
 
 The returned value must be compatible with the callable’s declared result type.
 
-Callable result and execution-scope rules are defined in [Return and execution scopes](../callables/return-and-execution-scopes.md).
+Callable result and execution-scope rules are defined in
+[Return and execution scopes](../callables/return-and-execution-scopes.md).
 
 A callable with result type `unit` can complete normally.
 
@@ -16,7 +17,8 @@ A callable with result type `unit` can also return explicitly with `return unit;
 
 `return;` is shorthand for `return unit;`.
 
-A `return` expression has type `never` in the current control-flow path because control exits the callable execution scope.
+A `return` expression has type `never` in the current control-flow path because control exits the callable execution
+scope.
 
 `return` targets the nearest callable execution scope.
 

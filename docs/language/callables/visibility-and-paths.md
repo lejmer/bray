@@ -55,8 +55,8 @@ pkg.module.Type;
 
 The binder resolves whether the left side is a module, package, type, value, or access path.
 
-A referenced external path must either be declared by a `using` declaration or be reachable through the current package or
-module context.
+A referenced external path must either be declared by a `using` declaration or be reachable through the current package
+or module context.
 
 ## Navigation
 

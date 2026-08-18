@@ -20,7 +20,8 @@ The fields together form the product value's primary representation.
 
 Each field has a name, a type, a mutability contract, a visibility contract, and an initialization state.
 
-A product value is fully initialized when all required fields are initialized and all defaulted omitted fields have been initialized from their defaults during construction.
+A product value is fully initialized when all required fields are initialized and all defaulted omitted fields have been
+initialized from their defaults during construction.
 
 ## Primary representation
 
@@ -49,9 +50,9 @@ The primary representation determines:
 - field destruction order,
 - field access paths.
 
-Additional inherent implementation blocks owned by the type's defining package can define constructors, methods, static functions,
-constants, predicates, type-valued members, and other behavior for the type. Separate trait implementation blocks can make the type
-satisfy trait applications.
+Additional inherent implementation blocks owned by the type's defining package can define constructors, methods, static
+functions, constants, predicates, type-valued members, and other behavior for the type. Separate trait implementation
+blocks can make the type satisfy trait applications.
 
 Inherent and trait implementation blocks do not add fields to the primary representation.
 
@@ -139,7 +140,8 @@ struct Example
 
 Field names are part of the product type's representation.
 
-Field names are used by construction expressions, field access expressions, product patterns, documentation, and public API compatibility.
+Field names are used by construction expressions, field access expressions, product patterns, documentation, and public
+API compatibility.
 
 Field names must be unique within the product type.
 
@@ -151,7 +153,8 @@ Renaming a public field is a public API change.
 
 ## Field order
 
-Field declaration order is semantically relevant for deterministic destruction and any rule that explicitly refers to declaration order.
+Field declaration order is semantically relevant for deterministic destruction and any rule that explicitly refers to
+declaration order.
 
 Field declaration order can also affect compiler-chosen layout.
 
@@ -189,7 +192,8 @@ The field type participates in:
 - product construction,
 - product patterns.
 
-A field value follows the ownership, borrowing, initialization, destruction, finalization, capability, and effect rules of its field type.
+A field value follows the ownership, borrowing, initialization, destruction, finalization, capability, and effect rules
+of its field type.
 
 ## Field visibility
 
@@ -241,7 +245,8 @@ using internal cache.CacheEntry.hash;
 
 `using internal` applies to specific modules, declarations, or declaration paths rather than entire packages.
 
-A public API exposes internal fields only through an explicit public wrapper that removes the internal field from the public signature.
+A public API exposes internal fields only through an explicit public wrapper that removes the internal field from the
+public signature.
 
 ## Field mutability
 
@@ -309,12 +314,14 @@ A field with a default can be omitted during struct construction.
 
 An omitted defaulted field is initialized from its default expression.
 
-Construction-time field default behavior is defined in [Struct construction expressions](../expressions/struct-construction-expressions.md).
+Construction-time field default behavior is defined in
+[Struct construction expressions](../expressions/struct-construction-expressions.md).
 
 A field default is checked in the struct declaration context.
 
-A field default is a [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is
-checked even when every current construction supplies that field explicitly.
+A field default is a
+[declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is checked
+even when every current construction supplies that field explicitly.
 
 A field default cannot reference sibling fields.
 
@@ -324,12 +331,14 @@ A field default is evaluated when that field is omitted during construction.
 
 Effects of an evaluated field default become effects of the construction expression.
 
-Finalization obligations created by an evaluated field default become obligations of the constructed value, local temporaries, or surrounding context according to ownership and lifecycle rules.
+Finalization obligations created by an evaluated field default become obligations of the constructed value, local
+temporaries, or surrounding context according to ownership and lifecycle rules.
 
-Trusted capabilities used by a field default must be permitted by the declaration context and construction context according to the trusted capability rules.
+Trusted capabilities used by a field default must be permitted by the declaration context and construction context
+according to the trusted capability rules.
 
-A field default participates in type checking, ownership checking, initialization checking, effect checking, capability checking,
-finalization tracking, and flow-sensitive contract checking.
+A field default participates in type checking, ownership checking, initialization checking, effect checking, capability
+checking, finalization tracking, and flow-sensitive contract checking.
 
 ## Product construction
 
@@ -351,7 +360,8 @@ let p = Point
 
 Product construction expressions initialize product fields and create fully initialized product values.
 
-Struct construction expression rules are defined in [Struct construction expressions](../expressions/struct-construction-expressions.md).
+Struct construction expression rules are defined in
+[Struct construction expressions](../expressions/struct-construction-expressions.md).
 
 ## Product access paths
 
@@ -392,7 +402,8 @@ Copying a field requires the field type to satisfy the copy contract.
 
 ## Disjoint field access
 
-Two field access paths into the same product value are disjoint when the compiler can prove they reach distinct fields and no type-form or representation rule makes them overlap.
+Two field access paths into the same product value are disjoint when the compiler can prove they reach distinct fields
+and no type-form or representation rule makes them overlap.
 
 Disjoint field access can permit simultaneous compatible operations on distinct fields.
 
@@ -405,7 +416,8 @@ point.y
 
 when `x` and `y` are distinct fields of the same product value.
 
-Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and condition refinement.
+Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and
+condition refinement.
 
 ## Product initialization state
 
@@ -417,9 +429,11 @@ Each field has its own initialization state while the product is being initializ
 
 A product value is fully initialized when every field is fully initialized.
 
-A fully initialized product value can be observed, borrowed, moved, copied, consumed, or destroyed as a complete value according to its type and capability state.
+A fully initialized product value can be observed, borrowed, moved, copied, consumed, or destroyed as a complete value
+according to its type and capability state.
 
-A partially initialized product value can be accessed only through initialized parts when the operation permits partial-state access.
+A partially initialized product value can be accessed only through initialized parts when the operation permits
+partial-state access.
 
 A moved-from product value can be reinitialized when the storage and type contract permit it.
 
@@ -445,10 +459,11 @@ A partially moved product value can be destroyed as a partial value.
 
 Destruction of a partially moved product value destroys only the still-initialized fields.
 
-A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the storage and type contract permit reinitialization.
+A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the
+storage and type contract permit reinitialization.
 
-A product type with whole-product lifecycle behavior must be fully initialized whenever a whole-product lifecycle declaration can
-run.
+A product type with whole-product lifecycle behavior must be fully initialized whenever a whole-product lifecycle
+declaration can run.
 
 A field move from such a product is valid only when every reachable path re-initializes the field before:
 
@@ -458,12 +473,13 @@ A field move from such a product is valid only when every reachable path re-init
 - the product is moved, copied, consumed, borrowed, or observed as a complete value,
 - ownership of the product can end.
 
-If the compiler cannot prove that the product becomes fully initialized before one of those events, the field move is rejected.
+If the compiler cannot prove that the product becomes fully initialized before one of those events, the field move is
+rejected.
 
 Partial product storage resolves only initialized fields.
 
-Partial product storage does not run whole-product finalizers, whole-product destructors, or whole-product scope enter/exit
-behavior.
+Partial product storage does not run whole-product finalizers, whole-product destructors, or whole-product scope
+enter/exit behavior.
 
 ## Product movement
 
@@ -479,8 +495,8 @@ A product move transfers finalization obligations carried by the product or its 
 
 ## Product copying
 
-A product value is copyable only when the product type has an accepted `@copy` contract and every field satisfies the required copy
-contract for that concrete type.
+A product value is copyable only when the product type has an accepted `@copy` contract and every field satisfies the
+required copy contract for that concrete type.
 
 Copying a product copies every field according to its field type's copy contract.
 
@@ -522,7 +538,8 @@ Product finalization obligations follow the general [finalization](../lifecycle/
 
 ## Product lifecycle declarations
 
-A product type can define lifecycle declarations inside its type body or inside an inherent implementation for the product type.
+A product type can define lifecycle declarations inside its type body or inside an inherent implementation for the
+product type.
 
 ```bray
 struct File
@@ -569,22 +586,22 @@ A successfully constructed product carries:
 - the lifecycle obligations of its initialized fields,
 - any lifecycle obligations produced by field defaults or constructor body expressions.
 
-Field defaults used during construction are evaluated according to product construction rules before the product becomes fully
-initialized.
+Field defaults used during construction are evaluated according to product construction rules before the product becomes
+fully initialized.
 
-If a destructor consumes or destroys a field, that field becomes uninitialized and is not destroyed again after the destructor
-returns.
+If a destructor consumes or destroys a field, that field becomes uninitialized and is not destroyed again after the
+destructor returns.
 
 Any initialized fields remaining after the destructor returns are destroyed in product field destruction order.
 
-The scoped capability can borrow from the product, carry access authority for the product, or carry an independent resource token,
-according to the scoped capability type.
+The scoped capability can borrow from the product, carry access authority for the product, or carry an independent
+resource token, according to the scoped capability type.
 
-An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction, and partial moves
-of the product for the lifetime of the `with` body.
+An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction, and
+partial moves of the product for the lifetime of the `with` body.
 
-A whole-product assignment or replacement resolves the old product value according to product finalization, destruction, and field
-destruction rules before the new product value becomes initialized at that access path.
+A whole-product assignment or replacement resolves the old product value according to product finalization, destruction,
+and field destruction rules before the new product value becomes initialized at that access path.
 
 ## Product layout
 
@@ -601,7 +618,8 @@ struct Header
 }
 ```
 
-Product layout modes, options, default layout behavior, transparent layout, and product-specific layout rules are defined in [Product layout](../targets-layout-abi-and-raw-memory/product-layout.md).
+Product layout modes, options, default layout behavior, transparent layout, and product-specific layout rules are
+defined in [Product layout](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ## Product patterns
 
@@ -615,7 +633,8 @@ Product patterns match fields by name.
 
 Field order does not matter.
 
-Field shorthand binds a field to a binding with the same name. The shorthand binding name is not resolved as a named constant or variant.
+Field shorthand binds a field to a binding with the same name. The shorthand binding name is not resolved as a named
+constant or variant.
 
 ```bray
 { x, y }
@@ -629,7 +648,8 @@ Field shorthand binds a field to a binding with the same name. The shorthand bin
 
 Product pattern rules are defined in [Product patterns](../patterns/product-patterns.md).
 
-Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and condition refinement according to the pattern operation mode.
+Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization,
+capability checking, and condition refinement according to the pattern operation mode.
 
 ## Product API compatibility
 
@@ -643,7 +663,8 @@ Changing field visibility is a public API change.
 
 Changing field defaults can be a public API change when construction behavior visible to users changes.
 
-Changing product lifecycle declarations follows the public API compatibility rule defined in [API compatibility](../lifecycle/api-compatibility.md).
+Changing product lifecycle declarations follows the public API compatibility rule defined in
+[API compatibility](../lifecycle/api-compatibility.md).
 
 Default physical layout is not public ABI unless the type declares an explicit layout contract.
 

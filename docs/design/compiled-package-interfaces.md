@@ -1,11 +1,12 @@
 # Compiled package interfaces design
 
-This document defines how Bray library products publish compiler-readable package interfaces and how consuming compilations load
-those interfaces into imported symbols.
+This document defines how Bray library products publish compiler-readable package interfaces and how consuming
+compilations load those interfaces into imported symbols.
 
-Package and module semantics are defined in `docs/language/modules-and-packages.md`. Symbol identity and symbol construction are
-defined in `docs/design/symbols.md`. Binder and checked representation contracts are defined in `docs/design/binder.md`. This
-document is the implementation contract for the durable artifact boundary between separately compiled packages.
+Package and module semantics are defined in `docs/language/modules-and-packages.md`. Symbol identity and symbol
+construction are defined in `docs/design/symbols.md`. Binder and checked representation contracts are defined in
+`docs/design/binder.md`. This document is the implementation contract for the durable artifact boundary between
+separately compiled packages.
 
 ---
 
@@ -19,14 +20,15 @@ Compiled package interfaces should:
 - make dependency source text and syntax trees unnecessary for normal consumption,
 - carry all semantic records required for separate compilation,
 - carry checked declaration-owned templates that consumers must instantiate without rebinding,
-- preserve implementation, overload, coherence, dependency-contract, target, layout, and ABI semantic records that affect consumers,
+- preserve implementation, overload, coherence, dependency-contract, target, layout, and ABI semantic records that
+  affect consumers,
 - support deterministic lazy decoding and parallel symbol queries,
 - be compact, bounded, corruption-resistant, and independent of Rust memory layout,
 - produce structured localized diagnostics for invalid or incompatible artifacts,
 - support deterministic content-addressed caching.
 
-The interface is semantic compiler data. It is not source syntax, a syntax-tree serialization, a symbol-table memory dump, or an
-executable object format.
+The interface is semantic compiler data. It is not source syntax, a syntax-tree serialization, a symbol-table memory
+dump, or an executable object format.
 
 ---
 
@@ -45,17 +47,17 @@ The package interface does not:
 - serve as the object-code, debug-information, documentation, or source-map format,
 - guarantee compatibility with obsolete interface format revisions.
 
-Private product/runtime ABI semantic-contract tables are not ordinary library package interfaces. They belong to the selected
-trusted ABI artifact, use closed binary ABI role identities, and are consumed only while checking private standard-library or
-product bindings. A public wrapper's inferred portable contract can enter `.brayi`. Its private binding role and trusted ABI
-contract record cannot.
+Private product/runtime ABI semantic-contract tables are not ordinary library package interfaces. They belong to the
+selected trusted ABI artifact, use closed binary ABI role identities, and are consumed only while checking private
+standard-library or product bindings. A public wrapper's inferred portable contract can enter `.brayi`. Its private
+binding role and trusted ABI contract record cannot.
 
-The package and build layer supplies opaque package, product, and dependency identities. The interface records and validates those
-identities but does not decide how a package manager obtains them. Each identity type used in an artifact must provide a stable
-serialized form and semantic equality contract.
+The package and build layer supplies opaque package, product, and dependency identities. The interface records and
+validates those identities but does not decide how a package manager obtains them. Each identity type used in an
+artifact must provide a stable serialized form and semantic equality contract.
 
-Generic implementation payloads are referenced by the interface content hash and published as a separate `.brayimpl` artifact.
-They must not be smuggled into imported symbol surfaces as executable source bodies.
+Generic implementation payloads are referenced by the interface content hash and published as a separate `.brayimpl`
+artifact. They must not be smuggled into imported symbol surfaces as executable source bodies.
 
 ---
 
@@ -63,17 +65,18 @@ They must not be smuggled into imported symbol surfaces as executable source bod
 
 ### Compiled Package Interface
 
-A compiled package interface is an immutable `.brayi` artifact emitted for one successfully checked library product surface.
+A compiled package interface is an immutable `.brayi` artifact emitted for one successfully checked library product
+surface.
 
-The artifact contains package identity and version, dependency references, imported symbol identity records, semantic records,
-target-property dependencies, and checked declaration-owned templates.
+The artifact contains package identity and version, dependency references, imported symbol identity records, semantic
+records, target-property dependencies, and checked declaration-owned templates.
 
 ### Compiled Implementation Bundle
 
-A compiled implementation bundle is an immutable `.brayimpl` artifact containing the checked target-independent implementation
-templates required to instantiate exported generic executable bodies. It is separate from `.brayi` so an interface-only consumer
-does not load executable implementation data and so implementation changes that preserve the public surface do not change imported
-symbol identity.
+A compiled implementation bundle is an immutable `.brayimpl` artifact containing the checked target-independent
+implementation templates required to instantiate exported generic executable bodies. It is separate from `.brayi` so an
+interface-only consumer does not load executable implementation data and so implementation changes that preserve the
+public surface do not change imported symbol identity.
 
 The complete bundle and specialization contract is defined under [Executable Bodies](#executable-bodies).
 
@@ -81,34 +84,35 @@ The complete bundle and specialization contract is defined under [Executable Bod
 
 `InterfaceSymbolId` is a compact artifact-local reference into one interface's symbol identity table.
 
-It is not a `SymbolId`. It is meaningful only together with the exact interface identity and content hash that issued it.
+It is not a `SymbolId`. It is meaningful only together with the exact interface identity and content hash that issued
+it.
 
 ### External Symbol Key
 
 `ExternalSymbolKey` is the stable serialized semantic identity of an exported or otherwise interface-addressable symbol.
 
-It survives compilation-local ID reassignment and file movement that does not change semantic ownership. It changes when the
-language says declaration identity changes.
+It survives compilation-local ID reassignment and file movement that does not change semantic ownership. It changes when
+the language says declaration identity changes.
 
 ### Imported Symbol
 
-An imported symbol is a normal Bray symbol in the consuming compilation whose origin is `Imported` and whose semantic records are backed by a
-compiled package interface.
+An imported symbol is a normal Bray symbol in the consuming compilation whose origin is `Imported` and whose semantic
+records are backed by a compiled package interface.
 
-The imported symbol has a compilation-local typed symbol ID. The interface descriptor from which it was created is not itself a
-symbol.
+The imported symbol has a compilation-local typed symbol ID. The interface descriptor from which it was created is not
+itself a symbol.
 
 ### Interface Semantic Record
 
-An interface semantic record is one immutable decoded semantic value associated with an interface symbol, relationship, target dependency, or
-declaration-owned template.
+An interface semantic record is one immutable decoded semantic value associated with an interface symbol, relationship,
+target dependency, or declaration-owned template.
 
 Semantic Record payloads can remain encoded until requested. Successful decoding publishes an immutable cached value.
 
 ### Support Entity
 
-A support entity is an interface-private semantic or implementation record required to instantiate an exported checked template but
-not visible through ordinary imported lookup.
+A support entity is an interface-private semantic or implementation record required to instantiate an exported checked
+template but not visible through ordinary imported lookup.
 
 Support entities do not become public imported declarations merely because an exported template refers to them.
 
@@ -177,7 +181,8 @@ bray-diagnostics -------/            |
                               bray-compilation
 ```
 
-`bray-symbols` must not depend on `bray-package-interface`. This keeps semantic symbols independent of their durable encoding.
+`bray-symbols` must not depend on `bray-package-interface`. This keeps semantic symbols independent of their durable
+encoding.
 
 ### Coordination And Emission
 
@@ -190,9 +195,10 @@ bray-diagnostics -------/            |
 - constructing the current library product's export bundle,
 - requesting deterministic interface bytes.
 
-`bray-emitter` includes an already constructed immutable interface artifact in the emission plan, assigns its deterministic output,
-and publishes it through the ordinary staging and atomic artifact policy. It does not pass `.brayi` through a codegen backend,
-include it in a native link plan, decide semantic reachability, or encode symbol semantic records itself.
+`bray-emitter` includes an already constructed immutable interface artifact in the emission plan, assigns its
+deterministic output, and publishes it through the ordinary staging and atomic artifact policy. It does not pass
+`.brayi` through a codegen backend, include it in a native link plan, decide semantic reachability, or encode symbol
+semantic records itself.
 
 ---
 
@@ -202,8 +208,8 @@ include it in a native link plan, decide semantic reachability, or encode symbol
 
 Bray does not define public types such as `MetadataFunctionSymbol`, `MetadataStructSymbol`, or `MetadataTraitSymbol`.
 
-A source function and imported function both use `FunctionSymbol` and `FunctionSymbolId`. A source struct and imported struct both
-use `StructSymbol` and `StructSymbolId`. Origin is explicit and independent of symbol kind.
+A source function and imported function both use `FunctionSymbol` and `FunctionSymbolId`. A source struct and imported
+struct both use `StructSymbol` and `StructSymbolId`. Origin is explicit and independent of symbol kind.
 
 Conceptually, kind-specific records can use private origin backing:
 
@@ -215,26 +221,28 @@ enum FunctionSymbolBacking {
 }
 ```
 
-The exact backing enum is private and category-specific. Bray must not introduce one universal backing record with unrelated optional
-fields merely to share storage across symbol kinds.
+The exact backing enum is private and category-specific. Bray must not introduce one universal backing record with
+unrelated optional fields merely to share storage across symbol kinds.
 
-Common completed semantic records should normalize to the same immutable semantic value types regardless of origin. Origin-specific backing is
-retained only where later lazy semantic records or diagnostics need it.
+Common completed semantic records should normalize to the same immutable semantic value types regardless of origin.
+Origin-specific backing is retained only where later lazy semantic records or diagnostics need it.
 
 ### Imported Package Roots And Modules
 
-Every loaded dependency has a normal `PackageSymbol` root in the consuming compilation. Imported `ModuleSymbol` values are contained
-by that package and use the same full package-relative path model as source modules.
+Every loaded dependency has a normal `PackageSymbol` root in the consuming compilation. Imported `ModuleSymbol` values
+are contained by that package and use the same full package-relative path model as source modules.
 
-The interface contains logical merged modules. It does not expose source units, module parts, split-module contribution records, or
-declaration discovery IDs.
+The interface contains logical merged modules. It does not expose source units, module parts, split-module contribution
+records, or declaration discovery IDs.
 
-Imported module and member relationships are reconstructed from interface identities and typed relationship tables. Re-exported
-symbols retain their defining external identity and are projected through exported lookup edges rather than cloned into new symbols.
+Imported module and member relationships are reconstructed from interface identities and typed relationship tables.
+Re-exported symbols retain their defining external identity and are projected through exported lookup edges rather than
+cloned into new symbols.
 
 ### Identity Skeleton Before Lazy Semantic Records
 
-The loader produces a complete deterministic imported identity skeleton before arbitrary imported semantic records are requested.
+The loader produces a complete deterministic imported identity skeleton before arbitrary imported semantic records are
+requested.
 
 The skeleton establishes:
 
@@ -247,11 +255,11 @@ The skeleton establishes:
 - exported lookup edges,
 - overload, implementation, and provider identity edges required before signature completion.
 
-Compilation-local IDs are assigned from stable interface identity order, never first-request order. Lazy semantic record requests cannot add
-new ordinary declaration symbol IDs to an already published imported identity skeleton.
+Compilation-local IDs are assigned from stable interface identity order, never first-request order. Lazy semantic record
+requests cannot add new ordinary declaration symbol IDs to an already published imported identity skeleton.
 
-Synthesized imported identities whose existence is part of the interface surface, such as runtime default provider symbols, are also
-present in the skeleton. They remain absent from ordinary lookup according to their symbol contract.
+Synthesized imported identities whose existence is part of the interface surface, such as runtime default provider
+symbols, are also present in the skeleton. They remain absent from ordinary lookup according to their symbol contract.
 
 ---
 
@@ -283,9 +291,9 @@ Keys must not include:
 - lazy request order,
 - a hash of the declaration's current signature as its sole identity.
 
-A surface change and an identity change are different. Changing a function result type changes its interface semantic records and interface
-content hash, but does not automatically create a different function identity. Moving a declaration to another semantic module or
-owner changes identity.
+A surface change and an identity change are different. Changing a function result type changes its interface semantic
+records and interface content hash, but does not automatically create a different function identity. Moving a
+declaration to another semantic module or owner changes identity.
 
 ### Category-Specific Construction
 
@@ -301,8 +309,8 @@ External keys follow the language's symbol identity rules:
 - unnamed implementations use their normalized exact implementation identity rather than a source ordinal,
 - synthesized runtime default providers use owner plus provider role and owner-relative ordinal where required.
 
-Only valid successfully checked public interfaces are emitted, so duplicate or recovered source declarations never require unstable
-external disambiguation keys.
+Only valid successfully checked public interfaces are emitted, so duplicate or recovered source declarations never
+require unstable external disambiguation keys.
 
 ### Local And Cross-Package References
 
@@ -314,8 +322,8 @@ A reference to a symbol defined by a dependency uses:
 - the dependency's `ExternalSymbolKey`,
 - the dependency interface content hash expected by the producer where exact semantic identity is required.
 
-The loader resolves every external reference against the selected dependency interfaces before publishing the imported symbol
-skeleton. A digest can accelerate key lookup, but equality always verifies the full structured key.
+The loader resolves every external reference against the selected dependency interfaces before publishing the imported
+symbol skeleton. A digest can accelerate key lookup, but equality always verifies the full structured key.
 
 ---
 
@@ -323,18 +331,19 @@ skeleton. A digest can accelerate key lookup, but equality always verifies the f
 
 ### Product Boundary
 
-An importable interface is emitted for one library product after its selected source graph, dependency graph, target gates, module
-merging, visibility, exports, implementations, overloads, contracts, and public API validity have been checked.
+An importable interface is emitted for one library product after its selected source graph, dependency graph, target
+gates, module merging, visibility, exports, implementations, overloads, contracts, and public API validity have been
+checked.
 
-Package identity is shared by package products, but product identity remains in the interface header because different products can
-select different public surfaces and dependencies.
+Package identity is shared by package products, but product identity remains in the interface header because different
+products can select different public surfaces and dependencies.
 
-Executable and test products do not become importable merely because the compiler can describe their symbols. A tooling snapshot
-for those products is a different artifact contract.
+Executable and test products do not become importable merely because the compiler can describe their symbols. A tooling
+snapshot for those products is a different artifact contract.
 
-Test products publish a bounded test catalog beside their native host. The catalog contains checked entry identities and runner
-metadata but no importable declaration surface. Its host identity and digest bind it to one emitted test product, and its format is
-owned by the testing protocol rather than the compiled-package-interface codec.
+Test products publish a bounded test catalog beside their native host. The catalog contains checked entry identities and
+runner metadata but no importable declaration surface. Its host identity and digest bind it to one emitted test product,
+and its format is owned by the testing protocol rather than the compiled-package-interface codec.
 
 ### Exported Symbol Graph
 
@@ -343,31 +352,34 @@ The exported symbol graph contains:
 - public logical modules reachable through the package surface,
 - public declarations reachable through those modules,
 - public re-export lookup edges,
-- type, trait, implementation, overload, variant, field, member, generic-parameter, and callable-parameter relationships needed to
-  describe those declarations,
+- type, trait, implementation, overload, variant, field, member, generic-parameter, and callable-parameter relationships
+  needed to describe those declarations,
 - synthesized provider symbols whose stable identity is referenced by an exported declaration surface,
 - implementation and coherence semantic records that can affect a consuming package,
 - semantic dependencies required to interpret every exported semantic record.
 
-An export edge does not create a new declaration identity. The interface records the target external key and projected lookup name.
+An export edge does not create a new declaration identity. The interface records the target external key and projected
+lookup name.
 
-Private declarations do not enter imported ordinary lookup. A public declaration whose public surface illegally requires private or
-internal access must be rejected before interface construction.
+Private declarations do not enter imported ordinary lookup. A public declaration whose public surface illegally requires
+private or internal access must be rejected before interface construction.
 
 ### Support Graph
 
-Checked declaration-owned templates can require implementation records that are not user-visible declarations. Those records belong
-to a separate support graph.
+Checked declaration-owned templates can require implementation records that are not user-visible declarations. Those
+records belong to a separate support graph.
 
 Support graph entries:
 
-- use `InterfaceSupportEntityId`, not `InterfaceSymbolId`, unless the language model says the entity is a synthesized symbol,
+- use `InterfaceSupportEntityId`, not `InterfaceSymbolId`, unless the language model says the entity is a synthesized
+  symbol,
 - cannot be reached through imported ordinary lookup,
 - cannot be imported, re-exported, reflected over as declarations, or returned by symbol enumeration,
 - exist only when a checked exported semantic record refers to them,
 - are included in the interface content hash and target compatibility checks.
 
-This separation prevents a private helper needed by a runtime default or constant template from becoming an accidental public symbol.
+This separation prevents a private helper needed by a runtime default or constant template from becoming an accidental
+public symbol.
 
 ### Semantic Records That Must Be Present
 
@@ -384,8 +396,7 @@ For every exported declaration, the interface records the applicable checked sur
 - callable contracts, trusted obligations, capabilities, effects, and ABI,
 - checked implicit abnormal-control summaries such as `may_cancel_current_run`,
 - inferred dependency contracts required by consumers,
-- type layout, union tags, exact generic copy dependencies, and representation contracts exposed
-  by the public surface,
+- type layout, union tags, exact generic copy dependencies, and representation contracts exposed by the public surface,
 - constant eligibility, definition template or closed value as required,
 - predicate definitions and callable-contract semantic records required by consumers,
 - overload family and arm relationships,
@@ -394,8 +405,8 @@ For every exported declaration, the interface records the applicable checked sur
 - target-property dependencies,
 - runtime default provider identity and checked template reference.
 
-Export validation rejects a public semantic record that refers to a private product/runtime ABI role. The producing compilation must
-have reduced such a dependency to the ordinary inferred public contract of the wrapper declaration.
+Export validation rejects a public semantic record that refers to a private product/runtime ABI role. The producing
+compilation must have reduced such a dependency to the ordinary inferred public contract of the wrapper declaration.
 
 The interface records semantic answers, not the source syntax from which they were derived.
 
@@ -405,20 +416,21 @@ The interface records semantic answers, not the source syntax from which they we
 
 ### Dedicated Wire Values
 
-The wire format uses explicit interface value types. It must not serialize Rust structs by memory layout or derive a long-term format
-directly from private Rust field names.
+The wire format uses explicit interface value types. It must not serialize Rust structs by memory layout or derive a
+long-term format directly from private Rust field names.
 
-Every enum has an explicit stable wire tag. Every collection is length-delimited. Every reference names its table and is bounds
-checked. Reserved tags are rejected for the current exact format revision.
+Every enum has an explicit stable wire tag. Every collection is length-delimited. Every reference names its table and is
+bounds checked. Reserved tags are rejected for the current exact format revision.
 
-Semantic value tables use defined record directories followed by contiguous payload bytes. Each directory entry stores the
-record's relative offset and length. Structural validation checks the complete directory before any record is read, while exact-semantic record
-decoding reads only the records in the requested semantic record's transitive dependency closure. Record references are remapped into compact
-artifact-local tables before the ordinary semantic model is published.
+Semantic value tables use defined record directories followed by contiguous payload bytes. Each directory entry stores
+the record's relative offset and length. Structural validation checks the complete directory before any record is read,
+while exact-semantic record decoding reads only the records in the requested semantic record's transitive dependency
+closure. Record references are remapped into compact artifact-local tables before the ordinary semantic model is
+published.
 
-Implementation records identify the coherence records required by that implementation. This makes implementation selection
-addressable without scanning unrelated coherence payloads. Full semantic decoding iterates the same record directories in stable
-order, so narrow and complete decoding share one wire representation.
+Implementation records identify the coherence records required by that implementation. This makes implementation
+selection addressable without scanning unrelated coherence payloads. Full semantic decoding iterates the same record
+directories in stable order, so narrow and complete decoding share one wire representation.
 
 ### Types
 
@@ -437,91 +449,94 @@ order, so narrow and complete decoding share one wire representation.
 - callable type including contracts and effects,
 - other structural forms defined by the type system.
 
-The exact variants should mirror durable semantic type categories, not parser productions. Error, unresolved, inferred-placeholder, and
-recovery types are forbidden in a successfully emitted interface.
+The exact variants should mirror durable semantic type categories, not parser productions. Error, unresolved,
+inferred-placeholder, and recovery types are forbidden in a successfully emitted interface.
 
-Encoding traverses interned semantic type records owned by `bray-symbols`. Decoding validates interface type records and interns
-equivalent local `TypeId` values in the consuming semantic store. Compilation-local numeric IDs never appear in the artifact.
+Encoding traverses interned semantic type records owned by `bray-symbols`. Decoding validates interface type records and
+interns equivalent local `TypeId` values in the consuming semantic store. Compilation-local numeric IDs never appear in
+the artifact.
 
-Recursive types use table references and are validated as graphs. The decoder must not recurse through untrusted nesting without a
-configured depth limit.
+Recursive types use table references and are validated as graphs. The decoder must not recurse through untrusted nesting
+without a configured depth limit.
 
 ### Constants And Const Expressions
 
-Closed constant values use a stable `InterfaceConstantValue` representation independent of host endianness and Rust primitive
-layout.
+Closed constant values use a stable `InterfaceConstantValue` representation independent of host endianness and Rust
+primitive layout.
 
-Encoding traverses `ConstantValueId` records. Decoding interns equivalent local constant values and returns `ConstantValueId` values
-to imported symbol semantic records. Open const arguments use checked interface term records corresponding to `ConstantTermId`, not fake closed
-values.
+Encoding traverses `ConstantValueId` records. Decoding interns equivalent local constant values and returns
+`ConstantValueId` values to imported symbol semantic records. Open const arguments use checked interface term records
+corresponding to `ConstantTermId`, not fake closed values.
 
-The representation distinguishes exact language value categories, including arbitrary-width integer or other numeric forms where
-the language requires them. Floating, real, and complex values use language-defined bit or normalized numeric encodings rather than
-locale-dependent text.
+The representation distinguishes exact language value categories, including arbitrary-width integer or other numeric
+forms where the language requires them. Floating, real, and complex values use language-defined bit or normalized
+numeric encodings rather than locale-dependent text.
 
-A generic-dependent constant is not falsely serialized as a closed value. It uses a checked const template whose references are
-stable external keys, generic parameters, target properties, and template-local IDs.
+A generic-dependent constant is not falsely serialized as a closed value. It uses a checked const template whose
+references are stable external keys, generic parameters, target properties, and template-local IDs.
 
 ### Constraints, Contracts, And Dependency Contracts
 
-Generic constraints, callable contracts, trusted obligations, effects, capabilities, and inferred dependency contracts use typed
-normalized interface records.
+Generic constraints, callable contracts, trusted obligations, effects, capabilities, and inferred dependency contracts
+use typed normalized interface records.
 
-Consumers do not parse contract source or infer an exported dependency contract again. They instantiate and check the published
-semantic contract against local arguments and selected implementations.
+Consumers do not parse contract source or infer an exported dependency contract again. They instantiate and check the
+published semantic contract against local arguments and selected implementations.
 
-Each exported constant predicate constraint has one declaration-owned `GenericConstraint` checked template at the same stable
-owner-relative ordinal. Trait-satisfaction constraints instead retain their normalized subject type and exact trait application
-directly. This lets consumers evaluate concrete predicate substitutions without rebinding source while preserving demand-driven
-constraint checking.
+Each exported constant predicate constraint has one declaration-owned `GenericConstraint` checked template at the same
+stable owner-relative ordinal. Trait-satisfaction constraints instead retain their normalized subject type and exact
+trait application directly. This lets consumers evaluate concrete predicate substitutions without rebinding source while
+preserving demand-driven constraint checking.
 
-An exported dependency contract encodes the structural form of a `DependencyContractTemplateId`, not its compilation-local numeric
-ID. Its formal subjects reference receivers, parameters by stable ordinal, results, projections, scoped capabilities, and required
-implementation witnesses through interface-stable identities. It contains no bound-unit storage identities, storage-access IDs,
-borrow-capability IDs, or checker-local flow state.
+An exported dependency contract encodes the structural form of a `DependencyContractTemplateId`, not its
+compilation-local numeric ID. Its formal subjects reference receivers, parameters by stable ordinal, results,
+projections, scoped capabilities, and required implementation witnesses through interface-stable identities. It contains
+no bound-unit storage identities, storage-access IDs, borrow-capability IDs, or checker-local flow state.
 
-The consuming compiler decodes the structural template into its local `bray-symbols` semantic store. Binding then instantiates that
-portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
-implementation semantic records for the use site.
+The consuming compiler decodes the structural template into its local `bray-symbols` semantic store. Binding then
+instantiates that portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument,
+result, capability, and selected implementation semantic records for the use site.
 
-Portable dependency templates include open transfer terms for generic subjects published to synchronized shared ownership, an
-independent task or thread, or a typed child-process protocol. Each term records the subject projection and destination class. A
-consumer instantiates it with the concrete argument's storage, affinity, synchronization, encoding, process-locality, and lifecycle
-dependencies. It does not re-check the generic body or look for a marker trait. This representation is what permits ordinary
-separately compiled generic `std.channel`, `std.thread`, `std.process`, and `std.parallel` declarations to enforce cross-run safety
-without compiler recognition of their names.
+Portable dependency templates include open transfer terms for generic subjects published to synchronized shared
+ownership, an independent task or thread, or a typed child-process protocol. Each term records the subject projection
+and destination class. A consumer instantiates it with the concrete argument's storage, affinity, synchronization,
+encoding, process-locality, and lifecycle dependencies. It does not re-check the generic body or look for a marker
+trait. This representation is what permits ordinary separately compiled generic `std.channel`, `std.thread`,
+`std.process`, and `std.parallel` declarations to enforce cross-run safety without compiler recognition of their names.
 
 ### Async Declaration Metadata
 
-An exported async callable records its declared completion type, async callable contract, normalized invocation contract, deferred
-body effects, capabilities, execution requirements and lifecycle behavior, normal-completion postcondition template, portable
-dependency contract, hidden frame descriptor compatibility reference, state-indexed affinity requirements, and required runtime
-ABI features.
+An exported async callable records its declared completion type, async callable contract, normalized invocation
+contract, deferred body effects, capabilities, execution requirements and lifecycle behavior, normal-completion
+postcondition template, portable dependency contract, hidden frame descriptor compatibility reference, state-indexed
+affinity requirements, and required runtime ABI features.
 
-The hidden frame representation is not encoded as an ordinary source generic argument or public field. Concrete non-generic frames
-publish target-specific size, alignment, move, resume, cancellation entry, phase-one owned-task broadcast, phase-two lifecycle
-resolution, result-move, and destruction descriptor references.
-Generic async declarations publish checked frame templates or implementation references under the same generic distribution policy
-as other executable generic bodies.
+The hidden frame representation is not encoded as an ordinary source generic argument or public field. Concrete
+non-generic frames publish target-specific size, alignment, move, resume, cancellation entry, phase-one owned-task
+broadcast, phase-two lifecycle resolution, result-move, and destruction descriptor references. Generic async
+declarations publish checked frame templates or implementation references under the same generic distribution policy as
+other executable generic bodies.
 
-A consuming compiler rejects an incompatible frame descriptor or runtime ABI revision before lowering imported use. Libraries record
-requirements but never select a runtime implementation. Executable and test product formation unions reachable requirements before
-code generation and linking.
+A consuming compiler rejects an incompatible frame descriptor or runtime ABI revision before lowering imported use.
+Libraries record requirements but never select a runtime implementation. Executable and test product formation unions
+reachable requirements before code generation and linking.
 
 Runtime requirements are owner-correlated semantic records that remain independently queryable. They retain the portable
-compatibility semantic records required by consumers, including hidden-frame compatibility where applicable. Runtime identities, private ABI
-roles, and binary bindings are product-selection semantic records and must not be exported as library requirements.
+compatibility semantic records required by consumers, including hidden-frame compatibility where applicable. Runtime
+identities, private ABI roles, and binary bindings are product-selection semantic records and must not be exported as
+library requirements.
 
 The complete metadata and compatibility contract is defined in `docs/design/async-runtime.md`.
 
 ### Checked Declaration-Owned Templates
 
-Runtime defaults, generic constant definitions, predicate definitions, contract expressions, and other declaration-owned semantic records that
-must execute or instantiate in a consuming compilation use source-independent checked templates.
+Runtime defaults, generic constant definitions, predicate definitions, contract expressions, and other declaration-owned
+semantic records that must execute or instantiate in a consuming compilation use source-independent checked templates.
 
-Every exported predicate must carry an explicit definition state. A defined predicate has exactly one predicate-definition template,
-a required trait predicate member has no definition template, and an opaque trusted predicate has no definition template. Importers
-must reconstruct these states directly and must never infer trusted behavior from an absent template.
+Every exported predicate must carry an explicit definition state. A defined predicate has exactly one
+predicate-definition template, a required trait predicate member has no definition template, and an opaque trusted
+predicate has no definition template. Importers must reconstruct these states directly and must never infer trusted
+behavior from an absent template.
 
 A template:
 
@@ -535,42 +550,42 @@ A template:
 The serializable template contract belongs to `bray-bound-tree` or another lower semantic representation owner. The
 `bray-package-interface` codec encodes that contract but does not define its semantics.
 
-The consuming compiler validates references, substitutes generic and contextual inputs, and lowers the already checked template. It
-must not rerun definition-site name lookup, overload resolution, or semantic diagnostics.
+The consuming compiler validates references, substitutes generic and contextual inputs, and lowers the already checked
+template. It must not rerun definition-site name lookup, overload resolution, or semantic diagnostics.
 
 ### Executable Bodies
 
-Ordinary executable bodies are not declaration-surface semantic records and are not included in the symbol interface merely because their
-declarations are public.
+Ordinary executable bodies are not declaration-surface semantic records and are not included in the symbol interface
+merely because their declarations are public.
 
-Checked executable templates use the separate `.brayimpl` package implementation artifact. Imported symbol APIs expose only stable
-implementation references and do not expose implementation payload storage. The bundle never contains source text, syntax,
-backend IR, machine code, or mutable compiler arenas.
+Checked executable templates use the separate `.brayimpl` package implementation artifact. Imported symbol APIs expose
+only stable implementation references and do not expose implementation payload storage. The bundle never contains source
+text, syntax, backend IR, machine code, or mutable compiler arenas.
 
-The bundle header binds it to the exact package, product, public-interface semantic content hash, language semantic revision,
-compiler template-schema revision, dependency interface hashes, and required runtime and ABI identities. A consumer rejects a
-missing or mismatched bundle when a requested semantic operation requires an implementation payload. Loading the public interface
-does not require loading the bundle.
+The bundle header binds it to the exact package, product, public-interface semantic content hash, language semantic
+revision, compiler template-schema revision, dependency interface hashes, and required runtime and ABI identities. A
+consumer rejects a missing or mismatched bundle when a requested semantic operation requires an implementation payload.
+Loading the public interface does not require loading the bundle.
 
-The artifact contains a deterministic directory keyed by stable declaration identity and implementation-payload category. Payloads
-are independently length-delimited, independently encoded, and validated so a query can load one body without decoding unrelated
-bodies. Every payload uses checked target-independent template IR sufficient for downstream specialization and lowering.
-It records its external declaration key, support graph, referenced private implementation entities, exact dependency hashes,
-target-property dependencies, and implementation witnesses.
+The artifact contains a deterministic directory keyed by stable declaration identity and implementation-payload
+category. Payloads are independently length-delimited, independently encoded, and validated so a query can load one body
+without decoding unrelated bodies. Every payload uses checked target-independent template IR sufficient for downstream
+specialization and lowering. It records its external declaration key, support graph, referenced private implementation
+entities, exact dependency hashes, target-property dependencies, and implementation witnesses.
 
-A specialization key consists of the declaring external symbol key, interned concrete substitution, selected implementation
-witnesses, target identity and target-property values, panic and runtime configuration, template-schema revision, and every
-template dependency hash. The same key names the downstream checked specialization and its content-addressed cache entry. Optional
-pre-specialized MIR may appear in independently identified target-specific sections only when validation binds it to that full key
-and the selected MIR schema.
+A specialization key consists of the declaring external symbol key, interned concrete substitution, selected
+implementation witnesses, target identity and target-property values, panic and runtime configuration, template-schema
+revision, and every template dependency hash. The same key names the downstream checked specialization and its
+content-addressed cache entry. Optional pre-specialized MIR may appear in independently identified target-specific
+sections only when validation binds it to that full key and the selected MIR schema.
 
-The `.brayimpl` codec uses the same normalized framing, revision, hashing, resource bounds, memory-safe decoding, unknown-section
-policy, and corruption handling as `.brayi`. Distribution may add an external authenticity record over artifact hashes, but neither
-artifact treats a checksum as trust. Consumers match the selected interface and dependency graph exactly before publishing any
-payload.
+The `.brayimpl` codec uses the same normalized framing, revision, hashing, resource bounds, memory-safe decoding,
+unknown-section policy, and corruption handling as `.brayi`. Distribution may add an external authenticity record over
+artifact hashes, but neither artifact treats a checksum as trust. Consumers match the selected interface and dependency
+graph exactly before publishing any payload.
 
-An exported const callable whose body can be requested by another compilation publishes a checked constant-evaluation body in the
-implementation artifact. The body:
+An exported const callable whose body can be requested by another compilation publishes a checked constant-evaluation
+body in the implementation artifact. The body:
 
 - declares callable parameters, generic parameters, and contextual inputs explicitly,
 - carries checked operations, control flow, local constant storage, patterns, calls, and result production,
@@ -580,9 +595,10 @@ implementation artifact. The body:
 - carries enough checked semantic information for constant evaluation without parsing, binding, overload resolution, or
   definition-site diagnostics.
 
-The consuming compilation resolves the stable owner through the imported symbol skeleton, validates and interns the selected body
-against the already loaded semantic interface, and evaluates it with the concrete call arguments. Loading and interning remain lazy
-semantic records keyed by artifact identity and body identity. Equivalent concurrent requests share the published immutable result.
+The consuming compilation resolves the stable owner through the imported symbol skeleton, validates and interns the
+selected body against the already loaded semantic interface, and evaluates it with the concrete call arguments. Loading
+and interning remain lazy semantic records keyed by artifact identity and body identity. Equivalent concurrent requests
+share the published immutable result.
 
 ---
 
@@ -604,23 +620,24 @@ target-triple string.
 
 ### Compatibility Check
 
-An interface can be reused for a consuming target profile when every target property relevant to its public semantic surface has the
-required value and every ABI compatibility requirement is satisfied.
+An interface can be reused for a consuming target profile when every target property relevant to its public semantic
+surface has the required value and every ABI compatibility requirement is satisfied.
 
-The consumer need not reject an otherwise portable interface merely because an irrelevant target property differs. Conversely,
-matching target names do not make incompatible property values safe.
+The consumer need not reject an otherwise portable interface merely because an irrelevant target property differs.
+Conversely, matching target names do not make incompatible property values safe.
 
-Target compatibility is checked before imported semantic records that depend on those values are published. A mismatch produces a dependency
-interface diagnostic, not a later code-generation failure.
+Target compatibility is checked before imported semantic records that depend on those values are published. A mismatch
+produces a dependency interface diagnostic, not a later code-generation failure.
 
 ### Per-Semantic Record Dependencies
 
-The artifact retains per-semantic record target dependencies so incremental and lazy queries can use precise keys. Every dependency records the
-exact semantic record owner that consumes it, the required target-property declaration, and the required stable value. An
-implementation-header query therefore obtains only the target dependencies owned by that exact implementation.
+The artifact retains per-semantic record target dependencies so incremental and lazy queries can use precise keys. Every
+dependency records the exact semantic record owner that consumes it, the required target-property declaration, and the
+required stable value. An implementation-header query therefore obtains only the target dependencies owned by that exact
+implementation.
 
-The artifact can also publish a stable interface-wide compatibility summary for fast rejection. The summary is derived from the
-per-record dependencies and must not discard information needed to validate an individual lazy semantic record.
+The artifact can also publish a stable interface-wide compatibility summary for fast rejection. The summary is derived
+from the per-record dependencies and must not discard information needed to validate an individual lazy semantic record.
 
 ---
 
@@ -646,12 +663,13 @@ The binary header contains:
 - required compatibility flags.
 
 The format uses little-endian fixed-width primitives where fixed width is appropriate and explicitly bounded
-variable-length integers where compactness materially helps. Encoders use the shortest valid variable-length representation and
-decoders reject non-normalized encodings. The codec, not Rust layout, defines every byte.
+variable-length integers where compactness materially helps. Encoders use the shortest valid variable-length
+representation and decoders reject non-normalized encodings. The codec, not Rust layout, defines every byte.
 
 ### Section Directory
 
-The artifact is sectioned to support bounded validation and lazy decoding. The required semantic and support sections are:
+The artifact is sectioned to support bounded validation and lazy decoding. The required semantic and support sections
+are:
 
 1. string table,
 2. package and product metadata,
@@ -671,53 +689,56 @@ The artifact is sectioned to support bounded validation and lazy decoding. The r
 
 Source provenance and other tooling metadata use optional non-semantic sections.
 
-Each directory entry has an explicit tag, section revision, compatibility class, encoding, byte range, decoded length, record count
-where applicable, stored-byte checksum, and decoded-content digest. Sections must not overlap or extend beyond the declared file
-length.
+Each directory entry has an explicit tag, section revision, compatibility class, encoding, byte range, decoded length,
+record count where applicable, stored-byte checksum, and decoded-content digest. Sections must not overlap or extend
+beyond the declared file length.
 
-Each section independently selects the defined uncompressed encoding or a registered deterministic compressed encoding. Compression does
-not change the decoded semantic bytes or semantic content hash. A reader validates compressed and decoded length bounds before
-allocation, authenticates the stored section bytes, and decompresses only the requested section. When a section is requested, the
-reader verifies its decoded bytes against the directory's decoded-content digest before publishing them. The encoder selects raw
-or compressed storage using one revisioned deterministic size policy recorded in artifact compatibility identity.
+Each section independently selects the defined uncompressed encoding or a registered deterministic compressed encoding.
+Compression does not change the decoded semantic bytes or semantic content hash. A reader validates compressed and
+decoded length bounds before allocation, authenticates the stored section bytes, and decompresses only the requested
+section. When a section is requested, the reader verifies its decoded bytes against the directory's decoded-content
+digest before publishing them. The encoder selects raw or compressed storage using one revisioned deterministic size
+policy recorded in artifact compatibility identity.
 
-The encoding registry contains `raw` and `zstd_frame`. A `zstd_frame` section declares its decoded content size, uses no external
-dictionary, carries a frame checksum, and stays within the format revision's maximum window size. The encoder-policy revision fixes
-compression parameters and the minimum deterministic size saving required to select it. Readers do not depend on the encoder policy
-to decode a valid registered frame.
+The encoding registry contains `raw` and `zstd_frame`. A `zstd_frame` section declares its decoded content size, uses no
+external dictionary, carries a frame checksum, and stays within the format revision's maximum window size. The
+encoder-policy revision fixes compression parameters and the minimum deterministic size saving required to select it.
+Readers do not depend on the encoder policy to decode a valid registered frame.
 
 ### Format Revision
 
-The compiler accepts only exact format and section revisions it explicitly implements. It never attempts best-effort semantic
-decoding of another revision.
+The compiler accepts only exact format and section revisions it explicitly implements. It never attempts best-effort
+semantic decoding of another revision.
 
-Changing the meaning or required encoding of a semantic record increments the format revision. Compatibility shims are added only
-when explicitly required by distribution policy, not by default during greenfield development.
+Changing the meaning or required encoding of a semantic record increments the format revision. Compatibility shims are
+added only when explicitly required by distribution policy, not by default during greenfield development.
 
 Unknown required semantic sections, record tags, fields, flags, encodings, and section revisions are errors. An optional
-non-semantic directory entry declares either `discardable` or `preserve_opaque` compatibility. Readers validate its framing,
-bounds, stored-byte checksum, and declared resource limits, exclude it from semantic content identity, and do not interpret it. A
-tool that rewrites an artifact must retain `preserve_opaque` bytes exactly and may omit `discardable` bytes. Known semantic sections
-cannot use either compatibility class. There is no optional semantic field whose unknown meaning can affect compilation.
+non-semantic directory entry declares either `discardable` or `preserve_opaque` compatibility. Readers validate its
+framing, bounds, stored-byte checksum, and declared resource limits, exclude it from semantic content identity, and do
+not interpret it. A tool that rewrites an artifact must retain `preserve_opaque` bytes exactly and may omit
+`discardable` bytes. Known semantic sections cannot use either compatibility class. There is no optional semantic field
+whose unknown meaning can affect compilation.
 
 ### Hashes
 
-Each semantic or support section has a domain-separated BLAKE3 decoded-content digest over its tag, decoded length, and decoded
-payload bytes. `InterfaceContentHash` is a domain-separated BLAKE3 digest of the format revision followed by the stable semantic
-and support section tags, decoded lengths, and decoded-content digests in tag order. A reader validates that aggregate commitment
-before exposing the interface, then validates each requested section's decoded bytes against its committed digest. The content hash
-excludes section revisions, storage encodings, header offsets, section-directory offsets, optional provenance, and other explicitly
-non-semantic tooling sections.
+Each semantic or support section has a domain-separated BLAKE3 decoded-content digest over its tag, decoded length, and
+decoded payload bytes. `InterfaceContentHash` is a domain-separated BLAKE3 digest of the format revision followed by the
+stable semantic and support section tags, decoded lengths, and decoded-content digests in tag order. A reader validates
+that aggregate commitment before exposing the interface, then validates each requested section's decoded bytes against
+its committed digest. The content hash excludes section revisions, storage encodings, header offsets, section-directory
+offsets, optional provenance, and other explicitly non-semantic tooling sections.
 
-The content hash covers package identity and version, product identity, language semantic revision, every symbol, relationship, semantic record, support
-entity, dependency reference, and target dependency that can affect a consumer. Dependency tables record expected content hashes
-when exact dependency semantics are required.
+The content hash covers package identity and version, product identity, language semantic revision, every symbol,
+relationship, semantic record, support entity, dependency reference, and target dependency that can affect a consumer.
+Dependency tables record expected content hashes when exact dependency semantics are required.
 
-`InterfaceArtifactHash` is a BLAKE3 digest of the complete normalized artifact bytes with the artifact-hash field treated as zero. It
-covers optional provenance and detects corruption or byte-level substitution of the exact file.
+`InterfaceArtifactHash` is a BLAKE3 digest of the complete normalized artifact bytes with the artifact-hash field
+treated as zero. It covers optional provenance and detects corruption or byte-level substitution of the exact file.
 
-The semantic content hash keys imported semantic reuse. The artifact hash keys exact byte storage and provenance-aware tooling.
-Neither hash is a package signature or trust proof. Artifact authenticity belongs to the package and distribution layer.
+The semantic content hash keys imported semantic reuse. The artifact hash keys exact byte storage and provenance-aware
+tooling. Neither hash is a package signature or trust proof. Artifact authenticity belongs to the package and
+distribution layer.
 
 ---
 
@@ -735,22 +756,23 @@ The current library product's compiled interface is produced by a lazy compilati
 - interface format revision,
 - completed public symbol and declaration-owned semantic dependencies.
 
-A caller requests the interface artifact or bytes. It does not issue a command that manually runs symbol completion, checking,
-interface construction, and encoding in sequence.
+A caller requests the interface artifact or bytes. It does not issue a command that manually runs symbol completion,
+checking, interface construction, and encoding in sequence.
 
 ### Export Bundle
 
-`bray-compilation` requests and freezes an immutable export bundle before encoding. The bundle contains category-specific semantic
-records and checked templates. It does not expose compilation caches or mutable symbol providers to the encoder.
+`bray-compilation` requests and freezes an immutable export bundle before encoding. The bundle contains
+category-specific semantic records and checked templates. It does not expose compilation caches or mutable symbol
+providers to the encoder.
 
-Interface construction requests exactly the semantic records required by the reachable public graph. Executable bodies remain unrequested unless a
-separate implementation payload contract requires them.
+Interface construction requests exactly the semantic records required by the reachable public graph. Executable bodies
+remain unrequested unless a separate implementation payload contract requires them.
 
-The export bundle must be error-free for all semantic records required by the interface. A package with invalid public surface semantic records does not
-emit a successful importable interface.
+The export bundle must be error-free for all semantic records required by the interface. A package with invalid public
+surface semantic records does not emit a successful importable interface.
 
-Constructing an export bundle does not waive diagnostics outside the public graph. Final library emission publishes the `.brayi`
-artifact only when the complete library product check required by emission succeeds.
+Constructing an export bundle does not waive diagnostics outside the public graph. Final library emission publishes the
+`.brayi` artifact only when the complete library product check required by emission succeeds.
 
 ### Deterministic Ordering
 
@@ -759,7 +781,8 @@ Encoding order is deterministic:
 - strings use stable byte ordering after deduplication,
 - dependencies use stable package identity order,
 - symbols use stable `ExternalSymbolKey` order,
-- typed owner collections preserve their language-defined stable order where that order is semantically or diagnostically relevant,
+- typed owner collections preserve their language-defined stable order where that order is semantically or
+  diagnostically relevant,
 - maps serialize as sorted records,
 - target properties use typed property-key order,
 - templates use deterministic owner and role order.
@@ -768,12 +791,12 @@ Hash maps, source file order, memory addresses, worker completion order, and laz
 
 ### Atomic Publication
 
-The complete byte sequence, semantic content hash, and artifact hash are produced before the interface artifact is published.
-Cancellation, encoding failure, or semantic failure publishes no partial artifact.
+The complete byte sequence, semantic content hash, and artifact hash are produced before the interface artifact is
+published. Cancellation, encoding failure, or semantic failure publishes no partial artifact.
 
-`bray-emitter` stages the completed artifact in its managed product generation and exposes it only when that generation is
-atomically published. An explicitly independent inspection write uses the emitter's per-artifact transaction. A failed write cannot
-leave a file that appears to be a valid completed interface.
+`bray-emitter` stages the completed artifact in its managed product generation and exposes it only when that generation
+is atomically published. An explicitly independent inspection write uses the emitter's per-artifact transaction. A
+failed write cannot leave a file that appears to be a valid completed interface.
 
 ---
 
@@ -788,8 +811,8 @@ The package and build layer supplies:
 - an artifact path or immutable byte source,
 - the dependency relationship used for diagnostics.
 
-`bray-package-interface` validates and returns an immutable loaded interface. It never discovers arbitrary interfaces by searching
-the filesystem.
+`bray-package-interface` validates and returns an immutable loaded interface. It never discovers arbitrary interfaces by
+searching the filesystem.
 
 ### Eager Structural Validation
 
@@ -816,34 +839,36 @@ This validation makes later lazy reads memory-safe and bounded. It does not eage
 After structural validation, the loader decodes the identity and relationship sections into an immutable
 `ImportedPackageIdentitySurface` owned by `bray-symbols`.
 
-Symbol construction maps every `InterfaceSymbolId` to a compilation-local typed symbol ID in stable order. The map is immutable
-after publication.
+Symbol construction maps every `InterfaceSymbolId` to a compilation-local typed symbol ID in stable order. The map is
+immutable after publication.
 
-Imported symbols store symbol-owned semantic record keys such as an interface identity plus artifact-local symbol and semantic record category. They do
-not store package-interface reader objects in public records.
+Imported symbols store symbol-owned semantic record keys such as an interface identity plus artifact-local symbol and
+semantic record category. They do not store package-interface reader objects in public records.
 
 ### Lazy Semantic Record Decoding
 
 When an imported symbol semantic record is requested:
 
 1. `bray-compilation` resolves the imported semantic record key to the loaded interface.
-2. `bray-package-interface` validates the relevant record directories and decodes the exact semantic record's transitive record closure.
+2. `bray-package-interface` validates the relevant record directories and decodes the exact semantic record's transitive
+   record closure.
 3. External symbol references are mapped through the immutable imported skeleton and dependency maps.
 4. The decoded value is converted to the ordinary symbol-owned or bound-representation-owned semantic record type.
 5. The immutable `DiagnosticResult<T>` is cached under the compilation query key.
 
 Repeated and concurrent requests publish one equivalent immutable value. A canceled request publishes nothing.
 
-The decoder must not trigger arbitrary symbol completion while holding an internal decode lock. It returns explicit reference keys
-whose semantic dependencies are requested through the compilation query graph.
+The decoder must not trigger arbitrary symbol completion while holding an internal decode lock. It returns explicit
+reference keys whose semantic dependencies are requested through the compilation query graph.
 
 ### Sharing
 
-A structurally validated loaded byte artifact can be shared across compilations when its artifact hash and format revision match.
-Decoded semantic tables can also be reused across provenance variants when their semantic content hashes match. Target-specific
-decoded semantic records can be shared only when their precise target dependency keys match.
+A structurally validated loaded byte artifact can be shared across compilations when its artifact hash and format
+revision match. Decoded semantic tables can also be reused across provenance variants when their semantic content hashes
+match. Target-specific decoded semantic records can be shared only when their precise target dependency keys match.
 
-Compilation-local symbol ID maps are not stored in the process-wide loaded interface. They belong to the consuming symbol snapshot.
+Compilation-local symbol ID maps are not stored in the process-wide loaded interface. They belong to the consuming
+symbol snapshot.
 
 ---
 
@@ -851,13 +876,13 @@ Compilation-local symbol ID maps are not stored in the process-wide loaded inter
 
 ### External Input Is Untrusted
 
-A dependency interface can be truncated, corrupt, malicious, stale, incompatible, or produced by a defective compiler. Ordinary
-interface loading must never panic for such input.
+A dependency interface can be truncated, corrupt, malicious, stale, incompatible, or produced by a defective compiler.
+Ordinary interface loading must never panic for such input.
 
-The reference reader is memory-safe code. It uses checked arithmetic, validates every offset and count before allocation or
-indexing, limits recursive depth and total decoded size, and rejects impossible graph shapes. An optimized unsafe view is permitted
-only behind the fully validated immutable bounded-byte abstraction, with a separately audited safety contract, fuzz and Miri
-coverage, and the stable safe reader retained as the conformance oracle and fallback.
+The reference reader is memory-safe code. It uses checked arithmetic, validates every offset and count before allocation
+or indexing, limits recursive depth and total decoded size, and rejects impossible graph shapes. An optimized unsafe
+view is permitted only behind the fully validated immutable bounded-byte abstraction, with a separately audited safety
+contract, fuzz and Miri coverage, and the stable safe reader retained as the conformance oracle and fallback.
 
 Configured loader limits include at least:
 
@@ -889,8 +914,8 @@ Semantic validation rejects interfaces containing:
 - private support entities exposed as declarations,
 - implementation or coherence records inconsistent with the exported symbol graph.
 
-The producing compiler should never emit these states. The consuming compiler still validates them because artifacts are external
-input.
+The producing compiler should never emit these states. The consuming compiler still validates them because artifacts are
+external input.
 
 ### Diagnostics
 
@@ -909,15 +934,16 @@ The diagnostic categories are:
 - malformed lazy semantic record payload,
 - configured resource limit exceeded.
 
-When available, the primary or related location points to the dependency declaration or package configuration that selected the
-artifact. Typed diagnostic arguments identify the artifact path, package identity, section, record, and external symbol key. The
-compiler must not invent a Bray source span inside a binary artifact.
+When available, the primary or related location points to the dependency declaration or package configuration that
+selected the artifact. Typed diagnostic arguments identify the artifact path, package identity, section, record, and
+external symbol key. The compiler must not invent a Bray source span inside a binary artifact.
 
-Optional source provenance can improve dependency diagnostics and tooling, but interface correctness cannot depend on source files
-being installed. Provenance locations are related locations, not syntax handles used for rebinding.
+Optional source provenance can improve dependency diagnostics and tooling, but interface correctness cannot depend on
+source files being installed. Provenance locations are related locations, not syntax handles used for rebinding.
 
-Diagnostics produced while the dependency itself was compiled are not replayed to every consumer. A valid interface represents a
-successfully checked public surface. Consumers diagnose loading, compatibility, local use, and instantiation failures they own.
+Diagnostics produced while the dependency itself was compiled are not replayed to every consumer. A valid interface
+represents a successfully checked public surface. Consumers diagnose loading, compatibility, local use, and
+instantiation failures they own.
 
 ---
 
@@ -931,11 +957,11 @@ The semantic interface is sufficient without source provenance. An optional prov
 - generated-origin chain,
 - repository or source-package mapping key.
 
-Provenance must not affect semantic symbol identity. Moving a source file without changing semantic ownership changes provenance and
-the artifact hash but not `ExternalSymbolKey` or the semantic content hash.
+Provenance must not affect semantic symbol identity. Moving a source file without changing semantic ownership changes
+provenance and the artifact hash but not `ExternalSymbolKey` or the semantic content hash.
 
-Tooling can use provenance for navigation when dependency source is available. When it is unavailable, tooling still exposes the
-imported symbol's package, module, declaration kind, name, signature, and external key.
+Tooling can use provenance for navigation when dependency source is available. When it is unavailable, tooling still
+exposes the imported symbol's package, module, declaration kind, name, signature, and external key.
 
 Developer inspection uses a semantic inspector rather than raw binary parsing. Project automation exposes:
 
@@ -944,7 +970,8 @@ cargo xtask package-interface inspect <path>
 cargo xtask package-interface validate <path>
 ```
 
-The inspector renders deterministic structured records. It must not become an alternate parser or source of interface truth.
+The inspector renders deterministic structured records. It must not become an alternate parser or source of interface
+truth.
 
 ---
 
@@ -966,17 +993,18 @@ Paths and file timestamps are discovery hints, not semantic cache keys.
 
 ### Semantic Record Reuse
 
-Decoded identity tables and target-independent semantic records can be reused when the semantic content hash is unchanged. Target-dependent
-semantic records require matching typed target dependencies.
+Decoded identity tables and target-independent semantic records can be reused when the semantic content hash is
+unchanged. Target-dependent semantic records require matching typed target dependencies.
 
-An imported symbol record or semantic record can be reused across compilation snapshots only when its external key, interface semantic content
-hash, and all semantic record dependency keys remain valid. Compilation-local numeric symbol IDs are remapped and never persisted as reuse
-identity.
+An imported symbol record or semantic record can be reused across compilation snapshots only when its external key,
+interface semantic content hash, and all semantic record dependency keys remain valid. Compilation-local numeric symbol
+IDs are remapped and never persisted as reuse identity.
 
 ### Public Surface Changes
 
-The semantic content hash changes whenever any encoded semantic or support semantic record changes. The artifact hash also changes for
-provenance-only changes. Tools can additionally compare structured external keys and semantic record hashes to classify changes as:
+The semantic content hash changes whenever any encoded semantic or support semantic record changes. The artifact hash
+also changes for provenance-only changes. Tools can additionally compare structured external keys and semantic record
+hashes to classify changes as:
 
 - identity addition or removal,
 - declaration movement or owner change,
@@ -986,8 +1014,8 @@ provenance-only changes. Tools can additionally compare structured external keys
 - checked-template change,
 - provenance-only change.
 
-Compatibility classification is a separate semantic tool. The loader validates exact artifact consistency and does not silently
-substitute a merely similar interface.
+Compatibility classification is a separate semantic tool. The loader validates exact artifact consistency and does not
+silently substitute a merely similar interface.
 
 ---
 
@@ -1013,8 +1041,8 @@ impl LoadedPackageInterface {
 }
 ```
 
-The exact Rust shape can use category-specific methods instead of a generic method where that preserves stronger typing. Public APIs
-must not expose byte offsets, unchecked table indexes, raw maps, or codec internals.
+The exact Rust shape can use category-specific methods instead of a generic method where that preserves stronger typing.
+Public APIs must not expose byte offsets, unchecked table indexes, raw maps, or codec internals.
 
 Encoding conceptually accepts an immutable bundle:
 
@@ -1024,8 +1052,8 @@ pub fn encode_package_interface(
 ) -> DiagnosticResult<InterfaceArtifact>;
 ```
 
-The encoder does not receive a mutable compilation or invoke binder/checker workflows itself. `bray-compilation` supplies completed
-semantic records through the bundle.
+The encoder does not receive a mutable compilation or invoke binder/checker workflows itself. `bray-compilation`
+supplies completed semantic records through the bundle.
 
 ---
 
@@ -1044,10 +1072,11 @@ The interface system must satisfy these invariants:
 - no decoder lock is held across compilation query calls,
 - source provenance cannot affect semantic lookup or identity.
 
-Parallel encoding can build independent sections or record batches with task-local buffers, followed by deterministic stable
-assembly. Parallel decoding can evaluate independent semantic records after eager structural validation. An exact implementation-header query
-decodes its implementation record, coherence evidence, generic constraints, semantic value dependencies, and owner-scoped target
-dependencies without decoding unrelated declaration templates, callable contracts, or implementation records.
+Parallel encoding can build independent sections or record batches with task-local buffers, followed by deterministic
+stable assembly. Parallel decoding can evaluate independent semantic records after eager structural validation. An exact
+implementation-header query decodes its implementation record, coherence evidence, generic constraints, semantic value
+dependencies, and owner-scoped target dependencies without decoding unrelated declaration templates, callable contracts,
+or implementation records.
 
 ---
 
@@ -1055,8 +1084,8 @@ dependencies without decoding unrelated declaration templates, callable contract
 
 ### Round-Trip Tests
 
-Round-trip tests should cover every exported symbol category, relationship, semantic type form, constant value, contract,
-implementation record, target dependency, and checked-template category.
+Round-trip tests should cover every exported symbol category, relationship, semantic type form, constant value,
+contract, implementation record, target dependency, and checked-template category.
 
 Round-trip equality compares normalized semantic values, not private byte-buffer object identity.
 
@@ -1071,7 +1100,8 @@ Tests should prove byte-identical output under:
 - repeated encoding,
 - equivalent loaded dependency order supplied through differently ordered inputs.
 
-Tests should also prove that provenance-only changes preserve `InterfaceContentHash` while changing `InterfaceArtifactHash`.
+Tests should also prove that provenance-only changes preserve `InterfaceContentHash` while changing
+`InterfaceArtifactHash`.
 
 ### Imported Symbol Tests
 
@@ -1090,7 +1120,8 @@ Tests should verify:
 
 ### Corruption And Resource Tests
 
-Every offset, length, count, tag, reference, graph edge, and digest field needs malformed-input coverage. Tests should include:
+Every offset, length, count, tag, reference, graph edge, and digest field needs malformed-input coverage. Tests should
+include:
 
 - truncation at every structural boundary,
 - integer overflow attempts,
@@ -1109,21 +1140,26 @@ Ordinary malformed interface input must return structured diagnostics and never 
 
 ### Compatibility Fixtures
 
-Checked-in binary fixtures should cover the current exact format revision. Fixtures are regenerated intentionally when that revision
-changes. Tests do not require the compiler to continue reading obsolete fixtures unless compatibility support is explicitly added.
+Checked-in binary fixtures should cover the current exact format revision. Fixtures are regenerated intentionally when
+that revision changes. Tests do not require the compiler to continue reading obsolete fixtures unless compatibility
+support is explicitly added.
 
 ---
 
 ## Dependency And Conformance Order
 
-Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries
+defined above:
 
-1. Define `ExternalSymbolKey`, `InterfaceSymbolId`, imported semantic record keys, and imported identity-surface inputs in `bray-symbols`.
+1. Define `ExternalSymbolKey`, `InterfaceSymbolId`, imported semantic record keys, and imported identity-surface inputs
+   in `bray-symbols`.
 2. Define source-independent serializable checked-template contracts in their semantic owner crate.
-3. Add `bray-package-interface` with header, section directory, explicit wire primitives, loader limits, and structured diagnostics.
+3. Add `bray-package-interface` with header, section directory, explicit wire primitives, loader limits, and structured
+   diagnostics.
 4. Implement package, dependency, string, identity, containment, relationship, and lookup sections.
 5. Construct imported package, module, and declaration symbol skeletons from validated identity surfaces.
-6. Add interned semantic type, constant, constraint, contract, dependency-contract, implementation, and target-property sections.
+6. Add interned semantic type, constant, constraint, contract, dependency-contract, implementation, and target-property
+   sections.
 7. Add checked declaration-owned templates and support graph records.
 8. Add lazy imported semantic record queries through `bray-compilation`.
 9. Add deterministic export-bundle construction and encoding for valid library products.
@@ -1132,5 +1168,6 @@ Delivery follows this dependency order. Every completed step must use the final 
 12. Add corruption, limits, concurrency, round-trip, and byte-determinism coverage.
 13. Add `cargo xtask package-interface inspect` and `validate` commands.
 
-Each step should preserve the boundary between semantic symbol contracts and durable wire encoding. Temporary metadata-specific
-symbol classes, eager full-interface decoding, or syntax-rebinding paths must not become alternate architectures.
+Each step should preserve the boundary between semantic symbol contracts and durable wire encoding. Temporary
+metadata-specific symbol classes, eager full-interface decoding, or syntax-rebinding paths must not become alternate
+architectures.

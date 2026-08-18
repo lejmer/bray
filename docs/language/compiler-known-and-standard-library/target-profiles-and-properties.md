@@ -4,7 +4,8 @@ Target profiles and properties are part of the target, layout, ABI, and raw memo
 
 `target` is a compiler-known path, and its declarations are available according to the compiler-known declaration rules.
 
-The target property groups, target property types, target-profile validation rules, and target-dependent constant rules are defined in [Target profiles and properties](../targets-layout-abi-and-raw-memory/target-profiles-and-properties.md).
+The target property groups, target property types, target-profile validation rules, and target-dependent constant rules
+are defined in [Target profiles and properties](../targets-layout-abi-and-raw-memory/target-profiles-and-properties.md).
 
 ## Navigation
 

@@ -4,9 +4,11 @@ A **type form** is a syntactic and semantic form that produces a type.
 
 Type forms are compiler-recognized type-level constructs.
 
-A type form defines how a type is built from one or more subject types, compile-time arguments, or structural components.
+A type form defines how a type is built from one or more subject types, compile-time arguments, or structural
+components.
 
-A type form can affect ownership, storage, borrowing, layout, lifetime behavior, callable behavior, initialization, destruction, finalization, access-path behavior, or value representation.
+A type form can affect ownership, storage, borrowing, layout, lifetime behavior, callable behavior, initialization,
+destruction, finalization, access-path behavior, or value representation.
 
 Type forms are part of the core type grammar.
 
@@ -45,7 +47,8 @@ Type expressions are composed from:
 
 Type-form arguments can include types, constants, and other compile-time entities when the type form permits them.
 
-Trait applications can appear inside type expressions only where a type form or qualified type-valued member reference permits them.
+Trait applications can appear inside type expressions only where a type form or qualified type-valued member reference
+permits them.
 
 Type-valued members bound by inherent implementations are referenced through ordinary type-associated paths.
 
@@ -210,7 +213,8 @@ Prefix type forms compose with other type forms according to the type grammar.
 box[Heap] Point?
 ```
 
-Each prefix type form contributes its own ownership, storage, borrowing, lifetime, layout, initialization, destruction, finalization, and capability semantics.
+Each prefix type form contributes its own ownership, storage, borrowing, lifetime, layout, initialization, destruction,
+finalization, and capability semantics.
 
 ## Postfix type forms
 
@@ -233,7 +237,8 @@ Point?
 box[Heap] Point?
 ```
 
-Each postfix type form contributes its own value-state, ownership, initialization, destruction, finalization, and pattern behavior.
+Each postfix type form contributes its own value-state, ownership, initialization, destruction, finalization, and
+pattern behavior.
 
 ## Structural type forms
 
@@ -275,11 +280,13 @@ box[Heap] [u8]
 func(buffer: &Buffer, index: usize) -> u8
 ```
 
-The meaning of a composed type is determined by applying each type form according to the type grammar and the semantic contract of that form.
+The meaning of a composed type is determined by applying each type form according to the type grammar and the semantic
+contract of that form.
 
 Composition order is determined by the type grammar and explicit grouping parentheses.
 
-A composed type has one ownership, borrowing, initialization, destruction, finalization, capability, effect, and layout contract produced by the composition of its type forms and subject types.
+A composed type has one ownership, borrowing, initialization, destruction, finalization, capability, effect, and layout
+contract produced by the composition of its type forms and subject types.
 
 If two composed type forms impose incompatible requirements, the composed type is rejected.
 
@@ -301,7 +308,10 @@ A borrow type is a non-owning access path type.
 
 A borrow value does not own the reached storage.
 
-Borrow compatibility, creation, movement, copying, lifetime validity, reborrowing, and invalidation are defined in [Borrow rules](../ownership-and-borrowing/borrow-rules.md), [Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md), and [Condition and borrow invalidation](../ownership-and-borrowing/contract-and-borrow-validity.md).
+Borrow compatibility, creation, movement, copying, lifetime validity, reborrowing, and invalidation are defined in
+[Borrow rules](../ownership-and-borrowing/borrow-rules.md),
+[Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md), and
+[Condition and borrow invalidation](../ownership-and-borrowing/contract-and-borrow-validity.md).
 
 Nested borrow types are allowed.
 
@@ -314,11 +324,14 @@ Nested borrow types are allowed.
 
 Each borrow layer has its own capability.
 
-Reachability and capability behavior for nested borrow values is defined in [Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md).
+Reachability and capability behavior for nested borrow values is defined in
+[Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md).
 
 ## Lifetime and capability dependency contracts
 
-Lifetime and capability dependency contracts are defined in [Dependency contracts](../ownership-and-borrowing/dependency-contracts.md) and [Scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md).
+Lifetime and capability dependency contracts are defined in
+[Dependency contracts](../ownership-and-borrowing/dependency-contracts.md) and
+[Scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md).
 
 ## Nullable type form
 
@@ -340,7 +353,8 @@ The absent state is a valid initialized state.
 
 A nullable value or access path is fully initialized when it is initialized to either present or absent state.
 
-When present, the contained `T` value follows the ownership, borrowing, movement, copying, destruction, finalization, and capability rules of `T`.
+When present, the contained `T` value follows the ownership, borrowing, movement, copying, destruction, finalization,
+and capability rules of `T`.
 
 When absent, there is no contained `T` value to access, move, copy, borrow, destroy, or finalize.
 
@@ -374,7 +388,8 @@ If the access path holds a borrow, assigning `none` ends the borrow before the a
 
 The binding, field, parameter, or other declaration remains declared. Only the nullable storage state changes.
 
-Nullable-to-nullable conversion follows the recursive explicit convertibility rule when the contained source type is explicitly convertible to the contained target type.
+Nullable-to-nullable conversion follows the recursive explicit convertibility rule when the contained source type is
+explicitly convertible to the contained target type.
 
 The absent state remains absent during nullable-to-nullable conversion.
 
@@ -382,7 +397,8 @@ A present value is converted recursively.
 
 Nullable pattern rules are defined in [Nullable patterns](../patterns/nullable-patterns.md).
 
-Nullable propagation expression rules are defined in [Nullable and absence expressions](../expressions/nullable-and-absence-expressions.md).
+Nullable propagation expression rules are defined in
+[Nullable and absence expressions](../expressions/nullable-and-absence-expressions.md).
 
 ## Owned-indirection type form
 
@@ -407,7 +423,8 @@ The storage policy is an ordinary type that satisfies the compiler-known `Storag
 
 The `Storage<T>` trait is declared by the language substrate and interpreted by the `box` type form.
 
-Implementing `Storage<T>` is ordinary trait implementation plus the trusted declarations required by the storage operations.
+Implementing `Storage<T>` is ordinary trait implementation plus the trusted declarations required by the storage
+operations.
 
 The compiler does not infer storage behavior from matching member names.
 
@@ -441,18 +458,22 @@ trait Storage<T>
 
 `Storage<T>.destroy` destroys the stored `T` without releasing the storage object itself.
 
-`Storage<T>.release` releases the storage object after the stored value has been destroyed or otherwise removed according to the storage contract.
+`Storage<T>.release` releases the storage object after the stored value has been destroyed or otherwise removed
+according to the storage contract.
 
 `Storage<T>.create` requires `T` to be sized.
 
-The `box[S] T` type form can store an unsized subject only when the type-form rule defines how to store a sized concrete value behind that subject.
+The `box[S] T` type form can store an unsized subject only when the type-form rule defines how to store a sized concrete
+value behind that subject.
 
-For `box[S] view TraitApplication`, box construction stores a sized concrete value `U` using `Storage<U>`, then forms the view from the stored `U` and the selected `U(TraitApplication)` implementation witness.
+For `box[S] view TraitApplication`, box construction stores a sized concrete value `U` using `Storage<U>`, then forms
+the view from the stored `U` and the selected `U(TraitApplication)` implementation witness.
 
-For `box[S] [T]`, box construction uses contiguous owned storage behavior for element type `T` and a runtime element count.
+For `box[S] [T]`, box construction uses contiguous owned storage behavior for element type `T` and a runtime element
+count.
 
-The storage policy allocates storage for the element count, initializes each element exactly once, projects slice borrows, destroys
-initialized elements, and releases the allocation according to the storage policy.
+The storage policy allocates storage for the element count, initializes each element exactly once, projects slice
+borrows, destroys initialized elements, and releases the allocation according to the storage policy.
 
 ```bray
 let sink: box[Heap] view Sink = box[Heap](file_sink);
@@ -484,15 +505,18 @@ Storage construction arguments are part of the storage policy's construction con
 
 They are not part of the `Storage<T>` type application.
 
-A `Storage<T>` implementation must preserve Bray ownership, borrowing, initialization, destruction, finalization, capability, effect, and trusted-obligation rules.
+A `Storage<T>` implementation must preserve Bray ownership, borrowing, initialization, destruction, finalization,
+capability, effect, and trusted-obligation rules.
 
 Trusted storage members expose implementation power only inside their bodies.
 
-Calling `box(...)`, borrowing through a box, and destroying a box remain ordinary operations when the selected storage implementation satisfies its public contract.
+Calling `box(...)`, borrowing through a box, and destroying a box remain ordinary operations when the selected storage
+implementation satisfies its public contract.
 
 For sized `T`, a `box[S] T` value owns separately stored `T`.
 
-For `box[S] view TraitApplication`, the box owns the stored concrete value and exposes it through the trait-view subject.
+For `box[S] view TraitApplication`, the box owns the stored concrete value and exposes it through the trait-view
+subject.
 
 For `box[S] [T]`, the box owns the contiguous element storage and exposes it through the slice subject.
 
@@ -500,9 +524,11 @@ Moving a `box[S] T` moves ownership of the indirection value.
 
 Destroying a `box[S] T` destroys the stored value and releases storage according to the storage policy.
 
-Borrowing a `box[S] T` can project a borrow of the contained or viewed value when the storage policy and access path permit it.
+Borrowing a `box[S] T` can project a borrow of the contained or viewed value when the storage policy and access path
+permit it.
 
-Mutable borrowing a `box[S] T` can project mutable access to the contained or viewed value when the box access path, storage policy, and contained type permit it.
+Mutable borrowing a `box[S] T` can project mutable access to the contained or viewed value when the box access path,
+storage policy, and contained type permit it.
 
 The outer representation of `box[S] T` has statically known finite size independent of `T`.
 
@@ -514,7 +540,8 @@ Box construction is handled by box construction expressions.
 let node: box List<i32> = box(Empty);
 ```
 
-Box construction expression rules are defined in [Box construction expressions](../expressions/box-construction-expressions.md).
+Box construction expression rules are defined in
+[Box construction expressions](../expressions/box-construction-expressions.md).
 
 ## Trait-view type form
 
@@ -543,7 +570,8 @@ The implementation witness is part of the trait view's dependency contract.
 
 The runtime representation of a trait view is compiler-defined.
 
-It must preserve the view's ownership, borrowing, lifetime, destruction, finalization, capability, effect, and contract semantics.
+It must preserve the view's ownership, borrowing, lifetime, destruction, finalization, capability, effect, and contract
+semantics.
 
 `view TraitApplication` is unsized.
 
@@ -581,19 +609,24 @@ struct Logger
 
 A trait view is not a dynamic type.
 
-It does not permit runtime type tests, downcasting, field access on the hidden concrete type, or calls outside the selected trait view surface.
+It does not permit runtime type tests, downcasting, field access on the hidden concrete type, or calls outside the
+selected trait view surface.
 
-The only behavior available through a view is behavior declared by the exact trait application and accepted by the view-surface rules.
+The only behavior available through a view is behavior declared by the exact trait application and accepted by the
+view-surface rules.
 
-A concrete value can form a view only when its type satisfies the exact trait application through a participating implementation.
+A concrete value can form a view only when its type satisfies the exact trait application through a participating
+implementation.
 
 If no participating implementation satisfies the exact trait application, view formation is rejected.
 
-If more than one participating implementation could satisfy the exact trait application, view formation is rejected by coherence rules before the view is formed.
+If more than one participating implementation could satisfy the exact trait application, view formation is rejected by
+coherence rules before the view is formed.
 
 Static functions in a trait are not part of a value view surface.
 
-A callable trait member is part of a view surface only when its signature, contracts, effects, capabilities, and obligations can be checked without naming the hidden concrete type.
+A callable trait member is part of a view surface only when its signature, contracts, effects, capabilities, and
+obligations can be checked without naming the hidden concrete type.
 
 A callable trait member that mentions `Self` outside the receiver is not part of a view surface.
 
@@ -603,7 +636,8 @@ A callable trait member that exposes an unfixed type-valued member is not part o
 
 A trait with type-valued members can still be used statically through generic constraints and exact trait applications.
 
-When runtime dispatch must expose a related type through a view, that related type must be represented as an input to the trait application rather than as a type-valued member output.
+When runtime dispatch must expose a related type through a view, that related type must be represented as an input to
+the trait application rather than as a type-valued member output.
 
 For example:
 
@@ -620,11 +654,13 @@ A shared borrowed view permits shared receiver methods.
 
 A mutable borrowed view permits shared and mutable receiver methods.
 
-An owned boxed view permits shared, mutable, and consuming receiver methods according to the box access path, ownership state, and receiver mode.
+An owned boxed view permits shared, mutable, and consuming receiver methods according to the box access path, ownership
+state, and receiver mode.
 
 Consuming a boxed view consumes the owning box value.
 
-The hidden concrete value is destroyed and finalized according to the selected implementation, the concrete type, and the storage policy.
+The hidden concrete value is destroyed and finalized according to the selected implementation, the concrete type, and
+the storage policy.
 
 ## Fixed-size array type form
 
@@ -644,8 +680,8 @@ The fixed-size array type form is:
 
 `N` must be greater than zero.
 
-When `N` remains symbolic, the greater-than-zero requirement is checked for each concrete instantiation before the array type is
-used as a materializable type.
+When `N` remains symbolic, the greater-than-zero requirement is checked for each concrete instantiation before the array
+type is used as a materializable type.
 
 A fixed-size array contains exactly `N` elements of type `T`.
 
@@ -669,8 +705,8 @@ Moving a complete array moves every initialized element as part of the array val
 
 Copying an array requires the element type to satisfy the required copy contract.
 
-Borrowing an array borrows the array storage. Element access and slice projection can derive narrower borrows from that borrow
-when ordinary borrowing rules permit it.
+Borrowing an array borrows the array storage. Element access and slice projection can derive narrower borrows from that
+borrow when ordinary borrowing rules permit it.
 
 Moving an element out of an owned array access path is a partial move of the array.
 
@@ -682,7 +718,8 @@ Array destruction processes initialized elements in reverse index order.
 
 Finalization obligations retained by array elements are retained by the array.
 
-Array expression rules are defined in [Array expressions](../expressions/array-expressions.md) and [Array generator expressions](../expressions/array-generator-expressions.md).
+Array expression rules are defined in [Array expressions](../expressions/array-expressions.md) and
+[Array generator expressions](../expressions/array-generator-expressions.md).
 
 ## Incomplete-extent array representation
 
@@ -692,11 +729,13 @@ The incomplete-extent array representation is:
 [T; ..]
 ```
 
-It describes a runtime-counted trailing sequence of `T` elements. It is available as the final stored field of a `@layout(c)`
-product and contributes no standalone value form. The containing product's layout and access rules are defined by
+It describes a runtime-counted trailing sequence of `T` elements. It is available as the final stored field of a
+`@layout(c)` product and contributes no standalone value form. The containing product's layout and access rules are
+defined by
 [Flexible trailing storage](../targets-layout-abi-and-raw-memory/product-layout.md#flexible-trailing-storage).
 
-Array indexing and slicing expression rules are defined in [Index access expressions](../expressions/index-access-expressions.md).
+Array indexing and slicing expression rules are defined in
+[Index access expressions](../expressions/index-access-expressions.md).
 
 ## Slice type form
 
@@ -712,7 +751,8 @@ The slice type form is:
 
 The slice length is runtime state carried by an indirection boundary.
 
-A slice type cannot appear as a local value by itself, a by-value parameter type, a by-value result type, or a by-value field type.
+A slice type cannot appear as a local value by itself, a by-value parameter type, a by-value result type, or a by-value
+field type.
 
 A slice type can appear behind an indirection boundary:
 
@@ -740,9 +780,11 @@ Borrowed slices do not own their elements.
 
 Moving an element out through a borrowed slice is not allowed.
 
-Moving `box[S] [T]` moves the owned contiguous storage, its runtime length, and its initialized elements as one owned value.
+Moving `box[S] [T]` moves the owned contiguous storage, its runtime length, and its initialized elements as one owned
+value.
 
-Destroying `box[S] [T]` destroys initialized elements in reverse index order and then releases the underlying storage through `S`.
+Destroying `box[S] [T]` destroys initialized elements in reverse index order and then releases the underlying storage
+through `S`.
 
 Borrowing `box[S] [T]` can produce `&[T]` or `&mut [T]` according to the borrowing mode and access path authority.
 
@@ -786,8 +828,8 @@ Moving a complete tuple moves every initialized element as part of the tuple val
 
 Copying a tuple requires every element type to satisfy the required copy contract.
 
-Borrowing a tuple borrows the tuple storage. Tuple element projection can derive narrower borrows from that borrow when ordinary
-borrowing rules permit it.
+Borrowing a tuple borrows the tuple storage. Tuple element projection can derive narrower borrows from that borrow when
+ordinary borrowing rules permit it.
 
 Moving an element out of an owned tuple access path is a partial move of the tuple.
 
@@ -824,9 +866,12 @@ The callable type form is:
 func(parameter: Type, ...) -> Result
 ```
 
-A callable type describes a callable value's parameter names, parameter call-position permissions, parameter types, result type, execution mode, callable ABI, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
+A callable type describes a callable value's parameter names, parameter call-position permissions, parameter types,
+result type, execution mode, callable ABI, ownership behavior, borrowing behavior, mutation requirements, lifetime
+requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
 
-Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments bind to parameters.
+Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments
+bind to parameters.
 
 ```bray
 func(left: i32, right: i32) -> i32
@@ -853,7 +898,8 @@ func(pos value: i32) -> i32
     requires(value >= 0)
 ```
 
-Contract clauses on callable type forms use the same predicate-expression syntax as contract clauses on callable declarations.
+Contract clauses on callable type forms use the same predicate-expression syntax as contract clauses on callable
+declarations.
 
 Const callable type forms use `const` before `func`.
 
@@ -867,8 +913,8 @@ Async callable type forms use `async` before `func`.
 async func(pos request: Request) -> Response
 ```
 
-Trusted callable type forms preserve trusted callable obligations and trusted implementation capability requirements through their
-callable contract.
+Trusted callable type forms preserve trusted callable obligations and trusted implementation capability requirements
+through their callable contract.
 
 ```bray
 trusted func(pos bytes: &mut [u8])
@@ -883,7 +929,8 @@ ABI-qualified callable type forms use `@abi(...)` immediately before `func`.
 
 Callable ABI is part of the callable type's visible contract.
 
-A named callable contract declaration gives a reusable name to a callable type form. Named callable contract rules are defined in [Callable types and values](../callables/callable-types-and-values.md).
+A named callable contract declaration gives a reusable name to a callable type form. Named callable contract rules are
+defined in [Callable types and values](../callables/callable-types-and-values.md).
 
 ```bray
 callable Transform =
@@ -917,10 +964,11 @@ A callable value satisfies a named callable contract when its visible callable c
 
 Named callable contracts cannot be overloaded.
 
-Lambda expressions produce anonymous callable values. Lambda callable rules are defined in [Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
+Lambda expressions produce anonymous callable values. Lambda callable rules are defined in
+[Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
 
-A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
-execution mode, callable ABI, contract clauses, and trusted obligations.
+A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types,
+result type, execution mode, callable ABI, contract clauses, and trusted obligations.
 
 Lambdas are capture-free.
 
@@ -937,23 +985,28 @@ box[S] T
 box[S](value, ...)
 ```
 
-A type form with construction behavior defines how a value of the produced type is constructed from runtime expressions and compile-time arguments.
+A type form with construction behavior defines how a value of the produced type is constructed from runtime expressions
+and compile-time arguments.
 
 A type-form construction expression is compiler-recognized.
 
-A type-form construction expression can invoke ordinary declarations, trait behavior, lifecycle declarations, storage behavior, trusted declarations, and contract clauses according to the type form's rules.
+A type-form construction expression can invoke ordinary declarations, trait behavior, lifecycle declarations, storage
+behavior, trusted declarations, and contract clauses according to the type form's rules.
 
 A type form with no construction behavior cannot be used as a construction expression through type-form syntax.
 
-Type-form construction expression rules are defined in [Type-form construction expressions](../expressions/type-form-construction-expressions.md).
+Type-form construction expression rules are defined in
+[Type-form construction expressions](../expressions/type-form-construction-expressions.md).
 
 ## Type forms and recursive types
 
 A stored field type must have known finite outer size.
 
-A recursively reachable stored field is valid only when every recursive path back to the declaring type crosses an owning indirection boundary.
+A recursively reachable stored field is valid only when every recursive path back to the declaring type crosses an
+owning indirection boundary.
 
-An **owning indirection boundary** is a type form whose outer value has known finite size and owns storage for its subject separately from the outer value.
+An **owning indirection boundary** is a type form whose outer value has known finite size and owns storage for its
+subject separately from the outer value.
 
 The owning indirection boundary is `box[S] T`.
 
@@ -1023,21 +1076,27 @@ struct Node
 
 A type form contributes layout constraints to the produced type.
 
-Some type forms have compiler-defined default layout, and some type forms can use representation optimizations when their semantics are preserved.
+Some type forms have compiler-defined default layout, and some type forms can use representation optimizations when
+their semantics are preserved.
 
-General layout directives, layout modes, layout options, padding behavior, layout helpers, and public ABI rules are defined in [Layout contracts](../targets-layout-abi-and-raw-memory/layout-contracts.md).
+General layout directives, layout modes, layout options, padding behavior, layout helpers, and public ABI rules are
+defined in [Layout contracts](../targets-layout-abi-and-raw-memory/layout-contracts.md).
 
 ## Type-form eligibility
 
 A type form is introduced by the language when the form has core semantic meaning.
 
-A type form earns core status when ordinary named types and behavioral contracts cannot express the construct without losing required compiler knowledge about ownership, storage, borrowing, layout, lifetime behavior, callable behavior, initialization, destruction, or finalization.
+A type form earns core status when ordinary named types and behavioral contracts cannot express the construct without
+losing required compiler knowledge about ownership, storage, borrowing, layout, lifetime behavior, callable behavior,
+initialization, destruction, or finalization.
 
-`box` is a type form because owned indirection affects recursive type sizing, ownership transfer, destruction, borrow projection, and storage identity.
+`box` is a type form because owned indirection affects recursive type sizing, ownership transfer, destruction, borrow
+projection, and storage identity.
 
 `?` is a type form because nullability is a core value-state shape used throughout the language.
 
-`func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and contract semantics.
+`func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and
+contract semantics.
 
 ## Navigation
 

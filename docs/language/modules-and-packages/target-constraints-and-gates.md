@@ -4,7 +4,8 @@
 
 Target constraints are product constraints supplied by the package and build layer.
 
-Target profiles, target properties, target constraints, target-conditional declarations, and `@target(...)` gates are defined in [Target constraints and gates](../targets-layout-abi-and-raw-memory/target-constraints-and-gates.md).
+Target profiles, target properties, target constraints, target-conditional declarations, and `@target(...)` gates are
+defined in [Target constraints and gates](../targets-layout-abi-and-raw-memory/target-constraints-and-gates.md).
 
 ## Target-gated module contributions
 
@@ -15,7 +16,8 @@ A module contribution can be gated by the selected target profile with `@target(
 module counters;
 ```
 
-Module path, module identity, module visibility, trusted-module state, declaration visibility, and path resolution remain module rules.
+Module path, module identity, module visibility, trusted-module state, declaration visibility, and path resolution
+remain module rules.
 
 ## Navigation
 

@@ -4,11 +4,14 @@ A type can have a physical layout contract.
 
 Default layout is compiler-defined.
 
-Without `@layout(...)`, a product type's field declaration order and a union type's variant declaration order remain semantic, but physical field offsets, physical tag representation, padding, size, alignment, and representation optimizations are selected by the compiler.
+Without `@layout(...)`, a product type's field declaration order and a union type's variant declaration order remain
+semantic, but physical field offsets, physical tag representation, padding, size, alignment, and representation
+optimizations are selected by the compiler.
 
 Default layout is not public ABI.
 
-The compiler can select different default layouts across targets, compiler versions, optimization profiles, and code generation strategies when Bray semantics are preserved.
+The compiler can select different default layouts across targets, compiler versions, optimization profiles, and code
+generation strategies when Bray semantics are preserved.
 
 Source code can depend on physical layout only when an explicit layout contract is declared.
 
@@ -24,7 +27,8 @@ Remaining arguments are named layout options.
 
 Only one `@layout(...)` directive can apply to a primary representation declaration.
 
-`@layout(...)` attaches to primary representation declarations, not to arbitrary type expressions or implementation blocks.
+`@layout(...)` attaches to primary representation declarations, not to arbitrary type expressions or implementation
+blocks.
 
 For user-declared types, the primary representation declarations that accept `@layout(...)` are `struct` and `union`.
 
@@ -63,15 +67,18 @@ For `c` layout, the requested alignment must be representable by the target C AB
 
 `pack` is valid only when the laid-out representation is plain storage.
 
-Plain storage means every represented field and payload is recursively plain storage and the representation has no destructor, finalizer, scoped lifecycle declaration, ownership obligation, resource obligation, finalization obligation, borrow field, `box`, trait-view field, callable field, task field, or protected representation.
+Plain storage means every represented field and payload is recursively plain storage and the representation has no
+destructor, finalizer, scoped lifecycle declaration, ownership obligation, resource obligation, finalization obligation,
+borrow field, `box`, trait-view field, callable field, task field, or protected representation.
 
 Packed fields and packed payload components can be loaded and stored by value according to the packed layout contract.
 
-A packed field or payload component cannot be borrowed as `&T` or `&mut T` unless the compiler proves that the specific access is naturally aligned for `T`.
+A packed field or payload component cannot be borrowed as `&T` or `&mut T` unless the compiler proves that the specific
+access is naturally aligned for `T`.
 
-`size = N` supplies the exact byte size of a bodyless opaque struct. It is valid only with `stable` or `c` layout on a bodyless
-struct and requires an explicit compatible `align = A`. The size must be representable by the selected target and must be a
-multiple of the effective alignment.
+`size = N` supplies the exact byte size of a bodyless opaque struct. It is valid only with `stable` or `c` layout on a
+bodyless struct and requires an explicit compatible `align = A`. The size must be representable by the selected target
+and must be a multiple of the effective alignment.
 
 `tag = IntegerType` sets the physical tag type of a union.
 
@@ -79,17 +86,19 @@ multiple of the effective alignment.
 
 The tag type must be an integer scalar type.
 
-`tag = none` selects an unrepresented semantic discriminant and overlapping payload storage. It is valid only for `c` unions that
-satisfy the tagless-union rules. It preserves semantic active variants while requiring an independent active-variant fact before
-semantic payload access.
+`tag = none` selects an unrepresented semantic discriminant and overlapping payload storage. It is valid only for `c`
+unions that satisfy the tagless-union rules. It preserves semantic active variants while requiring an independent
+active-variant fact before semantic payload access.
 
-Layout directives do not change ownership, initialization, destruction, finalization, field access, variant access, method resolution, trait satisfaction, or contract semantics.
+Layout directives do not change ownership, initialization, destruction, finalization, field access, variant access,
+method resolution, trait satisfaction, or contract semantics.
 
 Padding bytes are not semantic values.
 
 Padding bytes are not guaranteed initialized unless represented by explicit fields.
 
-Reading, writing, or reinterpreting padding or representation bytes requires a trusted operation with the appropriate trusted capability.
+Reading, writing, or reinterpreting padding or representation bytes requires a trusted operation with the appropriate
+trusted capability.
 
 Changing a public type's explicit layout contract is a public API and ABI change.
 

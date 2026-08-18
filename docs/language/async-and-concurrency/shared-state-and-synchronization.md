@@ -1,9 +1,10 @@
 # Shared state and synchronization
 
-Shared mutable state is valid only when access is mediated by a type or declaration contract that defines the synchronization behavior for that state.
+Shared mutable state is valid only when access is mediated by a type or declaration contract that defines the
+synchronization behavior for that state.
 
-This rule applies to product-static and thread-local static storage. A static declaration provides stable shared address identity
-but does not provide direct mutation authority or synchronization.
+This rule applies to product-static and thread-local static storage. A static declaration provides stable shared address
+identity but does not provide direct mutation authority or synchronization.
 
 A synchronization contract must identify:
 
@@ -19,13 +20,15 @@ Scoped synchronization fits the ordinary `enter` and `exit` lifecycle rules.
 
 The `enter` declaration produces a scoped capability that grants access to the protected storage.
 
-The matching `exit` declaration releases that scoped capability and establishes the release behavior declared by the type.
+The matching `exit` declaration releases that scoped capability and establishes the release behavior declared by the
+type.
 
-The scoped capability cannot escape its valid scope unless its type contract explicitly preserves the protected storage, synchronization state, and dependency contract.
+The scoped capability cannot escape its valid scope unless its type contract explicitly preserves the protected storage,
+synchronization state, and dependency contract.
 
-Library synchronization declarations are ordinary declarations. Their safe public contracts carry dependency, scoped capability,
-and synchronization-edge information through ordinary type and callable contracts. Channel, mutex, and event declaration names are
-not compiler-recognized and use no special call syntax.
+Library synchronization declarations are ordinary declarations. Their safe public contracts carry dependency, scoped
+capability, and synchronization-edge information through ordinary type and callable contracts. Channel, mutex, and event
+declaration names are not compiler-recognized and use no special call syntax.
 
 ## Navigation
 

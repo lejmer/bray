@@ -1,6 +1,7 @@
 # Overview
 
-Bray values are checked through ownership, borrowing, initialization, capability, lifecycle, and dependency-contract state.
+Bray values are checked through ownership, borrowing, initialization, capability, lifecycle, and dependency-contract
+state.
 
 An expression can:
 
@@ -17,7 +18,8 @@ An expression can:
 
 Ownership means responsibility for a value's obligations.
 
-Those obligations include initialized subvalues, dependency contracts, destruction obligations, finalization obligations, scoped capabilities, and other ownership-related contracts attached to the value.
+Those obligations include initialized subvalues, dependency contracts, destruction obligations, finalization
+obligations, scoped capabilities, and other ownership-related contracts attached to the value.
 
 Borrowing creates temporary non-owning access to reached storage.
 
