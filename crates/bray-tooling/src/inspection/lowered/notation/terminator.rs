@@ -148,6 +148,34 @@ fn generic_terminator(terminator: &InspectionMirTerminator, name: &str) -> Strin
             .map(|edge| format!("{}: {}", edge.role, edge_text(edge))),
     );
 
+    details.extend(
+        terminator
+            .attributes
+            .iter()
+            .map(|attribute| format!("{}: {}", attribute.name, attribute.value.text())),
+    );
+
+    details.extend(
+        terminator
+            .symbols
+            .iter()
+            .map(|symbol| format!("{}: @{}", symbol.role, symbol.symbol.display_name())),
+    );
+
+    details.extend(
+        terminator
+            .types
+            .iter()
+            .map(|r#type| format!("{}: {}", r#type.role, r#type.r#type.text())),
+    );
+
+    details.extend(
+        terminator
+            .semantic_values
+            .iter()
+            .map(|value| format!("{}: {}", value.role, semantic_text(value))),
+    );
+
     format!("{}({})", name.replace('_', "."), details.join(", "))
 }
 
