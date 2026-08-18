@@ -11,14 +11,15 @@ pub(super) fn render(
     output: &mut String,
     terminator: &InspectionMirTerminator,
     block_source: &InspectionMirSource,
+    include_source: bool,
 ) {
     if terminator.terminator_kind == "switch" {
-        render_switch(output, terminator, block_source);
+        render_switch(output, terminator, block_source, include_source);
 
         return;
     }
 
-    let source = source_annotation(&terminator.source, block_source);
+    let source = source_annotation(&terminator.source, block_source, include_source);
 
     let _ = writeln!(output, "        {};{}", terminator_text(terminator), source);
 }
@@ -27,6 +28,7 @@ fn render_switch(
     output: &mut String,
     terminator: &InspectionMirTerminator,
     block_source: &InspectionMirSource,
+    include_source: bool,
 ) {
     let _ = writeln!(
         output,
@@ -54,7 +56,7 @@ fn render_switch(
         let _ = writeln!(output, "            default: goto {};", edge_text(edge));
     }
 
-    let source = source_annotation(&terminator.source, block_source);
+    let source = source_annotation(&terminator.source, block_source, include_source);
     let _ = writeln!(output, "        }}{source}");
 }
 

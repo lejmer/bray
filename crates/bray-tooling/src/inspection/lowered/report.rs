@@ -70,12 +70,13 @@ pub(crate) fn render_mir_inspection(
     compilation: &Compilation,
     target: InspectionTarget,
     output_format: OutputFormat,
+    include_source: bool,
 ) -> Result<InspectionOutput, LoweredInspectionRenderError> {
     let (units, diagnostics) = inspect_units(compilation, target)?;
 
     let notations = units
         .iter()
-        .map(InspectionMirNotation::from_unit)
+        .map(|unit| InspectionMirNotation::from_unit(unit, include_source))
         .collect::<Vec<_>>();
 
     let stdout = match output_format {
@@ -221,13 +222,13 @@ struct InspectionMirNotation {
 }
 
 impl InspectionMirNotation {
-    fn from_unit(unit: &InspectionLoweredUnit) -> Self {
+    fn from_unit(unit: &InspectionLoweredUnit, include_source: bool) -> Self {
         match unit {
             InspectionLoweredUnit::Mir { mir } => Self {
                 unit_kind: mir.unit_kind,
                 unit_id: Some(mir.unit_id),
                 representation: "mir",
-                notation: Some(notation::render_unit(mir)),
+                notation: Some(notation::render_unit(mir, include_source)),
             },
             InspectionLoweredUnit::CompileTime { unit_kind, .. } => Self {
                 unit_kind,
@@ -727,10 +728,10 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = InspectionTarget::source(0);
 
-        let first = render_mir_inspection(&compilation, target, OutputFormat::Text)
+        let first = render_mir_inspection(&compilation, target, OutputFormat::Text, true)
             .unwrap_or_else(|error| panic!("MIR notation should render: {error:?}"));
 
-        let second = render_mir_inspection(&compilation, target, OutputFormat::Text)
+        let second = render_mir_inspection(&compilation, target, OutputFormat::Text, true)
             .unwrap_or_else(|error| panic!("MIR notation should remain available: {error:?}"));
 
         let (first, first_diagnostics) = first.into_parts();
@@ -767,6 +768,26 @@ mod tests {
     }
 
     #[test]
+    fn mir_notation_omits_source_annotations_by_default() {
+        let compilation = compilation(SOURCE);
+
+        let output = render_mir_inspection(
+            &compilation,
+            InspectionTarget::source(0),
+            OutputFormat::Text,
+            false,
+        )
+        .unwrap_or_else(|error| panic!("MIR notation should render without source comments: {error:?}"));
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(text.contains("mir synchronous unit"));
+        assert!(text.contains("bb0 entry:"));
+        assert!(!text.contains("// source:"));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
     fn mir_json_wraps_notation_without_flattening_the_structural_report() {
         let compilation = compilation(SOURCE);
 
@@ -774,6 +795,7 @@ mod tests {
             &compilation,
             InspectionTarget::source(0),
             OutputFormat::Json,
+            true,
         )
         .unwrap_or_else(|error| panic!("MIR JSON should render: {error:?}"));
 
@@ -818,6 +840,7 @@ mod tests {
             &compilation,
             InspectionTarget::source(0),
             OutputFormat::Text,
+            true,
         )
         .unwrap_or_else(|error| panic!("async MIR notation should render: {error:?}"));
 
@@ -858,6 +881,7 @@ mod tests {
             &compilation,
             InspectionTarget::source(0),
             OutputFormat::Text,
+            true,
         )
         .unwrap_or_else(|error| panic!("control-flow MIR notation should render: {error:?}"));
 

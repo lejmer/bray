@@ -103,6 +103,8 @@ pub const SOURCE_ID: &str = "Inspect the loaded source with numeric identity N";
 /// Describes a source byte offset used for inspection.
 pub const SOURCE_OFFSET: &str =
     "Inspect the innermost program element containing UTF-8 byte OFFSET";
+/// Describes source annotations in MIR notation.
+pub const MIR_SOURCE: &str = "Include source-anchored comments in MIR notation";
 /// Describes profile report paths.
 pub const PROFILE_REPORT_PATH: &str = "Read the compiler profile from REPORT";
 /// Describes baseline profile paths.

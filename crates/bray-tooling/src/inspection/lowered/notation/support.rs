@@ -301,7 +301,12 @@ pub(super) fn place_text(place: &InspectionMirPlace) -> String {
 pub(super) fn source_annotation(
     source: &InspectionMirSource,
     block_source: &InspectionMirSource,
+    include_source: bool,
 ) -> String {
+    if !include_source {
+        return String::new();
+    }
+
     let source = source_text(source);
 
     if source == source_text(block_source) {

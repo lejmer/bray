@@ -11,6 +11,7 @@ pub(super) fn render(
     operation: &InspectionMirOperation,
     unit: &InspectionMirUnit,
     block_source: &InspectionMirSource,
+    include_source: bool,
 ) {
     let prefix = operation
         .result
@@ -26,7 +27,7 @@ pub(super) fn render(
         })
         .unwrap_or_default();
 
-    let source = source_annotation(&operation.source, block_source);
+    let source = source_annotation(&operation.source, block_source, include_source);
 
     let _ = writeln!(
         output,

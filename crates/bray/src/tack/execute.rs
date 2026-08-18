@@ -412,6 +412,7 @@ fn execute_invocation_with_progress(
             inspection,
             source_id,
             position,
+            source,
         } => run_inspect(
             &workspace_root,
             &graph,
@@ -421,6 +422,7 @@ fn execute_invocation_with_progress(
             inspection,
             source_id,
             position,
+            source,
             profile.as_ref(),
             output_format,
             executor,
@@ -858,6 +860,7 @@ fn run_inspect(
     inspection: TackInspection,
     source_id: u32,
     position: Option<u32>,
+    source: bool,
     profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
@@ -901,7 +904,7 @@ fn run_inspect(
         executor,
     );
 
-    let outputs = match compiler.inspect(product, inspection, source_id, position) {
+    let outputs = match compiler.inspect(product, inspection, source_id, position, source) {
         Ok(outputs) => outputs,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
