@@ -2,10 +2,11 @@
 
 A **literal expression** directly denotes a literal value written in source text.
 
-Literal expressions are expression grammar forms. They are checked in expression context and receive a type during binding and type checking.
+Literal expressions are expression grammar forms. They are checked in expression context and receive a type during
+binding and type checking.
 
-The literal expression grammar consists of integer literals, real literals, imaginary literals, boolean literals, character
-literals, and string literals.
+The literal expression grammar consists of integer literals, real literals, imaginary literals, boolean literals,
+character literals, and string literals.
 
 ```bray
 1
@@ -18,7 +19,9 @@ false
 ""
 ```
 
-A literal expression can produce a value directly, or it can participate in a larger expression such as an arithmetic expression, tuple expression, array expression, struct construction expression, union variant construction expression, predicate expression, or contract clause.
+A literal expression can produce a value directly, or it can participate in a larger expression such as an arithmetic
+expression, tuple expression, array expression, struct construction expression, union variant construction expression,
+predicate expression, or contract clause.
 
 Literal expressions are pure expression forms. Evaluating a literal expression creates no user-visible side effect.
 
@@ -26,7 +29,8 @@ Literal expressions are pure expression forms. Evaluating a literal expression c
 
 ## Integer literals
 
-An **integer literal** is a numeric literal without a fractional part, exponent marker requiring real interpretation, or imaginary suffix.
+An **integer literal** is a numeric literal without a fractional part, exponent marker requiring real interpretation, or
+imaginary suffix.
 
 ```bray
 0
@@ -49,14 +53,16 @@ The literal value must be representable in the selected integer type.
 
 The selected integer type determines the runtime value type of the literal expression.
 
-Integer literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal values.
+Integer literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal
+values.
 
 ```bray
 let x: i32 = 1;
 let y: i64 = x as i64;
 ```
 
-The literal `1` can adapt to `i32` in the first binding. The already-typed value `x` uses explicit conversion to become `i64`.
+The literal `1` can adapt to `i32` in the first binding. The already-typed value `x` uses explicit conversion to become
+`i64`.
 
 ---
 
@@ -84,14 +90,16 @@ The literal value must be representable according to the selected real type’s 
 
 The selected real type determines the runtime value type of the literal expression.
 
-Real literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal values.
+Real literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal
+values.
 
 ```bray
 let x: r64 = 1.0;
 let y: r32 = std.round_to<r32>(x, rule = NearestEven);
 ```
 
-The literal `1.0` can adapt to `r64`. The already-typed value `x` uses an ordinary standard-library rounding operation to become `r32` when narrowing or rounding behavior is required.
+The literal `1.0` can adapt to `r64`. The already-typed value `x` uses an ordinary standard-library rounding operation
+to become `r32` when narrowing or rounding behavior is required.
 
 ---
 
@@ -130,13 +138,15 @@ let i: i32 = 2;
 
 Here `i` is an ordinary binding name.
 
-An imaginary literal can participate in a complex literal expression when the surrounding expression context expects a complex type.
+An imaginary literal can participate in a complex literal expression when the surrounding expression context expects a
+complex type.
 
 ```bray
 let z: c128 = 1.0 + 2.0i;
 ```
 
-A real literal plus an imaginary literal can form a complex value by literal adaptation when the expected type is a built-in complex type.
+A real literal plus an imaginary literal can form a complex value by literal adaptation when the expected type is a
+built-in complex type.
 
 Already-typed non-literal real values require explicit complex construction.
 
@@ -151,7 +161,8 @@ let z: c128 = (real, imag) as c128;
 
 ## Complex literal expressions
 
-A **complex literal expression** is an expression built from literal real and imaginary components in a context expecting a built-in complex type.
+A **complex literal expression** is an expression built from literal real and imaginary components in a context
+expecting a built-in complex type.
 
 ```bray
 let z: c128 = 1.0 + 2.0i;
@@ -203,7 +214,8 @@ false
 
 `true` and `false` have type `bool`.
 
-Boolean literal expressions can be used in condition expressions, predicate expressions, contract expressions, match guards, local binding initializers, and other expression contexts expecting `bool`.
+Boolean literal expressions can be used in condition expressions, predicate expressions, contract expressions, match
+guards, local binding initializers, and other expression contexts expecting `bool`.
 
 Boolean literals are already typed. They do not use numeric literal adaptation.
 
@@ -405,9 +417,11 @@ Literal adaptation can adapt integer literals to integer types.
 
 Literal adaptation can adapt real literals to real types.
 
-Literal adaptation can adapt real and imaginary literals to complex component types when forming a complex literal expression.
+Literal adaptation can adapt real and imaginary literals to complex component types when forming a complex literal
+expression.
 
-Literal adaptation can happen recursively inside tuple expressions, array expressions, struct construction expressions, union variant construction expressions, and named argument expressions.
+Literal adaptation can happen recursively inside tuple expressions, array expressions, struct construction expressions,
+union variant construction expressions, and named argument expressions.
 
 Literal adaptation does not apply to already-typed non-literal values.
 
@@ -437,7 +451,8 @@ Numeric literal syntax has no type suffixes. The suffix `i` is reserved for form
 let z: c128 = 1.0 + 2.0i;
 ```
 
-Type spelling belongs to type annotations, parameter types, field types, result types, array element types, tuple element types, and conversion targets.
+Type spelling belongs to type annotations, parameter types, field types, result types, array element types, tuple
+element types, and conversion targets.
 
 ---
 
@@ -456,11 +471,13 @@ Integer-valued predicate arithmetic uses contract arithmetic semantics.
 
 Contract arithmetic does not silently wrap.
 
-A runtime assertion generated from a predicate expression must preserve the predicate-expression meaning of the literal and arithmetic operation.
+A runtime assertion generated from a predicate expression must preserve the predicate-expression meaning of the literal
+and arithmetic operation.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
-- Previous: [Local binding declarations inside block expressions](local-binding-declarations-inside-block-expressions.md)
+- Previous:
+  [Local binding declarations inside block expressions](local-binding-declarations-inside-block-expressions.md)
 - Next: [Name expressions](name-expressions.md)

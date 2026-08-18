@@ -16,7 +16,8 @@ Implementation declarations have implementation bodies.
 
 Predicate declarations either have a predicate expression body or, for trusted opaque predicates, end with `;`.
 
-Callable overload declarations and implementation overload declarations have overload arm lists and do not define executable bodies.
+Callable overload declarations and implementation overload declarations have overload arm lists and do not define
+executable bodies.
 
 Named callable contract declarations have no executable body and end with `;`.
 
@@ -36,15 +37,16 @@ Trait implementation constant-valued member definitions always provide an initia
 
 Declarations with bodies are checked in the context established by the declaration header.
 
-[Declaration-owned expressions](declaration-owned-expressions.md), including runtime defaults, constant initializers, predicate
-bodies, constraints, and contracts, are checked as part of their declaration surfaces.
+[Declaration-owned expressions](declaration-owned-expressions.md), including runtime defaults, constant initializers,
+predicate bodies, constraints, and contracts, are checked as part of their declaration surfaces.
 
-A defaulted trait constant initializer is a declaration-owned constant template. A defaulted trait callable body is an executable
-callable body. Supplying default behavior does not by itself determine the completion category.
+A defaulted trait constant initializer is a declaration-owned constant template. A defaulted trait callable body is an
+executable callable body. Supplying default behavior does not by itself determine the completion category.
 
 Declaring a body does not evaluate that body.
 
-Executable bodies run only when the corresponding callable, lifecycle operation, constructor, test entry, task, or entry point is invoked by the language rules.
+Executable bodies run only when the corresponding callable, lifecycle operation, constructor, test entry, task, or entry
+point is invoked by the language rules.
 
 ## Navigation
 

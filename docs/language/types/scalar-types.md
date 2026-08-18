@@ -14,12 +14,14 @@ Scalar types are:
 - `unit`,
 - `never`.
 
-Scalar type names are [compiler-known declarations](../compiler-known-and-standard-library/compiler-known-declarations.md).
+Scalar type names are
+[compiler-known declarations](../compiler-known-and-standard-library/compiler-known-declarations.md).
 
-User code cannot redeclare a scalar type name, add representation members to a scalar type, add variants to a scalar type, or attach
-lifecycle declarations to a scalar type.
+User code cannot redeclare a scalar type name, add representation members to a scalar type, add variants to a scalar
+type, or attach lifecycle declarations to a scalar type.
 
-Scalar types have no user-visible fields, payload fields, tuple elements, array elements, or structural representation members.
+Scalar types have no user-visible fields, payload fields, tuple elements, array elements, or structural representation
+members.
 
 Scalar values have no partial-move state.
 
@@ -31,8 +33,8 @@ Every scalar type with values satisfies the copy contract.
 
 Copying a scalar value copies the scalar value and creates no alias to mutable storage.
 
-Moving a scalar value transfers the scalar value and creates no finalization or destruction obligation beyond ending the old value's
-storage state according to ordinary ownership rules.
+Moving a scalar value transfers the scalar value and creates no finalization or destruction obligation beyond ending the
+old value's storage state according to ordinary ownership rules.
 
 Destroying a scalar value ends the scalar value's storage state and runs no user code.
 
@@ -42,8 +44,8 @@ A mutable borrow of scalar storage grants mutation authority over the scalar val
 
 Scalar operations use the exact operand types after literal adaptation and explicit conversions have been applied.
 
-Non-literal scalar values do not implicitly convert, promote, widen, narrow, or change numeric domain for assignment, calls,
-operators, overload selection, construction, or pattern matching.
+Non-literal scalar values do not implicitly convert, promote, widen, narrow, or change numeric domain for assignment,
+calls, operators, overload selection, construction, or pattern matching.
 
 ## Navigation
 

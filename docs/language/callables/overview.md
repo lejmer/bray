@@ -16,8 +16,8 @@ A function defines:
 10. constant-evaluation eligibility,
 11. optional contract clauses.
 
-Functions are named program entities. They can be referenced, called, passed as values when their type permits it, and used in
-generic or higher-order contexts according to their full callable contract.
+Functions are named program entities. They can be referenced, called, passed as values when their type permits it, and
+used in generic or higher-order contexts according to their full callable contract.
 
 ## Navigation
 

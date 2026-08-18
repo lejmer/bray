@@ -1,6 +1,7 @@
 # Lifecycle requirements in traits
 
-A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing subject or exact trait implementation.
+A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing subject or
+exact trait implementation.
 
 Trait lifecycle requirement syntax is defined in [Traits](../types/traits.md#lifecycle-requirements-in-traits).
 
@@ -43,11 +44,14 @@ The type-wide finalizer must satisfy the requirement's contract clauses.
 
 An `enter` requirement must be paired with a matching `exit` requirement in the same trait.
 
-An `enter` or `exit` requirement can also be satisfied by a compatible lifecycle declaration in the trait implementation body.
+An `enter` or `exit` requirement can also be satisfied by a compatible lifecycle declaration in the trait implementation
+body.
 
-An implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented trait.
+An implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented
+trait.
 
-An implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the trait.
+An implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the
+trait.
 
 ## Navigation
 

@@ -22,7 +22,8 @@ func compare(pos left: i32, pos right: i32) -> i32
 }
 ```
 
-Callable ABI modes, ABI-qualified callable types, foreign ABI representation, and callable ABI contract rules are defined in [Callable ABI](../targets-layout-abi-and-raw-memory/callable-abi.md).
+Callable ABI modes, ABI-qualified callable types, foreign ABI representation, and callable ABI contract rules are
+defined in [Callable ABI](../targets-layout-abi-and-raw-memory/callable-abi.md).
 
 ```bray
 let callback: @abi(c) func(pos left: i32, pos right: i32) -> i32 = compare;
@@ -37,8 +38,8 @@ callable CompareCallback =
 
 ### Extern callable declarations
 
-The `extern` modifier declares a callable whose body is supplied by another linked artifact. The artifact can itself contain
-separately compiled Bray. `extern` does not imply C or another foreign implementation language.
+The `extern` modifier declares a callable whose body is supplied by another linked artifact. The artifact can itself
+contain separately compiled Bray. `extern` does not imply C or another foreign implementation language.
 
 ```bray
 @link(name = "c")
@@ -48,7 +49,10 @@ extern trusted func get_process_id() -> i32
     uses(foreign_call);
 ```
 
-Extern callables, `@link(...)`, `@symbol(...)`, exported ABI callables, and foreign callbacks are defined in [Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md). Extern static storage and native data symbols are defined in [Foreign data and symbols](../targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md).
+Extern callables, `@link(...)`, `@symbol(...)`, exported ABI callables, and foreign callbacks are defined in
+[Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md). Extern static
+storage and native data symbols are defined in
+[Foreign data and symbols](../targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md).
 
 ## Navigation
 

@@ -2,7 +2,8 @@
 
 A named type has identity.
 
-Two named types with the same representation are still distinct types unless a declared conversion, behavioral contract, or other language rule relates them.
+Two named types with the same representation are still distinct types unless a declared conversion, behavioral contract,
+or other language rule relates them.
 
 A structural type form produces a type according to its type-form rules.
 

@@ -23,10 +23,10 @@ predicate non_empty(length: usize) =
 
 Bray has one general identifier lookup namespace: the **ordinary lookup namespace**.
 
-A lookup namespace determines whether the same spelling can identify more than one entity in the same lookup scope. A declaration's
-kind does not create a separate namespace. Types, values, traits, predicates, callable contracts, named implementations, members,
-generic parameters, callable parameters, local bindings, pattern bindings, and other named declarations all introduce ordinary
-names.
+A lookup namespace determines whether the same spelling can identify more than one entity in the same lookup scope. A
+declaration's kind does not create a separate namespace. Types, values, traits, predicates, callable contracts, named
+implementations, members, generic parameters, callable parameters, local bindings, pattern bindings, and other named
+declarations all introduce ordinary names.
 
 Consequently:
 
@@ -36,16 +36,16 @@ Consequently:
 - different trait member categories cannot share a name in one trait,
 - a local binding cannot shadow a visible declaration, parameter, or binding.
 
-An explicit overload family introduces its ordinary name once. The overload arms keep separate declaration identities but do not
-introduce the family name again.
+An explicit overload family introduces its ordinary name once. The overload arms keep separate declaration identities
+but do not introduce the family name again.
 
-A context does not create a new namespace. Type lookup, value lookup, trait lookup, predicate lookup, and other context-specific
-operations first resolve an ordinary name and then require the resolved entity to have a valid semantic category. If the name resolves
-to an entity of the wrong category, that is different from the name not being found.
+A context does not create a new namespace. Type lookup, value lookup, trait lookup, predicate lookup, and other
+context-specific operations first resolve an ordinary name and then require the resolved entity to have a valid semantic
+category. If the name resolves to an entity of the wrong category, that is different from the name not being found.
 
-Packages and modules use specialized path indexes and act as lookup providers, but they do not create separate name-collision
-partitions. Visible package identities, module path components, and declarations that can occupy the same path position participate
-in the same ordinary name surface.
+Packages and modules use specialized path indexes and act as lookup providers, but they do not create separate
+name-collision partitions. Visible package identities, module path components, and declarations that can occupy the same
+path position participate in the same ordinary name surface.
 
 The following are selected through dedicated semantic relationships rather than ordinary name lookup:
 
@@ -58,9 +58,9 @@ The following are selected through dedicated semantic relationships rather than 
 
 Directives and `using` declarations do not introduce ordinary names.
 
-An export does not create a declaration identity or introduce an unqualified name inside the exporting module. It exposes the target
-declaration's ordinary name through the module's exported lookup surface, where that name must not conflict with another declaration
-or export.
+An export does not create a declaration identity or introduce an unqualified name inside the exporting module. It
+exposes the target declaration's ordinary name through the module's exported lookup surface, where that name must not
+conflict with another declaration or export.
 
 Bray has no additional lookup namespaces. No name category can reuse an ordinary name in the same scope.
 
@@ -68,11 +68,12 @@ Bray has no additional lookup namespaces. No name category can reuse an ordinary
 
 Declaration identity is the stable semantic identity introduced by the declaration.
 
-For module-level declarations, identity includes the package identity, logical module path, declaration name, and declaration kind.
+For module-level declarations, identity includes the package identity, logical module path, declaration name, and
+declaration kind.
 
-A static declaration has that declaration identity independently of its realized storage instances. The canonical identity of one
-closed product-static or thread-local static instance additionally includes its normalized substitution, selected witnesses,
-target profile, owning product, and exact native-thread attachment where applicable.
+A static declaration has that declaration identity independently of its realized storage instances. The canonical
+identity of one closed product-static or thread-local static instance additionally includes its normalized substitution,
+selected witnesses, target profile, owning product, and exact native-thread attachment where applicable.
 
 For type members, identity includes the declaring type and member name.
 
@@ -82,9 +83,11 @@ For implementation members, identity is tied to the implementation declaration a
 
 For named trait implementations, the implementation name is the implementation identity.
 
-For unnamed trait implementations, identity is the exact implementing subject and exact trait application in its coherence domain.
+For unnamed trait implementations, identity is the exact implementing subject and exact trait application in its
+coherence domain.
 
-For overload declarations, the overload name is the shared call or implementation surface and occupies one ordinary name.
+For overload declarations, the overload name is the shared call or implementation surface and occupies one ordinary
+name.
 
 Overload arms keep their own declaration identities.
 

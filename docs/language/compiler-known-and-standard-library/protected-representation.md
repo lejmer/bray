@@ -2,7 +2,8 @@
 
 Some compiler-known declarations have protected representation.
 
-Protected representation means user code can use the declaration according to its public contract, but cannot construct, inspect, or mutate representation details that the compiler reserves for language invariants.
+Protected representation means user code can use the declaration according to its public contract, but cannot construct,
+inspect, or mutate representation details that the compiler reserves for language invariants.
 
 A protected-representation declaration can still be:
 
@@ -15,13 +16,15 @@ A protected-representation declaration can still be:
 
 Protected representation prevents user code from depending on representation details that the compiler must control.
 
-`Range<T>`, `Future<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected compiler-known support types can have protected
-representation when their owning rules require it.
+`Range<T>`, `Future<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected compiler-known support types can have
+protected representation when their owning rules require it.
 
-Protected async frame representation can carry compiler-private layout and operation metadata across compiled package interfaces.
-That metadata does not create a source-visible type argument, field, path, reflection result, or layout guarantee.
+Protected async frame representation can carry compiler-private layout and operation metadata across compiled package
+interfaces. That metadata does not create a source-visible type argument, field, path, reflection result, or layout
+guarantee.
 
-Copy behavior for a protected-representation type exists only when the owning language rule defines a copy contract for that type.
+Copy behavior for a protected-representation type exists only when the owning language rule defines a copy contract for
+that type.
 
 ## Navigation
 

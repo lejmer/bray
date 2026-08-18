@@ -4,7 +4,8 @@ Expression syntax is defined in [Await expressions](../expressions/await-express
 
 The operand is evaluated exactly once and must have type `Future<T>` for some `T`.
 
-`await` consumes the `Future<T>` and composes its frame into the current task. It does not create another task or run boundary.
+`await` consumes the `Future<T>` and composes its frame into the current task. It does not create another task or run
+boundary.
 
 The current task drives the child frame until one of these events occurs:
 
@@ -15,19 +16,21 @@ The current task drives the child frame until one of these events occurs:
 
 Direct await does not produce `RunResult<T>` because it does not cross an independent run boundary.
 
-`await` is permitted only in an async callable body or an async-capable lifecycle body. Ordinary block expressions inside that body
-inherit the same async execution context. No async block form exists.
+`await` is permitted only in an async callable body or an async-capable lifecycle body. Ordinary block expressions
+inside that body inherit the same async execution context. No async block form exists.
 
-Before the child first executes, the checker verifies that the current execution context satisfies the child computation's deferred
-body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity constraints. Awaiting a computation
-requiring `blocking_execution()`, `compute_execution()`, or `main_thread_execution()` from an incompatible lane is rejected.
+Before the child first executes, the checker verifies that the current execution context satisfies the child
+computation's deferred body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity
+constraints. Awaiting a computation requiring `blocking_execution()`, `compute_execution()`, or
+`main_thread_execution()` from an incompatible lane is rejected.
 
-Normal completion establishes the postcondition template carried by the consumed computation and applies its `result` conditions to the
-produced `T`. Panic and cancellation establish none of those conditions. If control flow merged computations from multiple producers,
-only postconditions guaranteed by every possible producer survive in the merged computation contract.
+Normal completion establishes the postcondition template carried by the consumed computation and applies its `result`
+conditions to the produced `T`. Panic and cancellation establish none of those conditions. If control flow merged
+computations from multiple producers, only postconditions guaranteed by every possible producer survive in the merged
+computation contract.
 
-The current task's cancellation request is checked before a child suspends and after it resumes. Cancellation-aware runtime
-operations can also observe the request while performing the await.
+The current task's cancellation request is checked before a child suspends and after it resumes. Cancellation-aware
+runtime operations can also observe the request while performing the await.
 
 `try await expression` means `try (await expression)`.
 

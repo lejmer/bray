@@ -27,9 +27,9 @@ Expected type can guide:
 - box construction shorthand,
 - conversion checking.
 
-Expected type and expected result type do not select callable overload arms. Overload selection follows the explicitly supplied
-arguments, receiver rules, generic constraints, and target-availability rules defined by the callable and implementation overload
-specifications.
+Expected type and expected result type do not select callable overload arms. Overload selection follows the explicitly
+supplied arguments, receiver rules, generic constraints, and target-availability rules defined by the callable and
+implementation overload specifications.
 
 Example:
 
@@ -37,7 +37,8 @@ Example:
 let shape: Shape = Circle(center = origin, radius = 10.0);
 ```
 
-The expected type `Shape` lets `Circle(...)` resolve as a variant construction expression for `Shape` after ordinary lexical lookup finds no declaration named `Circle`.
+The expected type `Shape` lets `Circle(...)` resolve as a variant construction expression for `Shape` after ordinary
+lexical lookup finds no declaration named `Circle`.
 
 Example:
 
@@ -45,7 +46,8 @@ Example:
 let node: box List<i32> = box(Empty);
 ```
 
-The expected type `box List<i32>` lets `box(...)` expect an inner `List<i32>`, which lets `Empty` resolve as a variant of `List<i32>`.
+The expected type `box List<i32>` lets `box(...)` expect an inner `List<i32>`, which lets `Empty` resolve as a variant
+of `List<i32>`.
 
 ## Navigation
 

@@ -1,6 +1,7 @@
 # Overview
 
-Target, layout, ABI, and raw memory rules define the lowest-level interfaces between Bray source and the selected compilation target.
+Target, layout, ABI, and raw memory rules define the lowest-level interfaces between Bray source and the selected
+compilation target.
 
 They cover:
 
@@ -17,17 +18,19 @@ They cover:
 - standard-library `std.memory` wrappers,
 - device memory and ABI-oriented helper contracts.
 
-Default Bray semantics do not expose stable physical layout, foreign ABI representation, raw storage validity, or raw pointer dereference.
+Default Bray semantics do not expose stable physical layout, foreign ABI representation, raw storage validity, or raw
+pointer dereference.
 
 Source code can depend on those details only through explicit contracts.
 
 Raw memory support is part of Bray's trusted substrate.
 
-Every operation that reads, writes, initializes, copies, reinterprets, aliases, allocates, deallocates, or exposes raw memory remains gated by trusted capabilities, trusted predicate conditions, or both.
+Every operation that reads, writes, initializes, copies, reinterprets, aliases, allocates, deallocates, or exposes raw
+memory remains gated by trusted capabilities, trusted predicate conditions, or both.
 
-Bray static declarations provide safe address-bearing source storage. A source export preserves the Bray declaration and dependency
-contract. `@symbol(...)` explicitly publishes native data storage, while `extern static` names provider-owned storage and produces
-a raw address. Neither form grants foreign code or Bray code an implicit safe borrow.
+Bray static declarations provide safe address-bearing source storage. A source export preserves the Bray declaration and
+dependency contract. `@symbol(...)` explicitly publishes native data storage, while `extern static` names provider-owned
+storage and produces a raw address. Neither form grants foreign code or Bray code an implicit safe borrow.
 
 ## Navigation
 

@@ -6,8 +6,8 @@ The companion plain EBNF reference is `syntax-grammar.ebnf`.
 
 The lexical grammar is defined separately in `lexical-grammar.md` and `lexical-grammar.ebnf`.
 
-The package product, selected source graph, selected dependency graph, package identity, and target profile are semantic inputs.
-They are not source syntax.
+The package product, selected source graph, selected dependency graph, package identity, and target profile are semantic
+inputs. They are not source syntax.
 
 ---
 
@@ -26,8 +26,8 @@ Grammar productions use:
 - `{ ... }` for zero or more repetitions,
 - `( ... )` for grouping.
 
-Semantic restrictions are not encoded by adding extra grammar branches. For example, rules such as "only one `@test` directive can
-apply to a module declaration" are semantic checks.
+Semantic restrictions are not encoded by adding extra grammar branches. For example, rules such as "only one `@test`
+directive can apply to a module declaration" are semantic checks.
 
 ---
 
@@ -46,11 +46,11 @@ compilation-unit =
 
 Every source unit starts with explicit module syntax.
 
-A source unit can use one unbraced source-unit module declaration followed by items that belong to that module and then zero or
-more braced block module declarations. Alternatively, it can use one or more braced block module declarations.
+A source unit can use one unbraced source-unit module declaration followed by items that belong to that module and then
+zero or more braced block module declarations. Alternatively, it can use one or more braced block module declarations.
 
-Loose source-unit items are allowed only after a source-unit module declaration.
-Once a block module declaration begins, every remaining top-level declaration is another block module declaration.
+Loose source-unit items are allowed only after a source-unit module declaration. Once a block module declaration begins,
+every remaining top-level declaration is another block module declaration.
 
 ```ebnf
 source-unit =
@@ -81,8 +81,8 @@ module-path =
     path ;
 ```
 
-Block module declarations are package-level module contributions. They are not nested modules.
-They do not inherit from a source-unit module declaration.
+Block module declarations are package-level module contributions. They are not nested modules. They do not inherit from
+a source-unit module declaration.
 
 ---
 
@@ -135,8 +135,8 @@ block-level-declaration =
 
 Implementation member declarations are defined with implementation declarations.
 
-Inherent and trait implementation bodies share one member grammar. The implementation header determines how those members are
-checked.
+Inherent and trait implementation bodies share one member grammar. The implementation header determines how those
+members are checked.
 
 ---
 
@@ -161,8 +161,8 @@ test-directive =
     directive-marker "test" [ "(" "serial" ")" ] ;
 ```
 
-`@target(...)`, bare `@test`, and `@link(...)` can apply to module declarations. `@test(serial)` applies only to function
-declarations.
+`@target(...)`, bare `@test`, and `@link(...)` can apply to module declarations. `@test(serial)` applies only to
+function declarations.
 
 Directive names are identifier spellings used after `@` in directive context.
 
@@ -213,11 +213,11 @@ path =
 
 `expression` accepts every expression form.
 
-Restricted expression roots name contexts that intentionally accept less than a full expression. They let the parser produce a
-more precise tree before semantic checking.
+Restricted expression roots name contexts that intentionally accept less than a full expression. They let the parser
+produce a more precise tree before semantic checking.
 
-The expression grammar is non-left-recursive. Left-associative binary levels use repetition. Right-associative and prefix forms use
-right recursion. Postfix forms use repetition.
+The expression grammar is non-left-recursive. Left-associative binary levels use repetition. Right-associative and
+prefix forms use right recursion. Postfix forms use repetition.
 
 ```ebnf
 expression =
@@ -249,14 +249,15 @@ assignable-expression =
     access-expression ;
 ```
 
-The range level accepts one bounded top-level `..` operator. Its operands are logical-or expressions, so the range operator has
-lower precedence than every binary operator and higher precedence than assignment.
+The range level accepts one bounded top-level `..` operator. Its operands are logical-or expressions, so the range
+operator has lower precedence than every binary operator and higher precedence than assignment.
 
-Inside square brackets, a top-level `..` selects the slice form. Parentheses make a range expression a grouped element selector.
+Inside square brackets, a top-level `..` selects the slice form. Parentheses make a range expression a grouped element
+selector.
 
-The expression before an `assignment-continuation` must be an `assignable-expression`. This is a syntactic classification once the
-access-expression forms are defined. Name resolution and capability checking still decide whether that syntactic access can
-actually be assigned through.
+The expression before an `assignment-continuation` must be an `assignable-expression`. This is a syntactic
+classification once the access-expression forms are defined. Name resolution and capability checking still decide
+whether that syntactic access can actually be assigned through.
 
 ```ebnf
 logical-or-expression =
@@ -454,18 +455,20 @@ continue-expression =
     "continue" ;
 ```
 
-The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic checking treats an omitted operand as `unit` in
-valid target contexts.
+The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic checking treats an omitted operand as
+`unit` in valid target contexts.
 
-The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer expression.
+The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer
+expression.
 
-A generic argument list in an access path applies the preceding generic declaration. This form selects closed generic types,
-callables, and static instances. A following argument list calls a selected callable. Applying generic arguments to a non-generic
-declaration is a semantic error.
+A generic argument list in an access path applies the preceding generic declaration. This form selects closed generic
+types, callables, and static instances. A following argument list calls a selected callable. Applying generic arguments
+to a non-generic declaration is a semantic error.
 
 ### Argument lists
 
-An `argument-list` is the parenthesized runtime argument list used by call expressions and callable-like construction forms.
+An `argument-list` is the parenthesized runtime argument list used by call expressions and callable-like construction
+forms.
 
 ```ebnf
 argument-list =
@@ -492,16 +495,16 @@ The grammar shape allows an empty argument list and a trailing comma after the f
 
 Positional arguments can appear before named arguments. A positional argument cannot appear after a named argument.
 
-There is no empty argument-entry syntax. Omitted parameters are represented by leaving the argument entry out and are checked
-against parameter defaults.
+There is no empty argument-entry syntax. Omitted parameters are represented by leaving the argument entry out and are
+checked against parameter defaults.
 
-When parsing an argument list, an entry beginning with `identifier "="` is a named argument. A positional assignment expression
-with that token shape must be grouped.
+When parsing an argument list, an entry beginning with `identifier "="` is a named argument. A positional assignment
+expression with that token shape must be grouped.
 
 ### Struct construction bodies
 
-A `struct-construction-body` is the braced field-initializer list used by full struct construction and expected-type struct
-construction.
+A `struct-construction-body` is the braced field-initializer list used by full struct construction and expected-type
+struct construction.
 
 ```ebnf
 struct-construction-body =
@@ -519,14 +522,15 @@ expected-type-struct-construction-expression =
 
 The grammar shape allows an empty construction body and a trailing comma after the final supplied field initializer.
 
-Every supplied field initializer names a field explicitly. Struct construction bodies do not have field shorthand syntax.
+Every supplied field initializer names a field explicitly. Struct construction bodies do not have field shorthand
+syntax.
 
-There is no empty field-initializer syntax. Omitted fields are represented by leaving the field initializer out and are checked
-against field defaults.
+There is no empty field-initializer syntax. Omitted fields are represented by leaving the field initializer out and are
+checked against field defaults.
 
-A non-empty expected-type struct construction body is recognized by the top-level `identifier "="` field-initializer shape. An empty
-braced expression is accepted as expected-type struct construction only when the expression context supplies the constructed struct
-type. Otherwise it is an empty block expression.
+A non-empty expected-type struct construction body is recognized by the top-level `identifier "="` field-initializer
+shape. An empty braced expression is accepted as expected-type struct construction only when the expression context
+supplies the constructed struct type. Otherwise it is an empty block expression.
 
 ### Type-form construction expressions
 
@@ -544,9 +548,9 @@ box-construction-expression =
 
 `box[S](...)` supplies explicit type-form arguments before the runtime construction arguments.
 
-The runtime arguments use `argument-list` syntax. Type-form construction expressions are not ordinary calls. Type-form selection,
-produced type, subject type, storage behavior, argument validity, ownership, effects, capabilities, and initialization are semantic
-checks.
+The runtime arguments use `argument-list` syntax. Type-form construction expressions are not ordinary calls. Type-form
+selection, produced type, subject type, storage behavior, argument validity, ownership, effects, capabilities, and
+initialization are semantic checks.
 
 ### Tuple expressions
 
@@ -570,7 +574,8 @@ The unit value is spelled `unit`. There is no empty tuple expression syntax.
 
 ### Array expressions
 
-An `array-expression` constructs a fixed-size array through supplied elements, repeated elements, or an array generator expression.
+An `array-expression` constructs a fixed-size array through supplied elements, repeated elements, or an array generator
+expression.
 
 ```ebnf
 array-expression =
@@ -599,9 +604,11 @@ Array generator syntax is defined with generator expressions.
 
 ### Generator expressions
 
-A `general-generator-expression` is a braced generator region whose top-level child is one generator iteration expression.
+A `general-generator-expression` is a braced generator region whose top-level child is one generator iteration
+expression.
 
-An `array-generator-expression` is the bracketed array expression form whose child is one generator iteration expression.
+An `array-generator-expression` is the bracketed array expression form whose child is one generator iteration
+expression.
 
 ```ebnf
 general-generator-expression =
@@ -611,13 +618,13 @@ generator-iteration-expression =
     "each" irrefutable-pattern "in" iteration-source block-expression ;
 ```
 
-`generator-iteration-expression` is the shared `each` form used by general generator expressions, array generator expressions, and
-nested generator iteration inside generator bodies.
+`generator-iteration-expression` is the shared `each` form used by general generator expressions, array generator
+expressions, and nested generator iteration inside generator bodies.
 
 The source position uses the shared `iteration-source` grammar, including optional `mut` or `move`.
 
-The body is parsed as a block expression in generator-iteration context. Yield handling, element typing, cardinality, finiteness,
-ownership, borrowing, effects, and context-specific validity are semantic checks.
+The body is parsed as a block expression in generator-iteration context. Yield handling, element typing, cardinality,
+finiteness, ownership, borrowing, effects, and context-specific validity are semantic checks.
 
 ### Boolean fold expressions
 
@@ -638,7 +645,8 @@ boolean-fold-operand =
     expression ;
 ```
 
-The operand uses ordinary expression syntax. It can be a generator expression or another finite bounded iterable expression.
+The operand uses ordinary expression syntax. It can be a generator expression or another finite bounded iterable
+expression.
 
 `all` and `any` are parsed as boolean fold expressions, not ordinary calls.
 
@@ -676,8 +684,8 @@ local-binding-declaration =
 
 Block expressions can be empty.
 
-A block-shaped expression is self-delimiting and can appear directly as a block item without a trailing `;`. It may instead use a
-trailing `;`, in which case it is a sequenced expression.
+A block-shaped expression is self-delimiting and can appear directly as a block item without a trailing `;`. It may
+instead use a trailing `;`, in which case it is a sequenced expression.
 
 Other expression block items are sequenced expressions and always end with `;`. A block expression does not use a final
 unterminated expression as its result. Value production is handled by `yield`.
@@ -686,8 +694,8 @@ Block-level declarations are local binding declarations and constant declaration
 
 The pattern in a local binding declaration is checked as an irrefutable pattern.
 
-A brace-enclosed expression whose only top-level child is a `generator-iteration-expression` is a `general-generator-expression`
-rather than a `block-expression`.
+A brace-enclosed expression whose only top-level child is a `generator-iteration-expression` is a
+`general-generator-expression` rather than a `block-expression`.
 
 A generator iteration block item is valid only in a generator-iteration context or as the top-level child of a
 `general-generator-expression`.
@@ -734,8 +742,8 @@ loop-expression =
     "loop" block-expression ;
 ```
 
-The block after a control-flow header belongs to the control-flow expression. It is not parsed as part of the condition, subject,
-or source expression in the header.
+The block after a control-flow header belongs to the control-flow expression. It is not parsed as part of the condition,
+subject, or source expression in the header.
 
 `else if` is the conditional-else case that contains another conditional expression.
 
@@ -743,8 +751,8 @@ A match body contains one or more `case` arms. Match arms use block bodies and d
 
 The `consume` marker in a match subject selects consuming match mode.
 
-The `mut` and `move` markers in an iteration source select mutable and consuming iteration modes. An unmarked iteration source
-selects shared iteration mode.
+The `mut` and `move` markers in an iteration source select mutable and consuming iteration modes. An unmarked iteration
+source selects shared iteration mode.
 
 Only match arms have `when` guards.
 
@@ -952,22 +960,22 @@ The grammar excludes `|` alternatives from `irrefutable-pattern` positions.
 
 Semantic checking still verifies that an `irrefutable-pattern` matches every value of its subject type.
 
-`irrefutable-recursive-pattern` and `case-recursive-pattern` are the two recursive specializations of the same pattern shape. They
-are separate grammar productions because their child pattern roots differ.
+`irrefutable-recursive-pattern` and `case-recursive-pattern` are the two recursive specializations of the same pattern
+shape. They are separate grammar productions because their child pattern roots differ.
 
-A bare `identifier` is parsed through `path-irrefutable-pattern` or `path-case-pattern`. Pattern-context name resolution decides
-whether it is a binding pattern or a named pattern.
+A bare `identifier` is parsed through `path-irrefutable-pattern` or `path-case-pattern`. Pattern-context name resolution
+decides whether it is a binding pattern or a named pattern.
 
 Product field shorthand is the `identifier` case of a product field pattern.
 
-Payload entries without `=` are checked as positional payload entries while positional payload fields are available. Otherwise they
-are checked as payload field shorthand.
+Payload entries without `=` are checked as positional payload entries while positional payload fields are available.
+Otherwise they are checked as payload field shorthand.
 
-`..` is parsed as `remaining-pattern`. Semantic checking enforces where it is allowed and that each pattern body contains at most
-one remaining pattern.
+`..` is parsed as `remaining-pattern`. Semantic checking enforces where it is allowed and that each pattern body
+contains at most one remaining pattern.
 
-`access-expression` is the syntactic subset that can form an access path. It intentionally excludes calls, slice projections,
-nullable propagation, conversion, and construction postfixes.
+`access-expression` is the syntactic subset that can form an access path. It intentionally excludes calls, slice
+projections, nullable propagation, conversion, and construction postfixes.
 
 Full struct construction that names a type is the construction-body case of `access-primary-expression` and is named
 `full-struct-construction-expression`.
@@ -981,9 +989,9 @@ Comparisons are non-associative because `comparison-expression` accepts at most 
 Exponentiation is right-associative and binds tighter than prefix unary operators because the right operand of `**` is a
 `unary-expression`.
 
-Restricted roots reuse the ordinary non-assignment expression ladder. This preserves ordinary expression precedence while excluding
-assignment at the syntax level. Context-specific validity, such as constant-evaluation validity, predicate-expression validity, and
-guard-expression validity, is checked semantically.
+Restricted roots reuse the ordinary non-assignment expression ladder. This preserves ordinary expression precedence
+while excluding assignment at the syntax level. Context-specific validity, such as constant-evaluation validity,
+predicate-expression validity, and guard-expression validity, is checked semantically.
 
 ```ebnf
 constant-expression =
@@ -1127,27 +1135,29 @@ type-form-argument =
     | constant-expression ;
 ```
 
-Prefix type forms consume a complete type expression as their subject. Postfix type operations bind to the nearest primary type
-expression. For example, `box[Heap] Point?` is a box whose subject is `Point?`. `(box[Heap] Point)?` is a nullable box.
+Prefix type forms consume a complete type expression as their subject. Postfix type operations bind to the nearest
+primary type expression. For example, `box[Heap] Point?` is a box whose subject is `Point?`. `(box[Heap] Point)?` is a
+nullable box.
 
 `Self` is a keyword type expression in trait and implementation contexts.
 
-When a default-storage `box` subject begins with `[`, the subject is grouped so it is not parsed as a type-form argument list:
-`box ([u8])`.
+When a default-storage `box` subject begins with `[`, the subject is grouped so it is not parsed as a type-form argument
+list: `box ([u8])`.
 
 `view` uses a trait application as its subject. Trait applications use a path plus optional generic arguments.
 
-Qualified type-valued member references are parsed as postfix operations on a type expression. Subjects that need explicit grouping
-use `grouped-type-expression`, as in `(&Vec<T>)(Iterable).Cursor`.
+Qualified type-valued member references are parsed as postfix operations on a type expression. Subjects that need
+explicit grouping use `grouped-type-expression`, as in `(&Vec<T>)(Iterable).Cursor`.
 
-A parenthesized single type expression without a comma is grouping. A one-element tuple type uses the trailing-comma form.
+A parenthesized single type expression without a comma is grouping. A one-element tuple type uses the trailing-comma
+form.
 
-Slice and array type expressions both begin with `[`. A semicolon after the element type selects an array form. A constant extent
-creates a fixed-size array. The `..` extent creates an incomplete trailing-array layout form whose valid declaration contexts are
-checked semantically.
+Slice and array type expressions both begin with `[`. A semicolon after the element type selects an array form. A
+constant extent creates a fixed-size array. The `..` extent creates an incomplete trailing-array layout form whose valid
+declaration contexts are checked semantically.
 
-Generic arguments and type-form arguments can syntactically contain type expressions or constant expressions. The accepted argument
-kinds are checked by the selected declaration or type form.
+Generic arguments and type-form arguments can syntactically contain type expressions or constant expressions. The
+accepted argument kinds are checked by the selected declaration or type form.
 
 Callable type forms use the shared callable roots without a name or body.
 
@@ -1165,15 +1175,15 @@ type-annotation =
     ":" type-expression ;
 ```
 
-The grammar uses `typed-identifier` only where a plain identifier name and a required type annotation are part of the same
-declaration item. Patterns that may include an optional type annotation keep their own grammar.
+The grammar uses `typed-identifier` only where a plain identifier name and a required type annotation are part of the
+same declaration item. Patterns that may include an optional type annotation keep their own grammar.
 
 ---
 
 ## Callable parameters
 
-Callable parameter lists are shared by callable declarations, callable type forms, named callable contracts, lifecycle declarations,
-and lambda expressions.
+Callable parameter lists are shared by callable declarations, callable type forms, named callable contracts, lifecycle
+declarations, and lambda expressions.
 
 ```ebnf
 parameter-list =
@@ -1199,19 +1209,19 @@ parameter-default =
     "=" expression ;
 ```
 
-The grammar allows empty parameter lists and a trailing comma after the final parameter. An ellipsis can follow one or more fixed
-parameters. Semantic checking restricts variadic forms to supported foreign ABI callable contracts.
+The grammar allows empty parameter lists and a trailing comma after the final parameter. An ellipsis can follow one or
+more fixed parameters. Semantic checking restricts variadic forms to supported foreign ABI callable contracts.
 
-Parameter modifiers are written before the parameter name. Duplicate modifiers and context-invalid modifier combinations are
-semantic errors.
+Parameter modifiers are written before the parameter name. Duplicate modifiers and context-invalid modifier combinations
+are semantic errors.
 
 A `pos` parameter can appear only before parameters that do not have `pos`.
 
 The `mut` modifier marks the parameter binding. Borrowing and reachable mutation are represented by the parameter's type
 expression.
 
-Parameter defaults use expression syntax. Default validity, evaluation timing, effects, capabilities, and omission rules are
-checked by the call and declaration rules.
+Parameter defaults use expression syntax. Default validity, evaluation timing, effects, capabilities, and omission rules
+are checked by the call and declaration rules.
 
 ---
 
@@ -1270,7 +1280,8 @@ Each contract clause contains at least one entry and can include a trailing comm
 
 `uses(...)` contains trusted capability paths.
 
-Clause ordering, repeated clause kinds, and context-specific clause availability are checked by the declaration and contract rules.
+Clause ordering, repeated clause kinds, and context-specific clause availability are checked by the declaration and
+contract rules.
 
 ---
 
@@ -1330,18 +1341,18 @@ static-declaration-tail =
     | ";" ;
 ```
 
-`static` declares product storage. `@thread_local` selects storage for each attached native thread. The directive accepts no
-arguments and cannot be repeated.
+`static` declares product storage. `@thread_local` selects storage for each attached native thread. The directive
+accepts no arguments and cannot be repeated.
 
-Generic parameters, when present, are written after the declaration name. Header `with(...)` clauses establish static constraints
-for the declaration.
+Generic parameters, when present, are written after the declaration name. Header `with(...)` clauses establish static
+constraints for the declaration.
 
-The type annotation is required. A Bray-owned static has an initializer checked as a constant expression template. An extern
-static ends with `;` because its provider supplies the storage definition and initialization.
+The type annotation is required. A Bray-owned static has an initializer checked as a constant expression template. An
+extern static ends with `;` because its provider supplies the storage definition and initialization.
 
-Visibility modifiers are valid because static declarations are module-level declarations. `@link(...)` and `@symbol(...)` can
-describe a native data symbol. `extern` and `trusted` participate in the foreign-storage contract. `mut` follows `static` and
-declares externally mutable storage without granting source mutation authority.
+Visibility modifiers are valid because static declarations are module-level declarations. `@link(...)` and
+`@symbol(...)` can describe a native data symbol. `extern` and `trusted` participate in the foreign-storage contract.
+`mut` follows `static` and declares externally mutable storage without granting source mutation authority.
 
 The complete storage, specialization, access, dependency, and cleanup rules are defined in
 [Static storage declarations](declarations/static-storage-declarations.md).
@@ -1420,10 +1431,11 @@ An ordinary predicate declaration uses an `=` tail with a single predicate expre
 
 A trusted predicate declaration uses a semicolon tail and has no ordinary body.
 
-Predicate parameters use names and type annotations. Predicate parameters do not use callable parameter modifiers or defaults.
+Predicate parameters use names and type annotations. Predicate parameters do not use callable parameter modifiers or
+defaults.
 
-Predicate modifiers can appear in any source order. Duplicate modifiers and context-invalid modifier combinations are semantic
-errors.
+Predicate modifiers can appear in any source order. Duplicate modifiers and context-invalid modifier combinations are
+semantic errors.
 
 ---
 
@@ -1447,11 +1459,11 @@ The declaration name follows `callable`.
 
 Generic parameters, when present, are written after the callable contract name.
 
-Header `with(...)` clauses establish static constraints for the named callable contract. The right-hand callable type form can
-reference the declaration's generic parameters and constraints.
+Header `with(...)` clauses establish static constraints for the named callable contract. The right-hand callable type
+form can reference the declaration's generic parameters and constraints.
 
-Visibility is the declaration header modifier. ABI directives, callable modifiers, result clauses, and callable contract clauses
-belong to the right-hand callable type form.
+Visibility is the declaration header modifier. ABI directives, callable modifiers, result clauses, and callable contract
+clauses belong to the right-hand callable type form.
 
 The declaration has no body and ends with `;`.
 
@@ -1508,8 +1520,8 @@ Type directives apply to the primary representation declaration. Directive-speci
 
 Visibility is the declaration header modifier. `public` is optional because it is the default.
 
-A semicolon struct tail declares a bodyless type with no forgeable fields. Layout semantics decide whether it is incomplete or has
-explicit opaque size and alignment. Union declarations always have bodies.
+A semicolon struct tail declares a bodyless type with no forgeable fields. Layout semantics decide whether it is
+incomplete or has explicit opaque size and alignment. Union declarations always have bodies.
 
 ### Struct bodies
 
@@ -1537,8 +1549,8 @@ Field visibility and mutability modifiers appear before the field name. The gram
 
 A field default follows the field type and uses ordinary expression syntax.
 
-Type member declarations are parsed as type-body items and are defined by the grammar for constructors, lifecycle declarations,
-and other type-owned declarations.
+Type member declarations are parsed as type-body items and are defined by the grammar for constructors, lifecycle
+declarations, and other type-owned declarations.
 
 ### Union bodies
 
@@ -1623,8 +1635,8 @@ Without `static`, the member is an instance method. The receiver mode is selecte
 - `consume` selects a consuming receiver,
 - `consume mut` selects a consuming receiver whose method body has mutable local authority over `self`.
 
-Visibility, callable modifiers, receiver modifiers, and `static` are parsed as modifiers before `func`. Duplicate modifiers,
-incompatible modifier combinations, and invalid receiver-mode combinations are semantic errors.
+Visibility, callable modifiers, receiver modifiers, and `static` are parsed as modifiers before `func`. Duplicate
+modifiers, incompatible modifier combinations, and invalid receiver-mode combinations are semantic errors.
 
 Each type callable member is a definition and has a callable body block.
 
@@ -1661,8 +1673,8 @@ constructor-member-modifier =
 
 The result clause is required. Semantic checking accepts `Self` or `Result<Self, E>` according to lifecycle rules.
 
-Constructors are synchronous. Trusted constructors use the same `trusted` modifier and callable contract clauses as other trusted
-declarations.
+Constructors are synchronous. Trusted constructors use the same `trusted` modifier and callable contract clauses as
+other trusted declarations.
 
 ### Lifecycle Members
 
@@ -1718,13 +1730,13 @@ single-parameter-list =
     "(" parameter [ "," ] ")" ;
 ```
 
-Finalizers, destructors, scope enter declarations, and scope exit declarations use lifecycle keywords instead of user-chosen
-function names.
+Finalizers, destructors, scope enter declarations, and scope exit declarations use lifecycle keywords instead of
+user-chosen function names.
 
 Finalizers, destructors, and scope exit declarations can omit the result clause. Omitted result means `unit`.
 
-Scope enter declarations require a result clause because the result type names the scoped capability value made available to the
-`with` body.
+Scope enter declarations require a result clause because the result type names the scoped capability value made
+available to the `with` body.
 
 Scope exit declarations take exactly one scoped-capability parameter.
 
@@ -1732,11 +1744,12 @@ Constructors have no receiver and constructor bodies have no `self` binding.
 
 Finalizers have an implicit mutable receiver. Destructors have an implicit consuming mutable receiver.
 
-Scope enter declarations use the ordinary receiver modes. No receiver modifier selects a shared receiver, `mut` selects a mutable
-receiver, `consume` selects a consuming receiver, and `consume mut` selects a consuming receiver with mutable local authority.
+Scope enter declarations use the ordinary receiver modes. No receiver modifier selects a shared receiver, `mut` selects
+a mutable receiver, `consume` selects a consuming receiver, and `consume mut` selects a consuming receiver with mutable
+local authority.
 
-Scope exit declarations have no receiver. They operate on their scoped-capability parameter and can reach the original value only
-through access carried by that capability.
+Scope exit declarations have no receiver. They operate on their scoped-capability parameter and can reach the original
+value only through access carried by that capability.
 
 Each lifecycle member is a definition and has a callable body block.
 
@@ -1806,8 +1819,8 @@ Without `static`, the member is an instance method. The receiver mode is selecte
 
 `static` selects a static trait function with no receiver.
 
-Callable modifiers, receiver modifiers, and `static` are parsed as modifiers before `func`. Duplicate modifiers, incompatible
-modifier combinations, and invalid receiver-mode combinations are semantic errors.
+Callable modifiers, receiver modifiers, and `static` are parsed as modifiers before `func`. Duplicate modifiers,
+incompatible modifier combinations, and invalid receiver-mode combinations are semantic errors.
 
 ### Trait Constant Members
 
@@ -1918,11 +1931,12 @@ An unnamed trait implementation has a subject followed by a trait application in
 
 A named trait implementation introduces the implementation identity before `=`.
 
-Implementation declarations do not have explicit generic parameter lists. Generic implementation parameters are inferred from
-otherwise unresolved generic names in the implementing subject and, for trait implementations, the trait application.
+Implementation declarations do not have explicit generic parameter lists. Generic implementation parameters are inferred
+from otherwise unresolved generic names in the implementing subject and, for trait implementations, the trait
+application.
 
-Header `with(...)` clauses establish static constraints for the implementation. A `with(...)` clause can constrain inferred
-implementation parameters, but it cannot introduce them.
+Header `with(...)` clauses establish static constraints for the implementation. A `with(...)` clause can constrain
+inferred implementation parameters, but it cannot introduce them.
 
 ### Implementation Subjects
 
@@ -1942,11 +1956,11 @@ implementation-named-subject =
 
 An inherent implementation subject is a named type subject.
 
-A trait implementation subject can be a named subject, a generic named subject, an inferred implementation parameter subject, or
-an implementation-eligible borrow subject.
+A trait implementation subject can be a named subject, a generic named subject, an inferred implementation parameter
+subject, or an implementation-eligible borrow subject.
 
-The grammar accepts `&Subject` and `&mut Subject` as borrow-subject forms. Which type forms are implementation-eligible is checked
-by type rules.
+The grammar accepts `&Subject` and `&mut Subject` as borrow-subject forms. Which type forms are implementation-eligible
+is checked by type rules.
 
 ### Implementation Bodies
 
@@ -1992,8 +2006,8 @@ Trait implementation predicate members always have a predicate body.
 
 Trait implementation lifecycle members can define `enter` and `exit` fulfillments.
 
-Individual trait implementation members cannot use `public` or `internal` modifiers. They are fulfillments of the implemented
-trait contract.
+Individual trait implementation members cannot use `public` or `internal` modifiers. They are fulfillments of the
+implemented trait contract.
 
 Missing members, extra members, duplicate members, signature compatibility, type-valued member compatibility, lifecycle
 fulfillment, and coherence are semantic checks.
@@ -2016,7 +2030,8 @@ Type bodies and implementation bodies can contain callable overload declarations
 
 Trait declarations do not contain overload declarations.
 
-Callable overload declarations in trait implementation bodies are rejected semantically because they do not fulfill trait members.
+Callable overload declarations in trait implementation bodies are rejected semantically because they do not fulfill
+trait members.
 
 ### Callable Overload Declarations
 
@@ -2081,8 +2096,8 @@ An overload arm list contains at least one arm and can include a trailing comma.
 
 Callable overload arms must resolve to callable declarations valid for the overload context.
 
-Implementation overload arms must resolve to named trait implementation declarations valid for the implementation overload
-family.
+Implementation overload arms must resolve to named trait implementation declarations valid for the implementation
+overload family.
 
 Duplicate arms, incompatible arms, visibility, coherence, overlap, and overload selection are semantic checks.
 
@@ -2090,7 +2105,8 @@ Duplicate arms, incompatible arms, visibility, coherence, overlap, and overload 
 
 ## Callable and function directives
 
-Callable directives are part of the callable contract and can also appear on callable type forms and ABI-qualified lambdas.
+Callable directives are part of the callable contract and can also appear on callable type forms and ABI-qualified
+lambdas.
 
 ```ebnf
 callable-directives =
@@ -2137,8 +2153,8 @@ directive-argument =
 
 Directive arguments use constant-expression syntax.
 
-Directive-specific argument names, required arguments, allowed positional entries, duplicate directives, and declaration contexts
-are semantic checks.
+Directive-specific argument names, required arguments, allowed positional entries, duplicate directives, and declaration
+contexts are semantic checks.
 
 ---
 
@@ -2171,20 +2187,21 @@ Generic parameters, when present, are written after the function name and before
 
 The result clause is optional. An omitted result type means `unit`.
 
-The grammar accepts either a callable-body block or `;`. Extern functions use `;`. Non-extern functions use a callable-body block.
-Context-specific body requirements are semantic checks.
+The grammar accepts either a callable-body block or `;`. Extern functions use `;`. Non-extern functions use a
+callable-body block. Context-specific body requirements are semantic checks.
 
-Function modifiers can appear in any source order. Duplicate modifiers and incompatible combinations are semantic errors.
+Function modifiers can appear in any source order. Duplicate modifiers and incompatible combinations are semantic
+errors.
 
-Trait members, implementation members, lifecycle declarations, and callable type forms reuse the shared callable roots but define
-their own declaration productions.
+Trait members, implementation members, lifecycle declarations, and callable type forms reuse the shared callable roots
+but define their own declaration productions.
 
 ---
 
 ## Lambda expressions
 
-Lambda expressions use the shared callable grammar roots for directives, parameters, result types, contract clauses, and callable
-body blocks.
+Lambda expressions use the shared callable grammar roots for directives, parameters, result types, contract clauses, and
+callable body blocks.
 
 ```ebnf
 lambda-expression =
@@ -2209,10 +2226,11 @@ callable-body-block-expression =
 `parameter-list` includes the surrounding parentheses.
 
 `callable-directive`, `parameter-list`, `callable-result-clause`, `callable-contract-clause`, and
-`callable-body-block-expression` are shared callable grammar roots. Function declarations, lambda expressions, callable contracts,
-and callable type forms use those same roots.
+`callable-body-block-expression` are shared callable grammar roots. Function declarations, lambda expressions, callable
+contracts, and callable type forms use those same roots.
 
-The callable modifier repetition accepts any source order. Duplicate modifiers and incompatible combinations are semantic errors.
+The callable modifier repetition accepts any source order. Duplicate modifiers and incompatible combinations are
+semantic errors.
 
 When a callable modifier sequence is followed by `lambda`, the parser treats it as a `lambda-expression`. This makes
 `trusted lambda ...` a trusted lambda expression, not a trust-boundary expression whose operand is a lambda.

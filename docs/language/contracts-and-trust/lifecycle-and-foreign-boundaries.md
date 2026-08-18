@@ -11,7 +11,8 @@ Constructors, finalizers, destructors, `enter`, and `exit` declarations use the 
 
 Lifecycle declaration syntax and ordering are defined in [Lifecycle](../lifecycle.md).
 
-Foreign boundaries are trust boundaries when Bray code interacts with code, storage, callbacks, or runtime behavior outside Bray's ordinary semantics.
+Foreign boundaries are trust boundaries when Bray code interacts with code, storage, callbacks, or runtime behavior
+outside Bray's ordinary semantics.
 
 Foreign boundaries include:
 
@@ -22,9 +23,11 @@ Foreign boundaries include:
 - foreign APIs that create, consume, or transfer resource handles,
 - foreign runtime behavior that can reenter Bray.
 
-Callable ABI, `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)` rules are defined in [Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md).
+Callable ABI, `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)` rules are defined in
+[Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md).
 
-Raw pointer conditions, raw memory predicates, allocation conditions, and ABI layout helpers are defined in [Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
+Raw pointer conditions, raw memory predicates, allocation conditions, and ABI layout helpers are defined in
+[Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
 
 An extern callable with a foreign ABI is a trusted declaration.
 
@@ -36,10 +39,14 @@ The foreign implementation body is not Bray source and is not type checked as Br
 
 A foreign callable that requires trusted guarantees must state them as trusted requirements.
 
-An extern callable resolved to a separately compiled Bray artifact is not a foreign boundary merely because it is extern. Its
-private ABI and linkage contract still require validation, but `foreign_call` applies only when execution crosses a foreign ABI.
+An extern callable resolved to a separately compiled Bray artifact is not a foreign boundary merely because it is
+extern. Its private ABI and linkage contract still require validation, but `foreign_call` applies only when execution
+crosses a foreign ABI.
 
-Declarations for foreign APIs must describe every caller-visible foreign obligation, including pointer validity, alignment, initialization state, byte count, element count, lifetime behavior, ownership transfer, aliasing permissions, thread-affinity requirements, synchronization requirements, callback reentrancy behavior, resource acquisition and release obligations, ordinary error return conventions, and panic boundary behavior.
+Declarations for foreign APIs must describe every caller-visible foreign obligation, including pointer validity,
+alignment, initialization state, byte count, element count, lifetime behavior, ownership transfer, aliasing permissions,
+thread-affinity requirements, synchronization requirements, callback reentrancy behavior, resource acquisition and
+release obligations, ordinary error return conventions, and panic boundary behavior.
 
 ## Navigation
 

@@ -27,9 +27,11 @@ Trusted implementation capabilities are available only inside the trusted declar
 
 Trusted caller obligations must be visible in the callable contract and satisfied by the caller.
 
-Trusted implementation capabilities are defined in [Trusted implementation capabilities](../contracts-and-trust/trusted-implementation-capabilities.md).
+Trusted implementation capabilities are defined in
+[Trusted implementation capabilities](../contracts-and-trust/trusted-implementation-capabilities.md).
 
-Trusted caller obligations are defined in [Trusted caller obligations](../contracts-and-trust/trusted-caller-obligations.md).
+Trusted caller obligations are defined in
+[Trusted caller obligations](../contracts-and-trust/trusted-caller-obligations.md).
 
 ## Navigation
 

@@ -20,7 +20,8 @@ Trusted caller obligations must come from at least one of:
 
 Trusted caller obligations must not appear from nowhere.
 
-A trusted implementation can expose an ordinary safe API when the declaration checks or establishes all necessary invariants internally.
+A trusted implementation can expose an ordinary safe API when the declaration checks or establishes all necessary
+invariants internally.
 
 ```bray
 trusted func copy_bytes_checked(

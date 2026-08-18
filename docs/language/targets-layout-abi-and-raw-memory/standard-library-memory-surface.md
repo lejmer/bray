@@ -18,27 +18,34 @@ They use ordinary import and path visibility rules.
 
 The compiler can recognize selected `std.memory` declarations by stable declaration identity.
 
-Recognition is used for checking, optimization, const evaluation, target availability, and trusted guarantee propagation.
+Recognition is used for checking, optimization, const evaluation, target availability, and trusted guarantee
+propagation.
 
 Recognition does not make a declaration ambient.
 
 If the relevant `std.memory` declaration is not visible, the call is rejected by ordinary name resolution.
 
-If a visible declaration has the same name but not the recognized standard-library identity, it is checked as an ordinary declaration.
+If a visible declaration has the same name but not the recognized standard-library identity, it is checked as an
+ordinary declaration.
 
-A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic, cancellation, memory-ordering, evaluation-order, and condition-invalidation contract.
+A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted
+capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic,
+cancellation, memory-ordering, evaluation-order, and condition-invalidation contract.
 
-A `std.memory` declaration can expose an ordinary safe API only when it proves, owns, or establishes every trusted guarantee required by the `core.memory` operation it performs.
+A `std.memory` declaration can expose an ordinary safe API only when it proves, owns, or establishes every trusted
+guarantee required by the `core.memory` operation it performs.
 
 A `std.memory` declaration that exposes a trusted caller obligation must write that obligation in its own contract.
 
 Calling a trusted `std.memory` declaration follows the ordinary trust rules.
 
-The standard library cannot create new raw-memory trusted guarantees except through compiler-recognized declarations whose contracts are defined by this chapter.
+The standard library cannot create new raw-memory trusted guarantees except through compiler-recognized declarations
+whose contracts are defined by this chapter.
 
 ## Raw pointer helpers
 
-The raw pointer helper family mirrors the pointer-producing, pointer-observing, pointer-offsetting, reinterpretation, access, copy, allocation, and deallocation operations of `core.memory`.
+The raw pointer helper family mirrors the pointer-producing, pointer-observing, pointer-offsetting, reinterpretation,
+access, copy, allocation, and deallocation operations of `core.memory`.
 
 ```bray
 module std.memory;
@@ -127,25 +134,23 @@ The trusted pointer helpers preserve the same caller obligations as the matching
 The callable-address helpers accept ABI-qualified capture-free callable types on targets that support their code-address
 representation. The callable or raw pointer result retains the dependencies carried by the source value.
 
-`std.memory` also exposes protected uninitialized storage and dependency-anchored borrow helpers.
-`uninit_write` is safe because it consumes an owned value and commits initialization as one checked
-operation. `assume_initialized` and `move_initialized` remain trusted and require the matching
-initialization state. `borrow_from` and `borrow_mut_from` remain trusted and require explicit owner
-or scoped-capability authority in addition to the raw memory predicates.
+`std.memory` also exposes protected uninitialized storage and dependency-anchored borrow helpers. `uninit_write` is safe
+because it consumes an owned value and commits initialization as one checked operation. `assume_initialized` and
+`move_initialized` remain trusted and require the matching initialization state. `borrow_from` and `borrow_mut_from`
+remain trusted and require explicit owner or scoped-capability authority in addition to the raw memory predicates.
 
-The result of an anchored borrow retains the exact authority argument as a dependency. The compiler
-does not recognize synchronization guard, mapped region, output wrapper, or foreign owner names.
-Ordinary library products build safe accessors by storing authority and using these operations.
+The result of an anchored borrow retains the exact authority argument as a dependency. The compiler does not recognize
+synchronization guard, mapped region, output wrapper, or foreign owner names. Ordinary library products build safe
+accessors by storing authority and using these operations.
 
-`Output<T>` owns one protected output slot. `InPlace<T>` borrows an existing protected slot for
-scoped construction. Their safe `write` operations commit Bray values. Native boundaries use the
-trusted pointer and value-extraction methods after establishing the initialization predicate.
-`destroy_initialized` consumes the tracked value through ordinary lifecycle cleanup.
-`AnchoredView<T, Owner>` and
-`AnchoredViewMut<T, Capability>` store the checked borrow with its exact authority. Their safe
-accessors use ordinary reborrowing and never perform another raw-to-borrow conversion.
+`Output<T>` owns one protected output slot. `InPlace<T>` borrows an existing protected slot for scoped construction.
+Their safe `write` operations commit Bray values. Native boundaries use the trusted pointer and value-extraction methods
+after establishing the initialization predicate. `destroy_initialized` consumes the tracked value through ordinary
+lifecycle cleanup. `AnchoredView<T, Owner>` and `AnchoredViewMut<T, Capability>` store the checked borrow with its exact
+authority. Their safe accessors use ordinary reborrowing and never perform another raw-to-borrow conversion.
 
-The helper declarations can add ordinary checked convenience around argument validation, but they cannot weaken the trusted guarantees required by the raw operation they perform.
+The helper declarations can add ordinary checked convenience around argument validation, but they cannot weaken the
+trusted guarantees required by the raw operation they perform.
 
 Examples of recognized helper calls:
 

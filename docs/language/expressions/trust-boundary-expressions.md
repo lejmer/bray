@@ -30,7 +30,8 @@ It does not prove the trusted guarantees.
 
 It records that the programmer accepts the trusted caller obligations at that use site.
 
-The trust boundary expression has the same type, value category, ownership result, control-flow behavior, effect behavior, and finalization behavior as its operand.
+The trust boundary expression has the same type, value category, ownership result, control-flow behavior, effect
+behavior, and finalization behavior as its operand.
 
 The boundary scope is exactly the operand expression.
 
@@ -49,9 +50,12 @@ trusted
 
 `trusted expression` does not grant trusted implementation capabilities.
 
-An expression that uses trusted implementation capabilities must still appear inside a trusted declaration with the matching `uses(...)` clause.
+An expression that uses trusted implementation capabilities must still appear inside a trusted declaration with the
+matching `uses(...)` clause.
 
-`trusted expression` does not bypass visibility, internal-access acknowledgement, ownership checking, borrowing rules, initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary `requires(...)` checking.
+`trusted expression` does not bypass visibility, internal-access acknowledgement, ownership checking, borrowing rules,
+initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary
+`requires(...)` checking.
 
 ## Navigation
 

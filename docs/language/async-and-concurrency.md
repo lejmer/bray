@@ -1,12 +1,12 @@
 # Async and concurrency
 
-Async and concurrency rules define owned async computations, direct awaiting, independently running tasks, structured task
-lifetimes, execution roots, cancellation, execution requirements, runtime integration, cross-run memory visibility,
-synchronization, atomics, native threads, child processes, parallel algorithms, and the portable standard-library concurrency
-surface.
+Async and concurrency rules define owned async computations, direct awaiting, independently running tasks, structured
+task lifetimes, execution roots, cancellation, execution requirements, runtime integration, cross-run memory visibility,
+synchronization, atomics, native threads, child processes, parallel algorithms, and the portable standard-library
+concurrency surface.
 
-The async-specific syntax consists only of the `async` modifier and the `await` expression. Starting, joining, and cancelling tasks
-use ordinary methods on compiler-known owned types.
+The async-specific syntax consists only of the `async` modifier and the `await` expression. Starting, joining, and
+cancelling tasks use ordinary methods on compiler-known owned types.
 
 ---
 

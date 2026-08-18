@@ -45,7 +45,8 @@ The ABI modes are:
 
 `system` uses the selected target's system callable ABI for platform APIs.
 
-The selected target profile defines the exact calling convention, register and stack rules, scalar widening rules, symbol format, and platform availability for each ABI mode.
+The selected target profile defines the exact calling convention, register and stack rules, scalar widening rules,
+symbol format, and platform availability for each ABI mode.
 
 Only one `@abi(...)` directive can apply to a callable declaration or callable type form.
 
@@ -59,7 +60,8 @@ let callback: @abi(c) func(pos left: i32, pos right: i32) -> i32 = compare;
 
 A callable type without `@abi(...)` requires Bray's default callable ABI.
 
-An ABI-qualified callable type is not interchangeable with an otherwise identical callable type that uses Bray's default callable ABI.
+An ABI-qualified callable type is not interchangeable with an otherwise identical callable type that uses Bray's default
+callable ABI.
 
 Named callable contracts can name ABI-qualified callable type forms.
 
@@ -68,7 +70,8 @@ callable CompareCallback =
     @abi(c) func(pos left: i32, pos right: i32) -> i32;
 ```
 
-For `c` and `system` ABI callables, by-value parameters and results must have an ABI representation accepted by the selected ABI.
+For `c` and `system` ABI callables, by-value parameters and results must have an ABI representation accepted by the
+selected ABI.
 
 Accepted foreign ABI representation categories are:
 
@@ -80,11 +83,12 @@ Accepted foreign ABI representation categories are:
 
 For `c`, accepted aggregate layout contracts are `@layout(c)` and compatible `@layout(transparent)`.
 
-Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, async computations,
-task handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper or lowering declaration
-before they can cross a foreign ABI boundary.
+Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, async
+computations, task handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper
+or lowering declaration before they can cross a foreign ABI boundary.
 
-`@abi(...)` does not change ownership, borrowing, lifetime, panic, contract, trusted capability, generic, overload, or evaluation rules.
+`@abi(...)` does not change ownership, borrowing, lifetime, panic, contract, trusted capability, generic, overload, or
+evaluation rules.
 
 `@abi(...)` does not make a type's data layout public ABI.
 
@@ -103,19 +107,19 @@ extern trusted func printf(
     uses(foreign_call);
 ```
 
-Variadic syntax is valid only for an `extern trusted` function or an ABI-qualified callable type using a target ABI that defines
-variadic calls. A Bray function body, lambda, async callable, const callable, default parameter, named variadic argument, or
-exported Bray variadic implementation is invalid.
+Variadic syntax is valid only for an `extern trusted` function or an ABI-qualified callable type using a target ABI that
+defines variadic calls. A Bray function body, lambda, async callable, const callable, default parameter, named variadic
+argument, or exported Bray variadic implementation is invalid.
 
-The fixed parameters are checked normally. Every trailing call argument is positional, is evaluated in source order, and must
-have a foreign ABI representation accepted in the selected target's variadic position.
+The fixed parameters are checked normally. Every trailing call argument is positional, is evaluated in source order, and
+must have a foreign ABI representation accepted in the selected target's variadic position.
 
-The compiler applies the exact default argument promotions required by the selected ABI. For the C ABI this includes integer
-promotions and promotion of `r32` to `r64`. No Bray borrow, owned value, trait view, protected representation, task, async
-computation, or default-layout aggregate is implicitly converted into a variadic representation.
+The compiler applies the exact default argument promotions required by the selected ABI. For the C ABI this includes
+integer promotions and promotion of `r32` to `r64`. No Bray borrow, owned value, trait view, protected representation,
+task, async computation, or default-layout aggregate is implicitly converted into a variadic representation.
 
-Target ABI classification determines register, stack, alignment, and aggregate passing. Unsupported promoted types and target
-combinations are rejected before code generation.
+Target ABI classification determines register, stack, alignment, and aggregate passing. Unsupported promoted types and
+target combinations are rejected before code generation.
 
 ## Navigation
 

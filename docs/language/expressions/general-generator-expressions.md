@@ -23,8 +23,8 @@ A general generator expression has the form:
 }
 ```
 
-A brace-enclosed expression whose only top-level child is a general generator iteration expression is parsed as a general generator
-expression rather than an ordinary block expression.
+A brace-enclosed expression whose only top-level child is a general generator iteration expression is parsed as a
+general generator expression rather than an ordinary block expression.
 
 A general generator expression must contain exactly one top-level generator iteration expression.
 
@@ -34,18 +34,18 @@ The top-level generator iteration expression establishes the general generator r
 
 A general generator region is a multi-yield region.
 
-`yield` inside the iteration body contributes values to the general generator region unless captured by a nested yield-capable
-region.
+`yield` inside the iteration body contributes values to the general generator region unless captured by a nested
+yield-capable region.
 
-The generated element type is determined from yielded values, expected-type guidance, conversion checking, and constraint
-solving.
+The generated element type is determined from yielded values, expected-type guidance, conversion checking, and
+constraint solving.
 
 When an expected generator element type is available, each yielded value is checked against that type.
 
 The source expression of the top-level generator iteration expression is evaluated once before iteration begins.
 
-Nested control flow and nested generator iteration expressions can be used inside the top-level iteration body to compose produced
-values.
+Nested control flow and nested generator iteration expressions can be used inside the top-level iteration body to
+compose produced values.
 
 ```bray
 let values =

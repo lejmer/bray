@@ -35,7 +35,8 @@ value   // binds T?
 
 Both `none` and `?inner` are refutable.
 
-A nullable pattern set is exhaustive when it covers the absent state and covers the present state for every possible contained `T` value.
+A nullable pattern set is exhaustive when it covers the absent state and covers the present state for every possible
+contained `T` value.
 
 ```bray
 case ?value
@@ -56,7 +57,8 @@ An alternative pattern can cover both states only when the alternatives bind the
 ?_ | none
 ```
 
-The pattern operation mode determines whether the contained value is observed, borrowed, mutably borrowed, copied, or consumed.
+The pattern operation mode determines whether the contained value is observed, borrowed, mutably borrowed, copied, or
+consumed.
 
 Successful matching of `?inner` refines the subject to present state in the matched region.
 

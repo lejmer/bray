@@ -15,7 +15,8 @@ Type bodies can contain:
 - type-associated predicate declarations,
 - callable overload declarations.
 
-Product and union declaration rules are defined in [Product Types](../types/product-types.md) and [Union Types](../types/union-types.md).
+Product and union declaration rules are defined in [Product Types](../types/product-types.md) and
+[Union Types](../types/union-types.md).
 
 Trait bodies can contain:
 
@@ -31,8 +32,9 @@ Implementation bodies can contain implementation members.
 
 In an inherent implementation, members introduce declarations associated with the implementation subject.
 
-Only the semantic owner of a named type can contribute inherent implementations. Direct type members and inherent implementation
-members participate in one type-associated surface while retaining their original declaration identities and containment.
+Only the semantic owner of a named type can contribute inherent implementations. Direct type members and inherent
+implementation members participate in one type-associated surface while retaining their original declaration identities
+and containment.
 
 In a trait implementation, members fulfill the implemented trait application.
 

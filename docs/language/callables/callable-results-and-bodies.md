@@ -75,8 +75,8 @@ func log(pos message: string)
 }
 ```
 
-For a function with a declared result type other than `unit`, every reachable normal completion path supplies the callable result
-through `return` or ends in a `never` expression.
+For a function with a declared result type other than `unit`, every reachable normal completion path supplies the
+callable result through `return` or ends in a `never` expression.
 
 ## Semicolons
 

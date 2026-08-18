@@ -6,7 +6,8 @@ Every value has a type.
 
 Every access path has a type and a capability state.
 
-Types govern initialization, ownership, borrowing, mutation authority, movement, copying, destruction, finalization, layout, contracts, and valid operations.
+Types govern initialization, ownership, borrowing, mutation authority, movement, copying, destruction, finalization,
+layout, contracts, and valid operations.
 
 Named types have identity.
 
@@ -14,13 +15,15 @@ Structural type forms produce types according to their type-form rules.
 
 Product types define named-field structure.
 
-A bodyless struct is structurally opaque. Without an explicit size and alignment it is incomplete. With both it provides complete opaque storage.
+A bodyless struct is structurally opaque. Without an explicit size and alignment it is incomplete. With both it provides
+complete opaque storage.
 
 A final `[T; ..]` field gives a `@layout(c)` product flexible trailing storage.
 
 Union types define closed alternatives with one semantic active variant.
 
-`@layout(c, tag = none)` gives a union overlapping C storage without a represented tag while retaining its semantic active variant.
+`@layout(c, tag = none)` gives a union overlapping C storage without a represented tag while retaining its semantic
+active variant.
 
 Traits define explicit behavioral contracts.
 

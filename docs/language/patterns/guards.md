@@ -8,7 +8,8 @@ Guards belong to the surrounding construct that uses the pattern.
 
 The pattern system supplies structural refinement. Guard expressions supply additional condition checking.
 
-Guard coverage and guard proof rules are defined by the surrounding expression form and the shared predicate and flow-sensitive contract reasoning rules.
+Guard coverage and guard proof rules are defined by the surrounding expression form and the shared predicate and
+flow-sensitive contract reasoning rules.
 
 Guard syntax is defined by the expression forms that accept guards.
 

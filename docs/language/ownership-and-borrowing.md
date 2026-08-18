@@ -1,6 +1,7 @@
 # Ownership and borrowing
 
-Ownership and borrowing define how Bray tracks storage, values, access, movement, aliasing, lifetimes, and dependency contracts.
+Ownership and borrowing define how Bray tracks storage, values, access, movement, aliasing, lifetimes, and dependency
+contracts.
 
 ---
 

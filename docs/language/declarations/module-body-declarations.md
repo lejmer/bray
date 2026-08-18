@@ -28,9 +28,11 @@ A block module declaration is not nested inside a source-unit module.
 
 Module-level declarations introduce declarations into the logical module produced after split module merging.
 
-Duplicate declarations in the same logical module are rejected unless the declaration form explicitly defines merging behavior.
+Duplicate declarations in the same logical module are rejected unless the declaration form explicitly defines merging
+behavior.
 
-Callable overload declarations and implementation overload declarations define explicit overload families instead of relying on same-name declaration merging.
+Callable overload declarations and implementation overload declarations define explicit overload families instead of
+relying on same-name declaration merging.
 
 ## Navigation
 

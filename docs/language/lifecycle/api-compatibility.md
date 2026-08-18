@@ -1,6 +1,7 @@
 # API compatibility
 
-Changing lifecycle declarations can be a public API change when ownership, destruction, finalization, construction, or scoped-use behavior changes.
+Changing lifecycle declarations can be a public API change when ownership, destruction, finalization, construction, or
+scoped-use behavior changes.
 
 Adding a lifecycle declaration can change:
 
@@ -13,9 +14,11 @@ Adding a lifecycle declaration can change:
 
 Removing a lifecycle declaration can remove behavior that callers, traits, or implementations depend on.
 
-Changing a lifecycle signature, execution mode, result type, contract clause, trusted capability use, or visible obligation changes the lifecycle declaration surface.
+Changing a lifecycle signature, execution mode, result type, contract clause, trusted capability use, or visible
+obligation changes the lifecycle declaration surface.
 
-Changing represented-part destruction order or whole-value lifecycle ordering is a public semantic change when it can affect observable behavior.
+Changing represented-part destruction order or whole-value lifecycle ordering is a public semantic change when it can
+affect observable behavior.
 
 Trait lifecycle requirements are part of the trait contract.
 

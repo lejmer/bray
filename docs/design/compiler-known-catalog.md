@@ -1,10 +1,11 @@
 # Compiler-known catalog design
 
-This document defines how Bray compiler-known declarations, compiler-provided declaration surfaces, special values, and recognized
-standard-library identities should be represented and loaded by the compiler.
+This document defines how Bray compiler-known declarations, compiler-provided declaration surfaces, special values, and
+recognized standard-library identities should be represented and loaded by the compiler.
 
-The language semantics are defined in `docs/language/compiler-known-and-standard-library.md`. The symbol model is defined in
-`docs/design/symbols.md`. This document is the implementation contract for the catalog that supplies those symbols and identities.
+The language semantics are defined in `docs/language/compiler-known-and-standard-library.md`. The symbol model is
+defined in `docs/design/symbols.md`. This document is the implementation contract for the catalog that supplies those
+symbols and identities.
 
 ---
 
@@ -45,7 +46,8 @@ The catalog language does not:
 - require `.braydef` files beside an installed compiler,
 - preserve compatibility with obsolete catalog formats.
 
-Bray is greenfield. The catalog format can be changed coherently with its checked-in definitions and compiler implementation.
+Bray is greenfield. The catalog format can be changed coherently with its checked-in definitions and compiler
+implementation.
 
 ---
 
@@ -53,10 +55,11 @@ Bray is greenfield. The catalog format can be changed coherently with its checke
 
 ### Catalog Source
 
-A catalog source is a checked-in `.braydef` file containing compiler metadata and embedded Bray declaration-surface fragments.
+A catalog source is a checked-in `.braydef` file containing compiler metadata and embedded Bray declaration-surface
+fragments.
 
-Catalog syntax is private compiler infrastructure. It is not a Bray terminal or nonterminal and does not belong in the public Bray
-syntax tree.
+Catalog syntax is private compiler infrastructure. It is not a Bray terminal or nonterminal and does not belong in the
+public Bray syntax tree.
 
 ### Stable Catalog Key
 
@@ -64,11 +67,11 @@ A stable catalog key identifies one exact catalog entry across source layout cha
 
 Examples include `Bool`, `RawPointer`, `RawPointerRead`, and `CoreMemoryCopy`.
 
-Keys are explicit data. They are not inferred from declaration spelling, path, source range, file name, ordinal, or insertion order.
-Renaming a key is an identity change and must be reviewed as such.
+Keys are explicit data. They are not inferred from declaration spelling, path, source range, file name, ordinal, or
+insertion order. Renaming a key is an identity change and must be reviewed as such.
 
-Stable catalog keys are not compilation-local `SymbolId` values. Symbol construction maps stable catalog keys to compilation-local
-typed symbol IDs.
+Stable catalog keys are not compilation-local `SymbolId` values. Symbol construction maps stable catalog keys to
+compilation-local typed symbol IDs.
 
 ### Declaration Surface
 
@@ -88,24 +91,27 @@ A compiler-provided implementation body is not part of the declaration surface a
 
 ### Representation Role
 
-A representation role is a closed Rust enum value that tells semantic and lowering code that a declaration has language-defined
-representation behavior. Examples can include scalar Boolean, signed integer, raw pointer, or task handle roles.
+A representation role is a closed Rust enum value that tells semantic and lowering code that a declaration has
+language-defined representation behavior. Examples can include scalar Boolean, signed integer, raw pointer, or task
+handle roles.
 
-An embedded declaration surface marked `internal` is a compiler-internal semantic identity. It can carry a representation role and
-participate in compiler catalog properties, but it does not enter the compiler-known environment's ordinary source lookup surface. This supports
-keyword-spelled and otherwise syntax-selected language identities without creating a second identifier spelling for user code.
+An embedded declaration surface marked `internal` is a compiler-internal semantic identity. It can carry a
+representation role and participate in compiler catalog properties, but it does not enter the compiler-known
+environment's ordinary source lookup surface. This supports keyword-spelled and otherwise syntax-selected language
+identities without creating a second identifier spelling for user code.
 
 The catalog names a role. Rust defines and implements it.
 
 ### Implementation Hook
 
-An implementation hook is a closed Rust enum value identifying compiler-provided behavior. The catalog associates the hook with a
-declaration surface. Checking, lowering, constant evaluation, and code generation implement the hook in their owning crates.
+An implementation hook is a closed Rust enum value identifying compiler-provided behavior. The catalog associates the
+hook with a declaration surface. Checking, lowering, constant evaluation, and code generation implement the hook in
+their owning crates.
 
 ### Availability Rule
 
-An availability rule is a closed Rust enum value identifying a language-defined predicate over target properties. The catalog
-selects the rule. Target-profile logic evaluates it for a compilation.
+An availability rule is a closed Rust enum value identifying a language-defined predicate over target properties. The
+catalog selects the rule. Target-profile logic evaluates it for a compilation.
 
 ---
 
@@ -198,16 +204,17 @@ crates/bray-compiler-known/
 `lib.rs` and `catalog.rs` should contain only module declarations and reexports after their implementation is split into
 submodules.
 
-Catalog parser types remain private unless another compiler tool has a concrete need for them. Consumers use immutable descriptor
-APIs, not the catalog parse tree.
+Catalog parser types remain private unless another compiler tool has a concrete need for them. Consumers use immutable
+descriptor APIs, not the catalog parse tree.
 
-Generated catalog modules contain compiler-owned derived data and are never edited by hand. They may be split by semantic domain
-when that keeps generated diffs and incremental Rust compilation focused.
+Generated catalog modules contain compiler-owned derived data and are never edited by hand. They may be split by
+semantic domain when that keeps generated diffs and incremental Rust compilation focused.
 
 ### Definition Location
 
-Checked-in definitions live under `crates/bray-compiler-known/catalog/` because they are owned by the compiler-known catalog crate.
-They must not live under `bray-syntax/src/syntax/`, the language specification, or a source package directory.
+Checked-in definitions live under `crates/bray-compiler-known/catalog/` because they are owned by the compiler-known
+catalog crate. They must not live under `bray-syntax/src/syntax/`, the language specification, or a source package
+directory.
 
 Files are grouped by semantic domain rather than by implementation consumer. The groups are:
 
@@ -218,23 +225,23 @@ Files are grouped by semantic domain rather than by implementation consumer. The
 - `target` declarations,
 - recognized standard-library identities.
 
-The async catalog group includes protected representation roles for `Future<T>` and `Task<T>`, inherent member roles for `start`,
-`join`, and `cancel`, and predicate roles for `blocking_execution()`, `compute_execution()`, and
-`main_thread_execution()`. It does not include runtime, executor, scheduler, thread, process, channel, parallel-algorithm, race,
-select, checkpoint, or cancellation-token declarations.
+The async catalog group includes protected representation roles for `Future<T>` and `Task<T>`, inherent member roles for
+`start`, `join`, and `cancel`, and predicate roles for `blocking_execution()`, `compute_execution()`, and
+`main_thread_execution()`. It does not include runtime, executor, scheduler, thread, process, channel,
+parallel-algorithm, race, select, checkpoint, or cancellation-token declarations.
 
 No compiler-known catalog scope uses the `std` package root. `std` identities appear only in the recognized or ordinary
 standard-library catalog sections and remain subject to normal package visibility.
 
-The crate owns an authoritative source manifest that explicitly lists every `.braydef` input consumed by the generator. Generation must
-not enumerate the build machine's filesystem or depend on directory iteration order.
+The crate owns an authoritative source manifest that explicitly lists every `.braydef` input consumed by the generator.
+Generation must not enumerate the build machine's filesystem or depend on directory iteration order.
 
-The generator emits checked-in Rust modules under `crates/bray-compiler-known/src/catalog/generated/`. Those modules contain the
-defined descriptor tables, indexes, and prevalidated surface data shipped in the compiler binary. Production compiler binaries do
-not embed the raw `.braydef` files and do not require them at runtime.
+The generator emits checked-in Rust modules under `crates/bray-compiler-known/src/catalog/generated/`. Those modules
+contain the defined descriptor tables, indexes, and prevalidated surface data shipped in the compiler binary. Production
+compiler binaries do not embed the raw `.braydef` files and do not require them at runtime.
 
-Catalog source order is retained for developer diagnostics and review only. Semantic identity and descriptor IDs are derived from
-stable keys in stable key order.
+Catalog source order is retained for developer diagnostics and review only. Semantic identity and descriptor IDs are
+derived from stable keys in stable key order.
 
 ---
 
@@ -306,21 +313,21 @@ scope Ambient at ambient {
 }
 ```
 
-The `RawPointerRead` surface is parsed in the member context implied by the `RawPointer` owner. Its generic references can resolve
-against the owner's generic environment during later semantic completion.
+The `RawPointerRead` surface is parsed in the member context implied by the `RawPointer` owner. Its generic references
+can resolve against the owner's generic environment during later semantic completion.
 
 ### Lexical Rules
 
-The catalog parser should reuse the Bray lexer for identifiers, punctuation, comments, whitespace, literals, and balanced
-delimiters. Catalog words such as `catalog`, `scope`, `declaration`, and `surface` are recognized by spelling in catalog context.
-They do not become new public `SyntaxKind` values.
+The catalog parser should reuse the Bray lexer for identifiers, punctuation, comments, whitespace, literals, and
+balanced delimiters. Catalog words such as `catalog`, `scope`, `declaration`, and `surface` are recognized by spelling
+in catalog context. They do not become new public `SyntaxKind` values.
 
-Whitespace and comments are insignificant to catalog semantics but remain available in the internal source snapshot for developer
-diagnostics.
+Whitespace and comments are insignificant to catalog semantics but remain available in the internal source snapshot for
+developer diagnostics.
 
-Catalog files use UTF-8. Include paths are not part of the catalog language. The stable Rust-owned source manifest lists every
-catalog file and is the sole composition mechanism. The generated catalog works in an installed compiler without filesystem
-access.
+Catalog files use UTF-8. Include paths are not part of the catalog language. The stable Rust-owned source manifest lists
+every catalog file and is the sole composition mechanism. The generated catalog works in an installed compiler without
+filesystem access.
 
 ### Grammar
 
@@ -413,79 +420,83 @@ type-field =
 
 The braces surrounding a Bray fragment belong to the catalog language. They are not part of the embedded fragment.
 
-The `kind` field supplies a compiler-owned semantic category that Bray declaration syntax cannot declare directly. A trusted
-capability uses a predicate-shaped declaration fragment only to carry its name through the private catalog grammar. Symbol
-construction must materialize it as a trusted capability, never as a callable predicate.
+The `kind` field supplies a compiler-owned semantic category that Bray declaration syntax cannot declare directly. A
+trusted capability uses a predicate-shaped declaration fragment only to carry its name through the private catalog
+grammar. Symbol construction must materialize it as a trusted capability, never as a callable predicate.
 
-Every source file declares the same exact supported catalog revision. A revision defines the complete grammar, field registry,
-required fields, defaults, and descriptor projection. The parser rejects unsupported revisions, unknown fields, duplicate fields,
-missing required fields, unsupported entry kinds, non-normalized literals, and trailing tokens. Catalog semantics never depend on
-preserving unknown metadata for another compiler version.
+Every source file declares the same exact supported catalog revision. A revision defines the complete grammar, field
+registry, required fields, defaults, and descriptor projection. The parser rejects unsupported revisions, unknown
+fields, duplicate fields, missing required fields, unsupported entry kinds, non-normalized literals, and trailing
+tokens. Catalog semantics never depend on preserving unknown metadata for another compiler version.
 
-Every `recognized_standard_library` declaration requires an explicit `identity` field. Compiler-known declarations cannot use this
-field. Named and ordinal values are owner-relative external identity components, not catalog keys and not values inferred from the
-embedded declaration surface. The selected standard-library package identity and recognized scope path complete the external key.
-Two recognized descriptors cannot use the same owner, exact declaration kind, and owner-relative identity.
+Every `recognized_standard_library` declaration requires an explicit `identity` field. Compiler-known declarations
+cannot use this field. Named and ordinal values are owner-relative external identity components, not catalog keys and
+not values inferred from the embedded declaration surface. The selected standard-library package identity and recognized
+scope path complete the external key. Two recognized descriptors cannot use the same owner, exact declaration kind, and
+owner-relative identity.
 
 ### Catalog Kinds
 
-`compiler_known` files define ambient compiler-known identities and compiler-known module scopes. Their descriptors can create
-symbols before source package lookup begins.
+`compiler_known` files define ambient compiler-known identities and compiler-known module scopes. Their descriptors can
+create symbols before source package lookup begins.
 
-`recognized_standard_library` files define recognition contracts for ordinary imported standard-library declarations. They do not
-create ambient symbols and do not bypass ordinary package, import, visibility, or path rules.
+`recognized_standard_library` files define recognition contracts for ordinary imported standard-library declarations.
+They do not create ambient symbols and do not bypass ordinary package, import, visibility, or path rules.
 
-For recognized scopes, the scope path is the package-relative module path that owns direct declarations. The caller supplies the
-validated standard-library package identity separately. A declaration's explicit identity supplies the final owner-relative
-component, so neither package identity nor declaration identity is encoded implicitly in the scope path.
+For recognized scopes, the scope path is the package-relative module path that owns direct declarations. The caller
+supplies the validated standard-library package identity separately. A declaration's explicit identity supplies the
+final owner-relative component, so neither package identity nor declaration identity is encoded implicitly in the scope
+path.
 
-The two catalog kinds can share parser and descriptor primitives, but their validated descriptor families remain distinct so a
-recognized declaration cannot accidentally be materialized as compiler-known.
+The two catalog kinds can share parser and descriptor primitives, but their validated descriptor families remain
+distinct so a recognized declaration cannot accidentally be materialized as compiler-known.
 
 ### Scopes
 
 Every scope has an explicit stable key and location.
 
-`ambient` denotes the compiler-known environment searched according to the language's ambient lookup rules. A path such as
-`core.memory` or `target` denotes a compiler-known module path.
+`ambient` denotes the compiler-known environment searched according to the language's ambient lookup rules. A path such
+as `core.memory` or `target` denotes a compiler-known module path.
 
-A scope declaration defines catalog ownership, not a source module declaration. Scope descriptors later produce the appropriate
-typed module or compiler-known-root symbols.
+A scope declaration defines catalog ownership, not a source module declaration. Scope descriptors later produce the
+appropriate typed module or compiler-known-root symbols.
 
-The same logical scope can be split across several catalog files. Scope contributions merge by stable scope key only when their
-locations and catalog kinds agree. Merge order is stable and immutable.
+The same logical scope can be split across several catalog files. Scope contributions merge by stable scope key only
+when their locations and catalog kinds agree. Merge order is stable and immutable.
 
 ### Declaration Entries
 
 Every independently identified compiler-known declaration has one `declaration` entry.
 
-An entry without `owner` belongs directly to its surrounding scope. An entry with `owner` belongs to the declaration identified by
-that stable catalog key.
+An entry without `owner` belongs directly to its surrounding scope. An entry with `owner` belongs to the declaration
+identified by that stable catalog key.
 
-This supports fields, variants, callable members, lifecycle members, associated declarations, and other nested declaration spaces
-without placing catalog-only annotations inside Bray syntax.
+This supports fields, variants, callable members, lifecycle members, associated declarations, and other nested
+declaration spaces without placing catalog-only annotations inside Bray syntax.
 
-Container declaration surfaces use syntactically empty bodies when their independently identified members are supplied by owned
-entries. Signature-owned children such as generic parameters and callable parameters remain in the declaration surface and do not
-need separate catalog entries. A language-specification change that gives one of them independent catalog identity must extend the
-closed descriptor and grammar contracts together.
+Container declaration surfaces use syntactically empty bodies when their independently identified members are supplied
+by owned entries. Signature-owned children such as generic parameters and callable parameters remain in the declaration
+surface and do not need separate catalog entries. A language-specification change that gives one of them independent
+catalog identity must extend the closed descriptor and grammar contracts together.
 
-Ownership is resolved after all files have been parsed, so owners can be declared in another file or later in source order. The
-validated owner graph must be acyclic and compatible with the declaration contexts allowed by the Bray grammar.
+Ownership is resolved after all files have been parsed, so owners can be declared in another file or later in source
+order. The validated owner graph must be acyclic and compatible with the declaration contexts allowed by the Bray
+grammar.
 
 ### Value Entries
 
-`value` entries represent language-known values that cannot honestly be expressed as ordinary declarations, including `true`,
-`false`, `unit`, and `none` where required by the language model.
+`value` entries represent language-known values that cannot honestly be expressed as ordinary declarations, including
+`true`, `false`, `unit`, and `none` where required by the language model.
 
-A value entry has an explicit spelling, an embedded Bray type expression, and a representation role. Whether a particular value is
-exposed through lookup, literal parsing, or contextual typing is determined by its typed descriptor category and the owning language
-rules. A value entry must not be forced into a fake constant declaration merely to reuse symbol machinery.
+A value entry has an explicit spelling, an embedded Bray type expression, and a representation role. Whether a
+particular value is exposed through lookup, literal parsing, or contextual typing is determined by its typed descriptor
+category and the owning language rules. A value entry must not be forced into a fake constant declaration merely to
+reuse symbol machinery.
 
 ### Declaration Surface Fragments
 
-`bray-parser` should expose a narrow declaration-fragment entry point for the catalog and other compiler infrastructure that has a
-real need to parse one declaration outside a source unit.
+`bray-parser` should expose a narrow declaration-fragment entry point for the catalog and other compiler infrastructure
+that has a real need to parse one declaration outside a source unit.
 
 Conceptually, the API accepts:
 
@@ -496,12 +507,12 @@ Conceptually, the API accepts:
 
 It returns one closed typed declaration-fragment value plus ordinary lexical and syntax diagnostics.
 
-The fragment parser must call the existing handwritten `Parser::parse_*` methods. It must not copy declaration grammar into a
-catalog-specific parser.
+The fragment parser must call the existing handwritten `Parser::parse_*` methods. It must not copy declaration grammar
+into a catalog-specific parser.
 
-The catalog surface mode can accept language-specified bodyless compiler-provided declaration surfaces where ordinary package
-source requires a body. This is a narrow parser mode, not a public source-language extension. The same typed header, parameter,
-constraint, contract, and type-expression parsers remain authoritative.
+The catalog surface mode can accept language-specified bodyless compiler-provided declaration surfaces where ordinary
+package source requires a body. This is a narrow parser mode, not a public source-language extension. The same typed
+header, parameter, constraint, contract, and type-expression parsers remain authoritative.
 
 Catalog loading rejects any fragment that:
 
@@ -519,8 +530,8 @@ Type-expression fragments use the same principle and reuse the ordinary type-exp
 Catalog scopes, entries, fields, and metadata are not Bray language nonterminals. Their private parse records belong to
 `bray-compiler-known`.
 
-Only embedded Bray fragments produce `bray-syntax` nodes. This preserves the rule that the `bray-syntax/src/syntax/` tree contains
-the actual terminals and nonterminals of the Bray language.
+Only embedded Bray fragments produce `bray-syntax` nodes. This preserves the rule that the `bray-syntax/src/syntax/`
+tree contains the actual terminals and nonterminals of the Bray language.
 
 ---
 
@@ -528,34 +539,35 @@ the actual terminals and nonterminals of the Bray language.
 
 ### Stable Keys
 
-Stable keys are validated identifiers stored through a dedicated `CompilerKnownDeclarationKey`, `CompilerKnownValueKey`, or
-equivalent typed key. Consumers must not pass unvalidated strings through semantic APIs.
+Stable keys are validated identifiers stored through a dedicated `CompilerKnownDeclarationKey`, `CompilerKnownValueKey`,
+or equivalent typed key. Consumers must not pass unvalidated strings through semantic APIs.
 
-Catalog keys remain serializable language identities. Compilation-local descriptor and symbol IDs can be compact integers assigned
-in stable key order.
+Catalog keys remain serializable language identities. Compilation-local descriptor and symbol IDs can be compact
+integers assigned in stable key order.
 
-Compiler code should obtain frequently used symbols through typed environment APIs such as compiler-known type or trait accessors.
-It should not repeatedly look up string spellings or catalog keys throughout checking and lowering.
+Compiler code should obtain frequently used symbols through typed environment APIs such as compiler-known type or trait
+accessors. It should not repeatedly look up string spellings or catalog keys throughout checking and lowering.
 
 ### Representation Roles
 
 Representation role spellings map exhaustively to a Rust enum owned by `bray-compiler-known`.
 
-Representation roles describe semantic identity and protected representation. They do not contain target layout values. Target
-layout remains a lazy compilation catalog property derived from the selected target profile and the declaration's role.
+Representation roles describe semantic identity and protected representation. They do not contain target layout values.
+Target layout remains a lazy compilation catalog property derived from the selected target profile and the declaration's
+role.
 
-Unknown role spellings are catalog validation errors. Duplicate use of a unique role is rejected unless the role contract explicitly
-permits several declarations.
+Unknown role spellings are catalog validation errors. Duplicate use of a unique role is rejected unless the role
+contract explicitly permits several declarations.
 
 ### Implementation Hooks
 
 Implementation hook spellings map exhaustively to a Rust enum owned by `bray-compiler-known`.
 
-Each consuming phase uses an exhaustive match or an exhaustively validated registry for the hooks it owns. The hook enum contains no
-function pointers, trait objects, closures, bound nodes, or backend objects.
+Each consuming phase uses an exhaustive match or an exhaustively validated registry for the hooks it owns. The hook enum
+contains no function pointers, trait objects, closures, bound nodes, or backend objects.
 
-A hook identifies observable compiler-provided behavior. It does not select one permanent lowering strategy. Different targets can
-lower the same hook differently while preserving its specified Bray semantics.
+A hook identifies observable compiler-provided behavior. It does not select one permanent lowering strategy. Different
+targets can lower the same hook differently while preserving its specified Bray semantics.
 
 Catalog validation rejects:
 
@@ -566,41 +578,43 @@ Catalog validation rejects:
 
 ### Typed Role Registries
 
-The generated catalog must publish immutable typed role indexes. Representation roles must resolve to a closed target that
-distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs in stable
-descriptor order. Expression operation roles must resolve to validated contracts of exact category-specific declaration IDs. These
-indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned behavior.
+The generated catalog must publish immutable typed role indexes. Representation roles must resolve to a closed target
+that distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs
+in stable descriptor order. Expression operation roles must resolve to validated contracts of exact category-specific
+declaration IDs. These indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned
+behavior.
 
-`bray-symbols` must translate catalog declaration targets into compilation-local exact symbol IDs while retaining special values as
-typed catalog value IDs. Its role registry must support both role-to-identity and identity-to-role queries so bound semantic
-representations can classify an already resolved symbol without repeating catalog-key lookup.
+`bray-symbols` must translate catalog declaration targets into compilation-local exact symbol IDs while retaining
+special values as typed catalog value IDs. Its role registry must support both role-to-identity and identity-to-role
+queries so bound semantic representations can classify an already resolved symbol without repeating catalog-key lookup.
 
-Expression operation contracts require only role-to-contract lookup because the role identifies a coordinated declaration group
-rather than a property of each component in isolation.
+Expression operation contracts require only role-to-contract lookup because the role identifies a coordinated
+declaration group rather than a property of each component in isolation.
 
-Target-available symbol views must filter role queries through the same declaration and value availability decisions used by
-ordinary compiler-known lookup. They must not mutate or rebuild the process-wide catalog registry.
+Target-available symbol views must filter role queries through the same declaration and value availability decisions
+used by ordinary compiler-known lookup. They must not mutate or rebuild the process-wide catalog registry.
 
-Checker requests and lowering inputs that can interpret compiler-known behavior must borrow the compilation-local target-available
-symbol view explicitly. That view must expose the same typed forward and reverse role queries while rejecting unavailable symbols
-and special values. Checker and lowering code must own their respective semantic behavior and use exhaustive typed role handling.
-They must not publish parallel string-keyed registries or move executable behavior into `bray-compiler-known`.
+Checker requests and lowering inputs that can interpret compiler-known behavior must borrow the compilation-local
+target-available symbol view explicitly. That view must expose the same typed forward and reverse role queries while
+rejecting unavailable symbols and special values. Checker and lowering code must own their respective semantic behavior
+and use exhaustive typed role handling. They must not publish parallel string-keyed registries or move executable
+behavior into `bray-compiler-known`.
 
 ### Availability Rules
 
 Availability rule spellings map exhaustively to a Rust enum owned by `bray-compiler-known`.
 
-The catalog does not contain an arbitrary boolean expression evaluator. Rust implements each language-defined predicate over typed
-target properties. `Always` is the default when the field is absent.
+The catalog does not contain an arbitrary boolean expression evaluator. Rust implements each language-defined predicate
+over typed target properties. `Always` is the default when the field is absent.
 
-The global catalog retains every declaration. A target-specific catalog view filters or marks entries through a lazy compilation
-catalog property. Target selection must not mutate the process-wide catalog.
+The global catalog retains every declaration. A target-specific catalog view filters or marks entries through a lazy
+compilation catalog property. Target selection must not mutate the process-wide catalog.
 
 ### Expression Operation Roles
 
-Expression operation roles identify the exact compiler-known declarations used by operator, conversion, indexing, and type-form
-construction semantics. Semantic consumers request a closed typed role. They must not recognize a trait or member by catalog key,
-source name, path spelling, or declaration order.
+Expression operation roles identify the exact compiler-known declarations used by operator, conversion, indexing, and
+type-form construction semantics. Semantic consumers request a closed typed role. They must not recognize a trait or
+member by catalog key, source name, path spelling, or declaration order.
 
 One role can identify a declaration contract containing:
 
@@ -609,24 +623,26 @@ One role can identify a declaration contract containing:
 - one named fixed callable result type when the language contract fixes the callable result,
 - one directly owned callable when the operation invokes a trait member.
 
-The catalog assigns the same operation role to every declaration in that contract. Structural validation derives each component
-from its exact declaration kind, rejects duplicates and unrelated declaration kinds, and requires member components to be owned
-directly by the role's trait. The closed role definition determines which components are required. For example, value-producing
-operators and custom indexing require a trait, associated result, and callable, comparison requires a trait, the compiler-known
-`Ordering` callable result, and a callable, the `PlainConversion` role requires the `ConvertTo` trait and callable, and box
-construction requires only the `Storage` trait.
+The catalog assigns the same operation role to every declaration in that contract. Structural validation derives each
+component from its exact declaration kind, rejects duplicates and unrelated declaration kinds, and requires member
+components to be owned directly by the role's trait. The closed role definition determines which components are
+required. For example, value-producing operators and custom indexing require a trait, associated result, and callable,
+comparison requires a trait, the compiler-known `Ordering` callable result, and a callable, the `PlainConversion` role
+requires the `ConvertTo` trait and callable, and box construction requires only the `Storage` trait.
 
-Validated role contracts are published in stable role order. Symbol construction translates each catalog declaration ID into its
-exact category-specific symbol ID. A target-available view publishes a contract only when every component is available for that
-target. This translation and filtering remain immutable and do not create a second role registry in checker or binder code.
+Validated role contracts are published in stable role order. Symbol construction translates each catalog declaration ID
+into its exact category-specific symbol ID. A target-available view publishes a contract only when every component is
+available for that target. This translation and filtering remain immutable and do not create a second role registry in
+checker or binder code.
 
 ### Structural Type Forms
 
-Tuple, fixed-size array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms are semantic constructors,
-not named declaration symbols.
+Tuple, fixed-size array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms are semantic
+constructors, not named declaration symbols.
 
-Their implementation remains in typed Rust semantic APIs. They should not receive fake catalog declaration entries. Catalog entries
-can still describe named declarations that support those forms, such as a compiler-known `Storage<T>` trait.
+Their implementation remains in typed Rust semantic APIs. They should not receive fake catalog declaration entries.
+Catalog entries can still describe named declarations that support those forms, such as a compiler-known `Storage<T>`
+trait.
 
 ---
 
@@ -671,18 +687,19 @@ CompilerKnownValueDescriptor
   availability_rule
 ```
 
-The actual Rust API should use typed IDs and closed owner enums. It should not expose one untyped property map or one generic list of
-heterogeneous children.
+The actual Rust API should use typed IDs and closed owner enums. It should not expose one untyped property map or one
+generic list of heterogeneous children.
 
-Generation converts validated Bray fragments into deterministic pre-parsed surface records or equivalent static syntax tables for
-lazy binding of type expressions, constraints, contracts, and declaration-owned expressions. Production consumers must not recover
-those surfaces by parsing embedded source text.
+Generation converts validated Bray fragments into deterministic pre-parsed surface records or equivalent static syntax
+tables for lazy binding of type expressions, constraints, contracts, and declaration-owned expressions. Production
+consumers must not recover those surfaces by parsing embedded source text.
 
-Generated descriptors may retain catalog-specific source paths and ranges for provenance, developer tooling, and invariant reports.
-They do not require the corresponding source text to be embedded in the production binary and never use user source IDs.
+Generated descriptors may retain catalog-specific source paths and ranges for provenance, developer tooling, and
+invariant reports. They do not require the corresponding source text to be embedded in the production binary and never
+use user source IDs.
 
-Catalog source anchors are for compiler development and invariant reporting. They must never be emitted as locations in ordinary
-user diagnostics.
+Catalog source anchors are for compiler development and invariant reporting. They must never be emitted as locations in
+ordinary user diagnostics.
 
 ---
 
@@ -691,23 +708,24 @@ user diagnostics.
 ### Static Process-Wide Publication
 
 The production compiler links deterministic generated Rust tables and exposes them directly through one immutable
-`CompilerKnownCatalog`. It does not parse `.braydef` text, parse embedded Bray fragments, perform structural catalog validation, or
-deserialize a catalog blob during compiler startup.
+`CompilerKnownCatalog`. It does not parse `.braydef` text, parse embedded Bray fragments, perform structural catalog
+validation, or deserialize a catalog blob during compiler startup.
 
-The catalog is target-independent and can be shared by all compilations in the process. A target-specific available-surface view is
-a separate compilation-owned lazy catalog property.
+The catalog is target-independent and can be shared by all compilations in the process. A target-specific
+available-surface view is a separate compilation-owned lazy catalog property.
 
-Generated tables include stable typed indexes so publication requires no mutable global construction. If a derived runtime view
-genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and validation remain build-time
-work. Demand order, worker count, and source manifest order must not alter stable keys or descriptor IDs.
+Generated tables include stable typed indexes so publication requires no mutable global construction. If a derived
+runtime view genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and
+validation remain build-time work. Demand order, worker count, and source manifest order must not alter stable keys or
+descriptor IDs.
 
-Generated surface records retain balanced source-order node and token events from parser output. Later semantic phases reconstruct
-ordinary typed `bray-syntax` fragments from those events without lexing or parsing `.braydef` text at runtime. The reconstruction API
-exposes typed nodes and opaque node views, not public green-tree storage.
+Generated surface records retain balanced source-order node and token events from parser output. Later semantic phases
+reconstruct ordinary typed `bray-syntax` fragments from those events without lexing or parsing `.braydef` text at
+runtime. The reconstruction API exposes typed nodes and opaque node views, not public green-tree storage.
 
-Reconstructed fragments use a reserved generated-source identity domain. Their IDs must not index the compilation source store or
-collide with user source IDs. Semantic failures found while binding these fragments belong to catalog validation and must not enter
-ordinary user diagnostic bags.
+Reconstructed fragments use a reserved generated-source identity domain. Their IDs must not index the compilation source
+store or collide with user source IDs. Semantic failures found while binding these fragments belong to catalog
+validation and must not enter ordinary user diagnostic bags.
 
 ### Structural Generation Stages
 
@@ -730,8 +748,8 @@ No partially validated catalog is emitted or observable to production compiler c
 
 ### Semantic Validation
 
-Some catalog validity requires symbols, binding, checking, or target properties and therefore cannot be implemented inside
-`bray-compiler-known` without creating dependency cycles.
+Some catalog validity requires symbols, binding, checking, or target properties and therefore cannot be implemented
+inside `bray-compiler-known` without creating dependency cycles.
 
 Those checks use ordinary later-phase APIs after the compiler-known identity skeleton exists. Examples include:
 
@@ -741,12 +759,14 @@ Those checks use ordinary later-phase APIs after the compiler-known identity ske
 - checking target-availability dependencies,
 - confirming recognized standard-library interface identities.
 
-The compiler test suite and catalog-checking `xtask` command must force semantic completion of the complete catalog. Production
-compilation can retain ordinary lazy completion, relying on checked-in catalog validation as a build invariant.
+The compiler test suite and catalog-checking `xtask` command must force semantic completion of the complete catalog.
+Production compilation can retain ordinary lazy completion, relying on checked-in catalog validation as a build
+invariant.
 
 ### Invalid Catalogs
 
-Malformed user source must never panic the compiler. Malformed checked-in catalog source is different: it is a compiler defect.
+Malformed user source must never panic the compiler. Malformed checked-in catalog source is different: it is a compiler
+defect.
 
 The catalog parser and validator should still produce structured internal errors containing:
 
@@ -756,16 +776,17 @@ The catalog parser and validator should still produce structured internal errors
 - typed arguments,
 - related catalog keys where applicable.
 
-Tests and `xtask` render those errors for compiler developers. Generation fails after rendering or summarizing the complete
-deterministic error set. Catalog errors are not merged into the user's compilation diagnostic bag and do not use user source
-locations. A released compiler cannot encounter malformed `.braydef` input because it consumes only generated validated tables.
+Tests and `xtask` render those errors for compiler developers. Generation fails after rendering or summarizing the
+complete deterministic error set. Catalog errors are not merged into the user's compilation diagnostic bag and do not
+use user source locations. A released compiler cannot encounter malformed `.braydef` input because it consumes only
+generated validated tables.
 
 ---
 
 ## Symbol Construction
 
-Compiler-known descriptors feed a dedicated symbol provider. They do not pass through source declaration discovery and do not
-receive source `DeclarationId` values.
+Compiler-known descriptors feed a dedicated symbol provider. They do not pass through source declaration discovery and
+do not receive source `DeclarationId` values.
 
 The provider:
 
@@ -776,44 +797,47 @@ The provider:
 5. Supplies lazy declaration-surface catalog properties backed by catalog descriptors.
 6. Evaluates target availability through compilation-owned catalog properties.
 
-A compiler-known struct produces the same `StructSymbol` API as a source struct. A compiler-provided function produces the same
-`FunctionSymbol` API as a source function. Origin-specific storage remains behind symbol catalog property providers.
+A compiler-known struct produces the same `StructSymbol` API as a source struct. A compiler-provided function produces
+the same `FunctionSymbol` API as a source function. Origin-specific storage remains behind symbol catalog property
+providers.
 
-Stable catalog keys are retained as origin identities but are not substitutes for typed symbol IDs in ordinary semantic APIs.
+Stable catalog keys are retained as origin identities but are not substitutes for typed symbol IDs in ordinary semantic
+APIs.
 
 The compiler-known environment is one root in the compilation's immutable symbol forest. It owns ambient compiler-known
-declarations and compiler-known modules, has no ordinary source name, and is not a package. Source modules consult its ambient lookup
-index through an explicit lookup relationship without changing their package containment.
+declarations and compiler-known modules, has no ordinary source name, and is not a package. Source modules consult its
+ambient lookup index through an explicit lookup relationship without changing their package containment.
 
-Root-wide operations use the closed `SymbolRootId` family defined by `bray-symbols`. They do not require a generic root-symbol record
-or a `CompilationRootSymbol`.
+Root-wide operations use the closed `SymbolRootId` family defined by `bray-symbols`. They do not require a generic
+root-symbol record or a `CompilationRootSymbol`.
 
-Special value descriptors and structural type constructors use their own typed semantic APIs and are not forced into declaration
-symbol records when the language model does not define them as declarations.
+Special value descriptors and structural type constructors use their own typed semantic APIs and are not forced into
+declaration symbol records when the language model does not define them as declarations.
 
 ---
 
 ## Recognized Standard-Library Declarations
 
-Recognized standard-library descriptors are contracts for imported declaration identity. They do not create symbols before package
-loading.
+Recognized standard-library descriptors are contracts for imported declaration identity. They do not create symbols
+before package loading.
 
-Recognition proceeds only after an imported package interface supplies the expected stable declaration identity. Spelling, path,
-or signature resemblance alone is insufficient.
+Recognition proceeds only after an imported package interface supplies the expected stable declaration identity.
+Spelling, path, or signature resemblance alone is insufficient.
 
-Each recognized descriptor publishes a closed owner-relative named or ordinal identity. Runtime matching combines the caller's
-validated standard-library package identity, the descriptor scope path and owner chain, the exact semantic symbol kind, and this
-explicit identity to construct an `ExternalSymbolKey`. It never derives identity from source syntax or descriptor metadata keys.
+Each recognized descriptor publishes a closed owner-relative named or ordinal identity. Runtime matching combines the
+caller's validated standard-library package identity, the descriptor scope path and owner chain, the exact semantic
+symbol kind, and this explicit identity to construct an `ExternalSymbolKey`. It never derives identity from source
+syntax or descriptor metadata keys.
 
 Compiled package interface identity and stable external symbol keys are defined in
 `docs/design/compiled-package-interfaces.md`.
 
-The recognized descriptor can associate that imported identity with checking, lowering, optimization, const-eligibility, contract,
-or availability roles. The imported symbol remains an ordinary imported symbol for lookup, visibility, imports, overloads, and
-implementation participation.
+The recognized descriptor can associate that imported identity with checking, lowering, optimization, const-eligibility,
+contract, or availability roles. The imported symbol remains an ordinary imported symbol for lookup, visibility,
+imports, overloads, and implementation participation.
 
-The compiler-known and recognized catalogs can share stable-key, availability, hook, parsing, and validation primitives. Their
-published descriptor families and symbol-materialization behavior remain separate.
+The compiler-known and recognized catalogs can share stable-key, availability, hook, parsing, and validation primitives.
+Their published descriptor families and symbol-materialization behavior remain separate.
 
 ---
 
@@ -838,9 +862,10 @@ cargo xtask compiler-known check
 - stamp the generated output with a digest of the authoritative source manifest and source contents,
 - avoid rewriting files whose contents are unchanged.
 
-`generate --check` should perform the same work without writing and fail when generated output differs. A lightweight Cargo build
-freshness check must also fail when the stamped source digest does not match the current manifest and `.braydef` contents. The build
-check verifies freshness only and must not duplicate catalog parsing or generation outside `xtask`.
+`generate --check` should perform the same work without writing and fail when generated output differs. A lightweight
+Cargo build freshness check must also fail when the stamped source digest does not match the current manifest and
+`.braydef` contents. The build check verifies freshness only and must not duplicate catalog parsing or generation
+outside `xtask`.
 
 `check` should:
 
@@ -848,31 +873,34 @@ check verifies freshness only and must not duplicate catalog parsing or generati
 - construct the compiler-known symbol environment,
 - audit stable scope and declaration keys against their materialized symbol identities,
 - audit immediate semantic ownership for every catalog declaration,
-- validate exhaustive consistency between descriptor role metadata and typed implementation-hook and representation-role indexes,
+- validate exhaustive consistency between descriptor role metadata and typed implementation-hook and representation-role
+  indexes,
 - validate portable, complete, and individual-capability target views without mutating the process-wide catalog,
-- build one declaration-surface completion plan that reaches every ambient, module-owned, and nested compiler-known declaration,
+- build one declaration-surface completion plan that reaches every ambient, module-owned, and nested compiler-known
+  declaration,
 - force every planned catalog-owned semantic catalog property through the ordinary symbol-completion API,
 - require serial and parallel completion to produce identical diagnostics,
 - validate recognized standard-library fixtures where available,
 - exit unsuccessfully when any invariant fails.
 
-`bray-compiler-known` must own structural parsing, descriptor validation, and deterministic generation. `bray-symbols` must own the
-stable-identity, ownership, role, target-view, and completion-coverage audit over materialized symbols. `bray-compilation` must own
-serial and parallel completion orchestration. The `xtask` command must remain a thin composition of those APIs rather than
-reimplementing any catalog or semantic validation.
+`bray-compiler-known` must own structural parsing, descriptor validation, and deterministic generation. `bray-symbols`
+must own the stable-identity, ownership, role, target-view, and completion-coverage audit over materialized symbols.
+`bray-compilation` must own serial and parallel completion orchestration. The `xtask` command must remain a thin
+composition of those APIs rather than reimplementing any catalog or semantic validation.
 
 ### Generated Catalog Policy
 
 `.braydef` files are compiler build inputs, not production runtime inputs. Checked-in generated Rust is the only catalog
 representation linked into production compiler binaries.
 
-Generated Rust is preferred over a binary descriptor blob because it requires no runtime decoder, format-version contract,
-structural validation, or startup allocation merely to recover trusted compiler data. The generated modules use typed catalog
-constructors and static tables rather than a parallel serialized schema.
+Generated Rust is preferred over a binary descriptor blob because it requires no runtime decoder, format-version
+contract, structural validation, or startup allocation merely to recover trusted compiler data. The generated modules
+use typed catalog constructors and static tables rather than a parallel serialized schema.
 
-The consumer boundary remains `CompilerKnownCatalog`, so generation details do not leak into symbol, binder, checker, or lowering
-APIs. Runtime laziness remains appropriate for target-dependent availability and semantic catalog properties that genuinely depend on a
-compilation. It is not used to defer parsing or validating the compiler's own catalog sources.
+The consumer boundary remains `CompilerKnownCatalog`, so generation details do not leak into symbol, binder, checker, or
+lowering APIs. Runtime laziness remains appropriate for target-dependent availability and semantic catalog properties
+that genuinely depend on a compilation. It is not used to defer parsing or validating the compiler's own catalog
+sources.
 
 ---
 
@@ -890,8 +918,8 @@ The catalog must satisfy these invariants:
 - no lazy request publishes a partially completed catalog or symbol catalog property,
 - concurrent requests observe equivalent immutable values.
 
-Catalog text, validated descriptors, and process-wide indexes can be shared through immutable references or `Arc`. Compilation-local
-symbol IDs and target-specific views remain owned by their compilation or immutable symbol snapshot.
+Catalog text, validated descriptors, and process-wide indexes can be shared through immutable references or `Arc`.
+Compilation-local symbol IDs and target-specific views remain owned by their compilation or immutable symbol snapshot.
 
 ---
 
@@ -929,18 +957,21 @@ Tests should compare stable keys and typed relationships rather than relying on 
 
 ## Dependency And Conformance Order
 
-Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries
+defined above:
 
-1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the authoritative source manifest.
+1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the authoritative source
+   manifest.
 2. Add the private catalog lexer cursor, parser, structural validation, and deterministic descriptor builder.
 3. Add declaration and type-expression fragment entry points to `bray-parser` using existing parser methods.
 4. Add representative ambient, module-scoped, nested, compiler-provided, and special-value catalog entries.
-5. Add deterministic `xtask` generation, checked-in Rust tables, stale-output enforcement, and static process-wide publication.
+5. Add deterministic `xtask` generation, checked-in Rust tables, stale-output enforcement, and static process-wide
+   publication.
 6. Add the compiler-known symbol provider and compilation-local stable-key-to-symbol-ID map.
 7. Add lazy target-availability views.
 8. Add checker and lowering registries for typed representation, implementation, and expression-operation roles.
 9. Add recognized standard-library descriptors and imported-identity matching.
 10. Add `cargo xtask compiler-known check` and force-completion coverage.
 
-Each step should preserve the descriptor boundary. Temporary hardcoded symbol construction paths should not become alternate sources
-of compiler-known truth.
+Each step should preserve the descriptor boundary. Temporary hardcoded symbol construction paths should not become
+alternate sources of compiler-known truth.

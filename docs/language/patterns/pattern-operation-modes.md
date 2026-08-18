@@ -18,13 +18,15 @@ In **observe mode**, the pattern refines the subject and binds observed access p
 
 In **shared borrow mode**, the pattern binds shared borrowed access paths.
 
-In **mutable borrow mode**, the pattern binds mutable borrowed access paths when the subject and field contracts permit mutation authority.
+In **mutable borrow mode**, the pattern binds mutable borrowed access paths when the subject and field contracts permit
+mutation authority.
 
 In **consume mode**, the pattern moves owned parts out according to ownership rules.
 
 In **copy mode**, the pattern copies matched parts when the type's copy contract permits it.
 
-The same pattern syntax can be used in multiple operation modes. The surrounding construct decides how the pattern accesses or extracts the matched parts.
+The same pattern syntax can be used in multiple operation modes. The surrounding construct decides how the pattern
+accesses or extracts the matched parts.
 
 ## Navigation
 

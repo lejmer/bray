@@ -48,11 +48,14 @@ A refutable pattern belongs to match expressions or another construct that defin
 
 A union variant pattern is valid in a local binding declaration only when it is irrefutable for the subject type.
 
-A product pattern is irrefutable when all selected subpatterns are irrefutable and the product shape is guaranteed by the subject type.
+A product pattern is irrefutable when all selected subpatterns are irrefutable and the product shape is guaranteed by
+the subject type.
 
-A tuple pattern is irrefutable when all element subpatterns are irrefutable and the tuple arity matches the subject type.
+A tuple pattern is irrefutable when all element subpatterns are irrefutable and the tuple arity matches the subject
+type.
 
-A fixed-size array pattern is irrefutable when it accounts for the fixed array shape and every listed element pattern is irrefutable.
+A fixed-size array pattern is irrefutable when it accounts for the fixed array shape and every listed element pattern is
+irrefutable.
 
 The initializer expression is evaluated once.
 
@@ -66,15 +69,18 @@ let { x, y }: Point = point;
 
 Here `Point` is the expected type of `point` and the subject type for the pattern `{ x, y }`.
 
-When a type annotation is absent, the initializer expression determines the subject type, and the pattern is checked against that subject type.
+When a type annotation is absent, the initializer expression determines the subject type, and the pattern is checked
+against that subject type.
 
 ```bray
 let { x, y } = point;
 ```
 
-The pattern can provide expected type context to subexpressions only through the subject type established by annotation, initializer type, or surrounding context.
+The pattern can provide expected type context to subexpressions only through the subject type established by annotation,
+initializer type, or surrounding context.
 
-A local binding declaration completes when the initializer has been evaluated, the pattern has matched, and every binding introduced by the pattern has been initialized.
+A local binding declaration completes when the initializer has been evaluated, the pattern has matched, and every
+binding introduced by the pattern has been initialized.
 
 Bindings introduced by the pattern become visible after the local binding declaration completes.
 
@@ -106,7 +112,8 @@ A mutable binding pattern introduces a mutable owned local binding.
 let mut x = value;
 ```
 
-A mutable owned local binding grants mutation authority over the local access path, subject to the type’s field, payload, and representation contracts.
+A mutable owned local binding grants mutation authority over the local access path, subject to the type’s field,
+payload, and representation contracts.
 
 Field mutability still applies.
 
@@ -128,21 +135,26 @@ A borrow type controls access to reached storage through the borrow layer.
 let r: &mut Buffer = &mut buffer;
 ```
 
-The `&mut` type form and borrow expression grant mutation authority over the reached storage according to Bray's borrowing rules.
+The `&mut` type form and borrow expression grant mutation authority over the reached storage according to Bray's
+borrowing rules.
 
 `mut` before a binding name controls local owned binding authority.
 
-The initializer expression can produce an owned value, copied value, borrowed value, access path, or other expression result accepted by the pattern context.
+The initializer expression can produce an owned value, copied value, borrowed value, access path, or other expression
+result accepted by the pattern context.
 
 For local binding declarations, the pattern operation mode initializes local bindings from the initializer result.
 
 If the initializer result is an owned value, the pattern can move parts of that value into the introduced bindings.
 
-If the initializer result is copyable and the context selects copy behavior, the pattern can copy parts into introduced bindings.
+If the initializer result is copyable and the context selects copy behavior, the pattern can copy parts into introduced
+bindings.
 
-If the initializer result is a borrow value, the pattern can introduce bindings to borrowed access paths according to the borrow type and pattern operation mode.
+If the initializer result is a borrow value, the pattern can introduce bindings to borrowed access paths according to
+the borrow type and pattern operation mode.
 
-If the initializer result is an access path to an existing owned value, using it as an owned initializer moves from that access path unless the type is copyable or the expression explicitly borrows.
+If the initializer result is an access path to an existing owned value, using it as an owned initializer moves from that
+access path unless the type is copyable or the expression explicitly borrows.
 
 ```bray
 let b = a;
@@ -158,13 +170,16 @@ A destructuring local binding can partially move from an existing access path.
 let { x, y } = point;
 ```
 
-If `point` is an owned non-copyable value and the pattern moves fields out, `point` becomes partially initialized after the declaration unless the entire value is consumed by the destructuring rule.
+If `point` is an owned non-copyable value and the pattern moves fields out, `point` becomes partially initialized after
+the declaration unless the entire value is consumed by the destructuring rule.
 
-A partially moved value cannot be used as a complete value until reinitialized or consumed by a rule that accounts for its state.
+A partially moved value cannot be used as a complete value until reinitialized or consumed by a rule that accounts for
+its state.
 
 Destruction of a partially moved value destroys only the still-initialized parts.
 
-When the initializer is a temporary value produced solely for the local binding declaration, destructuring consumes that temporary into the introduced bindings, and no remaining named subject exists after the declaration.
+When the initializer is a temporary value produced solely for the local binding declaration, destructuring consumes that
+temporary into the introduced bindings, and no remaining named subject exists after the declaration.
 
 Product patterns in local binding declarations match fields by name.
 
@@ -180,7 +195,8 @@ Unknown fields are errors.
 
 Missing fields are errors unless `..` is present.
 
-Field shorthand introduces same-name bindings. A field shorthand binding name is not resolved as a named constant or variant.
+Field shorthand introduces same-name bindings. A field shorthand binding name is not resolved as a named constant or
+variant.
 
 ```bray
 let { x, y }: Point = point;
@@ -234,29 +250,38 @@ let box(inner): box[Heap] Node = node;
 
 The inner pattern is checked against `T`.
 
-The local binding declaration’s operation mode determines whether the contained value is observed, borrowed, copied, or consumed.
+The local binding declaration’s operation mode determines whether the contained value is observed, borrowed, copied, or
+consumed.
 
-A consuming `box(inner)` pattern consumes the box and moves through the owned indirection according to `box` ownership rules.
+A consuming `box(inner)` pattern consumes the box and moves through the owned indirection according to `box` ownership
+rules.
 
-A borrowing `box(inner)` pattern projects a borrow of the contained value according to the box storage policy and the required storage behavior.
+A borrowing `box(inner)` pattern projects a borrow of the contained value according to the box storage policy and the
+required storage behavior.
 
 A local binding declaration can establish conditions at that program point.
 
-Conditions established by local binding patterns can include product field availability, tuple shape, fixed array shape, active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an irrefutable literal context exists, and initialized local bindings.
+Conditions established by local binding patterns can include product field availability, tuple shape, fixed array shape,
+active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an
+irrefutable literal context exists, and initialized local bindings.
 
 Guarantees established by the initializer expression remain available after the declaration when they remain valid.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions established by a local binding declaration.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
+conditions established by a local binding declaration.
 
 A local binding declaration participates in finalization tracking.
 
-If an introduced binding owns a value with a finalization obligation, the obligation is tracked from the point the binding is initialized.
+If an introduced binding owns a value with a finalization obligation, the obligation is tracked from the point the
+binding is initialized.
 
-The binding must be finalized, transferred to another owner that assumes the obligation, or converted into an explicit fallback ownership form before the owning scope exits.
+The binding must be finalized, transferred to another owner that assumes the obligation, or converted into an explicit
+fallback ownership form before the owning scope exits.
 
 A local binding declaration participates in destruction.
 
-Each owned binding introduced by the pattern is destroyed when its owning scope exits, unless ownership has moved elsewhere or the value has entered another ownership construct.
+Each owned binding introduced by the pattern is destroyed when its owning scope exits, unless ownership has moved
+elsewhere or the value has entered another ownership construct.
 
 A binding moved out before scope exit is not destroyed by the old binding.
 
@@ -265,16 +290,19 @@ A partially initialized binding destroys only initialized parts.
 If initializer evaluation leaves the declaration before it completes, the pattern bindings are not introduced.
 
 This includes `return`, `yield` to an enclosing yield-capable region, `break`, `continue`, nullable propagation, result
-propagation, run-result propagation, uncaught panic propagation, cancellation, and any expression path with type `never`.
+propagation, run-result propagation, uncaught panic propagation, cancellation, and any expression path with type
+`never`.
 
 A caught panic inside the initializer does not leave the declaration. It produces the catch expression's normal result.
 
 Values and temporaries already initialized during initializer evaluation are handled by the corresponding control-flow,
 ownership, destruction, and finalization rules.
 
-A local binding declaration is a declaration inside a block expression, but its initializer and pattern matching are expression-checked operations.
+A local binding declaration is a declaration inside a block expression, but its initializer and pattern matching are
+expression-checked operations.
 
-Local binding declarations participate in block-expression sequencing and must be terminated according to the block expression’s sequencing rules.
+Local binding declarations participate in block-expression sequencing and must be terminated according to the block
+expression’s sequencing rules.
 
 ## Navigation
 

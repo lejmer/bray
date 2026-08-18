@@ -25,25 +25,27 @@ If the condition evaluates to `true`, the assertion expression completes normall
 
 If the condition evaluates to `false`, the assertion fails and panics.
 
-When a failing assertion has a message expression, the message expression is evaluated after the condition fails and before the
-panic is raised.
+When a failing assertion has a message expression, the message expression is evaluated after the condition fails and
+before the panic is raised.
 
 When a passing assertion has a message expression, the message expression is not evaluated.
 
-When a failing assertion has no message expression, the panic report uses the compiler-defined assertion-failure message.
+When a failing assertion has no message expression, the panic report uses the compiler-defined assertion-failure
+message.
 
 An assertion expression has type `unit` on its normal continuation.
 
 On the failing path, the assertion expression has no normal continuation.
 
-After a successful assertion, the asserted guarantees are available when they remain valid after the
-assertion expression.
+After a successful assertion, the asserted guarantees are available when they remain valid after the assertion
+expression.
 
 An assertion establishes ordinary guarantees, not trusted guarantees.
 
 Condition-context rules are defined in [Contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
-An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation capabilities.
+An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation
+capabilities.
 
 Assertion expressions participate in type checking, ownership checking, borrowing, mutation authority, effect checking,
 capability checking, trusted obligation checking, and condition refinement according to the expressions they evaluate.

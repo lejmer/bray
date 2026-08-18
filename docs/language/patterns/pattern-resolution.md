@@ -12,9 +12,11 @@ If the identifier resolves to a pattern-capable declaration, the pattern uses th
 
 If the identifier does not resolve to a pattern-capable declaration, it introduces a new binding.
 
-Pattern-capable declarations include constants, no-payload variants, payload variants when the pattern uses payload syntax, built-in pattern names, and other declarations that explicitly define pattern behavior.
+Pattern-capable declarations include constants, no-payload variants, payload variants when the pattern uses payload
+syntax, built-in pattern names, and other declarations that explicitly define pattern behavior.
 
-Functions, ordinary values, modules, and non-pattern declarations are not pattern-capable just because their names are visible.
+Functions, ordinary values, modules, and non-pattern declarations are not pattern-capable just because their names are
+visible.
 
 If pattern resolution is ambiguous, the pattern is rejected.
 
@@ -42,7 +44,8 @@ A path pattern uses normal Bray path resolution.
 
 A path pattern has no payload bindings unless the resolved declaration is a payload-carrying pattern form.
 
-An unqualified identifier can also resolve to a pattern-capable declaration according to pattern-context name resolution.
+An unqualified identifier can also resolve to a pattern-capable declaration according to pattern-context name
+resolution.
 
 ## Navigation
 

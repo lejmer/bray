@@ -1,6 +1,7 @@
 # Partial moves
 
-A partial move moves an initialized subpart out of a value while leaving other initialized subparts under the original owner.
+A partial move moves an initialized subpart out of a value while leaving other initialized subparts under the original
+owner.
 
 Moving a field, payload field, tuple element, array element, or other move-eligible subpart is an ownership operation.
 
@@ -23,9 +24,11 @@ A partially moved value can be destroyed as a partial value.
 
 Destruction of a partially moved value destroys only initialized subparts.
 
-A partially moved value can become fully initialized again when all moved-from subparts are reinitialized and the storage and type contract permit reinitialization.
+A partially moved value can become fully initialized again when all moved-from subparts are reinitialized and the
+storage and type contract permit reinitialization.
 
-A value with whole-value lifecycle behavior must be fully initialized whenever a whole-value lifecycle declaration can run.
+A value with whole-value lifecycle behavior must be fully initialized whenever a whole-value lifecycle declaration can
+run.
 
 A partial move from such a value is valid only when every reachable path reinitializes the moved subpart before:
 
@@ -37,9 +40,11 @@ A partial move from such a value is valid only when every reachable path reiniti
 
 For unions, the moved active payload field must also be reinitialized before the active variant is replaced.
 
-If the compiler cannot prove that the value becomes fully initialized before one of those events, the partial move is rejected.
+If the compiler cannot prove that the value becomes fully initialized before one of those events, the partial move is
+rejected.
 
-Partial storage resolution never runs whole-value finalizers, whole-value destructors, or whole-value scope enter or exit behavior.
+Partial storage resolution never runs whole-value finalizers, whole-value destructors, or whole-value scope enter or
+exit behavior.
 
 ## Navigation
 

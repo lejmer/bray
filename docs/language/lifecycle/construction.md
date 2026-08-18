@@ -4,7 +4,8 @@ Constructors create fully initialized values of `Self`.
 
 Constructor bodies have no `self` binding.
 
-A constructor body must produce a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized `Self` value.
+A constructor body must produce a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized `Self`
+value.
 
 A constructor body can produce that value with:
 
@@ -14,7 +15,8 @@ A constructor body can produce that value with:
 
 Constructor failure through `Result.Error`, panic, cancellation, or another non-success exit does not produce a value.
 
-Values, temporaries, and partially initialized storage created before such an exit are resolved by ordinary ownership, destruction, and finalization rules.
+Values, temporaries, and partially initialized storage created before such an exit are resolved by ordinary ownership,
+destruction, and finalization rules.
 
 A successfully constructed value carries:
 

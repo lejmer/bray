@@ -25,13 +25,16 @@ Expressions participate in:
 - scope exit capability,
 - async execution capability.
 
-An expression that uses a trusted implementation capability must appear inside a trusted declaration with the matching `uses(...)` clause.
+An expression that uses a trusted implementation capability must appear inside a trusted declaration with the matching
+`uses(...)` clause.
 
-An expression that depends on a trusted caller obligation must have that obligation at that program point, acknowledge it at a trust boundary, or expose it through the surrounding declaration’s contract.
+An expression that depends on a trusted caller obligation must have that obligation at that program point, acknowledge
+it at a trust boundary, or expose it through the surrounding declaration’s contract.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
-- Previous: [Lambda expressions and anonymous callable expressions](lambda-expressions-and-anonymous-callable-expressions.md)
+- Previous:
+  [Lambda expressions and anonymous callable expressions](lambda-expressions-and-anonymous-callable-expressions.md)
 - Next: [Expression ownership](expression-ownership.md)

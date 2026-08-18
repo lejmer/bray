@@ -1,6 +1,8 @@
 # Targets, layout, ABI, and raw memory
 
-Targets, layout, ABI, and raw memory rules define target profiles, target properties, target gates, explicit data layout contracts, callable ABI contracts, foreign interfaces, raw pointers, raw memory operations, and standard-library memory wrappers.
+Targets, layout, ABI, and raw memory rules define target profiles, target properties, target gates, explicit data layout
+contracts, callable ABI contracts, foreign interfaces, raw pointers, raw memory operations, and standard-library memory
+wrappers.
 
 ---
 

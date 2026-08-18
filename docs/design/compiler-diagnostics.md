@@ -4,8 +4,8 @@ This document defines the design contract for Bray compiler diagnostics.
 
 Diagnostics are compiler product data. They are not Bray source-language semantics.
 
-The language specification defines which programs are valid and what valid programs mean. Diagnostic design defines how the
-compiler represents, orders, localizes, tests, and reports invalid or suspicious input.
+The language specification defines which programs are valid and what valid programs mean. Diagnostic design defines how
+the compiler represents, orders, localizes, tests, and reports invalid or suspicious input.
 
 ---
 
@@ -46,15 +46,16 @@ A diagnostic record has:
 
 The diagnostic record is immutable after publication.
 
-Diagnostic records can be created through phase-local builders, but published records must not expose mutable builder state.
+Diagnostic records can be created through phase-local builders, but published records must not expose mutable builder
+state.
 
 Diagnostic records must not contain pre-rendered user-facing sentences.
 
-Diagnostic records can contain compiler-owned typed references such as source IDs, spans, syntax kinds, symbol IDs, type IDs,
-declaration IDs, operator kinds, counts, literal kinds, and target property names.
+Diagnostic records can contain compiler-owned typed references such as source IDs, spans, syntax kinds, symbol IDs, type
+IDs, declaration IDs, operator kinds, counts, literal kinds, and target property names.
 
-When a diagnostic needs a source spelling, it should carry a source reference or stable source slice, not an already quoted English
-phrase.
+When a diagnostic needs a source spelling, it should carry a source reference or stable source slice, not an already
+quoted English phrase.
 
 ---
 
@@ -77,16 +78,16 @@ impl<T> DiagnosticResult<T> {
 }
 ```
 
-The wrapper contains no phase logic, caching, or rendering policy. `bray-compilation` owns lazy evaluation, dependency tracking,
-cancellation, caching, and publication around it.
+The wrapper contains no phase logic, caching, or rendering policy. `bray-compilation` owns lazy evaluation, dependency
+tracking, cancellation, caching, and publication around it.
 
-Invalid user source can produce a valid `DiagnosticResult<T>` containing an error-aware semantic value and error diagnostics.
-Cancellation and compiler infrastructure failure are outer query outcomes and must not be represented as an absent value or an
-error-aware source result.
+Invalid user source can produce a valid `DiagnosticResult<T>` containing an error-aware semantic value and error
+diagnostics. Cancellation and compiler infrastructure failure are outer query outcomes and must not be represented as an
+absent value or an error-aware source result.
 
-Symbol query results, checked semantic units, and other demand-driven semantic results use this shared wrapper rather than defining equivalent
-phase-named copies. A category-specific result type remains appropriate when it adds a stronger root, identity, or relationship
-contract rather than merely pairing one value with one diagnostic bag.
+Symbol query results, checked semantic units, and other demand-driven semantic results use this shared wrapper rather
+than defining equivalent phase-named copies. A category-specific result type remains appropriate when it adds a stronger
+root, identity, or relationship contract rather than merely pairing one value with one diagnostic bag.
 
 ---
 
@@ -113,19 +114,20 @@ Examples:
 - trusted obligation not discharged,
 - target-unavailable declaration.
 
-Async and parallel-execution diagnostic identities include await outside async execution, task start outside active runtime
-execution, non-`Future<T>` await operands, incompatible execution lanes, unsatisfied product runtime requirements, unavailable
-main-thread execution, escaping async or child-run dependencies, thread-affinity conflicts, unresolved async finalization in
-synchronous scope, consumed-task reuse, incoherent task-flow merge, fallible unobserved completion payloads, incompatible generic
-run or process transfer, unavailable blocking context for thread-owner resolution, invalid frame-descriptor phase contracts, large
-frames or retained values, recursive dynamic frame storage, missing cancellation observations, process-protocol incompatibility,
-and cleanup blockers.
+Async and parallel-execution diagnostic identities include await outside async execution, task start outside active
+runtime execution, non-`Future<T>` await operands, incompatible execution lanes, unsatisfied product runtime
+requirements, unavailable main-thread execution, escaping async or child-run dependencies, thread-affinity conflicts,
+unresolved async finalization in synchronous scope, consumed-task reuse, incoherent task-flow merge, fallible unobserved
+completion payloads, incompatible generic run or process transfer, unavailable blocking context for thread-owner
+resolution, invalid frame-descriptor phase contracts, large frames or retained values, recursive dynamic frame storage,
+missing cancellation observations, process-protocol incompatibility, and cleanup blockers.
 
-These diagnostics carry typed frame, run kind, task, dependency, requirement, lane, owner, lifecycle, protocol, resource-budget,
-descriptor-role, and source-origin arguments. They do not carry pre-rendered dependency explanations. Async inspection and
-diagnostic requirements are defined in `docs/design/async-runtime.md`.
+These diagnostics carry typed frame, run kind, task, dependency, requirement, lane, owner, lifecycle, protocol,
+resource-budget, descriptor-role, and source-origin arguments. They do not carry pre-rendered dependency explanations.
+Async inspection and diagnostic requirements are defined in `docs/design/async-runtime.md`.
 
-Rendered diagnostic codes can be derived from diagnostic identity, but the identity remains the compiler-internal stable key.
+Rendered diagnostic codes can be derived from diagnostic identity, but the identity remains the compiler-internal stable
+key.
 
 The code format is a user-interface and tooling contract owned by the diagnostics crate.
 
@@ -148,8 +150,8 @@ A `note` provides supporting information for another diagnostic.
 
 A `help` provides an advisory action or explanation for another diagnostic.
 
-Standalone notes and help messages are allowed only for compiler-driver reporting that is not tied to a source-language validity
-failure.
+Standalone notes and help messages are allowed only for compiler-driver reporting that is not tied to a source-language
+validity failure.
 
 Phase logic should not choose severity based on localized wording.
 
@@ -161,8 +163,8 @@ Severity is part of the structured diagnostic record.
 
 A primary span identifies the source range most directly responsible for a diagnostic.
 
-Some diagnostics have no primary span, such as errors about missing package metadata, unavailable target profiles, or linker input
-selection.
+Some diagnostics have no primary span, such as errors about missing package metadata, unavailable target profiles, or
+linker input selection.
 
 A label attaches structured explanation to a span.
 
@@ -182,8 +184,8 @@ Examples of related locations:
 - the target gate that makes a declaration unavailable,
 - the package manifest entry that selected a target profile.
 
-Generated or synthesized compiler data should preserve its origin chain so diagnostics can point back to the source or metadata
-that caused it.
+Generated or synthesized compiler data should preserve its origin chain so diagnostics can point back to the source or
+metadata that caused it.
 
 ---
 
@@ -205,8 +207,8 @@ Applicability values are:
 - `maybe_applicable`,
 - `manual`.
 
-`machine_applicable` means the edit is valid for the exact source input and can be applied without changing program intent beyond
-the diagnostic fix.
+`machine_applicable` means the edit is valid for the exact source input and can be applied without changing program
+intent beyond the diagnostic fix.
 
 `maybe_applicable` means the edit is syntactically plausible but can require user judgment.
 
@@ -226,15 +228,16 @@ The diagnostics crate owns the structured records and rendering contracts.
 
 The `bray-messages` layer owns localized text.
 
-Locale identities are stable BCP 47 language tags. A compiler distribution contains an installed catalog bundle with a manifest
-that records the exact supported locale identities, catalog schema revision, message-set digest, and English fallback catalog.
-Every catalog supplies every registered message ID with the exact typed argument signature declared by `bray-messages`. Catalog
-validation rejects missing or extra messages, argument mismatches, invalid plural categories, and invalid locale identities.
+Locale identities are stable BCP 47 language tags. A compiler distribution contains an installed catalog bundle with a
+manifest that records the exact supported locale identities, catalog schema revision, message-set digest, and English
+fallback catalog. Every catalog supplies every registered message ID with the exact typed argument signature declared by
+`bray-messages`. Catalog validation rejects missing or extra messages, argument mismatches, invalid plural categories,
+and invalid locale identities.
 
-Rendering receives an ordered explicit locale preference list. Negotiation tries an exact installed identity and then its
-less-specific language identity for each preference in order. If none match, it selects `en`, which every conforming distribution
-must install. The compiler does not read a host locale implicitly. Adding a locale changes only the catalog bundle and locale-owned
-rendering data, not parser, binder, checker, lowering, codegen, or emitter logic.
+Rendering receives an ordered explicit locale preference list. Negotiation tries an exact installed identity and then
+its less-specific language identity for each preference in order. If none match, it selects `en`, which every conforming
+distribution must install. The compiler does not read a host locale implicitly. Adding a locale changes only the catalog
+bundle and locale-owned rendering data, not parser, binder, checker, lowering, codegen, or emitter logic.
 
 Localization owns:
 
@@ -248,11 +251,12 @@ Localization owns:
 
 Typed message arguments must preserve meaning.
 
-Compiler logic should pass `TypeId`, `SymbolId`, `SyntaxKind`, `OperatorKind`, `usize`, `Span`, `TargetPropertyId`, or similar typed
-values rather than pre-rendered phrases.
+Compiler logic should pass `TypeId`, `SymbolId`, `SyntaxKind`, `OperatorKind`, `usize`, `Span`, `TargetPropertyId`, or
+similar typed values rather than pre-rendered phrases.
 
-An unavailable requested locale therefore has the deterministic English fallback. A missing English message or argument-signature
-mismatch is a compiler distribution invariant failure, not user-authored diagnostic text assembled by compiler logic.
+An unavailable requested locale therefore has the deterministic English fallback. A missing English message or
+argument-signature mismatch is a compiler distribution invariant failure, not user-authored diagnostic text assembled by
+compiler logic.
 
 ---
 
@@ -270,15 +274,16 @@ Symbol construction owns semantic identity conflicts and symbol table constructi
 
 Binding owns name resolution, path resolution, lexical-scope, shadowing, and reference-target diagnostics.
 
-Semantic checker services own type, trait, overload, conversion, ownership, borrowing, initialization, lifecycle, contract,
-capability, const-evaluation, and target-availability diagnostics.
+Semantic checker services own type, trait, overload, conversion, ownership, borrowing, initialization, lifecycle,
+contract, capability, const-evaluation, and target-availability diagnostics.
 
-Lowering, MIR validation, code generation, emission, and linking diagnostics must describe compiler, target, backend, artifact, or
-external tool issues. They must not introduce new source-language semantic decisions.
+Lowering, MIR validation, code generation, emission, and linking diagnostics must describe compiler, target, backend,
+artifact, or external tool issues. They must not introduce new source-language semantic decisions.
 
 A later phase should not duplicate an earlier phase's diagnostic.
 
-When a later phase depends on invalid earlier data, it should consume explicit recovery data and suppress follow-on noise.
+When a later phase depends on invalid earlier data, it should consume explicit recovery data and suppress follow-on
+noise.
 
 ---
 
@@ -288,8 +293,8 @@ Recovery exists to improve diagnostic output while preserving compiler invariant
 
 Recovered compiler data must be explicit.
 
-Do not represent recovered or erroneous state as ordinary valid data unless the node, symbol, bound node, or result carries an
-explicit error marker.
+Do not represent recovered or erroneous state as ordinary valid data unless the node, symbol, bound node, or result
+carries an explicit error marker.
 
 Downstream phases must be able to distinguish:
 
@@ -326,8 +331,8 @@ The final ordering key should include:
 
 Diagnostics without source spans should use a deterministic product, package, metadata, or invocation-order key.
 
-Different runs over the same inputs, target profile, dependency graph, and compiler options should produce diagnostics in the same
-order.
+Different runs over the same inputs, target profile, dependency graph, and compiler options should produce diagnostics
+in the same order.
 
 ---
 
@@ -335,15 +340,15 @@ order.
 
 Diagnostic deduplication uses structured diagnostic records, not localized rendered text.
 
-Two diagnostics are duplicates only when their severity, stable kind, primary span, labels, notes, and typed arguments are all
-equal. The diagnostic record ID is not part of the duplicate key because it identifies one emitted record, not the source condition
-being reported.
+Two diagnostics are duplicates only when their severity, stable kind, primary span, labels, notes, and typed arguments
+are all equal. The diagnostic record ID is not part of the duplicate key because it identifies one emitted record, not
+the source condition being reported.
 
-Diagnostics that render to similar or identical prose must remain distinct when they refer to different source conditions, spans,
-labels, notes, related locations, suggestions, or typed arguments.
+Diagnostics that render to similar or identical prose must remain distinct when they refer to different source
+conditions, spans, labels, notes, related locations, suggestions, or typed arguments.
 
-When related locations, suggestions, or other structured fields are added to diagnostic records, they must become part of the
-duplicate key.
+When related locations, suggestions, or other structured fields are added to diagnostic records, they must become part
+of the duplicate key.
 
 ---
 

@@ -85,7 +85,8 @@ A function declared to return `never` has no normal completion path.
 
 Panic is outside the ordinary callable result contract.
 
-If a callable panics, the panic propagates to the nearest panic-catching boundary instead of producing the callable's declared result.
+If a callable panics, the panic propagates to the nearest panic-catching boundary instead of producing the callable's
+declared result.
 
 A `catch` expression creates an expression-level panic-catching boundary.
 

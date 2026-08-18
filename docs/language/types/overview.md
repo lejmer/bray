@@ -1,6 +1,7 @@
 # Overview
 
-A **type** is a semantic contract for values, storage, access paths, operations, initialization, ownership, borrowing, mutation authority, destruction, finalization, effects, capabilities, and representation.
+A **type** is a semantic contract for values, storage, access paths, operations, initialization, ownership, borrowing,
+mutation authority, destruction, finalization, effects, capabilities, and representation.
 
 Every value has a type.
 
@@ -29,7 +30,8 @@ Types participate in:
 - layout selection,
 - public API compatibility.
 
-A type can define structure, behavior, lifecycle rules, construction rules, conversion rules, visibility rules, and layout contracts.
+A type can define structure, behavior, lifecycle rules, construction rules, conversion rules, visibility rules, and
+layout contracts.
 
 ## Navigation
 

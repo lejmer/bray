@@ -1,6 +1,7 @@
 # Match expressions
 
-A **match expression** evaluates a subject expression, compares it against a sequence of pattern arms, and produces the result of the selected arm.
+A **match expression** evaluates a subject expression, compares it against a sequence of pattern arms, and produces the
+result of the selected arm.
 
 ```bray
 let area: r64 = match shape
@@ -45,7 +46,8 @@ match subject
 }
 ```
 
-A guard is a boolean expression evaluated in guard context after the arm pattern structurally matches and before the arm body is selected.
+A guard is a boolean expression evaluated in guard context after the arm pattern structurally matches and before the arm
+body is selected.
 
 Bindings introduced by an arm pattern are available in the guard and in the arm body.
 
@@ -68,10 +70,11 @@ The selected arm body produces the match expression result.
 
 If the match expression result type is `unit`, an arm body can complete normally.
 
-If the match expression result type is a value type other than `unit`, every reachable normal completion path in every selected arm body supplies a value with `yield` or ends in a `never` expression.
+If the match expression result type is a value type other than `unit`, every reachable normal completion path in every
+selected arm body supplies a value with `yield` or ends in a `never` expression.
 
-All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization state,
-capability state, and set of available contract guarantees.
+All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization
+state, capability state, and set of available contract guarantees.
 
 A match expression can use refutable patterns.
 
@@ -83,11 +86,13 @@ Coverage analysis tracks the pattern coverage region for each arm.
 
 An unguarded arm contributes its whole pattern coverage region.
 
-A guarded arm contributes only the subregion where the guard is statically proven true by the shared condition and predicate system.
+A guarded arm contributes only the subregion where the guard is statically proven true by the shared condition and
+predicate system.
 
 If the guard is statically proven false for the arm's pattern conditions, the arm is unreachable.
 
-If the guard truth is statically unknown for some part of the arm's pattern coverage region, that part can still select the arm at runtime, but it does not contribute to exhaustiveness.
+If the guard truth is statically unknown for some part of the arm's pattern coverage region, that part can still select
+the arm at runtime, but it does not contribute to exhaustiveness.
 
 Alternative patterns contribute coverage for each alternative.
 

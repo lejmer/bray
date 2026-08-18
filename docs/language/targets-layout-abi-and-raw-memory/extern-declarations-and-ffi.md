@@ -1,19 +1,19 @@
 # Extern declarations and FFI
 
-The `extern` modifier declares that a declaration's runtime definition or storage is supplied by another linked artifact rather
-than by this declaration.
+The `extern` modifier declares that a declaration's runtime definition or storage is supplied by another linked artifact
+rather than by this declaration.
 
-Applied to a callable, `extern` supplies the callable body elsewhere. Applied to a static, `extern` supplies provider-owned
-address-bearing storage elsewhere.
+Applied to a callable, `extern` supplies the callable body elsewhere. Applied to a static, `extern` supplies
+provider-owned address-bearing storage elsewhere.
 
 An extern callable declaration has no Bray body and ends with `;`.
 
-An extern static declaration has no Bray initializer and ends with `;`. Its source reference produces a provider-rooted raw
-pointer and is defined in [Foreign data and symbols](foreign-data-and-symbols.md).
+An extern static declaration has no Bray initializer and ends with `;`. Its source reference produces a provider-rooted
+raw pointer and is defined in [Foreign data and symbols](foreign-data-and-symbols.md).
 
-The providing artifact can contain separately compiled Bray code, compiler-generated runtime code, a platform or system library, or
-code written in another language. `extern` therefore does not by itself mean C, FFI, or foreign code. The selected callable ABI and
-link dependency determine whether the call crosses a foreign boundary.
+The providing artifact can contain separately compiled Bray code, compiler-generated runtime code, a platform or system
+library, or code written in another language. `extern` therefore does not by itself mean C, FFI, or foreign code. The
+selected callable ABI and link dependency determine whether the call crosses a foreign boundary.
 
 ```bray
 @link(name = "c")
@@ -25,7 +25,8 @@ extern trusted func get_process_id() -> i32
 
 `extern` declarations do not create unqualified names outside their declaration context.
 
-Name resolution, visibility, module membership, using declarations, overload declarations, callable type checking, contract checking, and trusted obligation checking apply normally.
+Name resolution, visibility, module membership, using declarations, overload declarations, callable type checking,
+contract checking, and trusted obligation checking apply normally.
 
 An extern callable that crosses a foreign ABI must declare:
 
@@ -41,11 +42,14 @@ An extern trusted declaration is permitted only in a trusted module.
 
 The extern declaration's signature and contract are the Bray-visible contract for the linked symbol.
 
-If the foreign symbol requires pointer validity, initialization, alignment, lifetime, ownership, thread-affinity, callback, reentrancy, or resource-state conditions, those conditions must appear in the declaration's parameter types, result types, or contract clauses.
+If the foreign symbol requires pointer validity, initialization, alignment, lifetime, ownership, thread-affinity,
+callback, reentrancy, or resource-state conditions, those conditions must appear in the declaration's parameter types,
+result types, or contract clauses.
 
 Imported foreign failure modes are represented as ordinary ABI values.
 
-Bray `Result<T, E>` can cross a foreign ABI boundary only when its representation is accepted by that boundary through an explicit layout contract.
+Bray `Result<T, E>` can cross a foreign ABI boundary only when its representation is accepted by that boundary through
+an explicit layout contract.
 
 ## Link and symbol directives
 
@@ -90,16 +94,16 @@ A target profile accepts only the link kinds it supports.
 @symbol(name = "zlibVersion")
 ```
 
-`@symbol(...)` can attach to an extern callable or static declaration, an ABI-qualified Bray callable exported as a native symbol,
-or a non-generic Bray static exported as a native data symbol.
+`@symbol(...)` can attach to an extern callable or static declaration, an ABI-qualified Bray callable exported as a
+native symbol, or a non-generic Bray static exported as a native data symbol.
 
 For extern declarations, `@symbol(...)` identifies the symbol that the linker or loader must resolve.
 
 For exported Bray callable and static declarations, `@symbol(...)` names the native symbol made visible to foreign code.
 
 Name, ordinal, version, binding, and presence options are defined in
-[Foreign data and symbols](foreign-data-and-symbols.md#symbol-identity-and-availability). The selected target profile applies its
-exact symbol encoding and validates every requested option.
+[Foreign data and symbols](foreign-data-and-symbols.md#symbol-identity-and-availability). The selected target profile
+applies its exact symbol encoding and validates every requested option.
 
 ## Exported ABI callables
 
@@ -118,13 +122,16 @@ An exported ABI callable is type checked as an ordinary Bray callable.
 
 It is not `extern` because its implementation is Bray source.
 
-It is `trusted` only when its body uses trusted implementation capabilities or its declaration exposes trusted caller obligations.
+It is `trusted` only when its body uses trusted implementation capabilities or its declaration exposes trusted caller
+obligations.
 
 An uncaught Bray panic must not unwind through a foreign ABI frame.
 
-If an uncaught panic reaches an exported non-Bray ABI boundary, the Bray runtime catches it at that boundary and applies the program-root panic behavior for that run instead of returning normally through the foreign ABI.
+If an uncaught panic reaches an exported non-Bray ABI boundary, the Bray runtime catches it at that boundary and applies
+the program-root panic behavior for that run instead of returning normally through the foreign ABI.
 
-A callable that wants to report failure to a foreign caller catches panics explicitly and returns an ABI-representable error value.
+A callable that wants to report failure to a foreign caller catches panics explicitly and returns an ABI-representable
+error value.
 
 ```bray
 @layout(c)
@@ -175,36 +182,37 @@ struct CallbackPair
 }
 ```
 
-A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same `@abi(...)` directive and the selected ABI permits the required callable representation.
+A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same
+`@abi(...)` directive and the selected ABI permits the required callable representation.
 
-An exported foreign callable address names a compiler-generated trampoline rather than the Bray body directly. The trampoline
-acquires an entry dependency on the provider product, attaches an otherwise foreign thread to that product, establishes a
-synchronous Bray run, and contains panic or cancellation at that boundary. Normal completion returns the body's ABI result. A
-panic is reported through the runtime panic sink before the trampoline returns the ABI-zero result. Cancellation also returns the
-ABI-zero result, and result-less callbacks return normally after either abnormal outcome. Neither panic nor cancellation unwinds
-into foreign code.
+An exported foreign callable address names a compiler-generated trampoline rather than the Bray body directly. The
+trampoline acquires an entry dependency on the provider product, attaches an otherwise foreign thread to that product,
+establishes a synchronous Bray run, and contains panic or cancellation at that boundary. Normal completion returns the
+body's ABI result. A panic is reported through the runtime panic sink before the trampoline returns the ABI-zero result.
+Cancellation also returns the ABI-zero result, and result-less callbacks return normally after either abnormal outcome.
+Neither panic nor cancellation unwinds into foreign code.
 
 Nested foreign entries on one native thread reuse its current product attachment. The outermost matching detach resolves
-thread-local static instances on that exact thread after all nested entries, pinned tasks, callbacks, and external exact-thread
-dependencies have resolved. Product unload closes new entry and attachment first, then drains external roots. Static-owned edges in
-the teardown set are released by consumer-before-provider cleanup before code release.
+thread-local static instances on that exact thread after all nested entries, pinned tasks, callbacks, and external
+exact-thread dependencies have resolved. Product unload closes new entry and attachment first, then drains external
+roots. Static-owned edges in the teardown set are released by consumer-before-provider cleanup before code release.
 
-Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address storage when
-a foreign API needs an explicit state pointer. Construction consumes the state value. A capture-free exported ABI callable receives the
-opaque context as its first parameter and uses the trusted recognized `std.ffi.callback_state<State>(context)` operation to borrow
-the live state.
+Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address
+storage when a foreign API needs an explicit state pointer. Construction consumes the state value. A capture-free
+exported ABI callable receives the opaque context as its first parameter and uses the trusted recognized
+`std.ffi.callback_state<State>(context)` operation to borrow the live state.
 
-A Bray source export does not publish a static as an ABI data symbol. `@symbol(...)` explicitly exports one ordinary non-generic
-static, while `extern static` explicitly imports provider-owned storage. Both preserve the distinction between Bray-owned and
-provider-owned storage and never create an automatic safe borrow from a native symbol address.
+A Bray source export does not publish a static as an ABI data symbol. `@symbol(...)` explicitly exports one ordinary
+non-generic static, while `extern static` explicitly imports provider-owned storage. Both preserve the distinction
+between Bray-owned and provider-owned storage and never create an automatic safe borrow from a native symbol address.
 
-The compiler accepts that operation only when the context expression is the matching live parameter of the exported entry and the
-state type is the one owned by the registered context. The resulting borrow cannot escape the invocation or outlive the context
-owner. This operation does not capture enclosing state or create a bound callable.
+The compiler accepts that operation only when the context expression is the matching live parameter of the exported
+entry and the state type is the one owned by the registered context. The resulting borrow cannot escape the invocation
+or outlive the context owner. This operation does not capture enclosing state or create a bound callable.
 
-A retained registration must deregister first, prevent new invocations, and wait for in-flight entries before resolving the context
-owner. Invocation after the foreign provider has released the context violates the foreign API contract before Bray entry. No
-generated wrapper reads retired storage to diagnose it.
+A retained registration must deregister first, prevent new invocations, and wait for in-flight entries before resolving
+the context owner. Invocation after the foreign provider has released the context violates the foreign API contract
+before Bray entry. No generated wrapper reads retired storage to diagnose it.
 
 ## Navigation
 

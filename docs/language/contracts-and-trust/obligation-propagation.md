@@ -1,6 +1,7 @@
 # Obligation propagation
 
-Any trusted obligation used inside a callable or lifecycle declaration must be discharged before the declaration exits or appear in that declaration's public contract.
+Any trusted obligation used inside a callable or lifecycle declaration must be discharged before the declaration exits
+or appear in that declaration's public contract.
 
 This prevents trusted obligations from being hidden by wrappers.
 
@@ -11,7 +12,8 @@ func bad(pos pointer: RawPointer<u8>) -> u8
 }
 ```
 
-This is rejected because the wrapper accepts a trusted obligation inside its body but does not expose that obligation to its caller.
+This is rejected because the wrapper accepts a trusted obligation inside its body but does not expose that obligation to
+its caller.
 
 This is valid because the obligation is exposed:
 
@@ -54,7 +56,8 @@ This is rejected when `get_unchecked` has trusted caller obligations.
 
 The callable type must preserve the trusted obligation.
 
-A trust boundary inside a callable or lifecycle declaration does not hide the obligation from that declaration's callers.
+A trust boundary inside a callable or lifecycle declaration does not hide the obligation from that declaration's
+callers.
 
 ## Navigation
 

@@ -1,10 +1,13 @@
 # Target-conditional declarations
 
-A **target-conditional declaration** is a compiler-known or recognized standard-library declaration whose availability depends on target properties.
+A **target-conditional declaration** is a compiler-known or recognized standard-library declaration whose availability
+depends on target properties.
 
-The owning language rule defines each target-conditional declaration's availability rule as a compile-time boolean expression over target properties.
+The owning language rule defines each target-conditional declaration's availability rule as a compile-time boolean
+expression over target properties.
 
-Before normal source checking, the compiler evaluates availability rules for the selected target profile and forms the available compiler-known and recognized standard-library surface for that product.
+Before normal source checking, the compiler evaluates availability rules for the selected target profile and forms the
+available compiler-known and recognized standard-library surface for that product.
 
 Using a target-unavailable declaration is a compile-time error.
 
@@ -24,13 +27,17 @@ Availability is checked during:
 - const evaluation,
 - generic instantiation.
 
-A generic declaration that uses a target-conditional declaration must be valid for the selected target profile wherever the generic body is checked or instantiated.
+A generic declaration that uses a target-conditional declaration must be valid for the selected target profile wherever
+the generic body is checked or instantiated.
 
 A target-gated module contribution can prove target availability for declarations inside that contribution.
 
-If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload participation, or availability depends on target properties, compiled interface metadata records the relevant target-property dependencies.
+If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload
+participation, or availability depends on target properties, compiled interface metadata records the relevant
+target-property dependencies.
 
-Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded target properties match for the purposes of that public surface.
+Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded
+target properties match for the purposes of that public surface.
 
 ## Navigation
 

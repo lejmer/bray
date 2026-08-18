@@ -24,7 +24,8 @@ Unknown fields are errors.
 
 Missing fields are errors unless `..` is present.
 
-Successful matching of a product pattern makes the selected fields available according to the pattern operation's ownership and access mode.
+Successful matching of a product pattern makes the selected fields available according to the pattern operation's
+ownership and access mode.
 
 ## Field shorthand
 
@@ -56,7 +57,8 @@ The shorthand introduces bindings with the same names as the matched fields.
 
 Field shorthand is binding shorthand. The introduced field binding is not resolved as a named constant or variant.
 
-For a payload variant with `pos` payload fields, a pattern entry without `=` fills the next positional payload pattern slot while one is available.
+For a payload variant with `pos` payload fields, a pattern entry without `=` fills the next positional payload pattern
+slot while one is available.
 
 ## Remaining fields
 

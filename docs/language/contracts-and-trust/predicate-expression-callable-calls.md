@@ -1,6 +1,7 @@
 # Predicate-expression callable calls
 
-A predicate expression can call a function or method when the selected callable contract is valid in predicate-expression context.
+A predicate expression can call a function or method when the selected callable contract is valid in
+predicate-expression context.
 
 The callable can return any value type that is valid in predicate-expression context.
 
@@ -28,15 +29,18 @@ A callable contract is valid in predicate-expression context only when the calla
 - free of trusted capability use,
 - checked only through predicate-valid operations.
 
-Public predicate-expression use of an ordinary function or method requires the selected declaration surface to expose `const`.
+Public predicate-expression use of an ordinary function or method requires the selected declaration surface to expose
+`const`.
 
 Private or local helper callables can be inferred as const-eligible within the same checking unit.
 
 Inferred const eligibility does not become part of an exported declaration surface.
 
-The selected callable contract is the full callable contract of the resolved function or method after overload selection and generic substitution.
+The selected callable contract is the full callable contract of the resolved function or method after overload selection
+and generic substitution.
 
-The callable body may use ordinary callable-body structure, including `return`, when every reachable result-producing path uses only predicate-valid expressions and predicate-expression-valid calls.
+The callable body may use ordinary callable-body structure, including `return`, when every reachable result-producing
+path uses only predicate-valid expressions and predicate-expression-valid calls.
 
 The callable's parameters and result type must be valid predicate-expression values.
 

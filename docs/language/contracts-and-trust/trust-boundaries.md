@@ -1,8 +1,10 @@
 # Trust boundaries
 
-Calling a declaration with trusted caller obligations requires the obligations to be established at that program point or visibly acknowledged at a trust boundary.
+Calling a declaration with trusted caller obligations requires the obligations to be established at that program point
+or visibly acknowledged at a trust boundary.
 
-Expression-level trust boundary syntax is defined in [Trust boundary expressions](../expressions/trust-boundary-expressions.md).
+Expression-level trust boundary syntax is defined in
+[Trust boundary expressions](../expressions/trust-boundary-expressions.md).
 
 ```bray
 trusted expression
@@ -14,8 +16,8 @@ It visibly accepts the trusted caller obligations required by that operand.
 
 The compiler records the exact trusted predicate requirements accepted at the boundary.
 
-The caller must visibly accept the trusted obligation unless language-defined contract reasoning already establishes it at that
-program point.
+The caller must visibly accept the trusted obligation unless language-defined contract reasoning already establishes it
+at that program point.
 
 A call to a safe wrapper around trusted implementation code does not require caller acknowledgement.
 
@@ -27,7 +29,8 @@ For a block operand, the scope is the block.
 
 Trusted guarantees introduced solely by the boundary do not become conditions after the operand completes.
 
-Conditions independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out according to ordinary guarantee-context rules.
+Conditions independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out
+according to ordinary guarantee-context rules.
 
 A trust boundary expression must acknowledge at least one trusted caller obligation required by its operand.
 

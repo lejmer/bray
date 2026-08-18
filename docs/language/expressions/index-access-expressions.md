@@ -1,6 +1,7 @@
 # Index access expressions
 
-An **index access expression** reaches an indexed element, component, or contiguous sub-storage through an indexing contract.
+An **index access expression** reaches an indexed element, component, or contiguous sub-storage through an indexing
+contract.
 
 ```bray
 items[index]
@@ -41,19 +42,22 @@ They are not enabled by operator traits.
 
 Selector expressions are evaluated after the indexed subject.
 
-When a selector has both a start expression and an end expression, the start expression is evaluated before the end expression.
+When a selector has both a start expression and an end expression, the start expression is evaluated before the end
+expression.
 
 Omitted slice boundaries do not evaluate an expression.
 
 Index access with `[]` is asserted access.
 
-When the indexing contract has bounds or validity requirements, the compiler can discharge those requirements from compile-time conditions.
+When the indexing contract has bounds or validity requirements, the compiler can discharge those requirements from
+compile-time conditions.
 
 If an asserted index requirement is checked at runtime and fails, the access panics.
 
 Types can provide checked access operations that represent invalid access through ordinary result values.
 
-For fixed-size arrays and slices, an element selector must provide a nonnegative integer index accepted by the indexing contract.
+For fixed-size arrays and slices, an element selector must provide a nonnegative integer index accepted by the indexing
+contract.
 
 For fixed-size arrays, the valid element index range is `0 <= index < N`, where `N` is the array length.
 
@@ -79,7 +83,8 @@ For nested arrays, repeated element access composes.
 matrix[row][column]
 ```
 
-The first index access reaches an element of the outer array. The second index access reaches an element of the inner array.
+The first index access reaches an element of the outer array. The second index access reaches an element of the inner
+array.
 
 Slicing a fixed-size array or slice reaches contiguous sub-storage with slice type `[T]`.
 
@@ -92,8 +97,8 @@ let all: &[u8] = &bytes[..];
 
 Slice projection does not copy elements.
 
-Slice projection produces access to contiguous sub-storage. Because `[T]` is unsized, the projected slice must be used through an
-indirection boundary such as `&[T]`, `&mut [T]`, or `box[S] [T]`.
+Slice projection produces access to contiguous sub-storage. Because `[T]` is unsized, the projected slice must be used
+through an indirection boundary such as `&[T]`, `&mut [T]`, or `box[S] [T]`.
 
 Mutable slice borrowing requires mutation authority over the whole projected range.
 
@@ -111,14 +116,14 @@ let part: &[u8] = &owned[1..4];
 
 Index access can produce an access path when the subject expression produces a compatible access path.
 
-An element access path can be observed, borrowed, mutably borrowed, moved from, copied from, consumed, assigned through, or
-destroyed according to the subject access path, element type, index contract, ownership state, initialization state, and capability
-state.
+An element access path can be observed, borrowed, mutably borrowed, moved from, copied from, consumed, assigned through,
+or destroyed according to the subject access path, element type, index contract, ownership state, initialization state,
+and capability state.
 
 Observation through index access requires observe capability for the subject and the reached element.
 
-Mutable access through index access requires mutation authority over the subject access path and mutation authority over the
-reached element.
+Mutable access through index access requires mutation authority over the subject access path and mutation authority over
+the reached element.
 
 Assignment through element access requires the index selector to identify an assignable element access path.
 
@@ -134,7 +139,8 @@ Moving from an indexed element is an ownership operation.
 
 Moving from an indexed element requires ownership of the reached element and no conflicting active borrows.
 
-Moving an element out of an aggregate can leave the aggregate partially initialized when the aggregate rules permit partial moves.
+Moving an element out of an aggregate can leave the aggregate partially initialized when the aggregate rules permit
+partial moves.
 
 A partially moved aggregate can be reinitialized or consumed by a rule that accounts for its state.
 
@@ -152,11 +158,11 @@ Mutable borrowing a slice projection requires compatible exclusivity for the who
 
 Index access can refine or use conditions at that program point.
 
-Conditions can establish that an index is valid, that a slice range is valid, that an element is initialized, or that an indexed access
-is within the subject’s bounds when the indexing contract exposes such conditions.
+Conditions can establish that an index is valid, that a slice range is valid, that an element is initialized, or that an
+indexed access is within the subject’s bounds when the indexing contract exposes such conditions.
 
-Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject, reached element, or projected
-substorage can invalidate conditions about indexed access.
+Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject, reached element, or
+projected substorage can invalidate conditions about indexed access.
 
 A custom indexing contract defines:
 
@@ -204,18 +210,18 @@ trait MutableSliceIndex<Bound>
 }
 ```
 
-The compiler recognizes these exact trait, associated `Output`, and callable declarations by language-defined identity. Declarations
-with matching names do not become indexing protocols.
+The compiler recognizes these exact trait, associated `Output`, and callable declarations by language-defined identity.
+Declarations with matching names do not become indexing protocols.
 
-For element indexing, the selector expression supplies `Selector`. For slice indexing, present boundaries supply `Bound` and an
-omitted boundary supplies `none`. The `Output` member determines the reached type. Shared observation and shared borrowing select
-the shared contract. Assignment and mutable borrowing select the corresponding mutable contract. Each callable returns the borrow
-that identifies the reached storage. The callable surface participates in contract and implementation selection, but custom `[]`
-remains an access-path projection rather than an ordinary call. The subject's access path and capabilities determine whether the
-reached output can be observed, borrowed, moved, or assigned through.
+For element indexing, the selector expression supplies `Selector`. For slice indexing, present boundaries supply `Bound`
+and an omitted boundary supplies `none`. The `Output` member determines the reached type. Shared observation and shared
+borrowing select the shared contract. Assignment and mutable borrowing select the corresponding mutable contract. Each
+callable returns the borrow that identifies the reached storage. The callable surface participates in contract and
+implementation selection, but custom `[]` remains an access-path projection rather than an ordinary call. The subject's
+access path and capabilities determine whether the reached output can be observed, borrowed, moved, or assigned through.
 
-Indexing contract selection is based on the indexed subject type, requested access capability, selector shape, and selector
-expression types.
+Indexing contract selection is based on the indexed subject type, requested access capability, selector shape, and
+selector expression types.
 
 The result type of the index access expression does not select the indexing contract.
 

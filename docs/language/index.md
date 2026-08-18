@@ -2,8 +2,8 @@
 
 Bray programs are defined by their lexical grammar, syntax grammar, and semantic rules.
 
-This reference describes the source language accepted by a conforming Bray compiler and the observable meaning of valid Bray
-programs.
+This reference describes the source language accepted by a conforming Bray compiler and the observable meaning of valid
+Bray programs.
 
 ---
 

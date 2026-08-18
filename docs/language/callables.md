@@ -1,6 +1,7 @@
 # Callables
 
-Callables define executable behavior, callable values, callable contracts, parameter surfaces, result exits, and method receiver rules.
+Callables define executable behavior, callable values, callable contracts, parameter surfaces, result exits, and method
+receiver rules.
 
 ---
 

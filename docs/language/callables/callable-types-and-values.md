@@ -58,7 +58,8 @@ The callable contract includes:
 13. trusted caller obligations,
 14. finalization behavior.
 
-A function assignment succeeds when the target callable type preserves the callable contract required by the function value.
+A function assignment succeeds when the target callable type preserves the callable contract required by the function
+value.
 
 ## Higher-order functions
 
@@ -75,15 +76,16 @@ The function parameter type describes the callable contract required by `apply`.
 
 The body of `apply` can use the capabilities guaranteed by that callable type.
 
-A callable with trusted caller obligations, async execution mode, mutating requirements, or additional caller-visible effects can be passed
-when the parameter type includes those obligations.
+A callable with trusted caller obligations, async execution mode, mutating requirements, or additional caller-visible
+effects can be passed when the parameter type includes those obligations.
 
 ## Callable contract preservation
 
-Callable contracts are preserved through assignment, named callable contracts, wrappers, generic parameters, dynamic dispatch,
-exports, and re-exports.
+Callable contracts are preserved through assignment, named callable contracts, wrappers, generic parameters, dynamic
+dispatch, exports, and re-exports.
 
-A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source callable.
+A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source
+callable.
 
 Example ordinary callable type:
 
@@ -114,8 +116,8 @@ trusted func(pos bytes: &mut [u8])
 
 The parameter list uses the same parameter grammar as callable declarations.
 
-An ellipsis after one or more fixed parameters is part of an ABI-qualified foreign callable contract. Its trailing arguments are
-positional and follow the selected ABI's variadic promotion rules.
+An ellipsis after one or more fixed parameters is part of an ABI-qualified foreign callable contract. Its trailing
+arguments are positional and follow the selected ABI's variadic promotion rules.
 
 The result type can be omitted when the result is `unit`.
 
@@ -130,7 +132,8 @@ func(pos value: i32) -> i32
     requires(value >= 0)
 ```
 
-Contract clauses on callable types use the same predicate-expression syntax as contract clauses on callable declarations.
+Contract clauses on callable types use the same predicate-expression syntax as contract clauses on callable
+declarations.
 
 The callable type must preserve every caller-visible obligation of the callable value assigned to it.
 
@@ -190,8 +193,8 @@ A callable value satisfies a named callable contract when its visible callable c
 
 Named callable contracts describe only the visible callable contract.
 
-A named callable contract does not create wrapper state, bind a receiver, or attach hidden environment state to the callable value
-that satisfies it.
+A named callable contract does not create wrapper state, bind a receiver, or attach hidden environment state to the
+callable value that satisfies it.
 
 Named callable contracts cannot be overloaded.
 

@@ -61,15 +61,16 @@ When a conditional expression is used in value-producing context, each selected 
 
 If the conditional expression result type is `unit`, a selected body can complete normally.
 
-If the conditional expression result type is a value type other than `unit`, every reachable normal completion path in every
-selected body must supply a value with `yield` or end in a `never` expression.
+If the conditional expression result type is a value type other than `unit`, every reachable normal completion path in
+every selected body must supply a value with `yield` or end in a `never` expression.
 
 An else body is required when the conditional expression result type is not `unit` and the false path is reachable.
 
 If the compiler proves the false path unreachable, a missing else body does not contribute a normal path.
 
-All reachable normal branch exits must merge to a coherent type, ownership state, initialization state, destruction state,
-finalization state, capability state, effect state, task-obligation state, and set of available contract guarantees.
+All reachable normal branch exits must merge to a coherent type, ownership state, initialization state, destruction
+state, finalization state, capability state, effect state, task-obligation state, and set of available contract
+guarantees.
 
 A `never` branch does not contribute a value to the merged result type.
 
@@ -81,11 +82,11 @@ The else body receives the condition that the condition is false.
 
 For an `else if` chain, each later condition is checked with every earlier condition in the chain known to be false.
 
-Conditions established inside a branch body contribute after the conditional expression only when they are established by every
-reachable normal branch exit and remain valid after the merged ownership and mutation state.
+Conditions established inside a branch body contribute after the conditional expression only when they are established
+by every reachable normal branch exit and remain valid after the merged ownership and mutation state.
 
-If a branch moves, destroys, initializes, finalizes, cancels, transfers, or changes capability state, the merged state after the
-conditional expression must account for that change on every reachable normal branch path.
+If a branch moves, destroys, initializes, finalizes, cancels, transfers, or changes capability state, the merged state
+after the conditional expression must account for that change on every reachable normal branch path.
 
 ```bray
 let grade: Grade = if score >= 90

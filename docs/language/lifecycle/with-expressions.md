@@ -1,6 +1,7 @@
 # With expressions
 
-A `with` expression enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability is active.
+A `with` expression enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability is
+active.
 
 Expression syntax is defined in [With expressions](../expressions/with-expressions.md).
 
@@ -20,7 +21,8 @@ The `with` body is a block expression.
 
 In value-producing context, the `with` body is a single-yield region and supplies the `with` expression result.
 
-When the `with` body produces a value, that value is held as the pending `with` expression result until scope exit completes.
+When the `with` body produces a value, that value is held as the pending `with` expression result until scope exit
+completes.
 
 The matching `exit` lifecycle declaration runs on every path leaving the `with` body.
 
@@ -44,11 +46,14 @@ The scoped capability remains live while `exit` runs.
 
 After `exit` completes, the original body result or control-flow outcome continues.
 
-If `enter` does not complete successfully, the pattern is not matched, the `with` body is not evaluated, and `exit` does not run.
+If `enter` does not complete successfully, the pattern is not matched, the `with` body is not evaluated, and `exit` does
+not run.
 
-The scoped bindings, borrows from them, and capabilities derived from them cannot escape the `with` body unless the selected `exit` contract explicitly transfers that obligation.
+The scoped bindings, borrows from them, and capabilities derived from them cannot escape the `with` body unless the
+selected `exit` contract explicitly transfers that obligation.
 
-A `with` expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, task-obligation checking, and condition refinement.
+A `with` expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization,
+capability checking, effect checking, task-obligation checking, and condition refinement.
 
 ## Navigation
 

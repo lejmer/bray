@@ -2,16 +2,18 @@
 
 The compiler-known surface consists of:
 
-- the built-in scalar type names `bool`, `char`, `unit`, and `never`, together with the integer, real, complex, and machine-sized
-  integer type families defined by the scalar-type rules,
+- the built-in scalar type names `bool`, `char`, `unit`, and `never`, together with the integer, real, complex, and
+  machine-sized integer type families defined by the scalar-type rules,
 - the compiler-known text type `string`,
 - the compiler-known half-open integer range type `Range<T>`,
 - the compiler-known raw pointer type `RawPointer<T>`,
-- the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view, owned-indirection, and callable type forms,
+- the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view,
+  owned-indirection, and callable type forms,
 - the compiler-known `Heap` storage-policy type used by default-storage owned indirection,
 - compiler-known async and run-boundary types `Future<T>`, `Task<T>`, `RunResult<T>`, and `PanicReport`,
 - the compiler-known result and conversion types `Result<T, E>` and `ConversionError`,
-- compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
+- compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and
+  `main_thread_execution()`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
 - compiler-known target properties under the ambient `target` path,
 - the compiler-known type-form support trait `Storage<T>`,
@@ -21,12 +23,14 @@ The compiler-known surface consists of:
   `MutableSliceIndex<Bound>`,
 - the compiler-known `Copyable` contract used by static constraints,
 - the compiler-known `RangeElement` marker implemented only by target-available integer scalar types,
-- the compiler-known operator traits defined by the type rules, including `Add<Rhs>`, `Equatable<Rhs>`, and `Comparable<Rhs>`,
+- the compiler-known operator traits defined by the type rules, including `Add<Rhs>`, `Equatable<Rhs>`, and
+  `Comparable<Rhs>`,
 - the compiler-known `Ordering` result used by relational comparison,
 - the compiler-known literals and special values `true`, `false`, `unit`, and `none`.
 
-`Heap` is an ambient compiler-known struct declaration with the stable compiler-known declaration key `Heap`. Default-storage
-owned indirection refers to that exact declaration identity, not to a source declaration that happens to use the same spelling.
+`Heap` is an ambient compiler-known struct declaration with the stable compiler-known declaration key `Heap`.
+Default-storage owned indirection refers to that exact declaration identity, not to a source declaration that happens to
+use the same spelling.
 
 Each compiler-known entity is governed by the owning rules for that entity.
 

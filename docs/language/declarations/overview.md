@@ -1,6 +1,7 @@
 # Overview
 
-A **declaration** is a source form that introduces a named program entity, a member, a module contribution, a compile-time relation, or a semantic relationship.
+A **declaration** is a source form that introduces a named program entity, a member, a module contribution, a
+compile-time relation, or a semantic relationship.
 
 Declarations are checked in a declaration context.
 
@@ -15,7 +16,8 @@ The declaration context determines:
 
 Declarations are not runtime statements.
 
-A declaration can contain a body that is evaluated later, such as a function body, method body, constructor body, finalizer body, or defaulted trait member body.
+A declaration can contain a body that is evaluated later, such as a function body, method body, constructor body,
+finalizer body, or defaulted trait member body.
 
 Declaring such a body does not evaluate the body.
 

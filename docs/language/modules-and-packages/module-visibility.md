@@ -25,7 +25,8 @@ using internal impl;
 
 Internal module visibility applies to the module path.
 
-Public declarations inside an internal module still require internal-use acknowledgement to reach from outside the module's intended scope.
+Public declarations inside an internal module still require internal-use acknowledgement to reach from outside the
+module's intended scope.
 
 Split declarations of the same module must agree on module visibility.
 

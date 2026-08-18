@@ -26,11 +26,13 @@ trusted func write<T>(pos pointer: RawPointer<T>, pos value: T) -> unit
 
 For a copyable `T`, `read` can preserve the source storage's initialized state.
 
-For a non-copyable `T`, `read` moves the value out of raw storage and invalidates the trusted guarantee that the source storage remains initialized as `T`.
+For a non-copyable `T`, `read` moves the value out of raw storage and invalidates the trusted guarantee that the source
+storage remains initialized as `T`.
 
 `write` stores the supplied value into raw memory.
 
-If the destination storage already contains a live initialized value, the caller must satisfy that value's destruction, finalization, and ownership obligations before `write` overwrites the storage.
+If the destination storage already contains a live initialized value, the caller must satisfy that value's destruction,
+finalization, and ownership obligations before `write` overwrites the storage.
 
 `write` can initialize previously uninitialized storage.
 
@@ -80,9 +82,11 @@ trusted func copy_overlapping<T>(
 
 Raw memory copying is a representation-level operation.
 
-It does not run constructors, finalizers, destructors, assignment behavior, operator behavior, or user-defined copy behavior.
+It does not run constructors, finalizers, destructors, assignment behavior, operator behavior, or user-defined copy
+behavior.
 
-The caller is responsible for ensuring that raw memory copying preserves every ownership, initialization, finalization, aliasing, and representation invariant required by the involved type and storage.
+The caller is responsible for ensuring that raw memory copying preserves every ownership, initialization, finalization,
+aliasing, and representation invariant required by the involved type and storage.
 
 ## Navigation
 

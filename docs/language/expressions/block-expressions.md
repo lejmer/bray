@@ -8,8 +8,8 @@ A **block expression** is a braced expression region.
 }
 ```
 
-A brace-enclosed expression whose only top-level child is a general generator iteration expression is a general generator
-expression, not a block expression.
+A brace-enclosed expression whose only top-level child is a general generator iteration expression is a general
+generator expression, not a block expression.
 
 Every block expression has a type.
 
@@ -43,13 +43,14 @@ A block expression in `unit` context can complete normally.
 }
 ```
 
-A block expression used directly as a block item is self-delimiting and does not require a trailing semicolon. The same rule applies
-to conditional, match, while, for, loop, and with expressions. Other expression block items are terminated with semicolons.
+A block expression used directly as a block item is self-delimiting and does not require a trailing semicolon. The same
+rule applies to conditional, match, while, for, loop, and with expressions. Other expression block items are terminated
+with semicolons.
 
 A block expression whose control flow has no normal continuation has type `never`.
 
-A block expression's exits must agree on type, ownership, initialization, destruction, finalization, capabilities, effects, and
-which contract guarantees remain available.
+A block expression's exits must agree on type, ownership, initialization, destruction, finalization, capabilities,
+effects, and which contract guarantees remain available.
 
 ## Navigation
 

@@ -22,17 +22,23 @@ A destroyed access path no longer contains a usable value.
 
 Construction expressions create fully initialized values when all required parts are initialized.
 
-Assignment can initialize, reinitialize, or replace storage when the destination state and type contract permit that operation.
+Assignment can initialize, reinitialize, or replace storage when the destination state and type contract permit that
+operation.
 
-Reinitializing initialized storage first resolves the old value according to assignment, destruction, finalization, nullable, union replacement, and type-specific rules.
+Reinitializing initialized storage first resolves the old value according to assignment, destruction, finalization,
+nullable, union replacement, and type-specific rules.
 
-A fully initialized value can be observed, borrowed, moved, copied, consumed, assigned, finalized, or destroyed only when the selected operation is valid for the value's type, capability state, ownership state, dependency contract, and lifecycle obligations.
+A fully initialized value can be observed, borrowed, moved, copied, consumed, assigned, finalized, or destroyed only
+when the selected operation is valid for the value's type, capability state, ownership state, dependency contract, and
+lifecycle obligations.
 
-A partially initialized value can be accessed only through initialized parts when the selected operation permits partial-state access.
+A partially initialized value can be accessed only through initialized parts when the selected operation permits
+partial-state access.
 
 Destruction of partially initialized storage destroys only initialized subparts.
 
-Whole-value lifecycle declarations require the whole value to be fully initialized at the point where that lifecycle declaration can run.
+Whole-value lifecycle declarations require the whole value to be fully initialized at the point where that lifecycle
+declaration can run.
 
 ## Navigation
 

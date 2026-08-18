@@ -52,11 +52,11 @@ Generator expressions are not required.
 
 Any finite bounded iterable expression with `bool` elements can be used.
 
-In ordinary expression context, the operand and any generator body used to produce it obey ordinary expression, ownership,
-borrowing, effect, capability, and finalization rules.
+In ordinary expression context, the operand and any generator body used to produce it obey ordinary expression,
+ownership, borrowing, effect, capability, and finalization rules.
 
-In predicate-expression context, the operand and any generator body used to produce it must also obey predicate-expression
-restrictions.
+In predicate-expression context, the operand and any generator body used to produce it must also obey
+predicate-expression restrictions.
 
 ## Navigation
 

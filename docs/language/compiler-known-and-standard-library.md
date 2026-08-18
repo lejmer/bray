@@ -1,6 +1,8 @@
 # Compiler-known declarations and standard library recognition
 
-Compiler-known and standard-library recognition rules define which declarations the compiler can reason about by language-defined identity, how those declarations enter name resolution, and how recognized standard-library declarations preserve ordinary source visibility.
+Compiler-known and standard-library recognition rules define which declarations the compiler can reason about by
+language-defined identity, how those declarations enter name resolution, and how recognized standard-library
+declarations preserve ordinary source visibility.
 
 ---
 

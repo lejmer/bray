@@ -30,7 +30,8 @@ Calls through the overload name use overload selection.
 
 Callable overload selection rules are defined in [Function overloading](../callables/function-overloading.md).
 
-Implementation overload declarations group named trait implementation declarations under a shared subject and trait surface.
+Implementation overload declarations group named trait implementation declarations under a shared subject and trait
+surface.
 
 Implementation overload selection rules are defined in [Implementations](../types/implementations.md).
 

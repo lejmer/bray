@@ -1,7 +1,7 @@
 # Expressions
 
-Expressions compute values, produce access paths, perform effects, control evaluation, and establish guarantees used by later
-language checks.
+Expressions compute values, produce access paths, perform effects, control evaluation, and establish guarantees used by
+later language checks.
 
 ---
 

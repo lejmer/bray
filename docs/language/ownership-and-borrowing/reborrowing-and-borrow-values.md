@@ -8,7 +8,8 @@ A borrow is valid only while the reached storage remains valid and the borrow's 
 
 A shared borrow value is copyable.
 
-Copying a shared borrow copies the borrow value and preserves the same reached storage, lifetime, and capability requirements.
+Copying a shared borrow copies the borrow value and preserves the same reached storage, lifetime, and capability
+requirements.
 
 A mutable borrow value is not copyable.
 
@@ -37,11 +38,13 @@ An outer mutable borrow provides mutation authority over the next layer.
 
 The reachable operation depends on the whole access path, including every borrow layer.
 
-A borrow value can be stored only when the containing value's type and contract carry the borrow's lifetime and capability requirements.
+A borrow value can be stored only when the containing value's type and contract carry the borrow's lifetime and
+capability requirements.
 
 Storing a borrow does not extend the lifetime of the reached storage.
 
-A callable can return a borrow only when the callable result contract preserves the lifetime and capability dependency on a parameter, receiver, or other input storage that can outlive the returned borrow.
+A callable can return a borrow only when the callable result contract preserves the lifetime and capability dependency
+on a parameter, receiver, or other input storage that can outlive the returned borrow.
 
 A callable cannot return a borrow of local storage that ends before the returned borrow.
 
