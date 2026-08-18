@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use bray_emitter::ArtifactKind;
 use bray_target::TargetIdentity;
+use bray_tooling::{OutputFormat, write_diagnostics};
 
 use crate::bundle::{DirectoryPublicationError, NativeBuildOptionsError};
 
@@ -51,6 +52,30 @@ pub(in crate::standard_library) enum BuildError {
 }
 
 impl BuildError {
+    pub(in crate::standard_library) fn compilation_failed(
+        target: TargetIdentity,
+        internal: String,
+        diagnostics: &bray_diagnostics::DiagnosticBag,
+        sources: &bray_source::SourceStore,
+    ) -> Self {
+        Self::CompilationFailed {
+            target,
+            detail: diagnostic_failure_detail(internal, diagnostics, sources),
+        }
+    }
+
+    pub(in crate::standard_library) fn emission(
+        internal: String,
+        diagnostics: &bray_diagnostics::DiagnosticBag,
+        sources: &bray_source::SourceStore,
+    ) -> Self {
+        Self::Emission(diagnostic_failure_detail(
+            internal,
+            diagnostics,
+            sources,
+        ))
+    }
+
     pub(in crate::standard_library) fn conformance(
         check: &'static str,
         detail: impl Into<String>,
@@ -78,6 +103,41 @@ impl BuildError {
             source,
         }
     }
+}
+
+fn diagnostic_failure_detail(
+    internal: String,
+    diagnostics: &bray_diagnostics::DiagnosticBag,
+    sources: &bray_source::SourceStore,
+) -> String {
+    if diagnostics.is_empty() {
+        return internal;
+    }
+
+    let mut standard_output = Vec::new();
+    let mut standard_error = Vec::new();
+
+    if write_diagnostics(
+        diagnostics,
+        Some(sources),
+        OutputFormat::Text,
+        &mut standard_output,
+        &mut standard_error,
+    )
+    .is_err()
+    {
+        return internal;
+    }
+
+    let Ok(rendered) = String::from_utf8(standard_error) else {
+        return internal;
+    };
+
+    if rendered.is_empty() {
+        return internal;
+    }
+
+    format!("\n{}", rendered.trim_end())
 }
 
 impl fmt::Display for BuildError {
@@ -193,5 +253,41 @@ impl fmt::Display for BuildError {
                 None => write!(formatter, "failed to {action} {}: {source}", path.display()),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
+        DiagnosticNoteKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin, SeverityKind,
+    };
+    use bray_source::{SourceInputKind, SourceStore, TextSize};
+
+    use super::diagnostic_failure_detail;
+
+    #[test]
+    fn diagnostic_failure_details_render_structured_diagnostics() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::SourceInvalidUtf8,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+            0,
+            SourceInputKind::File,
+            DiagnosticSourceInputOrigin::File("main.bray".into()),
+        )))
+        .with_arg(DiagnosticArg::text_offset(TextSize::new(4)))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
+
+        let rendered = diagnostic_failure_detail(
+            "internal diagnostic bag".to_owned(),
+            &DiagnosticBag::single(diagnostic),
+            &SourceStore::new(),
+        );
+
+        assert!(rendered.contains("error E1002"));
+        assert!(!rendered.contains("internal diagnostic bag"));
     }
 }

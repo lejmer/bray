@@ -564,12 +564,15 @@ fn build_target(
                 [],
                 Some(&linker),
             )
-            .map_err(|error| BuildError::CompilationFailed {
-                target: target.clone(),
-                detail: format!(
-                    "{error:?}. diagnostics={:?}",
-                    compilation.check_diagnostics()
-                ),
+            .map_err(|error| {
+                let diagnostics = compilation.check_diagnostics();
+
+                BuildError::compilation_failed(
+                    target.clone(),
+                    format!("{error:?}"),
+                    diagnostics,
+                    compilation.sources(),
+                )
             })
     })?;
 
@@ -608,23 +611,23 @@ fn build_target(
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {
-            BuildError::Emission(format!(
-                "{:?}. diagnostics={:?}",
-                error.kind(),
-                compilation.check_diagnostics()
-            ))
+            let diagnostics = compilation.check_diagnostics();
+
+            BuildError::emission(
+                format!("{:?}", error.kind()),
+                diagnostics,
+                compilation.sources(),
+            )
         })
     })?;
 
     if !matches!(outcome.status(), EmissionStatus::Complete) {
-        return Err(BuildError::CompilationFailed {
-            target: target.clone(),
-            detail: format!(
-                "{:?}. diagnostics={:?}",
-                outcome.status(),
-                outcome.diagnostics()
-            ),
-        });
+        return Err(BuildError::compilation_failed(
+            target.clone(),
+            format!("{:?}", outcome.status()),
+            outcome.diagnostics(),
+            compilation.sources(),
+        ));
     }
 
     let interface_path = emitted_path(&outcome, ArtifactKind::PackageInterface)?;
