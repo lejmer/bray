@@ -30,7 +30,7 @@ feature, and dependency selections are therefore explicit and deterministic befo
   sorted root-package source graph to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one manifest product and
   delegate to existing compiler query inspection.
-- `bray language-server` runs `bray-lsp` for the selected workspace and target and forwards the protocol streams without
+- `bray lsp` runs `bray-lsp` for the selected workspace and target and forwards the protocol streams without
   interpreting framed messages.
 - `bray vendor install <name> <git-repository>` explicitly clones one repository beneath `vendor/<name>` with recursive
   submodule acquisition disabled.

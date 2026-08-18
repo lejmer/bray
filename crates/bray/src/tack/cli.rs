@@ -268,7 +268,7 @@ enum CliCommand {
     Inspect(CliInspect),
     #[command(about = help::PROFILE_REPORT)]
     Profile(CliProfile),
-    #[command(name = "language-server", about = help::LANGUAGE_SERVER)]
+    #[command(name = "lsp", about = help::LANGUAGE_SERVER)]
     LanguageServer(CliLanguageServer),
     #[command(about = help::VENDOR)]
     Vendor(CliVendor),
@@ -636,7 +636,7 @@ mod tests {
                 vec!["profile", "show", "profile.json"],
                 TackCommandKind::Profile,
             ),
-            (vec!["language-server"], TackCommandKind::LanguageServer),
+            (vec!["lsp"], TackCommandKind::LanguageServer),
             (
                 vec![
                     "vendor",
