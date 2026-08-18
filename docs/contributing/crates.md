@@ -1,7 +1,7 @@
 # Crate Responsibilities
 
-Use this page to find the crate that owns a concept. Detailed phase contracts and implementation guidance belong in the design
-documents.
+Use this page to find the crate that owns a concept. Detailed phase contracts and implementation guidance belong in the
+design documents.
 
 ## `crates/`
 
@@ -39,7 +39,8 @@ Compiler libraries and installed Bray tools.
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
 - `bray-project`
-    - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build graphs.
+    - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build
+      graphs.
 
 - `bray-profile`
     - Versioned compiler profile reports, descriptor catalogs, aggregate analysis, and report comparison.
@@ -66,7 +67,8 @@ Compiler libraries and installed Bray tools.
     - Target-machine identities and backend-neutral machine and output contracts.
 
 - `bray-test-protocol`
-    - Stable test identities, discovery metadata, selection filters, and runner protocol records shared across compiler and tooling.
+    - Stable test identities, discovery metadata, selection filters, and runner protocol records shared across compiler
+      and tooling.
 
 - `bray-codegen`
     - Backend-independent code generation contracts, requests, artifact contributions, and backend orchestration.
@@ -81,55 +83,60 @@ Compiler libraries and installed Bray tools.
     - Deterministic Bray source formatting, comment and recovery preservation, and reusable check/write file operations.
 
 - `bray-runtime-abi`
-    - Dependency-free native symbol names, status values, fixed-layout records, handles, and callback signatures shared by
-      generated code and linked runtime components.
+    - Dependency-free native symbol names, status values, fixed-layout records, handles, and callback signatures shared
+      by generated code and linked runtime components.
 
 - `bray-runtime-adapter`
-    - Link-isolated native ABI adapters for host, scheduler, cancellation, event, and test-host runtime components. Each selected
-      adapter publishes only the stable symbols for its semantic component and delegates their implementation to `bray-runtime`.
+    - Link-isolated native ABI adapters for host, scheduler, cancellation, event, and test-host runtime components. Each
+      selected adapter publishes only the stable symbols for its semantic component and delegates their implementation
+      to `bray-runtime`.
 
 - `bray-runtime-builtins`
-    - Link-isolated native implementations of compiler-lowered memory, string, and character operations, partitioned by their
-      runtime capability contracts.
+    - Link-isolated native implementations of compiler-lowered memory, string, and character operations, partitioned by
+      their runtime capability contracts.
 
 - `bray-runtime-model`
-    - Dependency-light protected-frame, execution-lane, capability, identity, and ABI-version semantics shared by compiler
-      contracts and runtime mechanisms.
+    - Dependency-light protected-frame, execution-lane, capability, identity, and ABI-version semantics shared by
+      compiler contracts and runtime mechanisms.
 
 - `bray-runtime-interface`
-    - Compiler-facing runtime artifact metadata, product requirements, private execution and platform-service role contracts,
-      compatibility validation, and executable-host integration.
+    - Compiler-facing runtime artifact metadata, product requirements, private execution and platform-service role
+      contracts, compatibility validation, and executable-host integration.
 
 - `bray-platform`
-    - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
-      tooling and trusted runtime or standard-library layers. Resource features let provider and runtime archives compile only the
-      mechanisms they own. Ordinary compiler-host consumers retain the complete default mechanism set.
+    - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by
+      compiler-host tooling and trusted runtime or standard-library layers. Resource features let provider and runtime
+      archives compile only the mechanisms they own. Ordinary compiler-host consumers retain the complete default
+      mechanism set.
 
 - `bray-platform-abi`
-    - Feature-partitioned native adapters that publish independent core, standard-stream, filesystem, and process archives for the
-      platform-service ABI over `bray-platform` without requiring the concurrency runtime.
+    - Feature-partitioned native adapters that publish independent core, standard-stream, filesystem, and process
+      archives for the platform-service ABI over `bray-platform` without requiring the concurrency runtime.
 
 - `bray-platform-abi-support`
-    - Dependency-light native export declarations, raw-memory validation, portable I/O error mapping, and immutable process
-      observations shared by platform ABI components.
+    - Dependency-light native export declarations, raw-memory validation, portable I/O error mapping, and immutable
+      process observations shared by platform ABI components.
 
 - `bray-platform-abi-temporal`
-    - Temporal platform ABI exports kept link-isolated from unrelated platform mechanisms and backed by the pinned native provider.
+    - Temporal platform ABI exports kept link-isolated from unrelated platform mechanisms and backed by the pinned
+      native provider.
 
 - `bray-runtime`
-    - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root
-      services over `bray-platform` mechanisms. Its implementation symbols remain internal. Stable native symbols and test-runner
-      protocol integration are present only in explicitly selected `bray-runtime-adapter` artifacts.
+    - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and
+      executable-root services over `bray-platform` mechanisms. Its implementation symbols remain internal. Stable
+      native symbols and test-runner protocol integration are present only in explicitly selected `bray-runtime-adapter`
+      artifacts.
 
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 
 - `bray-compilation`
-    - The demand-driven compilation context, query coordination, phase orchestration, profile collection, and top-level product
-      emission.
+    - The demand-driven compilation context, query coordination, phase orchestration, profile collection, and top-level
+      product emission.
 
 - `bray-tooling`
-    - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command drivers.
+    - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command
+      drivers.
 
 - `bray-lsp`
     - The Bray language-server executable and incremental editor protocol handling over immutable compilation snapshots.
