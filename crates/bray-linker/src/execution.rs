@@ -1,13 +1,11 @@
-use bray_runtime_interface::ExecutableHostContract;
+use bray_runtime_interface::RuntimeArtifactId;
 
 use crate::{LinkInput, LinkInputProvenance, LinkPlanBuildError};
 
 pub(crate) fn validate_execution_inputs(
-    executable_host: Option<&ExecutableHostContract>,
+    selected_runtime: Option<&RuntimeArtifactId>,
     inputs: &[LinkInput],
 ) -> Result<(), LinkPlanBuildError> {
-    let selected_runtime = executable_host.and_then(ExecutableHostContract::runtime_artifact);
-
     let runtime_inputs: Vec<_> = inputs
         .iter()
         .filter_map(|input| {

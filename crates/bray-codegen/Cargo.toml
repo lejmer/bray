@@ -15,6 +15,7 @@ test-support = [
 bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }

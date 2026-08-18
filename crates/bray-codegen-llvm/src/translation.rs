@@ -1,4 +1,8 @@
 mod frame;
+mod string;
 mod unit;
 
-pub(crate) use unit::{TranslationError, translate_instances};
+pub(crate) use string::{publish_string_global, string_constant_name};
+pub(crate) use unit::{
+    TranslationError, integer_constant, real_width, real_words, translate_instances,
+};

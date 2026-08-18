@@ -538,6 +538,9 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
     Some(match role {
         RuntimeAbiRole::SynchronousRootExecution
         | RuntimeAbiRole::ForeignCallbackExecution
+        | RuntimeAbiRole::ThreadAttachmentIdentity
+        | RuntimeAbiRole::ThreadStaticCleanupRegistration
+        | RuntimeAbiRole::ProductHostControl
         | RuntimeAbiRole::CleanupIncidentReporting
         | RuntimeAbiRole::RootTerminalObservation
         | RuntimeAbiRole::RootCompletionResolution
@@ -1082,6 +1085,9 @@ mod tests {
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::ForeignCallbackExecution,
+                RuntimeAbiRole::ThreadAttachmentIdentity,
+                RuntimeAbiRole::ThreadStaticCleanupRegistration,
+                RuntimeAbiRole::ProductHostControl,
                 RuntimeAbiRole::RootCancellationRequest,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,

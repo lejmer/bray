@@ -52,9 +52,7 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     let materialized = preceding.partition_point(|operation| {
         matches!(
             operation,
-            crate::MirOperationKind::Host(
-                crate::MirHostOperation::MaterializeStatic { .. }
-            )
+            crate::MirOperationKind::Host(crate::MirHostOperation::MaterializeStatic { .. })
         )
     });
 
@@ -130,17 +128,15 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     ) || !matches!(
         report,
         crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. })
-    ) || !cleanup.chunks_exact(2).remainder().is_empty()
-        || cleanup.chunks_exact(2).any(|operations| {
-            !matches!(
-                operations,
-                [
-                    crate::MirOperationKind::Finalize(finalized),
-                    crate::MirOperationKind::Destroy(destroyed)
-                ] if finalized == destroyed
-            )
-        })
-    {
+    ) || cleanup.iter().any(|operation| {
+        !matches!(
+            operation,
+            crate::MirOperationKind::Cleanup {
+                phase: crate::MirCleanupPhase::LifecycleResolution,
+                ..
+            }
+        )
+    }) {
         return Err(MirUnitBuildError::InvalidHostSequence);
     }
 

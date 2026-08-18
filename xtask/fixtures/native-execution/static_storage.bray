@@ -1,15 +1,25 @@
 module static_storage_execution;
 
-static ANSWER: i32 = 42;
+static SHARED_COUNTER: i32 = 42;
+
+static ZERO_VALUE: i32 = 0;
+
+static GENERIC_VALUE<const N: i32>: i32 = N;
 
 @thread_local static THREAD_ANSWER: i32 = 42;
 
-func read_answer() -> i32
+func read_counter() -> i32
 {
-    return ANSWER;
+    return SHARED_COUNTER;
 }
 
 func main() -> i32
 {
-    return ANSWER + read_answer() + THREAD_ANSWER - 84;
+    if read_counter() == 42 && contribution_counter_value() == 42 && ZERO_VALUE == 0 && GENERIC_VALUE<1> == 1 &&
+        GENERIC_VALUE<2> == 2 && THREAD_ANSWER == 42
+    {
+        return 42;
+    }
+
+    return 1;
 }

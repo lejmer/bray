@@ -12,11 +12,13 @@ pub use super::export::{
     bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
     bray_runtime_main_thread_lane_startup_v1, bray_runtime_panic_propagation_v1,
     bray_runtime_panic_report_construction_v1, bray_runtime_panic_reporting_v1,
-    bray_runtime_root_cancellation_request_v1, bray_runtime_root_completion_resolution_v1,
-    bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
-    bray_runtime_structured_shutdown_v1, bray_runtime_suspension_registration_v1,
-    bray_runtime_task_allocation_v1, bray_runtime_task_cancellation_request_v1,
-    bray_runtime_task_start_v1, bray_runtime_terminal_publication_v1, bray_runtime_wake_v1,
+    bray_runtime_product_host_control_v1, bray_runtime_root_cancellation_request_v1,
+    bray_runtime_root_completion_resolution_v1, bray_runtime_root_execution_v1,
+    bray_runtime_root_terminal_observation_v1, bray_runtime_structured_shutdown_v1,
+    bray_runtime_suspension_registration_v1, bray_runtime_task_allocation_v1,
+    bray_runtime_task_cancellation_request_v1, bray_runtime_task_start_v1,
+    bray_runtime_terminal_publication_v1, bray_runtime_thread_attachment_identity_v1,
+    bray_runtime_thread_static_cleanup_registration_v1, bray_runtime_wake_v1,
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};

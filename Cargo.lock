@@ -217,6 +217,7 @@ dependencies = [
  "bray-base",
  "bray-diagnostics",
  "bray-ir",
+ "bray-runtime-abi",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -262,6 +263,7 @@ dependencies = [
  "bray-package-interface",
  "bray-parser",
  "bray-profile",
+ "bray-runtime-abi",
  "bray-runtime-interface",
  "bray-source",
  "bray-standard-library",
@@ -1763,6 +1765,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-codegen",
  "bray-compilation",
  "bray-compiler-known",
  "bray-diagnostics",

@@ -140,9 +140,9 @@ impl Lowerer<'_> {
                             })
                     });
 
-                let already_dereferenced = projections.first().is_some_and(|projection| {
-                    projection.kind() == &MirProjectionKind::Dereference
-                });
+                let already_dereferenced = projections
+                    .first()
+                    .is_some_and(|projection| projection.kind() == &MirProjectionKind::Dereference);
 
                 if let Some((parameter_type, reached_type)) = parameter_borrow
                     && !already_dereferenced

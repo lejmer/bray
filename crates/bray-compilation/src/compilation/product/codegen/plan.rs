@@ -16,6 +16,8 @@ pub struct NativeProductPlan {
     pub(super) link: Option<ProductLinkInputs>,
     pub(super) units: Arc<[CodegenUnit]>,
     pub(super) mappings: Arc<[CodegenMappings]>,
+    pub(super) static_instances: Arc<[bray_codegen::CodegenStaticInstanceKey]>,
+    pub(super) product_host: Option<bray_codegen::CodegenProductHostMapping>,
 }
 
 impl NativeProductPlan {
@@ -67,5 +69,15 @@ impl NativeProductPlan {
 
     pub(in crate::compilation) fn mappings(&self) -> &[CodegenMappings] {
         &self.mappings
+    }
+
+    /// Returns the deterministic static-instance table contributed by this product.
+    pub fn static_instances(&self) -> &[bray_codegen::CodegenStaticInstanceKey] {
+        &self.static_instances
+    }
+
+    /// Returns the compiler-generated loaded-product host contract.
+    pub const fn product_host(&self) -> Option<&bray_codegen::CodegenProductHostMapping> {
+        self.product_host.as_ref()
     }
 }

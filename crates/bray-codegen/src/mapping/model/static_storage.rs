@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_ir::MirStorageKind;
 
 use crate::{
-    CodegenInstanceKey, CodegenStaticStorageMapping, CodegenSymbolMapping, CodegenUnit,
+    CodegenConstantMapping, CodegenInstanceKey, CodegenStaticStorageMapping, CodegenSymbolMapping,
+    CodegenUnit,
 };
 
 use super::core::CodegenMappingsBuildError;
@@ -12,6 +13,7 @@ pub(super) fn validate_static_storage_mappings(
     unit: &CodegenUnit,
     instances: &BTreeSet<&CodegenInstanceKey>,
     symbols: &[CodegenSymbolMapping],
+    constants: &[CodegenConstantMapping],
     mappings: &[CodegenStaticStorageMapping],
 ) -> Result<(), CodegenMappingsBuildError> {
     let expected: BTreeSet<_> = unit
@@ -55,7 +57,12 @@ pub(super) fn validate_static_storage_mappings(
         if !matches!(storage.kind(), MirStorageKind::Static(_))
             || storage.ty() != mapping.ty()
             || mapping.instance().target() != owner.key().target()
-            || !instances.contains(mapping.initializer())
+            || !constants
+                .iter()
+                .any(|constant| constant.value() == mapping.initial_value())
+            || mapping
+                .cleanup()
+                .is_some_and(|cleanup| !instances.contains(cleanup))
         {
             return Err(CodegenMappingsBuildError::InvalidStaticStorage);
         }
@@ -64,7 +71,8 @@ pub(super) fn validate_static_storage_mappings(
             .insert(mapping.instance(), mapping)
             .is_some_and(|previous| {
                 previous.symbol() != mapping.symbol()
-                    || previous.initializer() != mapping.initializer()
+                    || previous.initial_value() != mapping.initial_value()
+                    || previous.cleanup() != mapping.cleanup()
                     || previous.ty() != mapping.ty()
             })
         {
@@ -81,7 +89,9 @@ pub(super) fn validate_static_storage_mappings(
         for name in [
             mapping.symbol().as_str().to_owned(),
             mapping.accessor_name(),
-            mapping.state_name(),
+            mapping.host_name(),
+            mapping.attachment_name(),
+            mapping.cleanup_name(),
         ] {
             if !names.insert(name) {
                 return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);

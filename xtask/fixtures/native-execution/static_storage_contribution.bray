@@ -1,0 +1,6 @@
+module static_storage_execution;
+
+func contribution_counter_value() -> i32
+{
+    return SHARED_COUNTER;
+}

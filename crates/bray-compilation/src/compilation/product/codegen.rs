@@ -3,6 +3,7 @@ mod host;
 mod implementation;
 mod link;
 mod plan;
+mod roots;
 
 pub use error::NativeProductPlanningError;
 pub(in crate::compilation) use error::{

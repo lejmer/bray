@@ -1,15 +1,10 @@
-use std::hash::Hasher as _;
-
 use super::core::UnitTranslator;
 use super::support::{insert_value, integer_constant, llvm, real_width, real_words};
-use bray_base::{StableDigestHasher, lowercase_hex};
 use bray_codegen::{CodegenConstantMapping, CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
 use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
-use inkwell::comdat::ComdatSelectionKind;
-use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, GlobalValue, PointerValue, UnnamedAddress};
+use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn operand(
@@ -481,9 +476,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .const_string(text.as_bytes(), false)
             .into();
 
-        let identity = string_constant_name(text);
+        let identity = crate::translation::string_constant_name(text);
         let name = format!("{identity}.data");
-        let global = self.publish_string_global(&name, bytes);
+
+        let global = crate::translation::publish_string_global(
+            self.module,
+            self.request.target(),
+            &name,
+            bytes,
+        );
 
         let mapping = self
             .type_mapping(representation)
@@ -496,7 +497,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .into();
 
                 let name = format!("{identity}.value");
-                let global = self.publish_string_global(&name, value);
+
+                let global = crate::translation::publish_string_global(
+                    self.module,
+                    self.request.target(),
+                    &name,
+                    value,
+                );
 
                 Ok(global.as_pointer_value().into())
             }
@@ -518,43 +525,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
-        }
-    }
-
-    fn publish_string_global(
-        &self,
-        name: &str,
-        initializer: BasicValueEnum<'context>,
-    ) -> GlobalValue<'context> {
-        let global = self
-            .module
-            .get_global(name)
-            .unwrap_or_else(|| self.module.add_global(initializer.get_type(), None, name));
-
-        global.set_constant(true);
-        global.set_linkage(Linkage::LinkOnceODR);
-        global.set_unnamed_address(UnnamedAddress::Global);
-        global.set_initializer(&initializer);
-
-        self.set_string_constant_comdat(global, name);
-
-        global
-    }
-
-    fn set_string_constant_comdat(&self, global: GlobalValue<'context>, name: &str) {
-        let selection = match self.request.target().machine().object_format() {
-            bray_target::ObjectFormat::Coff => Some(ComdatSelectionKind::ExactMatch),
-            bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::WebAssembly => {
-                Some(ComdatSelectionKind::Any)
-            }
-            bray_target::ObjectFormat::MachO | bray_target::ObjectFormat::Xcoff => None,
-        };
-
-        if let Some(selection) = selection {
-            let comdat = self.module.get_or_insert_comdat(name);
-
-            comdat.set_selection_kind(selection);
-            global.set_comdat(comdat);
         }
     }
 
@@ -731,18 +701,6 @@ fn owned_constant_parts(
     )
 }
 
-fn string_constant_name(text: &str) -> String {
-    let mut hasher = StableDigestHasher::new();
-
-    hasher.write(b"bray.string.utf8.without-terminator\0");
-    hasher.write_u128(text.len() as u128);
-    hasher.write(text.as_bytes());
-
-    let digest = hasher.finalize();
-
-    format!("bray.constant.string.{}", lowercase_hex(&digest))
-}
-
 #[cfg(test)]
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
@@ -772,7 +730,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::super::super::super::backend::LlvmCodeGenerator;
-    use super::string_constant_name;
+    use crate::translation::string_constant_name;
 
     #[derive(Clone, Copy)]
     struct CompositeTypes {

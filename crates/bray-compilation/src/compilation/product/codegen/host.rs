@@ -1,7 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::CheckedMemoryOperationKind;
-use bray_codegen::{CodegenLinkage, CodegenTarget, demanded_runtime_references_for_mir};
+use bray_codegen::{
+    CodegenLinkage, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
+    CodegenTarget, CodegenUnit, demanded_runtime_references_for_mir,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirOperationKind, MirTextOperationKind};
 use bray_runtime_interface::{
@@ -17,6 +20,97 @@ use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(super) fn codegen_product_host_mapping(
+        &self,
+        product: &ProductIdentity,
+        units: &[CodegenUnit],
+        mappings: &[CodegenMappings],
+        entries: &[super::super::realization::ProductStaticHostEntry],
+        target: &CodegenTarget,
+    ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
+        if entries.is_empty() {
+            return Ok(None);
+        }
+
+        let owner = units
+            .first()
+            .map(CodegenUnit::key)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let mut realizations = BTreeMap::new();
+
+        for mapping in mappings.iter().flat_map(CodegenMappings::static_storages) {
+            if let Some(previous) = realizations.insert(mapping.instance(), mapping)
+                && previous.symbol() != mapping.symbol()
+            {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            }
+        }
+
+        let descriptor_symbol = super::super::realization::generated_symbol_name(
+            target,
+            CodegenLinkage::LinkOnce,
+            "product_host",
+            product,
+        )?;
+
+        let control_symbol = super::super::realization::generated_symbol_name(
+            target,
+            CodegenLinkage::LinkOnce,
+            "product_host_control",
+            product,
+        )?;
+
+        let identity = bray_runtime_abi::NativeProductIdentity::new(
+            super::super::realization::generated_identity("product_host", product),
+        );
+
+        let statics = entries
+            .iter()
+            .enumerate()
+            .map(|(order, entry)| {
+                let mapping = realizations
+                    .get(entry.key())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let host_symbol = BinarySymbolName::try_new(mapping.host_name())
+                    .ok_or(NativeProductPlanningError::InvalidSymbolName)?;
+
+                let identity = bray_runtime_abi::NativeStaticIdentity::new(
+                    super::super::realization::generated_identity("static_host", entry.key()),
+                );
+
+                let dependencies = entry.dependencies().iter().map(|dependency| {
+                    bray_runtime_abi::NativeStaticIdentity::new(
+                        super::super::realization::generated_identity("static_host", dependency),
+                    )
+                });
+
+                let order =
+                    u64::try_from(order).map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                Ok(CodegenProductHostStatic::new(
+                    host_symbol,
+                    identity,
+                    entry.key().duration(),
+                    order,
+                    dependencies,
+                ))
+            })
+            .collect::<Result<Vec<_>, NativeProductPlanningError>>()?;
+
+        // The product mapping owns the Arc-backed unit identity after preparation returns.
+        CodegenProductHostMapping::try_new(
+            owner.clone(),
+            identity,
+            descriptor_symbol,
+            control_symbol,
+            statics,
+        )
+        .map(Some)
+        .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+    }
+
     pub(super) fn executable_host(
         &self,
         product: &ProductIdentity,
@@ -78,6 +172,48 @@ impl Compilation {
             None => BTreeSet::new(),
         };
 
+        let has_statics = reachability
+            .into_iter()
+            .flat_map(bray_codegen::CodegenReachability::instances)
+            .flat_map(|instance| instance.mir().storages())
+            .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Static(_)));
+
+        if has_statics {
+            runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
+        }
+
+        let has_exact_thread_statics = reachability
+            .into_iter()
+            .flat_map(bray_codegen::CodegenReachability::instances)
+            .flat_map(|instance| instance.mir().storages())
+            .filter_map(|storage| match storage.kind() {
+                bray_ir::MirStorageKind::Static(reference) => Some(reference),
+                bray_ir::MirStorageKind::Parameter(_)
+                | bray_ir::MirStorageKind::Local
+                | bray_ir::MirStorageKind::Temporary
+                | bray_ir::MirStorageKind::Return
+                | bray_ir::MirStorageKind::InactiveFrame
+                | bray_ir::MirStorageKind::CurrentFrame
+                | bray_ir::MirStorageKind::CurrentTask
+                | bray_ir::MirStorageKind::ChildTask => None,
+            })
+            .try_fold(false, |found, reference| {
+                let template = self.static_instance_template(reference.template().declaration())?;
+
+                Ok::<_, NativeProductPlanningError>(
+                    found
+                        || template.value().duration()
+                            == bray_symbols::StaticStorageDuration::ExactThread,
+                )
+            })?;
+
+        if has_exact_thread_statics {
+            runtime_roles.extend([
+                RuntimeAbiRole::ThreadAttachmentIdentity,
+                RuntimeAbiRole::ThreadStaticCleanupRegistration,
+            ]);
+        }
+
         if kind != ProductKind::Test {
             runtime_roles.remove(&RuntimeAbiRole::TestEntrySelection);
         }
@@ -92,6 +228,10 @@ impl Compilation {
         }
 
         let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
+            || (has_exact_thread_statics
+                && entries
+                    .iter()
+                    .any(|entry| entry.root() == RootExecution::Synchronous))
             || (entries
                 .iter()
                 .any(|entry| entry.root() == RootExecution::Synchronous)
@@ -111,10 +251,6 @@ impl Compilation {
             ]);
         }
 
-        if runtime_contract.is_none() && (has_async_entries || synchronous_host_runtime) {
-            return Err(NativeProductPlanningError::MissingRuntime);
-        }
-
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
         if let Some(reachability) = reachability {
@@ -127,6 +263,10 @@ impl Compilation {
         }
 
         let requires_runtime = !runtime_roles.is_empty() || !capabilities.is_empty();
+
+        if runtime_contract.is_none() && requires_runtime {
+            return Err(NativeProductPlanningError::MissingRuntime);
+        }
 
         let requirements = RuntimeRequirements::new(
             runtime_contract

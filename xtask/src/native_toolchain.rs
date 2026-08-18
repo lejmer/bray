@@ -77,11 +77,7 @@ fn install_runtime(
     target: NativeTarget,
     library_root: &Path,
 ) -> Result<(), String> {
-    let runtime_bytes = fs::read(runtime)
-        .map_err(|error| format!("could not read runtime artifact metadata: {error}"))?;
-
-    let metadata = RuntimeArtifactMetadata::decode_json(&runtime_bytes)
-        .map_err(|error| format!("could not decode runtime artifact metadata: {error:?}"))?;
+    let metadata = runtime_artifact_metadata(runtime)?;
 
     let source_directory = runtime
         .parent()
@@ -108,6 +104,14 @@ fn install_runtime(
     }
 
     Ok(())
+}
+
+pub(crate) fn runtime_artifact_metadata(runtime: &Path) -> Result<RuntimeArtifactMetadata, String> {
+    let runtime_bytes = fs::read(runtime)
+        .map_err(|error| format!("could not read runtime artifact metadata: {error}"))?;
+
+    RuntimeArtifactMetadata::decode_json(&runtime_bytes)
+        .map_err(|error| format!("could not decode runtime artifact metadata: {error:?}"))
 }
 
 fn install_committed_directory(source: &Path, destination: &Path) -> Result<(), String> {

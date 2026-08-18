@@ -1,36 +1,56 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
-    CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticInstanceKey, CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget,
-    CodegenTerminatorMapping,
+    CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticInstanceKey,
+    CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping,
     CodegenUnit, demanded_callable_instances_for_mir,
 };
-use bray_ir::{
-    MirStorageKind, MirUnit, MirUnitKey,
-};
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutableHostContract,
-};
-use bray_symbols::{
-    StaticReferenceSelection, TypeId,
-};
+use bray_ir::{MirStorageKind, MirUnit, MirUnitKey};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
+use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
-use crate::fact::{CancellationToken, FactQueryError};
 use super::names::generated_symbol_name;
 use super::support::{operation_result_type, signature_types};
+use crate::fact::{CancellationToken, FactQueryError};
 
 struct ConcreteStaticRealization {
     key: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
     initializer: ConcreteCodegenInstance,
+    initial_value: bray_symbols::ConstantValueId,
+    cleanup: Option<ConcreteCodegenInstance>,
     reference: StaticReferenceSelection,
     ty: TypeId,
     lifecycle_dependencies: Vec<bray_symbols::StaticSymbolId>,
+}
+
+pub(in crate::compilation::product) struct ProductStaticHostEntry {
+    key: CodegenStaticInstanceKey,
+    reference: StaticReferenceSelection,
+    ty: TypeId,
+    dependencies: Vec<CodegenStaticInstanceKey>,
+}
+
+impl ProductStaticHostEntry {
+    pub(in crate::compilation::product) const fn key(&self) -> &CodegenStaticInstanceKey {
+        &self.key
+    }
+
+    pub(in crate::compilation::product) fn dependencies(&self) -> &[CodegenStaticInstanceKey] {
+        &self.dependencies
+    }
+
+    pub(in crate::compilation::product) fn lowering_entry(
+        &self,
+    ) -> bray_lowering::ExecutableHostStatic {
+        // Lowered host MIR owns the Arc-backed static reference after planning returns.
+        bray_lowering::ExecutableHostStatic::new(self.reference.clone(), self.ty)
+    }
 }
 
 impl Compilation {
@@ -78,6 +98,10 @@ impl Compilation {
 
             if static_realization.initializer.key() != owner.key() {
                 dependencies.push(static_realization.initializer);
+            }
+
+            if let Some(cleanup) = static_realization.cleanup {
+                dependencies.push(cleanup);
             }
         }
 
@@ -133,6 +157,11 @@ impl Compilation {
                         .iter()
                         .flat_map(CodegenTerminatorMapping::constants)
                         .copied(),
+                )
+                .chain(
+                    static_storages
+                        .iter()
+                        .map(CodegenStaticStorageMapping::initial_value),
                 ),
         )?;
 
@@ -233,7 +262,8 @@ impl Compilation {
                     data.ty(),
                     realization.key,
                     realization.symbol,
-                    realization.initializer.key().clone(),
+                    realization.initial_value,
+                    realization.cleanup.map(|cleanup| cleanup.key().clone()),
                 ));
             }
         }
@@ -277,6 +307,7 @@ impl Compilation {
             }
         };
 
+        // Initializer and storage identities independently own shared specialization data.
         let initializer = ConcreteCodegenInstance::static_initializer(
             initializer_template,
             declaration,
@@ -315,10 +346,40 @@ impl Compilation {
 
         let lifecycle_dependencies = template.value().lifecycle_dependencies().to_vec();
 
+        let cleanup_is_trivial = self.codegen_cleanup_is_trivial(ty, cancellation)?;
+
+        let cleanup = if cleanup_is_trivial {
+            None
+        } else {
+            let cleanup_reference = bray_ir::MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty,
+            };
+
+            Some(self.concrete_codegen_lifecycle(cleanup_reference, target)?)
+        };
+
+        let evaluated = self.evaluate_static_initializer(
+            &instance,
+            template.value().duration(),
+            ty,
+            bray_checker::ConstantEvaluationLimits::default(),
+            cancellation,
+        )?;
+
+        if evaluated.diagnostics().has_errors() {
+            // The preparation error owns diagnostics after the evaluation result is released.
+            return Err(CodegenPreparationError::Diagnostics(
+                evaluated.diagnostics().clone(),
+            ));
+        }
+
         Ok(ConcreteStaticRealization {
             key,
             symbol,
             initializer,
+            initial_value: evaluated.value().value(),
+            cleanup,
             reference: StaticReferenceSelection::Closed(instance),
             ty,
             lifecycle_dependencies,
@@ -330,7 +391,8 @@ impl Compilation {
         reachability: &ConcreteCodegenReachability,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<bray_lowering::ExecutableHostStatic>, CodegenPreparationError> {
+    ) -> Result<Vec<ProductStaticHostEntry>, CodegenPreparationError> {
+        // Host graph tables own their Arc-backed static keys independently of reachability.
         let mut realized = BTreeMap::new();
 
         for instance in reachability.graph().instances() {
@@ -346,11 +408,9 @@ impl Compilation {
                 let static_instance =
                     self.concrete_codegen_static(owner, &reference, target, cancellation)?;
 
-                if static_instance.key.duration() == bray_symbols::StaticStorageDuration::Product {
-                    realized
-                        .entry(static_instance.key.clone())
-                        .or_insert(static_instance);
-                }
+                realized
+                    .entry(static_instance.key.clone())
+                    .or_insert(static_instance);
             }
         }
 
@@ -361,6 +421,7 @@ impl Compilation {
             .collect::<BTreeMap<_, _>>();
 
         let mut outgoing = BTreeMap::<_, Vec<_>>::new();
+        let mut dependencies = BTreeMap::<_, Vec<_>>::new();
 
         for (consumer_key, consumer) in &realized {
             let initializer = reachability
@@ -388,14 +449,14 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                let StaticReferenceSelection::Closed(provider_instance) = &provider.reference else {
+                let StaticReferenceSelection::Closed(provider_instance) = &provider.reference
+                else {
                     return Err(FactQueryError::InfrastructureFailure.into());
                 };
 
-                if provider.key.duration() != bray_symbols::StaticStorageDuration::Product
-                    || !consumer
-                        .lifecycle_dependencies
-                        .contains(&provider_instance.template().declaration())
+                if !consumer
+                    .lifecycle_dependencies
+                    .contains(&provider_instance.template().declaration())
                 {
                     continue;
                 }
@@ -409,6 +470,11 @@ impl Compilation {
 
             for provider in providers {
                 outgoing
+                    .entry(consumer_key.clone())
+                    .or_default()
+                    .push(provider.clone());
+
+                dependencies
                     .entry(consumer_key.clone())
                     .or_default()
                     .push(provider.clone());
@@ -435,10 +501,13 @@ impl Compilation {
                 .get(&key)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            ordered.push(bray_lowering::ExecutableHostStatic::new(
-                static_instance.reference.clone(),
-                static_instance.ty,
-            ));
+            // Returned host entries own their shared identities after graph tables are released.
+            ordered.push(ProductStaticHostEntry {
+                key: static_instance.key.clone(),
+                reference: static_instance.reference.clone(),
+                ty: static_instance.ty,
+                dependencies: dependencies.remove(&key).unwrap_or_default(),
+            });
 
             for provider in outgoing.get(&key).into_iter().flatten() {
                 let count = incoming
@@ -461,5 +530,4 @@ impl Compilation {
 
         Ok(ordered)
     }
-
 }

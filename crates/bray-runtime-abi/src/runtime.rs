@@ -9,6 +9,13 @@ pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_ro
 /// Stable symbol executing one foreign callback behind a runtime boundary.
 pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution_v1";
 
+/// Stable symbol reading the current exact Bray thread-attachment identity.
+pub const THREAD_ATTACHMENT_IDENTITY_SYMBOL: &str = "bray_runtime_thread_attachment_identity_v1";
+
+/// Stable symbol registering cleanup owned by the current exact thread attachment.
+pub const THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL: &str =
+    "bray_runtime_thread_static_cleanup_registration_v1";
+
 /// Stable symbol requesting cancellation of the host-owned root run.
 pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request_v1";
 

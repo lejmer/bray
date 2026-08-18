@@ -2,15 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     CodegenCallableMapping, CodegenCallableTarget, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenHelperMapping, CodegenInstanceKey,
-    CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTerminatorMapping,
-    CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
-    TargetAddressSpaceKind,
+    CodegenConstantTermMapping, CodegenHelperMapping, CodegenInstanceKey, CodegenOperationMapping,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTerminatorMapping, CodegenTypeBehavior,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, TargetAddressSpaceKind,
 };
 
+use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
 use super::callable_demand::demanded_callable_references;
 use super::core::CodegenMappingsBuildError;
-use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
 
 pub(super) fn compare_constant_terms(
     left: &CodegenConstantTermMapping,
@@ -180,6 +179,7 @@ pub(super) fn validate_constant_mappings(
     mappings: &[CodegenConstantMapping],
     terms: &[CodegenConstantTermMapping],
     terminators: &[CodegenTerminatorMapping],
+    static_storages: &[crate::CodegenStaticStorageMapping],
 ) -> Result<(), CodegenMappingsBuildError> {
     if mappings
         .iter()
@@ -229,6 +229,12 @@ pub(super) fn validate_constant_mappings(
     }
 
     expected_values.extend(terms.iter().map(CodegenConstantTermMapping::value));
+
+    expected_values.extend(
+        static_storages
+            .iter()
+            .map(crate::CodegenStaticStorageMapping::initial_value),
+    );
 
     let actual_values: BTreeSet<_> = mappings.iter().map(CodegenConstantMapping::value).collect();
 

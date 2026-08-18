@@ -13,6 +13,7 @@ mod lane;
 pub mod native;
 mod observation;
 mod outcome;
+mod product;
 mod root;
 mod scheduler;
 mod shutdown;

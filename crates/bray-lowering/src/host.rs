@@ -53,10 +53,7 @@ impl ExecutableHostLoweringInput {
     }
 
     /// Supplies product statics in deterministic cleanup order.
-    pub fn with_statics(
-        mut self,
-        statics: impl IntoIterator<Item = ExecutableHostStatic>,
-    ) -> Self {
+    pub fn with_statics(mut self, statics: impl IntoIterator<Item = ExecutableHostStatic>) -> Self {
         self.statics = statics.into_iter().collect();
 
         self
@@ -97,11 +94,7 @@ pub fn lower_executable_host(
             static_instance.ty,
         )?;
 
-        static_places.push(bray_ir::MirPlace::new(
-            storage,
-            [],
-            static_instance.ty,
-        ));
+        static_places.push(bray_ir::MirPlace::new(storage, [], static_instance.ty));
     }
 
     for place in static_places.iter().rev() {
@@ -196,17 +189,50 @@ pub fn lower_executable_host(
         None,
     )?;
 
+    // Generated cleanup blocks independently retain the Arc-backed source correlation.
+    let cancellation = builder.push_block(source.clone(), MirBlockKind::CleanupBroadcast)?;
+    let cleanup = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+    builder.set_terminator(
+        entry,
+        source.clone(),
+        MirTerminatorKind::BeginCleanup(bray_ir::MirCleanupEdge::new(
+            bray_ir::MirCleanupPhase::TaskCancellation,
+            bray_ir::MirEdge::new(cancellation, []),
+        )),
+    )?;
+
+    builder.set_terminator(
+        cancellation,
+        source.clone(),
+        MirTerminatorKind::ContinueCleanup(bray_ir::MirCleanupEdge::new(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+            bray_ir::MirEdge::new(cleanup, []),
+        )),
+    )?;
+
     for place in static_places {
-        for operation in [
-            MirOperationKind::Finalize(place.clone()),
-            MirOperationKind::Destroy(place),
-        ] {
-            builder.push_operation(entry, source.clone(), operation, None)?;
-        }
+        builder.push_operation(
+            cleanup,
+            source.clone(),
+            MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+            },
+            None,
+        )?;
     }
 
+    let shutdown = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
+
+    builder.set_terminator(
+        cleanup,
+        source.clone(),
+        MirTerminatorKind::Goto(bray_ir::MirEdge::new(shutdown, [])),
+    )?;
+
     builder.push_operation(
-        entry,
+        shutdown,
         source.clone(),
         MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents {
             runtime: runtime_reference(RuntimeAbiRole::CleanupIncidentReporting, runtime_abi),
@@ -215,7 +241,7 @@ pub fn lower_executable_host(
     )?;
 
     builder.push_operation(
-        entry,
+        shutdown,
         source.clone(),
         MirOperationKind::Host(MirHostOperation::StructuredShutdown {
             runtime: runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
@@ -223,7 +249,7 @@ pub fn lower_executable_host(
         None,
     )?;
 
-    builder.set_terminator(entry, source, MirTerminatorKind::Return(None))?;
+    builder.set_terminator(shutdown, source, MirTerminatorKind::Return(None))?;
 
     builder.finish(entry)
 }

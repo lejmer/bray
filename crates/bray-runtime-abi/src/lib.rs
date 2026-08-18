@@ -7,6 +7,7 @@
 mod layout;
 mod platform;
 mod process;
+mod product;
 mod runtime;
 mod temporal;
 
@@ -16,6 +17,13 @@ pub use platform::{
     NativePlatformText,
 };
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
+pub use product::{
+    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
+    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity,
+    NativeStaticAccessCallback, NativeStaticCleanupCallback, NativeStaticDuration,
+    NativeStaticHostEntry, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
+    PRODUCT_HOST_ABI_VERSION, PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL,
+};
 pub use runtime::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, CHARACTER_FROM_SCALAR_VALUE_SYMBOL,
     CHARACTER_IS_ALPHABETIC_SYMBOL, CHARACTER_IS_NUMERIC_SYMBOL, CHARACTER_IS_WHITESPACE_SYMBOL,
@@ -71,7 +79,8 @@ pub use runtime::{
     STRING_FROM_UTF8_SYMBOL, STRING_SCALAR_AT_SYMBOL, STRING_SCALAR_COUNT_SYMBOL,
     STRING_SCALAR_SLICE_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
-    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
+    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL,
+    THREAD_ATTACHMENT_IDENTITY_SYMBOL, THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL, WAKE_SYMBOL,
 };
 pub use temporal::{
     NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_runtime_interface::BinarySymbolName;
-use bray_symbols::{StaticStorageDuration, SymbolKey};
+use bray_symbols::{ConstantValueId, StaticStorageDuration, SymbolKey};
 
 use crate::{CodegenImplementationWitness, CodegenInstanceKey, CodegenSpecialization};
 
@@ -14,10 +14,7 @@ pub struct CodegenStaticWitness {
 
 impl CodegenStaticWitness {
     /// Creates one requirement-to-implementation selection.
-    pub const fn new(
-        requirement: SymbolKey,
-        implementation: CodegenImplementationWitness,
-    ) -> Self {
+    pub const fn new(requirement: SymbolKey, implementation: CodegenImplementationWitness) -> Self {
         Self {
             requirement,
             implementation,
@@ -97,7 +94,8 @@ pub struct CodegenStaticStorageMapping {
     ty: bray_symbols::TypeId,
     instance: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
-    initializer: CodegenInstanceKey,
+    initial_value: ConstantValueId,
+    cleanup: Option<CodegenInstanceKey>,
 }
 
 impl CodegenStaticStorageMapping {
@@ -108,7 +106,8 @@ impl CodegenStaticStorageMapping {
         ty: bray_symbols::TypeId,
         instance: CodegenStaticInstanceKey,
         symbol: BinarySymbolName,
-        initializer: CodegenInstanceKey,
+        initial_value: ConstantValueId,
+        cleanup: Option<CodegenInstanceKey>,
     ) -> Self {
         Self {
             owner,
@@ -116,7 +115,8 @@ impl CodegenStaticStorageMapping {
             ty,
             instance,
             symbol,
-            initializer,
+            initial_value,
+            cleanup,
         }
     }
 
@@ -145,9 +145,14 @@ impl CodegenStaticStorageMapping {
         &self.symbol
     }
 
-    /// Returns the concrete initializer definition for this instance.
-    pub const fn initializer(&self) -> &CodegenInstanceKey {
-        &self.initializer
+    /// Returns the product-formed constant value stored before execution begins.
+    pub const fn initial_value(&self) -> ConstantValueId {
+        self.initial_value
+    }
+
+    /// Returns lifecycle resolution for this storage when its type owns cleanup work.
+    pub const fn cleanup(&self) -> Option<&CodegenInstanceKey> {
+        self.cleanup.as_ref()
     }
 
     /// Returns the coalesced accessor symbol paired with this storage symbol.
@@ -155,8 +160,18 @@ impl CodegenStaticStorageMapping {
         format!("{}.access", self.symbol.as_str())
     }
 
-    /// Returns the coalesced initialization-state symbol paired with this storage symbol.
-    pub fn state_name(&self) -> String {
-        format!("{}.state", self.symbol.as_str())
+    /// Returns the linked host-table record paired with this static realization.
+    pub fn host_name(&self) -> String {
+        format!("bray.static.host.{}", self.symbol.as_str())
+    }
+
+    /// Returns the attachment identity cell paired with exact-thread storage.
+    pub fn attachment_name(&self) -> String {
+        format!("{}.attachment", self.symbol.as_str())
+    }
+
+    /// Returns the attachment cleanup entry paired with exact-thread storage.
+    pub fn cleanup_name(&self) -> String {
+        format!("{}.cleanup", self.symbol.as_str())
     }
 }

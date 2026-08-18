@@ -6,11 +6,10 @@ use bray_runtime_interface::ProtectedFrameOperation;
 use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
-    CodegenCallableMapping, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDebugLocation, CodegenInstanceKey,
-    CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenStaticStorageMapping,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
+    CodegenDebugLocation, CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenOperationMapping,
+    CodegenProductHostMapping, CodegenStaticStorageMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTarget, CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
 use super::static_storage::validate_static_storage_mappings;
@@ -38,6 +37,7 @@ pub struct CodegenMappings {
     callables: Arc<[CodegenCallableMapping]>,
     operations: Arc<[CodegenOperationMapping]>,
     static_storages: Arc<[CodegenStaticStorageMapping]>,
+    product_host: Option<CodegenProductHostMapping>,
     terminators: Arc<[CodegenTerminatorMapping]>,
     debug_locations: Arc<[CodegenDebugLocation]>,
 }
@@ -215,11 +215,26 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::InstanceSymbolCoverageMismatch);
         }
 
-        validate_static_storage_mappings(unit, &expected_instances, &symbols, &static_storages)?;
+        validate_static_storage_mappings(
+            unit,
+            &expected_instances,
+            &symbols,
+            &constants,
+            &static_storages,
+        )?;
+
         validate_callable_mappings(unit, &expected_instances, &symbols, &callables)?;
         validate_operation_mappings(unit, &symbols, &operations)?;
         validate_terminator_mappings(unit, &terminators)?;
-        validate_constant_mappings(unit, &types, &constants, &constant_terms, &terminators)?;
+
+        validate_constant_mappings(
+            unit,
+            &types,
+            &constants,
+            &constant_terms,
+            &terminators,
+            &static_storages,
+        )?;
 
         let expected_runtime_references = mapped_runtime_references(unit, &operations, &symbols);
 
@@ -272,6 +287,7 @@ impl CodegenMappings {
             callables: callables.into(),
             operations: operations.into(),
             static_storages: static_storages.into(),
+            product_host: None,
             terminators: terminators.into(),
             debug_locations: debug_locations.into(),
         })
@@ -325,6 +341,18 @@ impl CodegenMappings {
     /// Returns static-storage uses in canonical instance and storage order.
     pub fn static_storages(&self) -> &[CodegenStaticStorageMapping] {
         &self.static_storages
+    }
+
+    /// Returns the loaded-product host mapping shared by every unit in this product.
+    pub const fn product_host(&self) -> Option<&CodegenProductHostMapping> {
+        self.product_host.as_ref()
+    }
+
+    /// Attaches the validated loaded-product host mapping.
+    pub fn with_product_host(mut self, product_host: CodegenProductHostMapping) -> Self {
+        self.product_host = Some(product_host);
+
+        self
     }
 
     /// Returns terminator realization mappings in canonical block order.
@@ -600,8 +628,8 @@ mod tests {
     use bray_target::{TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type};
 
-    use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
     use super::super::table_validation::valid_constant_representation;
+    use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
     use crate::demanded_types;
     use crate::test_support::{codegen_partition_compatibility, codegen_request};
     use crate::{

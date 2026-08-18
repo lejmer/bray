@@ -771,20 +771,23 @@ mod tests {
                 if aggregate.kind() == MirAggregateKind::Range
         )));
 
-        assert!(mir
-            .operations()
-            .iter()
-            .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_))));
+        assert!(
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+        );
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
             MirTerminatorKind::RangeIterate { .. }
         )));
 
-        assert!(!mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Iterate { .. }
-        )));
+        assert!(
+            !mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Iterate { .. }
+            ))
+        );
     }
 
     #[test]

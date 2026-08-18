@@ -148,6 +148,42 @@ where
     )
 }
 
+/// Evaluates one source-independent static initializer.
+pub fn evaluate_static_initializer_template<C>(
+    context: &C,
+    template: &CheckedTemplate,
+    kind: CheckedTemplateKind,
+    substitution: ConcreteGenericSubstitutionId,
+    result_type: TypeId,
+    resolver: &dyn ConstantTemplateResolver,
+    diagnostic_span: Option<SourceSpan>,
+    limits: crate::ConstantEvaluationLimits,
+) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if !matches!(
+        kind,
+        CheckedTemplateKind::ProductStaticInitializer
+            | CheckedTemplateKind::ThreadLocalStaticInitializer
+    ) {
+        return CheckerOutcome::InfrastructureFailure(
+            crate::CheckerInfrastructureError::InvalidConstantEvaluationInput,
+        );
+    }
+
+    evaluate_closed_template(
+        context,
+        template,
+        kind,
+        substitution,
+        result_type,
+        resolver,
+        diagnostic_span,
+        limits,
+    )
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "template evaluation requires each validated semantic input independently"

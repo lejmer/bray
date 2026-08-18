@@ -70,6 +70,20 @@ impl CodegenLifecycleNeeds {
 }
 
 impl Compilation {
+    pub(super) fn codegen_cleanup_is_trivial(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
+        self.codegen_lifecycle_is_trivial(
+            &MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty,
+            },
+            cancellation,
+        )
+    }
+
     pub(super) fn codegen_lifecycle_is_trivial(
         &self,
         reference: &MirHelperReference,
