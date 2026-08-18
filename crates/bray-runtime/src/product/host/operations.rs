@@ -42,8 +42,7 @@ pub(crate) fn control(
     let result = mutate_host(product, operation);
 
     match result {
-        Ok((_observation, Some(cleanup))) => finish_cleanup(cleanup),
-        Ok((observation, None)) => observation,
+        Ok(observation) => progress_closure(product).unwrap_or(observation),
         Err(()) => NativeProductHostObservation::new(
             NativeProductHostStatus::RUNTIME_FAILURE,
             NativeProductHostState::FAILED,
@@ -85,10 +84,12 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
         return 0;
     }
 
+    let worker = current_thread_is_product_worker(product);
+
     THREAD_STATICS.with(|registry| {
         registry
             .borrow_mut()
-            .attachment(product)
+            .attachment(product, worker)
             .map_or(0, |attachment| attachment.identity)
     })
 }
@@ -105,6 +106,7 @@ pub(crate) fn register_thread_static(
     }
 
     let product = product_key(registration.product());
+    let worker = current_thread_is_product_worker(product);
 
     let Some((product_identity, entry)) = static_entry(product, registration.static_identity())
     else {
@@ -129,15 +131,12 @@ pub(crate) fn register_thread_static(
             return NativeRuntimeStatus::NOT_INITIALIZED;
         }
 
-        let Some(attachment) = registry.attachment(product) else {
+        let Some(attachment) = registry.attachment(product, worker) else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
         if !attachment.acquired {
-            let observation = control(
-                registration.product(),
-                NativeProductHostOperation::ACQUIRE_ATTACHMENT,
-            );
+            let observation = acquire_thread_attachment(product, attachment.worker);
 
             if observation.status() != NativeProductHostStatus::SUCCESS {
                 registry.products.remove(&product);
@@ -167,10 +166,10 @@ pub(crate) fn register_thread_static(
     })
 }
 
-pub(super) fn mutate_host(
+fn mutate_host(
     product: usize,
     operation: NativeProductHostOperation,
-) -> Result<(NativeProductHostObservation, Option<PendingCleanup>), ()> {
+) -> Result<NativeProductHostObservation, ()> {
     let mut hosts = product_hosts().lock().map_err(|_| ())?;
     let host = hosts.get_mut(&product).ok_or(())?;
 
@@ -192,22 +191,19 @@ pub(super) fn mutate_host(
         _ => NativeProductHostStatus::INVALID_ARGUMENT,
     };
 
-    let cleanup = prepare_cleanup(product, host);
-
-    let status = if cleanup.is_some()
-        || (status == NativeProductHostStatus::SUCCESS
-            && host.state == NativeProductHostState::CLOSING)
+    let status = if status == NativeProductHostStatus::SUCCESS
+        && host.state == NativeProductHostState::CLOSING
     {
         NativeProductHostStatus::PENDING
     } else {
         status
     };
 
-    Ok((host.observation(status), cleanup))
+    Ok(host.observation(status))
 }
 
 fn close_product(product: usize) -> NativeProductHostObservation {
-    let runtime = {
+    let observation = {
         let Ok(mut hosts) = product_hosts().lock() else {
             return NativeProductHostObservation::invalid();
         };
@@ -221,34 +217,11 @@ fn close_product(product: usize) -> NativeProductHostObservation {
         }
 
         host.state = NativeProductHostState::CLOSING;
-        host.cleanup_blocked = true;
 
-        host.runtime.clone()
+        host.observation(NativeProductHostStatus::PENDING)
     };
 
-    runtime.detach_product_workers(product);
-
-    let cleanup = {
-        let Ok(mut hosts) = product_hosts().lock() else {
-            return NativeProductHostObservation::invalid();
-        };
-
-        let Some(host) = hosts.get_mut(&product) else {
-            return NativeProductHostObservation::invalid();
-        };
-
-        host.cleanup_blocked = false;
-
-        let cleanup = prepare_cleanup(product, host);
-
-        if cleanup.is_none() {
-            return host.observation(NativeProductHostStatus::PENDING);
-        }
-
-        cleanup
-    };
-
-    cleanup.map_or_else(NativeProductHostObservation::invalid, finish_cleanup)
+    progress_closure(product).unwrap_or(observation)
 }
 
 pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bool> {
@@ -260,15 +233,25 @@ pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bo
         }
 
         registry
-            .attachment(product)
+            .attachment(product, false)
             .map(|attachment| attachment.acquired)
     })
 }
 
-pub(in crate::product) fn acquire_thread_attachment(product: usize) -> NativeProductHostObservation {
-    mutate_host(product, NativeProductHostOperation::ACQUIRE_ATTACHMENT)
-        .map(|(observation, _)| observation)
-        .unwrap_or_else(|_| NativeProductHostObservation::invalid())
+pub(in crate::product) fn acquire_thread_attachment(
+    product: usize,
+    worker: bool,
+) -> NativeProductHostObservation {
+    mutate_thread_attachment(product, true, worker)
+}
+
+pub(super) fn release_thread_attachment(
+    product: usize,
+    worker: bool,
+) -> NativeProductHostObservation {
+    let observation = mutate_thread_attachment(product, false, worker);
+
+    progress_closure(product).unwrap_or(observation)
 }
 
 pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
@@ -297,6 +280,108 @@ pub(in crate::product) fn observation_with_status(
         .get(&product)
         .map(|host| host.observation(status))
         .unwrap_or_else(NativeProductHostObservation::invalid)
+}
+
+fn current_thread_is_product_worker(product: usize) -> bool {
+    product_hosts()
+        .lock()
+        .ok()
+        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()))
+        .is_some_and(|runtime| runtime.owns_current_worker())
+}
+
+fn mutate_thread_attachment(
+    product: usize,
+    acquire_attachment: bool,
+    worker: bool,
+) -> NativeProductHostObservation {
+    let Ok(mut hosts) = product_hosts().lock() else {
+        return NativeProductHostObservation::invalid();
+    };
+
+    let Some(host) = hosts.get_mut(&product) else {
+        return NativeProductHostObservation::invalid();
+    };
+
+    let status = if acquire_attachment {
+        let status = acquire(&mut host.thread_attachments, host.state);
+
+        if status == NativeProductHostStatus::SUCCESS && worker {
+            let Some(next) = host.worker_attachments.checked_add(1) else {
+                host.thread_attachments -= 1;
+
+                return host.observation(NativeProductHostStatus::RUNTIME_FAILURE);
+            };
+
+            host.worker_attachments = next;
+        }
+
+        status
+    } else if worker && host.worker_attachments == 0 {
+        NativeProductHostStatus::INVALID_ARGUMENT
+    } else {
+        let status = release(&mut host.thread_attachments);
+
+        if status == NativeProductHostStatus::SUCCESS && worker {
+            host.worker_attachments -= 1;
+        }
+
+        status
+    };
+
+    let status = if status == NativeProductHostStatus::SUCCESS
+        && host.state == NativeProductHostState::CLOSING
+    {
+        NativeProductHostStatus::PENDING
+    } else {
+        status
+    };
+
+    host.observation(status)
+}
+
+fn progress_closure(product: usize) -> Option<NativeProductHostObservation> {
+    let (runtime, cleanup) = {
+        let mut hosts = product_hosts().lock().ok()?;
+        let host = hosts.get_mut(&product)?;
+
+        if host.state != NativeProductHostState::CLOSING
+            || host.active_entries != 0
+            || host.external_roots != 0
+            || host.thread_attachments != host.worker_attachments
+            || host.cleanup_running
+            || host.cleanup_blocked
+        {
+            return None;
+        }
+
+        if host.worker_attachments == 0 {
+            (None, prepare_cleanup(product, host))
+        } else {
+            host.cleanup_blocked = true;
+
+            (Some(host.runtime.clone()), None)
+        }
+    };
+
+    if let Some(cleanup) = cleanup {
+        return Some(finish_cleanup(cleanup));
+    }
+
+    let runtime = runtime?;
+
+    runtime.detach_product_workers(product);
+
+    let cleanup = {
+        let mut hosts = product_hosts().lock().ok()?;
+        let host = hosts.get_mut(&product)?;
+
+        host.cleanup_blocked = false;
+
+        prepare_cleanup(product, host)
+    };
+
+    cleanup.map(finish_cleanup)
 }
 
 fn acquire(count: &mut usize, state: NativeProductHostState) -> NativeProductHostStatus {
@@ -354,7 +439,7 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
     })
 }
 
-pub(super) fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
+fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     let (mut incidents, runtime_incidents) =
         crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
             let mut incidents = Vec::new();
@@ -564,6 +649,7 @@ fn read_descriptor(
         active_entries: 0,
         external_roots: 0,
         thread_attachments: 0,
+        worker_attachments: 0,
         initialized_statics,
         cleaned_statics: 0,
         cleanup_incidents: 0,

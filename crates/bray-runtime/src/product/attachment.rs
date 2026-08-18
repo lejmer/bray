@@ -69,7 +69,7 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
     };
 
     if !already_acquired {
-        let observation = acquire_thread_attachment(product);
+        let observation = acquire_thread_attachment(product, false);
 
         if observation.status() != NativeProductHostStatus::SUCCESS {
             discard_thread_attachment(product);

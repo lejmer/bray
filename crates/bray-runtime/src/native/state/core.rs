@@ -116,6 +116,14 @@ impl NativeRuntimeCore {
 }
 
 impl RetainedRuntime {
+    pub(crate) fn owns_current_worker(&self) -> bool {
+        NATIVE_RUNTIME.with(|runtime| {
+            runtime.borrow().as_ref().is_some_and(|runtime| {
+                runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core)
+            })
+        })
+    }
+
     pub(crate) fn detach_product_workers(&self, product: usize) {
         let current = NATIVE_RUNTIME.with(|runtime| {
             runtime

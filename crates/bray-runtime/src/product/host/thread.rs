@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 
-use bray_runtime_abi::{
-    NativeProductHostObservation, NativeProductHostOperation, NativeProductIdentity,
-};
+use bray_runtime_abi::{NativeProductHostObservation, NativeProductIdentity};
 
 use super::super::cleanup::run_static_cleanup;
 
 use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
-use super::operations::{mutate_host, report_incidents};
+use super::operations::{release_thread_attachment, report_incidents};
 
 pub(super) extern "C-unwind" fn drain_thread_statics() {
     let (mut entries, products) = THREAD_STATICS.with(|registry| {
@@ -26,7 +24,7 @@ pub(super) extern "C-unwind" fn drain_thread_statics() {
 
     for (product, attachment) in products {
         if attachment.acquired {
-            let _ = release_attachment(product);
+            let _ = release_attachment(product, attachment.worker);
         }
     }
 }
@@ -60,7 +58,7 @@ pub(crate) fn drain_product_thread_statics(
     if let Some(attachment) = attachment
         && attachment.acquired
     {
-        return release_attachment(product);
+        return release_attachment(product, attachment.worker);
     }
 
     None
@@ -122,16 +120,9 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
     report_incidents(owner.product, owner.static_identity, count);
 }
 
-fn release_attachment(product: usize) -> Option<NativeProductHostObservation> {
-    let Ok((observation, cleanup)) =
-        mutate_host(product, NativeProductHostOperation::RELEASE_ATTACHMENT)
-    else {
-        return None;
-    };
-
-    if let Some(cleanup) = cleanup {
-        return Some(super::operations::finish_cleanup(cleanup));
-    }
-
-    Some(observation)
+fn release_attachment(
+    product: usize,
+    worker: bool,
+) -> Option<NativeProductHostObservation> {
+    Some(release_thread_attachment(product, worker))
 }

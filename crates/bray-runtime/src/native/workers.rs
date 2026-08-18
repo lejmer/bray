@@ -17,13 +17,17 @@ pub(super) struct WorkerPool {
 #[derive(Default)]
 pub(super) struct WorkerControl {
     state: Mutex<WorkerControlState>,
-    completed: Condvar,
 }
 
 #[derive(Default)]
 struct WorkerControlState {
-    requests: VecDeque<usize>,
-    completed: usize,
+    requests: VecDeque<Arc<WorkerRequest>>,
+}
+
+struct WorkerRequest {
+    product: usize,
+    complete: Mutex<bool>,
+    completed: Condvar,
 }
 
 impl WorkerPool {
@@ -121,9 +125,12 @@ impl WorkerPool {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
 
-        for control in &controls {
-            control.request(product);
+        let requests = controls
+            .iter()
+            .map(|control| (control, control.request(product)))
+            .collect::<Vec<_>>();
 
+        for (control, _) in &requests {
             if current.is_some_and(|current| Arc::ptr_eq(current, control)) {
                 control.drain();
             }
@@ -131,19 +138,27 @@ impl WorkerPool {
 
         scheduler.wake_waiters();
 
-        for control in controls {
-            control.wait();
+        for (_, request) in requests {
+            request.wait();
         }
     }
 }
 
 impl WorkerControl {
-    fn request(&self, product: usize) {
+    fn request(&self, product: usize) -> Arc<WorkerRequest> {
+        let request = Arc::new(WorkerRequest {
+            product,
+            complete: Mutex::new(false),
+            completed: Condvar::new(),
+        });
+
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .requests
-            .push_back(product);
+            .push_back(Arc::clone(&request));
+
+        request
     }
 
     pub(super) fn drain(&self) {
@@ -156,32 +171,88 @@ impl WorkerControl {
             std::mem::take(&mut state.requests)
         };
 
-        for product in requests {
-            let _ = crate::product::drain_product_thread_statics(product);
+        for request in requests {
+            let _ = crate::product::drain_product_thread_statics(request.product);
 
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            state.completed = state.completed.saturating_add(1);
-
-            self.completed.notify_all();
+            request.complete();
         }
+    }
+}
+
+impl WorkerRequest {
+    fn complete(&self) {
+        *self
+            .complete
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+
+        self.completed.notify_all();
     }
 
     fn wait(&self) {
-        let state = self
-            .state
+        let complete = self
+            .complete
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let target = state.completed.saturating_add(state.requests.len());
-
         drop(
             self.completed
-                .wait_while(state, |state| state.completed < target)
+                .wait_while(complete, |complete| !*complete)
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::WorkerControl;
+
+    #[test]
+    fn dequeued_request_waits_for_cleanup_completion() {
+        let control = WorkerControl::default();
+        let request = control.request(1);
+
+        let dequeued = control
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .requests
+            .pop_front()
+            .unwrap_or_else(|| panic!("worker request must be queued"));
+
+        let (started_sender, started_receiver) = mpsc::channel();
+
+        let (done_sender, done_receiver) = mpsc::channel();
+
+        let waiter = std::thread::spawn(move || {
+            started_sender
+                .send(())
+                .unwrap_or_else(|error| panic!("waiter must start: {error}"));
+
+            request.wait();
+
+            done_sender
+                .send(())
+                .unwrap_or_else(|error| panic!("waiter must finish: {error}"));
+        });
+
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or_else(|error| panic!("waiter must report startup: {error}"));
+
+        assert!(done_receiver.try_recv().is_err());
+
+        dequeued.complete();
+
+        done_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or_else(|error| panic!("completed request must release waiter: {error}"));
+
+        waiter
+            .join()
+            .unwrap_or_else(|_| panic!("waiter must join"));
     }
 }

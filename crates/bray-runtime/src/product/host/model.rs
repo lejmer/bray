@@ -38,6 +38,7 @@ pub(super) struct ProductHost {
     pub(super) active_entries: usize,
     pub(super) external_roots: usize,
     pub(super) thread_attachments: usize,
+    pub(super) worker_attachments: usize,
     pub(super) initialized_statics: usize,
     pub(super) cleaned_statics: usize,
     pub(super) cleanup_incidents: usize,
@@ -104,6 +105,7 @@ pub(super) struct ThreadStaticEntry {
 pub(super) struct ThreadProductAttachment {
     pub(super) identity: u64,
     pub(super) acquired: bool,
+    pub(super) worker: bool,
 }
 
 pub(super) struct ThreadStaticRegistry {
@@ -123,7 +125,11 @@ impl ThreadStaticRegistry {
         }
     }
 
-    pub(super) fn attachment(&mut self, product: usize) -> Option<ThreadProductAttachment> {
+    pub(super) fn attachment(
+        &mut self,
+        product: usize,
+        worker: bool,
+    ) -> Option<ThreadProductAttachment> {
         if let Some(attachment) = self.products.get(&product) {
             return Some(*attachment);
         }
@@ -139,6 +145,7 @@ impl ThreadStaticRegistry {
         let attachment = ThreadProductAttachment {
             identity,
             acquired: false,
+            worker,
         };
 
         self.products.insert(product, attachment);
