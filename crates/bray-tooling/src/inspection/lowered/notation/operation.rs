@@ -3,7 +3,7 @@ use std::fmt::Write;
 use super::super::model::{InspectionMirOperation, InspectionMirSource, InspectionMirUnit};
 use super::support::{
     attribute_text, operand_for, operand_text, place_for, place_text, source_annotation,
-    symbol_for, type_for,
+    type_for,
 };
 
 pub(super) fn render(
@@ -219,7 +219,13 @@ fn pattern_projection_operation(operation: &InspectionMirOperation) -> String {
         .find(|symbol| symbol.role == "projected_field")
         .map(|symbol| format!(".{}", symbol.symbol.display_name()))
         .or_else(|| {
-            attribute_text(operation, "projection_ordinal").map(|ordinal| format!(".{ordinal}"))
+            attribute_text(operation, "projection_ordinal").map(|ordinal| {
+                if projection == "element_from_end" {
+                    format!("[end - {ordinal}]")
+                } else {
+                    format!("[{ordinal}]")
+                }
+            })
         })
         .unwrap_or_default();
 
@@ -296,10 +302,17 @@ fn memory_operation(operation: &InspectionMirOperation) -> String {
         .collect::<Vec<_>>()
         .join(", ");
 
-    let order = attribute_text(operation, "memory_order")
-        .or_else(|| attribute_text(operation, "success_order"))
-        .map(|order| format!(", order = {order}"))
-        .unwrap_or_default();
+    let order = if let Some(order) = attribute_text(operation, "memory_order") {
+        format!(", order = {order}")
+    } else if let Some(success) = attribute_text(operation, "success_order") {
+        let failure = attribute_text(operation, "failure_order")
+            .map(|failure| format!(", failure_order = {failure}"))
+            .unwrap_or_default();
+
+        format!(", success_order = {success}{failure}")
+    } else {
+        String::new()
+    };
 
     format!("memory.{name}({operands}{order})")
 }
@@ -319,9 +332,15 @@ fn text_operation(operation: &InspectionMirOperation) -> String {
 
 fn panic_report_operation(operation: &InspectionMirOperation) -> String {
     let kind = attribute_text(operation, "cause").unwrap_or_else(|| "message".into());
-    let message = operand_for(operation, "message");
 
-    format!("panic_report {kind}({message})")
+    let message = operation
+        .operands
+        .iter()
+        .find(|operand| operand.role == "message")
+        .map(|operand| format!("({})", operand_text(&operand.operand)))
+        .unwrap_or_default();
+
+    format!("panic_report {kind}{message}")
 }
 
 fn unary_place_operation(operation: &InspectionMirOperation, name: &str) -> String {
@@ -336,7 +355,29 @@ fn cleanup_operation(operation: &InspectionMirOperation) -> String {
 
 fn async_operation(operation: &InspectionMirOperation) -> String {
     match operation.operation_kind {
-        "create_frame" => format!("async create_frame {}", symbol_for(operation, "callee")),
+        "create_frame" => {
+            if attribute_text(operation, "initializer").as_deref() == Some("task_observation") {
+                let task = operand_for(operation, "task");
+                let completion = type_for(operation, "completion").unwrap_or("<completion>");
+                let result = type_for(operation, "result").unwrap_or("<result>");
+
+                let cancellation = attribute_text(operation, "request_cancellation")
+                    .unwrap_or_else(|| "false".into());
+
+                format!(
+                    "async observe_task {task} -> {result} completion {completion} cancel={cancellation}"
+                )
+            } else {
+                let target = operation
+                    .symbols
+                    .iter()
+                    .find(|symbol| symbol.role == "callee")
+                    .map(|symbol| format!("@{}", symbol.symbol.display_name()))
+                    .unwrap_or_else(|| String::from("<frame>"));
+
+                format!("async create_frame {target}")
+            }
+        }
         "move_inactive_frame" => format!(
             "async move_frame {} -> {}",
             place_for(operation, "source"),
@@ -458,4 +499,104 @@ fn detail_items(operation: &InspectionMirOperation) -> Vec<String> {
     );
 
     details
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::model::{
+        InspectionMirAttribute, InspectionMirNamedOperand, InspectionMirOperand,
+        InspectionMirOperation, InspectionMirSource,
+    };
+    use super::operation_text;
+
+    fn operation(
+        operation_kind: &'static str,
+        attributes: Vec<InspectionMirAttribute>,
+        operands: Vec<InspectionMirNamedOperand>,
+    ) -> InspectionMirOperation {
+        InspectionMirOperation {
+            id: 0,
+            operation_kind,
+            result: None,
+            source: InspectionMirSource::GeneratedLifecycle { role: "test" },
+            attributes,
+            operands,
+            places: Vec::new(),
+            symbols: Vec::new(),
+            types: Vec::new(),
+            semantic_values: Vec::new(),
+        }
+    }
+
+    fn attribute(name: &str, value: &str) -> InspectionMirAttribute {
+        InspectionMirAttribute {
+            name: name.into(),
+            value: value.into(),
+        }
+    }
+
+    fn value(role: &str, value: u32) -> InspectionMirNamedOperand {
+        InspectionMirNamedOperand {
+            role: role.into(),
+            operand: InspectionMirOperand::Value { value },
+        }
+    }
+
+    #[test]
+    fn pattern_indices_use_index_not_member_notation() {
+        let operation = operation(
+            "pattern_projection",
+            vec![
+                attribute("operation", "observe"),
+                attribute("projection", "tuple_element"),
+                attribute("projection_ordinal", "2"),
+            ],
+            vec![value("subject", 7)],
+        );
+
+        assert_eq!(operation_text(&operation), "observe %7[2] [tuple_element]");
+    }
+
+    #[test]
+    fn compare_exchange_text_preserves_both_orderings() {
+        let operation = operation(
+            "memory",
+            vec![
+                attribute("memory_operation", "atomic_compare_exchange"),
+                attribute("success_order", "release"),
+                attribute("failure_order", "acquire"),
+            ],
+            vec![value("operand[0]", 3)],
+        );
+
+        assert_eq!(
+            operation_text(&operation),
+            "memory.atomic_compare_exchange(%3, success_order = release, failure_order = acquire)"
+        );
+    }
+
+    #[test]
+    fn task_observation_frames_show_the_observed_task() {
+        let operation = operation(
+            "create_frame",
+            vec![attribute("initializer", "task_observation")],
+            vec![value("task", 4)],
+        );
+
+        assert_eq!(
+            operation_text(&operation),
+            "async observe_task %4 -> <result> completion <completion> cancel=false"
+        );
+    }
+
+    #[test]
+    fn message_less_assertions_have_no_placeholder_operand() {
+        let operation = operation(
+            "panic_report",
+            vec![attribute("cause", "assertion")],
+            Vec::new(),
+        );
+
+        assert_eq!(operation_text(&operation), "panic_report assertion");
+    }
 }
