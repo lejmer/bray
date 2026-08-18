@@ -44,6 +44,11 @@ internal static ASYNC_CLEANUP_PROBE: AsyncCleanupProbe = AsyncCleanupProbe
     state = 975318642
 };
 
+@thread_local internal static ASYNC_THREAD_CLEANUP_PROBE: AsyncCleanupProbe = AsyncCleanupProbe
+{
+    state = 192837465
+};
+
 internal struct AsyncFailingCleanupProbe
 {
     internal mut state: i32;

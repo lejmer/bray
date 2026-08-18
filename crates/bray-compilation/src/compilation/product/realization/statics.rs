@@ -20,27 +20,26 @@ use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
 use super::names::generated_symbol_name;
-use super::storage::ProductStaticHostEntry;
 use super::support::{operation_result_type, signature_types};
 use crate::fact::{CancellationToken, FactQueryError};
 
-struct ConcreteStaticRealization {
-    key: CodegenStaticInstanceKey,
+pub(super) struct ConcreteStaticRealization {
+    pub(super) key: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
-    initializer: ConcreteCodegenInstance,
+    pub(super) initializer: ConcreteCodegenInstance,
     initial_value: bray_symbols::ConstantValueId,
     relocations: Vec<CodegenStaticRelocation>,
-    finalization: Option<ConcreteStaticFinalization>,
-    destroy: Option<ConcreteCodegenInstance>,
-    reference: StaticReferenceSelection,
-    ty: TypeId,
-    lifecycle_dependencies: Vec<bray_symbols::StaticSymbolId>,
+    pub(super) finalization: Option<ConcreteStaticFinalization>,
+    pub(super) destroy: Option<ConcreteCodegenInstance>,
+    pub(super) reference: StaticReferenceSelection,
+    pub(super) ty: TypeId,
+    pub(super) lifecycle_dependencies: Vec<bray_symbols::StaticSymbolId>,
 }
 
-struct ConcreteStaticFinalization {
+pub(super) struct ConcreteStaticFinalization {
     execution: CallableExecution,
-    instance: ConcreteCodegenInstance,
-    result: ExecutableEntryResult,
+    pub(super) instance: ConcreteCodegenInstance,
+    pub(super) result: ExecutableEntryResult,
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<ConcreteCodegenInstance>,
@@ -372,7 +371,7 @@ impl Compilation {
         Ok(mappings)
     }
 
-    fn concrete_codegen_static(
+    pub(super) fn concrete_codegen_static(
         &self,
         owner: &ConcreteCodegenInstance,
         reference: &StaticReferenceSelection,
@@ -618,154 +617,4 @@ impl Compilation {
         Ok(relocations.into_values().collect())
     }
 
-    pub(in crate::compilation::product) fn product_static_host_entries(
-        &self,
-        reachability: &ConcreteCodegenReachability,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-    ) -> Result<Vec<ProductStaticHostEntry>, CodegenPreparationError> {
-        // Host graph tables own their Arc-backed static keys independently of reachability.
-        let mut realized = BTreeMap::new();
-
-        for instance in reachability.graph().instances() {
-            let owner = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            for storage in instance.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
-                    continue;
-                };
-
-                let static_instance =
-                    self.concrete_codegen_static(owner, &reference, target, cancellation)?;
-
-                realized
-                    .entry(static_instance.key.clone())
-                    .or_insert(static_instance);
-            }
-        }
-
-        let mut incoming = realized
-            .keys()
-            .cloned()
-            .map(|key| (key, 0_usize))
-            .collect::<BTreeMap<_, _>>();
-
-        let mut outgoing = BTreeMap::<_, Vec<_>>::new();
-        let mut dependencies = BTreeMap::<_, Vec<_>>::new();
-
-        for (consumer_key, consumer) in &realized {
-            let initializer = reachability
-                .graph()
-                .instances()
-                .iter()
-                .find(|instance| instance.key() == consumer.initializer.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let initializer_owner = reachability
-                .instance(initializer.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let mut providers = BTreeSet::new();
-
-            for storage in initializer.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
-                    continue;
-                };
-
-                let provider = self.concrete_codegen_static(
-                    initializer_owner,
-                    &reference,
-                    target,
-                    cancellation,
-                )?;
-
-                let StaticReferenceSelection::Closed(provider_instance) = &provider.reference
-                else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
-                };
-
-                if !consumer
-                    .lifecycle_dependencies
-                    .contains(&provider_instance.template().declaration())
-                {
-                    continue;
-                }
-
-                if !realized.contains_key(&provider.key) {
-                    return Err(FactQueryError::InfrastructureFailure.into());
-                }
-
-                providers.insert(provider.key);
-            }
-
-            for provider in providers {
-                outgoing
-                    .entry(consumer_key.clone())
-                    .or_default()
-                    .push(provider.clone());
-
-                dependencies
-                    .entry(consumer_key.clone())
-                    .or_default()
-                    .push(provider.clone());
-
-                let count = incoming
-                    .get_mut(&provider)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                *count = count
-                    .checked_add(1)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-            }
-        }
-
-        let mut ready = incoming
-            .iter()
-            .filter_map(|(key, count)| (*count == 0).then_some(key.clone()))
-            .collect::<BTreeSet<_>>();
-
-        let mut ordered = Vec::with_capacity(realized.len());
-
-        while let Some(key) = ready.pop_first() {
-            let static_instance = realized
-                .get(&key)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            // Returned host entries own their shared identities after graph tables are released.
-            ordered.push(ProductStaticHostEntry::new(
-                static_instance.key.clone(),
-                static_instance.reference.clone(),
-                static_instance.ty,
-                dependencies.remove(&key).unwrap_or_default(),
-                static_instance
-                    .finalization
-                    .as_ref()
-                    .is_some_and(|finalization| {
-                        matches!(finalization.result, ExecutableEntryResult::Fallible { .. })
-                    }),
-            ));
-
-            for provider in outgoing.get(&key).into_iter().flatten() {
-                let count = incoming
-                    .get_mut(provider)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                *count = count
-                    .checked_sub(1)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                if *count == 0 {
-                    ready.insert(provider.clone());
-                }
-            }
-        }
-
-        if ordered.len() != realized.len() {
-            return Err(FactQueryError::InfrastructureFailure.into());
-        }
-
-        Ok(ordered)
-    }
 }

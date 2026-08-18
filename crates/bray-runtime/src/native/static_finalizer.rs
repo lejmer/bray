@@ -4,20 +4,9 @@ pub(crate) fn run_static_finalizer(
 ) -> Vec<crate::product::CleanupIncident> {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    use bray_runtime_abi::{
-        NativeRootHandle, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
-    };
+    use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
-    let initialized =
-        super::state::initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
-
-    let temporary = initialized == NativeRuntimeStatus::SUCCESS;
-
-    if !temporary && initialized != NativeRuntimeStatus::ALREADY_INITIALIZED {
-        return vec![crate::product::CleanupIncident::runtime_failure()];
-    }
-
-    let mut incidents = super::state::with_runtime(|runtime| {
+    let incidents = super::state::with_runtime(|runtime| {
         let allocation = runtime.allocate();
 
         let Some(task) = allocation.task() else {
@@ -65,6 +54,28 @@ pub(crate) fn run_static_finalizer(
     })
     .unwrap_or_else(|_| vec![crate::product::CleanupIncident::runtime_failure()]);
 
+    incidents
+}
+
+pub(crate) fn with_static_cleanup_runtime<T>(
+    callback: impl FnOnce() -> T,
+) -> (T, Vec<crate::product::CleanupIncident>) {
+    use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+
+    let initialized =
+        super::state::initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
+
+    let temporary = initialized == NativeRuntimeStatus::SUCCESS;
+    let available = temporary || initialized == NativeRuntimeStatus::ALREADY_INITIALIZED;
+    let result = callback();
+    let mut incidents = Vec::new();
+
+    if !available {
+        incidents.push(crate::product::CleanupIncident::runtime_failure());
+
+        return (result, incidents);
+    }
+
     if super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
         .map_or(true, |status| !status.is_success())
     {
@@ -75,5 +86,129 @@ pub(crate) fn run_static_finalizer(
         incidents.push(crate::product::CleanupIncident::runtime_failure());
     }
 
-    incidents
+    (result, incidents)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_abi::{
+        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
+        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeProtectedFrame,
+        NativeStaticFinalizerStatus,
+    };
+
+    use super::{run_static_finalizer, with_static_cleanup_runtime};
+
+    #[test]
+    fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
+        let _attachment = bray_platform::RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
+
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            run_static_finalizer(
+                inactive_frame(NativeFrameAffinity::ORIGIN_THREAD, NativeLaneRequirements::NONE),
+                resolve,
+            )
+        });
+
+        assert!(incidents.is_empty());
+        assert!(runtime_incidents.is_empty());
+    }
+
+    #[test]
+    fn cleanup_runtime_services_every_checked_finalizer_lane() {
+        let cases = [
+            (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE),
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::BLOCKING,
+            ),
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::COMPUTE,
+            ),
+            (
+                NativeFrameAffinity::MAIN_THREAD,
+                NativeLaneRequirements::MAIN_THREAD,
+            ),
+        ];
+
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            cases
+                .into_iter()
+                .flat_map(|(affinity, requirements)| {
+                    run_static_finalizer(inactive_frame(affinity, requirements), resolve)
+                })
+                .collect::<Vec<_>>()
+        });
+
+        assert!(incidents.is_empty());
+        assert!(runtime_incidents.is_empty());
+    }
+
+    fn inactive_frame(
+        affinity: NativeFrameAffinity,
+        requirements: NativeLaneRequirements,
+    ) -> NativeInactiveFrame {
+        let context = usize::try_from(
+            u64::from(affinity.code()) | (u64::from(requirements.bits()) << 32),
+        )
+        .unwrap_or_else(|_| panic!("native frame state must fit the test target"));
+
+        NativeInactiveFrame::new(context, move_before_start)
+    }
+
+    extern "C" fn move_before_start(context: usize) -> NativeProtectedFrame {
+        NativeProtectedFrame::new(
+            context,
+            [9; 32],
+            1,
+            1,
+            1,
+            1,
+            1,
+            state,
+            resume,
+            cancel,
+            ignore_action,
+            ignore_resolution,
+            ignore_completion_move,
+            ignore_action,
+        )
+    }
+
+    extern "C" fn state(context: usize, _: u32) -> NativeFrameState {
+        let context = u64::try_from(context)
+            .unwrap_or_else(|_| panic!("test frame context must fit the native ABI"));
+
+        let affinity = match context as u32 {
+            0 => NativeFrameAffinity::MOVABLE,
+            1 => NativeFrameAffinity::ORIGIN_THREAD,
+            2 => NativeFrameAffinity::MAIN_THREAD,
+            _ => panic!("test frame affinity must be known"),
+        };
+
+        NativeFrameState::new(
+            affinity,
+            NativeLaneRequirements::from_bits((context >> 32) as u32),
+        )
+    }
+
+    extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
+        NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+    }
+
+    extern "C-unwind" fn cancel(_: usize) -> NativeFrameProgress {
+        NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 0, 0)
+    }
+
+    extern "C-unwind" fn ignore_action(_: usize) {}
+
+    extern "C-unwind" fn ignore_resolution(_: usize, _: NativeFrameExit) {}
+
+    extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
+
+    extern "C-unwind" fn resolve(_: usize, _: usize) -> NativeStaticFinalizerStatus {
+        NativeStaticFinalizerStatus::SUCCESS
+    }
 }

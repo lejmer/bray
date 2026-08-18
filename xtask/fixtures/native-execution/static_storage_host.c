@@ -61,6 +61,7 @@ typedef struct {
 typedef struct {
     product_host_control control;
     static_access access;
+    static_access async_access;
     uintptr_t other_address;
     int result;
 } thread_context;
@@ -102,14 +103,17 @@ static int identity_is(static_identity left, static_identity right)
     return memcmp(left.bytes, right.bytes, sizeof(left.bytes)) == 0;
 }
 
-static static_access find_thread_access(const product_host_descriptor *descriptor)
+static static_access find_thread_access(
+    const product_host_descriptor *descriptor,
+    uint32_t finalizer_execution
+)
 {
     static_access result = NULL;
 
     for (size_t index = 0; index < descriptor->static_count; index += 1) {
         static_host_entry entry = descriptor->static_entry(index);
 
-        if (entry.duration != 1) {
+        if (entry.duration != 1 || entry.finalizer.execution != finalizer_execution) {
             continue;
         }
 
@@ -159,18 +163,19 @@ static int run_thread_check(thread_context *context)
 
     uintptr_t first = context->access();
     uintptr_t second = context->access();
+    uintptr_t cleanup = context->async_access();
 
-    if (first == 0 || first != second || first == context->other_address) {
+    if (first == 0 || first != second || first == context->other_address || cleanup == 0) {
         return 2;
     }
 
-    if (*(int32_t *)first != 42) {
+    if (*(int32_t *)first != 42 || *(int32_t *)cleanup != 192837465) {
         return 3;
     }
 
     product_host_observation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD);
 
-    if (!observation_is(detached, 0, 1)) {
+    if (!observation_is(detached, 0, 1) || detached.cleanup_incidents != 0) {
         return 4;
     }
 
@@ -193,7 +198,11 @@ static void *thread_entry(void *value)
 }
 #endif
 
-static int check_thread_static(product_host_control control, static_access access)
+static int check_thread_static(
+    product_host_control control,
+    static_access access,
+    static_access async_access
+)
 {
     product_host_observation attached = control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
 
@@ -203,14 +212,16 @@ static int check_thread_static(product_host_control control, static_access acces
 
     uintptr_t first = access();
     uintptr_t second = access();
+    uintptr_t cleanup = async_access();
 
-    if (first == 0 || first != second || *(int32_t *)first != 42) {
+    if (first == 0 || first != second || *(int32_t *)first != 42
+        || cleanup == 0 || *(int32_t *)cleanup != 192837465) {
         return 21;
     }
 
     *(int32_t *)first = 99;
 
-    thread_context context = {control, access, first, 0};
+    thread_context context = {control, access, async_access, first, 0};
 
 #if defined(_WIN32)
     HANDLE thread = CreateThread(NULL, 0, thread_entry, &context, 0, NULL);
@@ -264,8 +275,8 @@ static int check_product_scoped_thread_statics(
     const product_host_descriptor *second_descriptor
 )
 {
-    static_access first_access = find_thread_access(first_descriptor);
-    static_access second_access = find_thread_access(second_descriptor);
+    static_access first_access = find_thread_access(first_descriptor, 0);
+    static_access second_access = find_thread_access(second_descriptor, 0);
 
     if (first_access == NULL || second_access == NULL) {
         return 34;
@@ -318,7 +329,8 @@ static int exercise_host(
         return 41;
     }
 
-    static_access thread_access = find_thread_access(descriptor);
+    static_access thread_access = find_thread_access(descriptor, 0);
+    static_access async_thread_access = find_thread_access(descriptor, 2);
     static_host_entry product_entries[64];
     size_t product_count = 0;
     int found_static_relocation = 0;
@@ -356,7 +368,7 @@ static int exercise_host(
         }
     }
 
-    if (product_count < 4 || thread_access == NULL) {
+    if (product_count < 4 || thread_access == NULL || async_thread_access == NULL) {
         return 48;
     }
 
@@ -413,7 +425,7 @@ static int exercise_host(
         return 73;
     }
 
-    int thread_result = check_thread_static(control, thread_access);
+    int thread_result = check_thread_static(control, thread_access, async_thread_access);
 
     if (thread_result != 0) {
         return thread_result;

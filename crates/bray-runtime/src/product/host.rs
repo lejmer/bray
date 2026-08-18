@@ -450,15 +450,30 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 }
 
 fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
-    let mut incidents = Vec::new();
+    let (mut incidents, runtime_incidents) = crate::native::with_static_cleanup_runtime(|| {
+        let mut incidents = Vec::new();
 
-    for entry in &cleanup.statics {
-        incidents.extend(
-            run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
-                .into_iter()
-                .map(|incident| (entry.identity, incident)),
-        );
-    }
+        for entry in &cleanup.statics {
+            incidents.extend(
+                run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
+                    .into_iter()
+                    .map(|incident| (entry.identity, incident)),
+            );
+        }
+
+        incidents
+    });
+
+    let runtime_identity = cleanup
+        .statics
+        .first()
+        .map_or(NativeStaticIdentity::new([0; 32]), |entry| entry.identity);
+
+    incidents.extend(
+        runtime_incidents
+            .into_iter()
+            .map(|incident| (runtime_identity, incident)),
+    );
 
     let incident_count = incidents.len();
     let last_incident = incidents.last().map(|(identity, _)| *identity);
@@ -664,9 +679,7 @@ extern "C-unwind" fn drain_thread_statics() {
 
     entries.sort_unstable_by_key(|entry| (entry.product_identity, entry.product, entry.order));
 
-    for entry in entries {
-        run_thread_cleanup(entry);
-    }
+    run_thread_cleanups(entries);
 
     for (product, attachment) in products {
         if attachment.acquired {
@@ -697,9 +710,7 @@ pub(super) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
 
     entries.sort_unstable_by_key(|entry| entry.order);
 
-    for entry in entries {
-        run_thread_cleanup(entry);
-    }
+    run_thread_cleanups(entries);
 
     if let Some(attachment) = attachment
         && attachment.acquired
@@ -710,15 +721,35 @@ pub(super) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
     None
 }
 
-fn run_thread_cleanup(entry: ThreadStaticEntry) {
-    let incidents = run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
-    let count = incidents.len();
+fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
+    let runtime_owner = entries.first().copied();
 
-    for incident in incidents {
+    let (_, runtime_incidents) = crate::native::with_static_cleanup_runtime(|| {
+        for entry in entries {
+            let incidents =
+                run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
+
+            let count = incidents.len();
+
+            for incident in incidents {
+                let _ = incident.report();
+            }
+
+            report_incidents(entry.product, entry.static_identity, count);
+        }
+    });
+
+    let Some(owner) = runtime_owner else {
+        return;
+    };
+
+    let count = runtime_incidents.len();
+
+    for incident in runtime_incidents {
         let _ = incident.report();
     }
 
-    report_incidents(entry.product, entry.static_identity, count);
+    report_incidents(owner.product, owner.static_identity, count);
 }
 
 fn release_attachment(product: usize) -> Option<NativeProductHostObservation> {

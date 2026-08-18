@@ -3362,6 +3362,50 @@ mod tests {
     }
 
     #[test]
+    fn static_host_orders_dependencies_reached_only_by_finalization() {
+        let source = concat!(
+            "module app;\n",
+            "struct Provider { mut state: i32; }\n",
+            "impl Provider\n",
+            "{\n",
+            "    finalize() {}\n",
+            "}\n",
+            "static PROVIDER: Provider = Provider { state = 1 };\n",
+            "struct Consumer {}\n",
+            "impl Consumer\n",
+            "{\n",
+            "    finalize() { if PROVIDER.state == 1 {} }\n",
+            "}\n",
+            "static CONSUMER: Consumer = Consumer {};\n",
+            "func main() {}\n",
+        );
+
+        let (_, plan) = runtime_native_plan(source);
+
+        let host = plan
+            .product_host()
+            .unwrap_or_else(|| panic!("lifecycle-bearing statics must retain a product host"));
+
+        let consumer = host
+            .statics()
+            .iter()
+            .find(|entry| !entry.dependencies().is_empty())
+            .unwrap_or_else(|| panic!("finalizer-only static dependency must be retained"));
+
+        let [provider] = consumer.dependencies() else {
+            panic!("consumer must retain exactly one finalizer-only provider");
+        };
+
+        let provider = host
+            .statics()
+            .iter()
+            .find(|entry| entry.identity() == *provider)
+            .unwrap_or_else(|| panic!("provider must remain in the product host"));
+
+        assert!(consumer.order() < provider.order());
+    }
+
+    #[test]
     fn static_mapping_retains_asynchronous_fallible_finalizer() {
         let source = concat!(
             "module app;\n",

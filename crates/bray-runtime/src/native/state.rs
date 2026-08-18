@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use bray_platform::RuntimeThreadScope;
+use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame,
     NativeRootHandle, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
@@ -32,7 +32,7 @@ thread_local! {
 type NativeTask = TaskControlBlock<usize>;
 
 pub(super) struct NativeRuntime {
-    thread: RuntimeThreadScope,
+    thread: RuntimeThreadEntry,
     scheduler: Scheduler,
     tasks: RefCell<BTreeMap<NativeTaskHandle, NativeTaskSlot>>,
     awaited: RefCell<BTreeMap<NativeTaskHandle, NativeTaskHandle>>,
@@ -72,7 +72,7 @@ pub(super) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRun
             return NativeRuntimeStatus::ALREADY_INITIALIZED;
         }
 
-        let Ok(thread) = RuntimeThreadScope::enter() else {
+        let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
@@ -80,6 +80,9 @@ pub(super) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRun
             [
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::LocalLanes,
+                RuntimeCapability::MigratableLanes,
+                RuntimeCapability::BlockingLanes,
+                RuntimeCapability::ComputeLanes,
                 RuntimeCapability::MainThreadLane,
             ],
             thread.runtime().id(),
@@ -204,22 +207,7 @@ impl NativeRuntime {
     pub(super) fn drive_main_thread(&self) -> NativeRuntimeStatus {
         let thread = self.thread.runtime().id();
 
-        let lanes = [
-            ExecutionLane::new(
-                ExecutionLanePlacement::MainThread(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-            ExecutionLane::new(
-                ExecutionLanePlacement::OriginThread(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-            ExecutionLane::new(
-                ExecutionLanePlacement::PinnedWorker(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-        ];
-
-        for lane in lanes {
+        for lane in cleanup_lanes(thread) {
             match self.scheduler.take_ready(lane) {
                 Ok(Some(ready)) => return self.drive_ready(ready),
                 Ok(None) => {}
@@ -602,21 +590,7 @@ impl NativeRuntime {
         }
 
         let thread = self.thread.runtime().id();
-
-        let lanes = [
-            ExecutionLane::new(
-                ExecutionLanePlacement::MainThread(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-            ExecutionLane::new(
-                ExecutionLanePlacement::OriginThread(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-            ExecutionLane::new(
-                ExecutionLanePlacement::PinnedWorker(thread),
-                ExecutionWorkload::Cooperative,
-            ),
-        ];
+        let lanes = cleanup_lanes(thread);
 
         match self.scheduler.wait_ready_from(&lanes, None) {
             Ok(Some(ready)) => self.drive_ready(ready),
@@ -681,6 +655,25 @@ impl NativeRuntime {
             tasks.remove(&child);
         }
     }
+}
+
+fn cleanup_lanes(thread: RuntimeThreadId) -> [ExecutionLane; 12] {
+    let placements = [
+        ExecutionLanePlacement::MainThread(thread),
+        ExecutionLanePlacement::OriginThread(thread),
+        ExecutionLanePlacement::PinnedWorker(thread),
+        ExecutionLanePlacement::Migratable,
+    ];
+
+    let workloads = [
+        ExecutionWorkload::Cooperative,
+        ExecutionWorkload::Blocking,
+        ExecutionWorkload::Compute,
+    ];
+
+    std::array::from_fn(|index| {
+        ExecutionLane::new(placements[index / workloads.len()], workloads[index % workloads.len()])
+    })
 }
 
 fn current_native_task() -> Option<NativeTaskHandle> {
