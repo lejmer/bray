@@ -230,6 +230,9 @@ impl Compilation {
             host_statics
                 .iter()
                 .any(super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident),
+            host_statics.iter().any(
+                super::super::realization::ProductStaticHostEntry::requires_main_thread_cleanup,
+            ),
             &target,
         )?;
 
@@ -434,8 +437,13 @@ impl Compilation {
         product_host: Option<&bray_codegen::CodegenProductHostMapping>,
         mappings: &[bray_codegen::CodegenMappings],
         transfers_cleanup_incident: bool,
+        requires_main_thread_cleanup: bool,
         target: &CodegenTarget,
     ) -> Result<Option<RuntimeArtifactSelection>, NativeProductPlanningError> {
+        if kind == ProductKind::Library && requires_main_thread_cleanup {
+            return Err(NativeProductPlanningError::LibraryCleanupRequiresMainThread);
+        }
+
         let Some(runtime) = runtime else {
             if host.is_some_and(|host| host.requirements().requires_implementation())
                 || product_host.is_some()

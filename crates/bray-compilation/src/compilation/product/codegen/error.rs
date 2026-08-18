@@ -24,6 +24,8 @@ pub enum NativeProductPlanningError {
     InvalidEntryResult,
     /// An asynchronous product has no selected runtime artifact.
     MissingRuntime,
+    /// A library static cleanup closure requires unavailable main-thread execution.
+    LibraryCleanupRequiresMainThread,
     /// A generated binary symbol name is invalid.
     InvalidSymbolName,
     /// A configured native link input is invalid.
@@ -130,6 +132,9 @@ fn native_product_failure_kind(
         NativeProductPlanningError::MissingProductRoot => Kind::MissingProductRoot,
         NativeProductPlanningError::InvalidEntryResult => Kind::InvalidEntryResult,
         NativeProductPlanningError::MissingRuntime => Kind::MissingRuntime,
+        NativeProductPlanningError::LibraryCleanupRequiresMainThread => {
+            Kind::LibraryCleanupRequiresMainThread
+        }
         NativeProductPlanningError::InvalidSymbolName => Kind::InvalidSymbolName,
         NativeProductPlanningError::InvalidNativeLinkInput => Kind::InvalidNativeLinkInput,
         NativeProductPlanningError::Query(error) => fact_query_failure_kind(error)?,

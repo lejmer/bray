@@ -111,6 +111,9 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::ExecutableHostMissingMainThreadLane => {
             "the executable host requires a main-thread execution lane"
         }
+        Kind::LibraryCleanupRequiresMainThread => {
+            "a library static cleanup operation requires main-thread execution"
+        }
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }

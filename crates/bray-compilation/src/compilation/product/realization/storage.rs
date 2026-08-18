@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget};
 use bray_ir::MirStorageKind;
-use bray_runtime_interface::ExecutableEntryResult;
+use bray_runtime_interface::{ExecutableEntryResult, ExecutionLaneRequirement};
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::{CodegenPreparationError, Compilation};
@@ -11,6 +11,57 @@ use super::statics::ConcreteStaticRealization;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    fn static_cleanup_requires_main_thread(
+        &self,
+        realization: &ConcreteStaticRealization,
+        reachability: &ConcreteCodegenReachability,
+    ) -> Result<bool, CodegenPreparationError> {
+        let mut pending = BTreeSet::<CodegenInstanceKey>::new();
+        let mut visited = BTreeSet::new();
+
+        if let Some(finalization) = &realization.finalization {
+            pending.insert(finalization.instance.key().clone());
+        }
+
+        if let Some(destroy) = &realization.destroy {
+            pending.insert(destroy.key().clone());
+        }
+
+        while let Some(key) = pending.pop_first() {
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+
+            let instance = reachability
+                .graph()
+                .instance(&key)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            if instance
+                .mir()
+                .frame_descriptor()
+                .is_some_and(|frame| {
+                    frame.states().iter().any(|state| {
+                        state
+                            .lane_requirements()
+                            .contains(&ExecutionLaneRequirement::MainThread)
+                    })
+                })
+            {
+                return Ok(true);
+            }
+
+            pending.extend(
+                instance
+                    .dependencies()
+                    .iter()
+                    .map(|dependency| dependency.instance().clone()),
+            );
+        }
+
+        Ok(false)
+    }
+
     fn static_lifecycle_providers(
         &self,
         consumer: &ConcreteStaticRealization,
@@ -173,6 +224,10 @@ impl Compilation {
                     .is_some_and(|finalization| {
                         matches!(finalization.result, ExecutableEntryResult::Fallible { .. })
                     }),
+                self.static_cleanup_requires_main_thread(
+                    static_instance,
+                    reachability,
+                )?,
             ));
 
             for provider in outgoing.get(&key).into_iter().flatten() {
@@ -204,6 +259,7 @@ pub(in crate::compilation::product) struct ProductStaticHostEntry {
     ty: TypeId,
     dependencies: Vec<CodegenStaticInstanceKey>,
     transfers_cleanup_incident: bool,
+    requires_main_thread_cleanup: bool,
 }
 
 impl ProductStaticHostEntry {
@@ -213,6 +269,7 @@ impl ProductStaticHostEntry {
         ty: TypeId,
         dependencies: Vec<CodegenStaticInstanceKey>,
         transfers_cleanup_incident: bool,
+        requires_main_thread_cleanup: bool,
     ) -> Self {
         Self {
             key,
@@ -220,6 +277,7 @@ impl ProductStaticHostEntry {
             ty,
             dependencies,
             transfers_cleanup_incident,
+            requires_main_thread_cleanup,
         }
     }
 
@@ -233,6 +291,10 @@ impl ProductStaticHostEntry {
 
     pub(in crate::compilation::product) const fn transfers_cleanup_incident(&self) -> bool {
         self.transfers_cleanup_incident
+    }
+
+    pub(in crate::compilation::product) const fn requires_main_thread_cleanup(&self) -> bool {
+        self.requires_main_thread_cleanup
     }
 
     pub(in crate::compilation::product) fn lowering_entry(
