@@ -9,6 +9,7 @@ use super::grammar::{
     SLICE_END_TERMINATORS, SLICE_SELECTOR_TERMINATORS, STRUCT_CONSTRUCTION_BODY_TERMINATORS,
 };
 use super::operator::at_infix_operator;
+use super::postfix::postfix_operation_start;
 
 impl Parser {
     pub(in crate::parser::expression) fn should_parse_explicit_generic_call(&mut self) -> bool {
@@ -30,7 +31,18 @@ impl Parser {
             return false;
         }
 
-        self.scan_ahead(|scan| !scan.parse_generic_argument_list().is_recovered())
+        self.scan_ahead(|scan| {
+            !scan.parse_generic_argument_list().is_recovered()
+                && scan.at_explicit_generic_application_continuation()
+        })
+    }
+
+    fn at_explicit_generic_application_continuation(&mut self) -> bool {
+        let kind = self.peek().kind();
+        let mut no_outer_boundary = |_parser: &mut Parser| false;
+
+        postfix_operation_start(kind).is_some()
+            || self.at_primary_tail_boundary(&mut no_outer_boundary)
     }
 
     pub(in crate::parser::expression) fn should_parse_slice_index_operation(&mut self) -> bool {

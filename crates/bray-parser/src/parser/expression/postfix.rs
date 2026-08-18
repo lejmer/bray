@@ -6,6 +6,16 @@ use bray_syntax::{
 
 use crate::parser::state::Parser;
 
+#[derive(Clone, Copy)]
+pub(super) enum PostfixOperationStart {
+    MemberAccess,
+    Index,
+    Parenthesized,
+    Generic,
+    NullablePropagation,
+    Conversion,
+}
+
 impl Parser {
     pub(in crate::parser::expression) fn parse_postfix_expression_until(
         &mut self,
@@ -19,29 +29,41 @@ impl Parser {
                 break;
             }
 
-            expression = match self.peek().kind() {
-                SyntaxKind::DotToken => self.parse_member_access_postfix(expression),
-                SyntaxKind::OpenBracketToken if self.should_parse_slice_index_operation() => {
+            let Some(operation) = postfix_operation_start(self.peek().kind()) else {
+                break;
+            };
+
+            expression = match operation {
+                PostfixOperationStart::MemberAccess => {
+                    self.parse_member_access_postfix(expression)
+                }
+                PostfixOperationStart::Index if self.should_parse_slice_index_operation() => {
                     self.parse_slice_index_postfix(expression, at_boundary)
                 }
-                SyntaxKind::OpenBracketToken => {
+                PostfixOperationStart::Index => {
                     self.parse_element_index_postfix(expression, at_boundary)
                 }
-                SyntaxKind::OpenParenToken
+                PostfixOperationStart::Parenthesized
                     if self.should_parse_trait_qualified_member_operation() =>
                 {
                     self.parse_trait_qualified_member_postfix(expression)
                 }
-                SyntaxKind::OpenParenToken => self.parse_call_postfix(expression),
-                SyntaxKind::LessToken if self.should_parse_explicit_generic_call() => {
+                PostfixOperationStart::Parenthesized => self.parse_call_postfix(expression),
+                PostfixOperationStart::Generic if self.should_parse_explicit_generic_call() => {
                     self.parse_call_postfix(expression)
                 }
-                SyntaxKind::LessToken if self.should_parse_explicit_generic_application() => {
+                PostfixOperationStart::Generic
+                    if self.should_parse_explicit_generic_application() =>
+                {
                     self.parse_generic_application_postfix(expression)
                 }
-                SyntaxKind::QuestionToken => self.parse_nullable_propagation_postfix(expression),
-                SyntaxKind::AsKeyword => self.parse_conversion_postfix(expression, at_boundary),
-                _ => break,
+                PostfixOperationStart::Generic => break,
+                PostfixOperationStart::NullablePropagation => {
+                    self.parse_nullable_propagation_postfix(expression)
+                }
+                PostfixOperationStart::Conversion => {
+                    self.parse_conversion_postfix(expression, at_boundary)
+                }
             };
         }
 
@@ -284,6 +306,18 @@ impl Parser {
     }
 }
 
+pub(super) const fn postfix_operation_start(kind: SyntaxKind) -> Option<PostfixOperationStart> {
+    match kind {
+        SyntaxKind::DotToken => Some(PostfixOperationStart::MemberAccess),
+        SyntaxKind::OpenBracketToken => Some(PostfixOperationStart::Index),
+        SyntaxKind::OpenParenToken => Some(PostfixOperationStart::Parenthesized),
+        SyntaxKind::LessToken => Some(PostfixOperationStart::Generic),
+        SyntaxKind::QuestionToken => Some(PostfixOperationStart::NullablePropagation),
+        SyntaxKind::AsKeyword => Some(PostfixOperationStart::Conversion),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
@@ -433,6 +467,68 @@ mod tests {
 
         assert_eq!(expression.full_text(), "left < right");
         assert_eq!(count_call_operations(&expression), 0);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_keeps_generic_applications_before_binary_operators() {
+        let sources = source_store(["Value<1> == expected;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let operands = expression.expressions().collect::<Vec<_>>();
+
+        let [left, _right] = operands.as_slice() else {
+            panic!("expected equality expression operands: {operands:?}");
+        };
+
+        assert_eq!(
+            expression.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::EqualsEqualsToken)
+        );
+
+        assert_eq!(left.generic_argument_lists().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_does_not_treat_logical_comparisons_as_a_generic_application() {
+        let sources = source_store(["radix < 2 || radix > 36;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let operands = expression.expressions().collect::<Vec<_>>();
+
+        let [left, right] = operands.as_slice() else {
+            panic!("expected logical expression operands: {operands:?}");
+        };
+
+        assert_eq!(expression.full_text(), "radix < 2 || radix > 36");
+
+        assert_eq!(
+            expression.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::PipePipeToken)
+        );
+
+        assert_eq!(
+            left.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::LessToken)
+        );
+
+        assert_eq!(
+            right.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::GreaterToken)
+        );
+
+        assert!(expression.generic_argument_lists().next().is_none());
         assert!(diagnostics.is_empty());
     }
 
