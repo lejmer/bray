@@ -247,7 +247,7 @@ pub(in crate::native) fn with_runtime<T>(
 }
 
 pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
-    let runtime = NATIVE_RUNTIME.with(|runtime| runtime.take());
+    let runtime = NATIVE_RUNTIME.take();
 
     let Some(runtime) = runtime else {
         return NativeRuntimeStatus::NOT_INITIALIZED;
@@ -290,7 +290,7 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
         return Err(status);
     }
 
-    let runtime = NATIVE_RUNTIME.with(|runtime| runtime.take());
+    let runtime = NATIVE_RUNTIME.take();
 
     let Some(runtime) = runtime else {
         return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -344,7 +344,5 @@ pub(in crate::native) fn run_worker(
 
     control.drain();
 
-    NATIVE_RUNTIME.with(|current| {
-        current.take();
-    });
+    NATIVE_RUNTIME.take();
 }
