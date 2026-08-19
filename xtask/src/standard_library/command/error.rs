@@ -69,11 +69,7 @@ impl BuildError {
         diagnostics: &bray_diagnostics::DiagnosticBag,
         sources: &bray_source::SourceStore,
     ) -> Self {
-        Self::Emission(diagnostic_failure_detail(
-            internal,
-            diagnostics,
-            sources,
-        ))
+        Self::Emission(diagnostic_failure_detail(internal, diagnostics, sources))
     }
 
     pub(in crate::standard_library) fn conformance(

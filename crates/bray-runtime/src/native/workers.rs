@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use bray_platform::NativeThread;
@@ -77,11 +77,7 @@ impl WorkerPool {
         self.stopping.load(Ordering::Acquire)
     }
 
-    pub(super) fn stop(
-        &self,
-        scheduler: &crate::Scheduler,
-        current: Option<&Arc<WorkerControl>>,
-    ) {
+    pub(super) fn stop(&self, scheduler: &crate::Scheduler, current: Option<&Arc<WorkerControl>>) {
         self.stopping.store(true, Ordering::Release);
         scheduler.wake_waiters();
 
@@ -251,8 +247,6 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .unwrap_or_else(|error| panic!("completed request must release waiter: {error}"));
 
-        waiter
-            .join()
-            .unwrap_or_else(|_| panic!("waiter must join"));
+        waiter.join().unwrap_or_else(|_| panic!("waiter must join"));
     }
 }

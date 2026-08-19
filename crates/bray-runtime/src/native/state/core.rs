@@ -8,14 +8,13 @@ use std::sync::{Arc, Mutex};
 
 use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
-    NativeRunOutcome, NativeRuntimeConfiguration,
-    NativeRuntimeStatus, NativeTaskHandle,
+    NativeRunOutcome, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
-    CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
+    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
+    JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -164,7 +163,9 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
 }
 
-pub(in crate::native) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus {
+pub(in crate::native) fn initialize(
+    configuration: NativeRuntimeConfiguration,
+) -> NativeRuntimeStatus {
     initialize_with_capabilities(
         configuration,
         [
@@ -330,8 +331,8 @@ pub(in crate::native) fn run_worker(
     while !runtime.workers.is_stopping() {
         control.drain();
 
-        let deadline = bray_platform::MonotonicClock
-            .deadline_after(std::time::Duration::from_millis(50));
+        let deadline =
+            bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
 
         match runtime.scheduler.wait_ready(lane, deadline) {
             Ok(Some(ready)) => {

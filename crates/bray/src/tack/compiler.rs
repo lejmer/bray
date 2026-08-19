@@ -871,17 +871,13 @@ impl CompilerAction {
                 offset,
                 source,
             } => {
-                request
-                    .arg("inspect")
-                    .arg(inspection.command_text());
+                request.arg("inspect").arg(inspection.command_text());
 
                 if matches!(
                     inspection,
                     TackInspection::Bound | TackInspection::Lowered | TackInspection::Mir
                 ) {
-                    request
-                        .arg("--source-id")
-                        .arg(source_id.to_string());
+                    request.arg("--source-id").arg(source_id.to_string());
 
                     if let Some(offset) = offset {
                         request.arg("--offset").arg(offset.to_string());

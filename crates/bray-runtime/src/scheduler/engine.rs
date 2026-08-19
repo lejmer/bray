@@ -12,9 +12,7 @@ use crate::{
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
-use super::dispatch::{
-    pop_ready, queue_instant, scheduler_snapshot, select_task_lane,
-};
+use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_task_lane};
 
 /// Target-independent scheduler policy and ready-queue storage.
 #[derive(Clone, Debug)]

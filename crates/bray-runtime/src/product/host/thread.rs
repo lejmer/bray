@@ -29,9 +29,7 @@ pub(super) extern "C-unwind" fn drain_thread_statics() {
     }
 }
 
-pub(crate) fn drain_product_thread_statics(
-    product: usize,
-) -> Option<NativeProductHostObservation> {
+pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProductHostObservation> {
     let (mut entries, attachment) = THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
         let mut selected = Vec::new();
@@ -120,9 +118,6 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
     report_incidents(owner.product, owner.static_identity, count);
 }
 
-fn release_attachment(
-    product: usize,
-    worker: bool,
-) -> Option<NativeProductHostObservation> {
+fn release_attachment(product: usize, worker: bool) -> Option<NativeProductHostObservation> {
     Some(release_thread_attachment(product, worker))
 }

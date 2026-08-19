@@ -777,7 +777,9 @@ mod tests {
             OutputFormat::Text,
             false,
         )
-        .unwrap_or_else(|error| panic!("MIR notation should render without source comments: {error:?}"));
+        .unwrap_or_else(|error| {
+            panic!("MIR notation should render without source comments: {error:?}")
+        });
 
         let (text, diagnostics) = output.into_parts();
 
