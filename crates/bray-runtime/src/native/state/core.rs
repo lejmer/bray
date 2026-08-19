@@ -160,6 +160,7 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
+    pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
 }
 

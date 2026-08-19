@@ -2,6 +2,8 @@ trusted module std.time;
 
 const NANOSECONDS_PER_SECOND: u32 = 1000000000;
 
+const MONOTONIC_TICKS_UNAVAILABLE: u64 = 18446744073709551615;
+
 internal struct DurationState
 {
     seconds: i64;
@@ -95,36 +97,20 @@ struct Duration
     }
 }
 
-internal struct InstantState
-{
-    ticks: u64;
-    frequency: u64;
-    clock_identity: u64;
-}
-
 struct Instant
 {
-    internal state: InstantState;
+    internal ticks: u64;
 
     func duration_since(pos earlier: &Instant) -> Result<Duration, ClockError>
     {
-        if self.state.clock_identity != earlier.state.clock_identity || self.state.frequency !=
-            earlier.state.frequency || self.state.frequency == 0 || self.state.ticks < earlier.state.ticks
+        if self.ticks < earlier.ticks
         {
             return Error(ClockError.OutOfRange);
         }
 
-        let elapsed: u64 = self.state.ticks - earlier.state.ticks;
-        let frequency: u128 = self.state.frequency as u128;
-        let seconds: u128 = elapsed as u128 / frequency;
-
-        if seconds > 9223372036854775807
-        {
-            return Error(ClockError.OutOfRange);
-        }
-
-        let remaining: u128 = elapsed as u128 % frequency;
-        let nanoseconds: u128 = remaining * NANOSECONDS_PER_SECOND as u128 / frequency;
+        let elapsed: u64 = self.ticks - earlier.ticks;
+        let seconds: u64 = elapsed / NANOSECONDS_PER_SECOND as u64;
+        let nanoseconds: u64 = elapsed % NANOSECONDS_PER_SECOND as u64;
 
         return Duration(seconds = std.truncate_to<i64>(seconds), nanoseconds = std.truncate_to<u32>(nanoseconds));
     }
@@ -293,39 +279,24 @@ union ClockError
 
 func monotonic_now() -> Result<Instant, ClockError>
 {
-    return trusted monotonic_now_from_platform();
-}
+    let ticks: u64 = trusted monotonic_ticks();
 
-trusted internal func monotonic_now_from_platform() -> Result<Instant, ClockError>
-    uses(foreign_call)
-{
-    let mut ticks: u64 = 0;
-    let mut frequency: u64 = 0;
-    let mut clock_identity: u64 = 0;
-
-    let status: std.platform.PlatformStatus = trusted internal std.platform.clock_monotonic_now(
-        ticks = std.memory.address_of_mut<u64>(&mut ticks),
-        frequency = std.memory.address_of_mut<u64>(&mut frequency),
-        clock_identity = std.memory.address_of_mut<u64>(&mut clock_identity),
-    );
-
-    try checked_clock_status(status);
-
-    if frequency == 0 || clock_identity == 0
+    if ticks == MONOTONIC_TICKS_UNAVAILABLE
     {
-        return Error(ClockError.OutOfRange);
+        return Error(ClockError.Unavailable);
     }
 
     return Ok(
         {
-            state =
-            {
-                ticks = ticks,
-                frequency = frequency,
-                clock_identity = clock_identity,
-            }
+            ticks = ticks
         }
     );
+}
+
+trusted internal func monotonic_ticks() -> u64
+    uses(foreign_call)
+{
+    return trusted internal std.platform.clock_monotonic_now();
 }
 
 func wall_now() -> Result<Timestamp, ClockError>

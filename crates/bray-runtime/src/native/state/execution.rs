@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
@@ -22,6 +22,14 @@ use super::binding::{
     write_cleanup_incident_report,
 };
 use super::core::{CURRENT_NATIVE_TASK, NativeRuntime, NativeTaskSlot, StartedTask};
+
+struct TaskObservationClaim<'a>(&'a AtomicBool);
+
+impl Drop for TaskObservationClaim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 impl NativeRuntime {
     pub(in crate::native) fn with_cleanup_driving<T>(
@@ -115,6 +123,7 @@ impl NativeRuntime {
             task,
             registration,
             waits: Mutex::new(Vec::new()),
+            observation_claimed: AtomicBool::new(false),
             terminal,
         });
 
@@ -449,18 +458,29 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn observe(&self, handle: NativeTaskHandle) -> NativeRunOutcome {
-        let mut tasks = self
+        // A running frame may need the task table while observation waits for its task lock.
+        let task = match self
             .tasks
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let task = match tasks.get(&handle) {
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&handle)
+        {
             Some(NativeTaskSlot::Started(task)) => Arc::clone(task),
             Some(NativeTaskSlot::Terminal { outcome, .. }) => return *outcome,
             Some(NativeTaskSlot::Allocated) | None => {
                 return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
             }
         };
+
+        if task
+            .observation_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return NativeRunOutcome::new(NativeRunState::PENDING, 0);
+        }
+
+        let _claim = TaskObservationClaim(&task.observation_claimed);
 
         match task.task.take_outcome() {
             Ok(outcome) => {
@@ -473,12 +493,14 @@ impl NativeRuntime {
 
                 let outcome = task_outcome(outcome, &task.terminal);
 
-                tasks.insert(handle, NativeTaskSlot::Terminal {
-                    outcome,
-                    _task: task,
-                });
+                self.tasks
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(handle, NativeTaskSlot::Terminal {
+                        outcome,
+                        _task: Arc::clone(&task),
+                    });
 
-                drop(tasks);
                 self.release_resolved_awaits(handle);
 
                 outcome
@@ -496,10 +518,13 @@ impl NativeRuntime {
 
                 let outcome = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
 
-                tasks.insert(handle, NativeTaskSlot::Terminal {
-                    outcome,
-                    _task: task,
-                });
+                self.tasks
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(handle, NativeTaskSlot::Terminal {
+                        outcome,
+                        _task: Arc::clone(&task),
+                    });
 
                 outcome
             }

@@ -522,9 +522,10 @@ mod tests {
 
     use bray_runtime_abi::{
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeLaneRequirements, NativePanicCause, NativeProtectedFrame,
-        NativeProtectedFrameTransfer, NativeRunState, NativeRuntimeConfiguration,
-        NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
+        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativePanicCause,
+        NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
+        NativeTaskHandle,
     };
 
     use super::super::callback::{
@@ -532,11 +533,12 @@ mod tests {
     };
 
     use super::{
+        bray_runtime_awaited_frame_composition_v1, bray_runtime_frame_completion_move_v1,
         bray_runtime_join_registration_v1, bray_runtime_main_thread_lane_drive_v1,
         bray_runtime_main_thread_lane_startup_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
-        bray_runtime_structured_shutdown_v1, bray_runtime_task_allocation_v1,
-        bray_runtime_task_start_v1,
+        bray_runtime_structured_shutdown_v1, bray_runtime_suspension_registration_v1,
+        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -552,6 +554,8 @@ mod tests {
     static FAILURE_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static FAILURE_RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
     static FAILURE_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+    static AWAITED_BLOCKING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
+    const AWAITED_BLOCKING_CHILD_COUNT: usize = 8;
 
     #[test]
     fn root_execution_moves_completion_before_frame_destruction() {
@@ -632,6 +636,64 @@ mod tests {
         assert_eq!(
             bray_runtime_root_terminal_observation_v1(root).state(),
             NativeRunState::COMPLETED
+        );
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution_v1(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn awaited_blocking_children_wake_the_cooperative_parent() {
+        AWAITED_BLOCKING_COMPLETIONS.store(0, Ordering::Relaxed);
+
+        let start = execute_test_root(
+            protected_frame_with_state(
+                8,
+                movable_frame_state,
+                await_blocking_children,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(AWAITED_BLOCKING_CHILD_COUNT + 1, 1),
+        );
+
+        let Some(root) = start.root() else {
+            panic!("awaiting root frame must transfer");
+        };
+
+        let task = NativeTaskHandle::new(root.raw())
+            .unwrap_or_else(|| panic!("root handle must identify a task"));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
+        loop {
+            let outcome = super::with_runtime(|runtime| runtime.observe(task))
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+            if outcome.state() != NativeRunState::PENDING {
+                assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                break;
+            }
+
+            assert!(
+                std::time::Instant::now() < deadline,
+                "awaited blocking children must make progress after {} completions",
+                AWAITED_BLOCKING_COMPLETIONS.load(Ordering::Relaxed)
+            );
+
+            std::thread::yield_now();
+        }
+
+        assert_eq!(
+            AWAITED_BLOCKING_COMPLETIONS.load(Ordering::Relaxed),
+            AWAITED_BLOCKING_CHILD_COUNT
         );
 
         assert_eq!(
@@ -1142,8 +1204,46 @@ mod tests {
         NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
     }
 
+    extern "C" fn movable_blocking_frame_state(_: usize, _: u32) -> NativeFrameState {
+        NativeFrameState::new(
+            NativeFrameAffinity::MOVABLE,
+            NativeLaneRequirements::BLOCKING,
+        )
+    }
+
     extern "C-unwind" fn resume_frame(_: usize) -> NativeFrameProgress {
         NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17)
+    }
+
+    extern "C-unwind" fn await_blocking_children(_: usize) -> NativeFrameProgress {
+        let completed = AWAITED_BLOCKING_COMPLETIONS.load(Ordering::Relaxed);
+
+        if completed != 0 {
+            let _ = bray_runtime_frame_completion_move_v1();
+        }
+
+        if completed == AWAITED_BLOCKING_CHILD_COUNT {
+            return NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17);
+        }
+
+        AWAITED_BLOCKING_COMPLETIONS.store(completed + 1, Ordering::Relaxed);
+
+        bray_runtime_awaited_frame_composition_v1(NativeInactiveFrame::new(
+            0,
+            move_blocking_child,
+        ));
+
+        bray_runtime_suspension_registration_v1(1)
+    }
+
+    extern "C" fn move_blocking_child(_: usize) -> NativeProtectedFrame {
+        protected_frame_with_state(
+            8,
+            movable_blocking_frame_state,
+            resume_frame,
+            record_root_completion_destination,
+            ignore_action,
+        )
     }
 
     extern "C-unwind" fn resume_runtime_failure(_: usize) -> NativeFrameProgress {

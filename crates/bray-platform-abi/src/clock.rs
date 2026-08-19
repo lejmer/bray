@@ -1,42 +1,66 @@
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, WallClock};
-use bray_platform_abi_support::{MemoryRegion, disjoint, native_platform_export};
-use bray_runtime_abi::NativePlatformStatus;
+use bray_platform_abi_support::{MemoryRegion, native_platform_export};
+use bray_runtime_abi::{NATIVE_MONOTONIC_TICKS_UNAVAILABLE, NativePlatformStatus};
+#[cfg(windows)]
+use windows_sys::Win32::System::WindowsProgramming::QueryInterruptTimePrecise;
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_clock_monotonic_now(
-        ticks: *mut u64,
-        frequency: *mut u64,
-        clock_identity: *mut u64,
-    ) -> NativePlatformStatus {
-        let Some(ticks_region) = MemoryRegion::write(ticks) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+    pub extern "C" fn bray_platform_clock_monotonic_now() -> u64 {
+        #[cfg(windows)]
+        {
+            let mut ticks = 0;
 
-        let Some(frequency_region) = MemoryRegion::write(frequency) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+            unsafe {
+                QueryInterruptTimePrecise(&raw mut ticks);
+            }
 
-        let Some(identity_region) = MemoryRegion::write(clock_identity) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
-
-        if !disjoint(&[ticks_region, frequency_region, identity_region]) {
-            return NativePlatformStatus::INVALID_INPUT;
+            ticks
+                .checked_mul(100)
+                .unwrap_or(NATIVE_MONOTONIC_TICKS_UNAVAILABLE)
         }
 
-        let Some(reading) = MonotonicClock.reading() else {
-            return NativePlatformStatus::OTHER;
-        };
+        #[cfg(unix)]
+        {
+            let mut observed = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
 
-        unsafe {
-            ticks.write(reading.ticks());
-            frequency.write(reading.frequency());
-            clock_identity.write(reading.clock_identity());
+            let status = unsafe {
+                libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut observed)
+            };
+
+            if status != 0 {
+                return NATIVE_MONOTONIC_TICKS_UNAVAILABLE;
+            }
+
+            let Ok(seconds) = u64::try_from(observed.tv_sec) else {
+                return NATIVE_MONOTONIC_TICKS_UNAVAILABLE;
+            };
+
+            let Ok(nanoseconds) = u64::try_from(observed.tv_nsec) else {
+                return NATIVE_MONOTONIC_TICKS_UNAVAILABLE;
+            };
+
+            if nanoseconds >= 1_000_000_000 {
+                return NATIVE_MONOTONIC_TICKS_UNAVAILABLE;
+            }
+
+            seconds
+                .checked_mul(1_000_000_000)
+                .and_then(|whole| whole.checked_add(nanoseconds))
+                .filter(|ticks| *ticks != NATIVE_MONOTONIC_TICKS_UNAVAILABLE)
+                .unwrap_or(NATIVE_MONOTONIC_TICKS_UNAVAILABLE)
         }
 
-        NativePlatformStatus::SUCCESS
+        #[cfg(not(any(unix, windows)))]
+        {
+            MonotonicClock
+                .ticks()
+                .unwrap_or(NATIVE_MONOTONIC_TICKS_UNAVAILABLE)
+        }
     }
 }
 
@@ -87,7 +111,7 @@ native_platform_export! {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::NativePlatformStatus;
+    use bray_runtime_abi::{NATIVE_MONOTONIC_TICKS_UNAVAILABLE, NativePlatformStatus};
 
     use super::{
         bray_platform_clock_monotonic_now, bray_platform_clock_sleep, bray_platform_clock_wall_now,
@@ -95,19 +119,11 @@ mod tests {
 
     #[test]
     fn native_clock_boundaries_publish_valid_readings() {
-        let mut ticks = 0;
-        let mut frequency = 0;
-        let mut identity = 0;
+        let first = bray_platform_clock_monotonic_now();
+        let second = bray_platform_clock_monotonic_now();
 
-        let monotonic = bray_platform_clock_monotonic_now(
-            &raw mut ticks,
-            &raw mut frequency,
-            &raw mut identity,
-        );
-
-        assert_eq!(monotonic, NativePlatformStatus::SUCCESS);
-        assert_ne!(frequency, 0);
-        assert_ne!(identity, 0);
+        assert_ne!(first, NATIVE_MONOTONIC_TICKS_UNAVAILABLE);
+        assert!(second >= first);
 
         let mut seconds = 0;
         let mut nanoseconds = 0;
@@ -123,14 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn native_clock_boundaries_reject_overlapping_or_invalid_outputs() {
-        let mut shared = 0_u64;
-
-        assert_eq!(
-            bray_platform_clock_monotonic_now(&raw mut shared, &raw mut shared, &raw mut shared,),
-            NativePlatformStatus::INVALID_INPUT
-        );
-
+    fn native_clock_boundaries_reject_invalid_sleep_durations() {
         assert_eq!(
             bray_platform_clock_sleep(0, 1_000_000_000),
             NativePlatformStatus::INVALID_INPUT

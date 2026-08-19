@@ -24,8 +24,7 @@ mod thread;
 
 #[cfg(feature = "clock")]
 pub use clock::{
-    MonotonicClock, MonotonicDeadline, MonotonicInstant, MonotonicReading, WallClock,
-    WallClockTimestamp,
+    MonotonicClock, MonotonicDeadline, MonotonicInstant, WallClock, WallClockTimestamp,
 };
 #[cfg(feature = "contract")]
 pub use contract::{HostPlatform, PlatformCapability, PlatformContract};
