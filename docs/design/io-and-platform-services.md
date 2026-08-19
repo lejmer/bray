@@ -173,7 +173,7 @@ The minimum role families are:
 | Process pipes    | Read child output, write and flush child input, and close a typed pipe owner                                        |
 | Filesystems      | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles           |
 | Child processes  | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
-| Clocks           | Read process-local monotonic and wall clocks                                                                         |
+| Clocks           | Read process-local monotonic and wall clocks                                                                        |
 | Temporal data    | Interpret calendar values and named timezone rules through the pinned native provider                               |
 | Entropy          | Fill caller-owned mutable bytes from the target entropy source                                                      |
 | Wait integration | Expose waitable completion sources that the runtime reactor can register and wake                                   |
@@ -477,13 +477,13 @@ wrapper applies its separate `TerminationPolicy` through these roles.
 
 #### Clocks and entropy
 
-|       ID | Role                           | Parameters                        | Results                                                           | Status set | Mode and effects                                       |
-|---------:|--------------------------------|-----------------------------------|-------------------------------------------------------------------|------------|--------------------------------------------------------|
-| `0x0401` | `platform.clock.monotonic_now` | none                              | `out<u64>` nanosecond ticks                                       | `clock`    | `nonblocking`. Output exists only on success            |
-| `0x0402` | `platform.clock.wall_now`      | none                              | `out<i64> seconds`, `out<u32> nanoseconds`                        | `clock`    | `nonblocking`. No ownership change                     |
-| `0x0403` | `platform.clock.sleep`         | `u64 seconds`, `u32 nanoseconds`  | none                                                              | `clock`    | `may_block`. No ownership change                       |
-| `0x0411` | `platform.timer.start`         | `u64` nanosecond ticks            | `out<start_result>`                                               | `clock`    | `starts_operation`. Terminal completion has no payload |
-| `0x0501` | `platform.entropy.fill`        | `mut_bytes(call)`                 | `out<u64> transferred`                                            | `entropy`  | `may_block`. Initializes exactly the reported prefix   |
+|       ID | Role                           | Parameters                       | Results                                    | Status set | Mode and effects                                       |
+|---------:|--------------------------------|----------------------------------|--------------------------------------------|------------|--------------------------------------------------------|
+| `0x0401` | `platform.clock.monotonic_now` | none                             | `out<u64>` nanosecond ticks                | `clock`    | `nonblocking`. Output exists only on success           |
+| `0x0402` | `platform.clock.wall_now`      | none                             | `out<i64> seconds`, `out<u32> nanoseconds` | `clock`    | `nonblocking`. No ownership change                     |
+| `0x0403` | `platform.clock.sleep`         | `u64 seconds`, `u32 nanoseconds` | none                                       | `clock`    | `may_block`. No ownership change                       |
+| `0x0411` | `platform.timer.start`         | `u64` nanosecond ticks           | `out<start_result>`                        | `clock`    | `starts_operation`. Terminal completion has no payload |
+| `0x0501` | `platform.entropy.fill`        | `mut_bytes(call)`                | `out<u64> transferred`                     | `entropy`  | `may_block`. Initializes exactly the reported prefix   |
 
 `platform.clock.monotonic_now` readings use the process-local monotonic clock domain, count nanoseconds, and never
 decrease. `wall_now` nanoseconds are below one billion. Public async entropy dispatches the blocking role to a checked
