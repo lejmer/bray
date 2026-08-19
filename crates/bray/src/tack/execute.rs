@@ -2162,6 +2162,44 @@ mod tests {
     }
 
     #[test]
+    fn source_inspections_do_not_receive_unit_only_arguments() {
+        for inspection in ["source", "tokens", "syntax", "declarations", "symbols"] {
+            let workspace = ProjectWorkspace::basic();
+            let executor = RecordingExecutor::default();
+
+            let result = run_tack_result_with_input(
+                [
+                    "bray".into(),
+                    "--workspace".into(),
+                    workspace.path().as_os_str().to_os_string(),
+                    "inspect".into(),
+                    inspection.into(),
+                ],
+                &executor,
+                Cursor::new(Vec::new()),
+            );
+
+            assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+            let requests = executor.requests();
+
+            let [request] = requests.as_slice() else {
+                panic!("source inspection should invoke exactly one compiler");
+            };
+
+            assert!(!request
+                .arguments
+                .iter()
+                .any(|argument| argument == "--source-id"));
+
+            assert!(!request
+                .arguments
+                .iter()
+                .any(|argument| argument == "--offset"));
+        }
+    }
+
+    #[test]
     fn project_load_failures_do_not_invoke_toolchain_processes() {
         let workspace = unique_temporary_directory();
         let executor = RecordingExecutor::default();
