@@ -81,7 +81,7 @@ inline BrayPlatformStatus bray_read_standard_stream(
     return {BRAY_PLATFORM_SUCCESS, 0, 0};
 }
 
-inline BrayPlatformStatus bray_write_standard_stream(
+inline BrayPlatformStatus bray_write_standard_stream_unlocked(
 #if defined(_WIN32)
     DWORD stream,
 #else

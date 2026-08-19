@@ -1,8 +1,11 @@
+use std::cell::RefCell;
 use std::io::{self, Write};
-use std::sync::{Condvar, Mutex};
-use std::thread::ThreadId;
+use std::sync::OnceLock;
 
-use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run_output};
+use bray_platform::{
+    RunOutputOperation, RunOutputOperationError, RunOutputStream,
+    begin_current_run_output_operation,
+};
 use bray_platform_abi_support::{
     platform_io_error, publish_transfer_count, source_slice, validate_transfer,
 };
@@ -29,19 +32,8 @@ macro_rules! captured_standard_stream {
 }
 
 fn flush_standard_stream(stream: RunOutputStream) -> NativePlatformStatus {
-    if flush_current_run_output(stream).is_some() {
-        return NativePlatformStatus::SUCCESS;
-    }
-
-    let result = match stream {
-        RunOutputStream::StandardOutput => io::stdout().lock().flush(),
-        RunOutputStream::StandardError => io::stderr().lock().flush(),
-    };
-
-    match inherited_io_result(result) {
-        Ok(()) => NativePlatformStatus::SUCCESS,
-        Err(status) => status,
-    }
+    with_standard_stream_operation(stream, StandardStreamOperation::flush)
+        .unwrap_or(NativePlatformStatus::INVALID_INPUT)
 }
 
 fn inherited_io_result<T>(result: io::Result<T>) -> Result<T, NativePlatformStatus> {
@@ -89,89 +81,161 @@ captured_standard_stream!(
 );
 
 macro_rules! captured_standard_stream_lock {
-    ($lock:ident, $unlock:ident, $state:ident) => {
+    ($lock:ident, $unlock:ident, $stream:expr) => {
         native_adapter! {
             pub extern "C" fn $lock() -> NativePlatformStatus {
-                $state.lock()
+                begin_standard_stream_operation($stream)
             }
         }
 
         native_adapter! {
             pub extern "C" fn $unlock() -> NativePlatformStatus {
-                $state.unlock()
+                end_standard_stream_operation($stream)
             }
         }
     };
 }
 
-struct CapturedStandardStreamLock {
-    owner: Mutex<Option<ThreadId>>,
-    available: Condvar,
+enum StandardStreamOperation {
+    InheritedOutput(io::StdoutLock<'static>),
+    InheritedError(io::StderrLock<'static>),
+    Redirected(RunOutputOperation),
 }
 
-impl CapturedStandardStreamLock {
-    const fn new() -> Self {
-        Self {
-            owner: Mutex::new(None),
-            available: Condvar::new(),
+impl StandardStreamOperation {
+    const fn stream(&self) -> RunOutputStream {
+        match self {
+            Self::InheritedOutput(_) => RunOutputStream::StandardOutput,
+            Self::InheritedError(_) => RunOutputStream::StandardError,
+            Self::Redirected(operation) => operation.stream(),
         }
     }
 
-    fn lock(&self) -> NativePlatformStatus {
-        let owner = std::thread::current().id();
+    fn write(&mut self, source: &[u8]) -> Result<usize, NativePlatformStatus> {
+        match self {
+            Self::InheritedOutput(output) => inherited_io_result(output.write(source)),
+            Self::InheritedError(error) => inherited_io_result(error.write(source)),
+            Self::Redirected(operation) => Ok(operation.write(source)),
+        }
+    }
 
-        let Ok(mut held_by) = self.owner.lock() else {
-            return NativePlatformStatus::OTHER;
-        };
+    fn flush(&mut self) -> NativePlatformStatus {
+        let result = match self {
+            Self::InheritedOutput(output) => output.flush(),
+            Self::InheritedError(error) => error.flush(),
+            Self::Redirected(operation) => {
+                operation.flush();
 
-        while let Some(current) = *held_by {
-            if current == owner {
-                return NativePlatformStatus::INVALID_INPUT;
+                return NativePlatformStatus::SUCCESS;
             }
-
-            let Ok(next) = self.available.wait(held_by) else {
-                return NativePlatformStatus::OTHER;
-            };
-
-            held_by = next;
-        }
-
-        *held_by = Some(owner);
-
-        NativePlatformStatus::SUCCESS
-    }
-
-    fn unlock(&self) -> NativePlatformStatus {
-        let owner = std::thread::current().id();
-
-        let Ok(mut held_by) = self.owner.lock() else {
-            return NativePlatformStatus::OTHER;
         };
 
-        if held_by.as_ref() != Some(&owner) {
+        inherited_io_result(result)
+            .map(|()| NativePlatformStatus::SUCCESS)
+            .unwrap_or_else(|status| status)
+    }
+}
+
+static INHERITED_STANDARD_OUTPUT: OnceLock<io::Stdout> = OnceLock::new();
+static INHERITED_STANDARD_ERROR: OnceLock<io::Stderr> = OnceLock::new();
+
+thread_local! {
+    static STANDARD_OUTPUT_OPERATION: RefCell<Option<StandardStreamOperation>> =
+        const { RefCell::new(None) };
+    static STANDARD_ERROR_OPERATION: RefCell<Option<StandardStreamOperation>> =
+        const { RefCell::new(None) };
+}
+
+fn with_operation_slot<T>(
+    stream: RunOutputStream,
+    callback: impl FnOnce(&RefCell<Option<StandardStreamOperation>>) -> T,
+) -> T {
+    match stream {
+        RunOutputStream::StandardOutput => STANDARD_OUTPUT_OPERATION.with(callback),
+        RunOutputStream::StandardError => STANDARD_ERROR_OPERATION.with(callback),
+    }
+}
+
+fn begin_standard_stream_operation(stream: RunOutputStream) -> NativePlatformStatus {
+    with_operation_slot(stream, |operation| {
+        let mut operation = operation.borrow_mut();
+
+        if operation.is_some() {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        *held_by = None;
-        self.available.notify_one();
+        match begin_current_run_output_operation(stream) {
+            Ok(Some(redirected)) => {
+                *operation = Some(StandardStreamOperation::Redirected(redirected));
+
+                return NativePlatformStatus::SUCCESS;
+            }
+            Ok(None) => {}
+            Err(RunOutputOperationError::Reentrant) => {
+                return NativePlatformStatus::INVALID_INPUT;
+            }
+        }
+
+        *operation = Some(match stream {
+            RunOutputStream::StandardOutput => StandardStreamOperation::InheritedOutput(
+                INHERITED_STANDARD_OUTPUT.get_or_init(io::stdout).lock(),
+            ),
+            RunOutputStream::StandardError => StandardStreamOperation::InheritedError(
+                INHERITED_STANDARD_ERROR.get_or_init(io::stderr).lock(),
+            ),
+        });
 
         NativePlatformStatus::SUCCESS
-    }
+    })
 }
 
-static STANDARD_OUTPUT_LOCK: CapturedStandardStreamLock = CapturedStandardStreamLock::new();
-static STANDARD_ERROR_LOCK: CapturedStandardStreamLock = CapturedStandardStreamLock::new();
+fn end_standard_stream_operation(stream: RunOutputStream) -> NativePlatformStatus {
+    with_operation_slot(stream, |operation| {
+        let Some(operation) = operation.borrow_mut().take() else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        match operation {
+            StandardStreamOperation::Redirected(redirected) if redirected.stream() == stream => {
+                NativePlatformStatus::SUCCESS
+            }
+            StandardStreamOperation::InheritedOutput(_)
+                if stream == RunOutputStream::StandardOutput =>
+            {
+                NativePlatformStatus::SUCCESS
+            }
+            StandardStreamOperation::InheritedError(_)
+                if stream == RunOutputStream::StandardError =>
+            {
+                NativePlatformStatus::SUCCESS
+            }
+            _ => NativePlatformStatus::INVALID_INPUT,
+        }
+    })
+}
+
+fn with_standard_stream_operation<T>(
+    stream: RunOutputStream,
+    callback: impl FnOnce(&mut StandardStreamOperation) -> T,
+) -> Option<T> {
+    with_operation_slot(stream, |operation| {
+        let mut operation = operation.borrow_mut();
+        let operation = operation.as_mut()?;
+
+        (operation.stream() == stream).then(|| callback(operation))
+    })
+}
 
 captured_standard_stream_lock!(
     bray_platform_standard_output_lock,
     bray_platform_standard_output_unlock,
-    STANDARD_OUTPUT_LOCK
+    RunOutputStream::StandardOutput
 );
 
 captured_standard_stream_lock!(
     bray_platform_standard_error_lock,
     bray_platform_standard_error_unlock,
-    STANDARD_ERROR_LOCK
+    RunOutputStream::StandardError
 );
 
 #[expect(
@@ -192,33 +256,31 @@ fn write_standard_stream(
 
     let source = unsafe { source_slice(source, length) };
 
-    if write_current_run_output(stream, source).is_none() {
-        let result = match stream {
-            RunOutputStream::StandardOutput => io::stdout().lock().write(source),
-            RunOutputStream::StandardError => io::stderr().lock().write(source),
-        };
+    let Some(result) = with_standard_stream_operation(stream, |operation| operation.write(source))
+    else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
 
-        let written = match inherited_io_result(result) {
-            Ok(written) => written,
-            Err(status) => return status,
-        };
+    let written = match result {
+        Ok(written) => written,
+        Err(status) => return status,
+    };
 
-        return unsafe { publish_transfer_count(transferred, written) };
-    }
-
-    unsafe { publish_transfer_count(transferred, length) }
+    unsafe { publish_transfer_count(transferred, written) }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::sync::{Arc, Barrier};
 
     use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
     use bray_runtime_abi::NativePlatformStatus;
 
     use super::{
-        bray_platform_standard_input_read, bray_platform_standard_output_lock,
-        bray_platform_standard_output_unlock, bray_platform_standard_output_write,
+        bray_platform_standard_input_read, bray_platform_standard_output_flush,
+        bray_platform_standard_output_lock, bray_platform_standard_output_unlock,
+        bray_platform_standard_output_write,
     };
 
     #[test]
@@ -254,18 +316,34 @@ mod tests {
 
         assert_eq!(
             bray_platform_standard_output_write(std::ptr::null(), 0, &raw mut transferred,),
-            NativePlatformStatus::SUCCESS
+            NativePlatformStatus::INVALID_INPUT
         );
 
-        let status = with_run_output_context(output.clone(), || {
-            bray_platform_standard_output_write(b"abcde".as_ptr(), 5, &raw mut transferred)
+        let (write, flush) = with_run_output_context(output.clone(), || {
+            assert_eq!(
+                bray_platform_standard_output_lock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            let write =
+                bray_platform_standard_output_write(b"abcde".as_ptr(), 5, &raw mut transferred);
+
+            let flush = bray_platform_standard_output_flush();
+
+            assert_eq!(
+                bray_platform_standard_output_unlock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            (write, flush)
         });
 
         let captured = output
             .captured_stream(RunOutputStream::StandardOutput)
             .unwrap_or_else(|| panic!("selected capture must expose standard output"));
 
-        assert_eq!(status, NativePlatformStatus::SUCCESS);
+        assert_eq!(write, NativePlatformStatus::SUCCESS);
+        assert_eq!(flush, NativePlatformStatus::SUCCESS);
         assert_eq!(transferred, 5);
         assert_eq!(captured.bytes(), b"abc");
         assert_eq!(captured.discarded_byte_count(), 2);
@@ -273,24 +351,155 @@ mod tests {
 
     #[test]
     fn selected_capture_adapter_enforces_standard_stream_ownership() {
-        assert_eq!(
-            bray_platform_standard_output_lock(),
-            NativePlatformStatus::SUCCESS
-        );
+        let output = RunOutputContext::discarded();
 
-        assert_eq!(
-            bray_platform_standard_output_lock(),
-            NativePlatformStatus::INVALID_INPUT
-        );
+        with_run_output_context(output, || {
+            let mut transferred = 9;
 
-        assert_eq!(
-            bray_platform_standard_output_unlock(),
-            NativePlatformStatus::SUCCESS
-        );
+            assert_eq!(
+                bray_platform_standard_output_flush(),
+                NativePlatformStatus::INVALID_INPUT
+            );
 
-        assert_eq!(
-            bray_platform_standard_output_unlock(),
-            NativePlatformStatus::INVALID_INPUT
-        );
+            assert_eq!(
+                bray_platform_standard_output_lock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_lock(),
+                NativePlatformStatus::INVALID_INPUT
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_write(
+                    std::ptr::null(),
+                    1,
+                    &raw mut transferred,
+                ),
+                NativePlatformStatus::INVALID_INPUT
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_unlock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_unlock(),
+                NativePlatformStatus::INVALID_INPUT
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_lock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_unlock(),
+                NativePlatformStatus::SUCCESS
+            );
+        });
+    }
+
+    #[test]
+    fn inherited_output_reuses_its_operation_guard() {
+        let output = RunOutputContext::inherited();
+        let mut transferred = 9;
+
+        with_run_output_context(output, || {
+            assert_eq!(
+                bray_platform_standard_output_lock(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_write(
+                    std::ptr::null(),
+                    0,
+                    &raw mut transferred,
+                ),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_flush(),
+                NativePlatformStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_platform_standard_output_unlock(),
+                NativePlatformStatus::SUCCESS
+            );
+        });
+
+        assert_eq!(transferred, 0);
+    }
+
+    #[test]
+    fn captured_stream_operations_are_atomic_across_threads() {
+        const WRITE_COUNT: usize = 64;
+
+        let output = RunOutputContext::captured(WRITE_COUNT * 2, WRITE_COUNT * 2);
+        let barrier = Arc::new(Barrier::new(2));
+        let mut threads = Vec::new();
+
+        for byte in [b'a', b'b'] {
+            let output = output.clone();
+            let barrier = Arc::clone(&barrier);
+
+            threads.push(std::thread::spawn(move || {
+                with_run_output_context(output, || {
+                    barrier.wait();
+
+                    assert_eq!(
+                        bray_platform_standard_output_lock(),
+                        NativePlatformStatus::SUCCESS
+                    );
+
+                    for _ in 0..WRITE_COUNT {
+                        let mut transferred = 0;
+
+                        assert_eq!(
+                            bray_platform_standard_output_write(
+                                &raw const byte,
+                                1,
+                                &raw mut transferred,
+                            ),
+                            NativePlatformStatus::SUCCESS
+                        );
+
+                        assert_eq!(transferred, 1);
+                    }
+
+                    assert_eq!(
+                        bray_platform_standard_output_unlock(),
+                        NativePlatformStatus::SUCCESS
+                    );
+                });
+            }));
+        }
+
+        for thread in threads {
+            thread
+                .join()
+                .unwrap_or_else(|_| panic!("captured stream writer must complete"));
+        }
+
+        let captured = output
+            .captured_stream(RunOutputStream::StandardOutput)
+            .unwrap_or_else(|| panic!("selected capture must expose standard output"));
+
+        let first = vec![b'a'; WRITE_COUNT]
+            .into_iter()
+            .chain(vec![b'b'; WRITE_COUNT])
+            .collect::<Vec<_>>();
+
+        let second = vec![b'b'; WRITE_COUNT]
+            .into_iter()
+            .chain(vec![b'a'; WRITE_COUNT])
+            .collect::<Vec<_>>();
+
+        assert!(captured.bytes() == first || captured.bytes() == second);
     }
 }

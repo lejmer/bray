@@ -16,9 +16,11 @@ extern "C" BrayPlatformStatus bray_platform_standard_output_write(
 )
 {
 #if defined(_WIN32)
-    return bray_write_standard_stream(STD_OUTPUT_HANDLE, source, length, transferred);
+    return bray_write_standard_stream_unlocked(
+        STD_OUTPUT_HANDLE, source, length, transferred
+    );
 #else
-    return bray_write_standard_stream(STDOUT_FILENO, source, length, transferred);
+    return bray_write_standard_stream_unlocked(STDOUT_FILENO, source, length, transferred);
 #endif
 }
 
