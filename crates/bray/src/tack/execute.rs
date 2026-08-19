@@ -2187,15 +2187,19 @@ mod tests {
                 panic!("source inspection should invoke exactly one compiler");
             };
 
-            assert!(!request
-                .arguments
-                .iter()
-                .any(|argument| argument == "--source-id"));
+            assert!(
+                !request
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "--source-id")
+            );
 
-            assert!(!request
-                .arguments
-                .iter()
-                .any(|argument| argument == "--offset"));
+            assert!(
+                !request
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "--offset")
+            );
         }
     }
 

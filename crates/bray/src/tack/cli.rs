@@ -192,7 +192,7 @@ impl Cli {
                 });
             }
             Some(worker_count) => worker_count,
-            None => std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
+            None => std::thread::available_parallelism().map_or(1, NonZeroUsize::get),
         };
 
         let command = self.command.into_command();
@@ -699,13 +699,8 @@ mod tests {
 
     #[test]
     fn keeps_mir_source_annotations_opt_in() {
-        let invocation = TackInvocation::try_from_arguments([
-            "bray",
-            "inspect",
-            "mir",
-            "--source",
-        ])
-        .unwrap_or_else(|error| panic!("MIR source annotations should parse: {error:?}"));
+        let invocation = TackInvocation::try_from_arguments(["bray", "inspect", "mir", "--source"])
+            .unwrap_or_else(|error| panic!("MIR source annotations should parse: {error:?}"));
 
         let (_, _, _, _, _, _, command) = invocation.into_parts();
 

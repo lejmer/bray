@@ -7,9 +7,9 @@ using std.time;
 func clock_readings_obey_their_value_contracts() -> Result<unit, std.time.ClockError>
 {
     let first: std.time.Instant = try std.time.monotonic_now();
-    let zero: std.time.Duration = try std.time.Duration(seconds = 0, nanoseconds = 0);
+    let delay: std.time.Duration = try std.time.Duration(seconds = 0, nanoseconds = 1000000);
 
-    try std.time.sleep(zero);
+    try std.time.sleep(delay);
 
     let second: std.time.Instant = try std.time.monotonic_now();
     let elapsed: std.time.Duration = try second.duration_since(&first);
@@ -17,6 +17,7 @@ func clock_readings_obey_their_value_contracts() -> Result<unit, std.time.ClockE
 
     assert(elapsed.seconds() >= 0);
     assert(elapsed.nanoseconds() < 1000000000);
+    assert(elapsed.seconds() > 0 || elapsed.nanoseconds() >= 1000000);
     assert(wall.nanoseconds() < 1000000000);
 
     return Ok(unit);
@@ -38,6 +39,17 @@ func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std
     }
 
     return Ok(unit);
+}
+
+@test
+func unavailable_monotonic_clocks_preserve_the_typed_failure()
+{
+    match internal std.time.checked_clock_status(1, 0, 0)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.ClockError.Unavailable) {}
+        case Error(_) { assert(false); }
+    }
 }
 
 @test

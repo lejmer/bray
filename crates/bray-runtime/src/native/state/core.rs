@@ -8,14 +8,13 @@ use std::sync::{Arc, Mutex};
 
 use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
-    NativeRunOutcome, NativeRuntimeConfiguration,
-    NativeRuntimeStatus, NativeTaskHandle,
+    NativeRunOutcome, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
-    CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
+    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
+    JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -160,10 +159,13 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
+    pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
 }
 
-pub(in crate::native) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus {
+pub(in crate::native) fn initialize(
+    configuration: NativeRuntimeConfiguration,
+) -> NativeRuntimeStatus {
     initialize_with_capabilities(
         configuration,
         [
@@ -246,7 +248,7 @@ pub(in crate::native) fn with_runtime<T>(
 }
 
 pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
-    let runtime = NATIVE_RUNTIME.with(|runtime| runtime.take());
+    let runtime = NATIVE_RUNTIME.take();
 
     let Some(runtime) = runtime else {
         return NativeRuntimeStatus::NOT_INITIALIZED;
@@ -289,7 +291,7 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
         return Err(status);
     }
 
-    let runtime = NATIVE_RUNTIME.with(|runtime| runtime.take());
+    let runtime = NATIVE_RUNTIME.take();
 
     let Some(runtime) = runtime else {
         return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -329,8 +331,8 @@ pub(in crate::native) fn run_worker(
     while !runtime.workers.is_stopping() {
         control.drain();
 
-        let deadline = bray_platform::MonotonicClock
-            .deadline_after(std::time::Duration::from_millis(50));
+        let deadline =
+            bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
 
         match runtime.scheduler.wait_ready(lane, deadline) {
             Ok(Some(ready)) => {
@@ -343,7 +345,5 @@ pub(in crate::native) fn run_worker(
 
     control.drain();
 
-    NATIVE_RUNTIME.with(|current| {
-        current.take();
-    });
+    NATIVE_RUNTIME.take();
 }

@@ -74,11 +74,7 @@ extern trusted internal func environment_key_equals(
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func clock_monotonic_now(
-    pos ticks: RawPointer<u64>,
-    pos frequency: RawPointer<u64>,
-    pos clock_identity: RawPointer<u64>,
-) -> PlatformStatus
+extern trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
     uses(foreign_call);
 
 @abi(c)

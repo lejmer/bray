@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
-    NativeProductHostDescriptor, NativeProductHostObservation,
-    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
+    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
+    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
     NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer, NativeStaticIdentity,
     NativeStaticTransitionCallback,
 };
@@ -49,7 +49,10 @@ pub(super) struct ProductHost {
 }
 
 impl ProductHost {
-    pub(super) fn observation(&self, status: NativeProductHostStatus) -> NativeProductHostObservation {
+    pub(super) fn observation(
+        &self,
+        status: NativeProductHostStatus,
+    ) -> NativeProductHostObservation {
         NativeProductHostObservation::new(
             status,
             self.state,
@@ -158,7 +161,9 @@ impl ThreadStaticRegistry {
             return true;
         }
 
-        if !bray_platform::register_runtime_thread_exit_callback(super::thread::drain_thread_statics) {
+        if !bray_platform::register_runtime_thread_exit_callback(
+            super::thread::drain_thread_statics,
+        ) {
             return false;
         }
 

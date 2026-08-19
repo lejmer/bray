@@ -2,8 +2,7 @@ use std::fmt::Write;
 
 use super::super::model::{InspectionMirOperation, InspectionMirSource, InspectionMirUnit};
 use super::support::{
-    attribute_text, operand_for, operand_text, place_for, place_text, source_annotation,
-    type_for,
+    attribute_text, operand_for, operand_text, place_for, place_text, source_annotation, type_for,
 };
 
 pub(super) fn render(
@@ -555,7 +554,10 @@ mod tests {
             vec![value("subject", 7)],
         );
 
-        assert_eq!(operation_text(&operation), "observe %7[2] [element_from_start]");
+        assert_eq!(
+            operation_text(&operation),
+            "observe %7[2] [element_from_start]"
+        );
     }
 
     #[test]

@@ -1,39 +1,11 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
-const PROCESS_CLOCK_IDENTITY: u64 = 1;
-
 static PROCESS_CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Monotonic process-local instant.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MonotonicInstant(Instant);
-
-/// Portable scalar reading from the process-local monotonic clock domain.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct MonotonicReading {
-    ticks: u64,
-    frequency: u64,
-    clock_identity: u64,
-}
-
-impl MonotonicReading {
-    /// Returns elapsed ticks since the process-local clock origin.
-    pub const fn ticks(self) -> u64 {
-        self.ticks
-    }
-
-    /// Returns ticks per second for this clock domain.
-    pub const fn frequency(self) -> u64 {
-        self.frequency
-    }
-
-    /// Returns the process-local clock-domain identity.
-    pub const fn clock_identity(self) -> u64 {
-        self.clock_identity
-    }
-}
 
 /// Wall-clock timestamp relative to the Unix epoch.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -122,16 +94,12 @@ impl MonotonicClock {
         MonotonicInstant(Instant::now())
     }
 
-    /// Observes the process-local monotonic clock as stable scalar ABI fields.
-    pub fn reading(self) -> Option<MonotonicReading> {
+    /// Observes nanoseconds elapsed in the process-local monotonic clock domain.
+    pub fn ticks(self) -> Option<u64> {
         let origin = PROCESS_CLOCK_ORIGIN.get_or_init(Instant::now);
         let ticks = u64::try_from(origin.elapsed().as_nanos()).ok()?;
 
-        Some(MonotonicReading {
-            ticks,
-            frequency: NANOSECONDS_PER_SECOND,
-            clock_identity: PROCESS_CLOCK_IDENTITY,
-        })
+        (ticks != u64::MAX).then_some(ticks)
     }
 
     /// Creates a deadline relative to the current instant when representable.
@@ -179,16 +147,14 @@ mod tests {
     #[test]
     fn scalar_clock_readings_preserve_clock_contracts() {
         let first = MonotonicClock
-            .reading()
+            .ticks()
             .unwrap_or_else(|| panic!("reading must fit"));
 
         let second = MonotonicClock
-            .reading()
+            .ticks()
             .unwrap_or_else(|| panic!("reading must fit"));
 
-        assert!(second.ticks() >= first.ticks());
-        assert_eq!(first.frequency(), 1_000_000_000);
-        assert_eq!(first.clock_identity(), second.clock_identity());
+        assert!(second >= first);
 
         let wall = WallClock
             .now()

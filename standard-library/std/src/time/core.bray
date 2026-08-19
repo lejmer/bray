@@ -95,36 +95,20 @@ struct Duration
     }
 }
 
-internal struct InstantState
-{
-    ticks: u64;
-    frequency: u64;
-    clock_identity: u64;
-}
-
 struct Instant
 {
-    internal state: InstantState;
+    internal ticks: u64;
 
     func duration_since(pos earlier: &Instant) -> Result<Duration, ClockError>
     {
-        if self.state.clock_identity != earlier.state.clock_identity || self.state.frequency !=
-            earlier.state.frequency || self.state.frequency == 0 || self.state.ticks < earlier.state.ticks
+        if self.ticks < earlier.ticks
         {
             return Error(ClockError.OutOfRange);
         }
 
-        let elapsed: u64 = self.state.ticks - earlier.state.ticks;
-        let frequency: u128 = self.state.frequency as u128;
-        let seconds: u128 = elapsed as u128 / frequency;
-
-        if seconds > 9223372036854775807
-        {
-            return Error(ClockError.OutOfRange);
-        }
-
-        let remaining: u128 = elapsed as u128 % frequency;
-        let nanoseconds: u128 = remaining * NANOSECONDS_PER_SECOND as u128 / frequency;
+        let elapsed: u64 = self.ticks - earlier.ticks;
+        let seconds: u64 = elapsed / NANOSECONDS_PER_SECOND as u64;
+        let nanoseconds: u64 = elapsed % NANOSECONDS_PER_SECOND as u64;
 
         return Duration(seconds = std.truncate_to<i64>(seconds), nanoseconds = std.truncate_to<u32>(nanoseconds));
     }
@@ -293,39 +277,22 @@ union ClockError
 
 func monotonic_now() -> Result<Instant, ClockError>
 {
-    return trusted monotonic_now_from_platform();
-}
-
-trusted internal func monotonic_now_from_platform() -> Result<Instant, ClockError>
-    uses(foreign_call)
-{
     let mut ticks: u64 = 0;
-    let mut frequency: u64 = 0;
-    let mut clock_identity: u64 = 0;
+    let status: std.platform.PlatformStatus = trusted monotonic_ticks(std.memory.address_of_mut<u64>(&mut ticks));
 
-    let status: std.platform.PlatformStatus = trusted internal std.platform.clock_monotonic_now(
-        ticks = std.memory.address_of_mut<u64>(&mut ticks),
-        frequency = std.memory.address_of_mut<u64>(&mut frequency),
-        clock_identity = std.memory.address_of_mut<u64>(&mut clock_identity),
-    );
-
-    try checked_clock_status(status);
-
-    if frequency == 0 || clock_identity == 0
-    {
-        return Error(ClockError.OutOfRange);
-    }
+    try checked_clock_status(status.category, status.reserved, status.native_code);
 
     return Ok(
         {
-            state =
-            {
-                ticks = ticks,
-                frequency = frequency,
-                clock_identity = clock_identity,
-            }
+            ticks = ticks
         }
     );
+}
+
+trusted internal func monotonic_ticks(pos ticks: RawPointer<u64>) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    return trusted internal std.platform.clock_monotonic_now(ticks);
 }
 
 func wall_now() -> Result<Timestamp, ClockError>
@@ -344,7 +311,7 @@ trusted internal func wall_now_from_platform() -> Result<Timestamp, ClockError>
         nanoseconds = std.memory.address_of_mut<u32>(&mut nanoseconds),
     );
 
-    try checked_clock_status(status);
+    try checked_clock_status(status.category, status.reserved, status.native_code);
 
     if nanoseconds >= NANOSECONDS_PER_SECOND
     {
@@ -374,7 +341,7 @@ trusted internal func sleep_on_platform(pos duration: Duration) -> Result<unit, 
         nanoseconds = duration.nanoseconds(),
     );
 
-    return checked_clock_status(status);
+    return checked_clock_status(status.category, status.reserved, status.native_code);
 }
 
 trusted async func sleep_async(pos duration: Duration) -> Result<unit, ClockError>
@@ -395,22 +362,33 @@ internal func timestamp_from_parts(seconds: i64, nanoseconds: u32) -> Timestamp
     };
 }
 
-internal func checked_clock_status(pos status: std.platform.PlatformStatus) -> Result<unit, ClockError>
+internal func checked_clock_status(
+    pos category: u32,
+    pos reserved: u32,
+    pos native_code: i64
+) -> Result<unit, ClockError>
 {
-    if status.reserved != 0
+    if reserved != 0
     {
         return Error(ClockError.Platform(internal std.io.invalid_transfer_error()));
     }
 
-    if status.category == 0
+    if category == 0
     {
         return Ok(unit);
     }
 
-    if status.category == 1
+    if category == 1
     {
         return Error(ClockError.Unavailable);
     }
+
+    let status: std.platform.PlatformStatus =
+    {
+        category = category,
+        reserved = reserved,
+        native_code = native_code,
+    };
 
     return Error(ClockError.Platform(internal std.io.platform_status_error(status)));
 }

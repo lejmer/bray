@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
+    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
+    NativeStaticDuration, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
     PRODUCT_HOST_ABI_VERSION,
 };
 

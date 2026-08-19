@@ -372,7 +372,7 @@ impl PlatformServiceRole {
 
         const PATH: &[PlatformAbiType] = &[Path];
         const PATH_PAIR: &[PlatformAbiType] = &[Path, Path];
-        const CLOCK_MONOTONIC_NOW: &[PlatformAbiType] = &[PointerU64, PointerU64, PointerU64];
+        const CLOCK_MONOTONIC_NOW: &[PlatformAbiType] = &[PointerU64];
         const CLOCK_WALL_NOW: &[PlatformAbiType] = &[PointerI64, PointerU32];
         const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
         const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
@@ -651,14 +651,17 @@ mod tests {
     }
 
     #[test]
-    fn immutable_context_scalars_return_directly() {
+    fn platform_scalar_role_shapes_are_exact() {
         let identity = PlatformServiceRole::ContextIdentity.signature();
         let width = PlatformServiceRole::ContextNativeTextWidth.signature();
+        let monotonic = PlatformServiceRole::ClockMonotonicNow.signature();
 
         assert!(identity.parameters().is_empty());
         assert_eq!(identity.result(), PlatformAbiType::U64);
         assert!(width.parameters().is_empty());
         assert_eq!(width.result(), PlatformAbiType::U32);
+        assert_eq!(monotonic.parameters(), [PlatformAbiType::PointerU64]);
+        assert_eq!(monotonic.result(), PlatformAbiType::Status);
     }
 
     #[test]

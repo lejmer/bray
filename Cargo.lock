@@ -497,6 +497,7 @@ dependencies = [
  "bray-runtime-abi",
  "bray-testing",
  "cc",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

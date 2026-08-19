@@ -616,5 +616,4 @@ impl Compilation {
 
         Ok(relocations.into_values().collect())
     }
-
 }

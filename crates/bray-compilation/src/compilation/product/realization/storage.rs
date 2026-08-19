@@ -37,17 +37,13 @@ impl Compilation {
                 .instance(&key)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            if instance
-                .mir()
-                .frame_descriptor()
-                .is_some_and(|frame| {
-                    frame.states().iter().any(|state| {
-                        state
-                            .lane_requirements()
-                            .contains(&ExecutionLaneRequirement::MainThread)
-                    })
+            if instance.mir().frame_descriptor().is_some_and(|frame| {
+                frame.states().iter().any(|state| {
+                    state
+                        .lane_requirements()
+                        .contains(&ExecutionLaneRequirement::MainThread)
                 })
-            {
+            }) {
                 return Ok(true);
             }
 
@@ -224,10 +220,7 @@ impl Compilation {
                     .is_some_and(|finalization| {
                         matches!(finalization.result, ExecutableEntryResult::Fallible { .. })
                     }),
-                self.static_cleanup_requires_main_thread(
-                    static_instance,
-                    reachability,
-                )?,
+                self.static_cleanup_requires_main_thread(static_instance, reachability)?,
             ));
 
             for provider in outgoing.get(&key).into_iter().flatten() {

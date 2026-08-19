@@ -34,9 +34,7 @@ impl Parser {
             };
 
             expression = match operation {
-                PostfixOperationStart::MemberAccess => {
-                    self.parse_member_access_postfix(expression)
-                }
+                PostfixOperationStart::MemberAccess => self.parse_member_access_postfix(expression),
                 PostfixOperationStart::Index if self.should_parse_slice_index_operation() => {
                     self.parse_slice_index_postfix(expression, at_boundary)
                 }

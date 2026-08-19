@@ -74,21 +74,20 @@ fn with_selected_static_cleanup_runtime<T>(
     runtime: Option<&super::state::RetainedRuntime>,
     callback: impl FnOnce() -> T,
 ) -> (T, Vec<crate::product::CleanupIncident>) {
-
     let mut callback = Some(callback);
     let mut result = None;
     let mut incidents = Vec::new();
 
     let runtime = super::state::with_cleanup_runtime(runtime, || {
-            let Some(callback) = callback.take() else {
-                return false;
-            };
+        let Some(callback) = callback.take() else {
+            return false;
+        };
 
-            result = Some(callback());
+        result = Some(callback());
 
-            super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-                .is_ok_and(|status| status.is_success())
-        });
+        super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
+            .is_ok_and(|status| status.is_success())
+    });
 
     let runtime_succeeded = match runtime {
         Ok((reported, shutdown)) => reported && shutdown.is_success(),
@@ -129,7 +128,10 @@ mod tests {
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
             run_static_finalizer(
-                inactive_frame(NativeFrameAffinity::ORIGIN_THREAD, NativeLaneRequirements::NONE),
+                inactive_frame(
+                    NativeFrameAffinity::ORIGIN_THREAD,
+                    NativeLaneRequirements::NONE,
+                ),
                 resolve,
             )
         });
@@ -174,9 +176,8 @@ mod tests {
             )
         };
 
-        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(main_frame(), resolve)
-        });
+        let (incidents, runtime_incidents) =
+            with_static_cleanup_runtime(|| run_static_finalizer(main_frame(), resolve));
 
         assert_eq!(incidents.len(), 1);
         assert!(runtime_incidents.is_empty());
@@ -188,9 +189,8 @@ mod tests {
             .is_success()
         );
 
-        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(main_frame(), resolve)
-        });
+        let (incidents, runtime_incidents) =
+            with_static_cleanup_runtime(|| run_static_finalizer(main_frame(), resolve));
 
         assert!(incidents.is_empty());
         assert!(runtime_incidents.is_empty());
@@ -201,10 +201,9 @@ mod tests {
         affinity: NativeFrameAffinity,
         requirements: NativeLaneRequirements,
     ) -> NativeInactiveFrame {
-        let context = usize::try_from(
-            u64::from(affinity.code()) | (u64::from(requirements.bits()) << 32),
-        )
-        .unwrap_or_else(|_| panic!("native frame state must fit the test target"));
+        let context =
+            usize::try_from(u64::from(affinity.code()) | (u64::from(requirements.bits()) << 32))
+                .unwrap_or_else(|_| panic!("native frame state must fit the test target"));
 
         NativeInactiveFrame::new(context, move_before_start)
     }

@@ -10,12 +10,13 @@ use bray_runtime_abi::{
 };
 
 use crate::{
-    CleanupIncidentProducer, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, RunOutcome,
+    CleanupIncidentProducer, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, RunOutcome,
 };
 
 use super::super::frame::{NativeTerminalPayload, NativeTerminalState};
-use super::core::{CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime};
+use super::core::{
+    CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
+};
 
 pub(in crate::native) fn current_thread_lanes(
     thread: RuntimeThreadId,
@@ -86,8 +87,8 @@ fn with_retained_runtime<T>(
         return Ok(runtime.with_cleanup_driving(callback));
     }
 
-    let thread = RuntimeThreadScope::enter_or_reuse()
-        .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+    let thread =
+        RuntimeThreadScope::enter_or_reuse().map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
 
     let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
 
@@ -164,7 +165,10 @@ pub(in crate::native) fn write_cleanup_incident_report(
     writeln!(writer, " state={}", incident.origin().state().raw())
 }
 
-pub(in crate::native) fn task_outcome(outcome: RunOutcome<usize>, terminal: &NativeTerminalState) -> NativeRunOutcome {
+pub(in crate::native) fn task_outcome(
+    outcome: RunOutcome<usize>,
+    terminal: &NativeTerminalState,
+) -> NativeRunOutcome {
     match outcome {
         RunOutcome::Completed(payload) => NativeRunOutcome::new(NativeRunState::COMPLETED, payload),
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
