@@ -227,6 +227,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
 
     let command_kind = command.kind();
     let unit_inspection_target = command.unit_inspection_target();
+    let mir_source_annotations = command.mir_source_annotations();
     let interface_output = command.interface_output().map(Path::to_path_buf);
 
     let request =
@@ -304,7 +305,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         };
 
         return run_inspection_command(request, output_format, |compilation, output_format| {
-            render_mir_inspection(compilation, target, output_format)
+            render_mir_inspection(compilation, target, output_format, mir_source_annotations)
         })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
@@ -1692,8 +1693,8 @@ mod tests {
         assert!(lowered.stdout().contains("\"blocks\""));
 
         assert_eq!(mir.exit_code(), ExitCode::SUCCESS);
-        assert!(mir.stdout().contains("mir unit"));
-        assert!(mir.stdout().contains("bb0("));
+        assert!(mir.stdout().contains("mir synchronous unit"));
+        assert!(mir.stdout().contains("bb0 entry:"));
     }
 
     #[test]

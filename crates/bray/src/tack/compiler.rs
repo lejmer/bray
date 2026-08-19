@@ -204,6 +204,7 @@ impl<'project> ProjectCompiler<'project> {
         inspection: TackInspection,
         source_id: u32,
         offset: Option<u32>,
+        source: bool,
     ) -> Result<Vec<ToolOutput>, DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
@@ -219,6 +220,7 @@ impl<'project> ProjectCompiler<'project> {
                 inspection,
                 source_id,
                 offset,
+                source,
             },
             None,
         )?;
@@ -796,6 +798,7 @@ enum CompilerAction {
         inspection: TackInspection,
         source_id: u32,
         offset: Option<u32>,
+        source: bool,
     },
 }
 
@@ -866,6 +869,7 @@ impl CompilerAction {
                 inspection,
                 source_id,
                 offset,
+                source,
             } => {
                 request
                     .arg("inspect")
@@ -875,6 +879,10 @@ impl CompilerAction {
 
                 if let Some(offset) = offset {
                     request.arg("--offset").arg(offset.to_string());
+                }
+
+                if source && inspection == TackInspection::Mir {
+                    request.arg("--source");
                 }
             }
         }

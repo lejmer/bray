@@ -70,12 +70,13 @@ pub(crate) fn render_mir_inspection(
     compilation: &Compilation,
     target: InspectionTarget,
     output_format: OutputFormat,
+    include_source: bool,
 ) -> Result<InspectionOutput, LoweredInspectionRenderError> {
     let (units, diagnostics) = inspect_units(compilation, target)?;
 
     let notations = units
         .iter()
-        .map(InspectionMirNotation::from_unit)
+        .map(|unit| InspectionMirNotation::from_unit(unit, include_source))
         .collect::<Vec<_>>();
 
     let stdout = match output_format {
@@ -221,13 +222,13 @@ struct InspectionMirNotation {
 }
 
 impl InspectionMirNotation {
-    fn from_unit(unit: &InspectionLoweredUnit) -> Self {
+    fn from_unit(unit: &InspectionLoweredUnit, include_source: bool) -> Self {
         match unit {
             InspectionLoweredUnit::Mir { mir } => Self {
                 unit_kind: mir.unit_kind,
                 unit_id: Some(mir.unit_id),
                 representation: "mir",
-                notation: Some(notation::render_unit(mir)),
+                notation: Some(notation::render_unit(mir, include_source)),
             },
             InspectionLoweredUnit::CompileTime { unit_kind, .. } => Self {
                 unit_kind,
@@ -727,10 +728,10 @@ mod tests {
         let compilation = compilation(SOURCE);
         let target = InspectionTarget::source(0);
 
-        let first = render_mir_inspection(&compilation, target, OutputFormat::Text)
+        let first = render_mir_inspection(&compilation, target, OutputFormat::Text, true)
             .unwrap_or_else(|error| panic!("MIR notation should render: {error:?}"));
 
-        let second = render_mir_inspection(&compilation, target, OutputFormat::Text)
+        let second = render_mir_inspection(&compilation, target, OutputFormat::Text, true)
             .unwrap_or_else(|error| panic!("MIR notation should remain available: {error:?}"));
 
         let (first, first_diagnostics) = first.into_parts();
@@ -738,11 +739,52 @@ mod tests {
         let (second, second_diagnostics) = second.into_parts();
 
         assert_eq!(first, second);
-        assert!(first.contains("mir unit"));
-        assert!(first.contains("bb0("));
+
+        assert_eq!(
+            first,
+            concat!(
+                "mir synchronous unit45 {\n",
+                "    target = \"x86_64-unknown-linux-gnu\";\n",
+                "    runtime_abi = 1.0;\n",
+                "    // source: function_declaration test.bray 2:1..8:1 @12..78\n",
+                "\n",
+                "    local slot0: i32;\n",
+                "\n",
+                "    bb0 entry: // source: function_declaration test.bray 2:1..8:1 @12..78\n",
+                "        init slot0 <- 1: i32; // source: irrefutable_pattern test.bray 5:9..5:13 @42..47\n",
+                "        return copy slot0; // source: return_expression test.bray 6:1..7:16 @58..75\n",
+                "}\n",
+            )
+        );
+
+        assert!(first.contains("mir synchronous unit"));
+        assert!(first.contains("bb0 entry:"));
+        assert!(first.contains("init slot0 <- 1: i32;"));
         assert!(first.contains("return"));
+        assert!(!first.contains("operator="));
+        assert!(!first.contains("operand="));
         assert!(first_diagnostics.is_empty(), "{first_diagnostics:?}");
         assert!(second_diagnostics.is_empty(), "{second_diagnostics:?}");
+    }
+
+    #[test]
+    fn mir_notation_omits_source_annotations_by_default() {
+        let compilation = compilation(SOURCE);
+
+        let output = render_mir_inspection(
+            &compilation,
+            InspectionTarget::source(0),
+            OutputFormat::Text,
+            false,
+        )
+        .unwrap_or_else(|error| panic!("MIR notation should render without source comments: {error:?}"));
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(text.contains("mir synchronous unit"));
+        assert!(text.contains("bb0 entry:"));
+        assert!(!text.contains("// source:"));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]
@@ -753,6 +795,7 @@ mod tests {
             &compilation,
             InspectionTarget::source(0),
             OutputFormat::Json,
+            true,
         )
         .unwrap_or_else(|error| panic!("MIR JSON should render: {error:?}"));
 
@@ -766,9 +809,87 @@ mod tests {
         assert!(
             value["units"][0]["notation"]
                 .as_str()
-                .is_some_and(|notation| notation.contains("mir unit"))
+                .is_some_and(|notation| notation.contains("mir synchronous unit"))
         );
 
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn mir_notation_keeps_async_control_flow_explicit() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "async func main() -> i32\n",
+            "{\n",
+            "    let pending = child();\n",
+            "    let value: i32 = await pending;\n",
+            "\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "async func child() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        );
+
+        let compilation = compilation(source);
+
+        let output = render_mir_inspection(
+            &compilation,
+            InspectionTarget::source(0),
+            OutputFormat::Text,
+            true,
+        )
+        .unwrap_or_else(|error| panic!("async MIR notation should render: {error:?}"));
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(text.contains("frame"));
+        assert!(text.contains("async create_frame"));
+        assert!(text.contains("suspend"));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn mir_notation_keeps_branch_and_range_edges_explicit() {
+        let source = concat!(
+            "module app;\n",
+            "\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    let mut total: i32 = 0;\n",
+            "\n",
+            "    for value in 0..4\n",
+            "    {\n",
+            "        total += value;\n",
+            "    }\n",
+            "\n",
+            "    if total > 0\n",
+            "    {\n",
+            "        return total;\n",
+            "    }\n",
+            "\n",
+            "    return total;\n",
+            "}\n",
+        );
+
+        let compilation = compilation(source);
+
+        let output = render_mir_inspection(
+            &compilation,
+            InspectionTarget::source(0),
+            OutputFormat::Text,
+            true,
+        )
+        .unwrap_or_else(|error| panic!("control-flow MIR notation should render: {error:?}"));
+
+        let (text, diagnostics) = output.into_parts();
+
+        assert!(text.contains("iterate range"));
+        assert!(text.contains("branch"));
+        assert!(text.contains("-> bb"));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 

@@ -348,9 +348,9 @@ impl CliInspectCommand {
                 DriverCommand::inspect_lowered(target, request.files)
             }
             CliInspectSubcommand::Mir(request) => {
-                let target = request.target();
+                let target = request.inspection.target();
 
-                DriverCommand::inspect_mir(target, request.files)
+                DriverCommand::inspect_mir(target, request.inspection.files, request.source)
             }
         };
 
@@ -375,7 +375,15 @@ enum CliInspectSubcommand {
     #[command(about = help::INSPECT_LOWERED)]
     Lowered(CliUnitInspection),
     #[command(about = help::INSPECT_MIR)]
-    Mir(CliUnitInspection),
+    Mir(CliMirInspection),
+}
+
+#[derive(Args, Debug)]
+struct CliMirInspection {
+    #[command(flatten)]
+    inspection: CliUnitInspection,
+    #[arg(long, help = help::MIR_SOURCE)]
+    source: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1004,6 +1012,20 @@ mod tests {
             assert_eq!(target.source_id(), 3);
             assert_eq!(target.position(), Some(12.into()));
         }
+    }
+
+    #[test]
+    fn parses_opt_in_mir_source_annotations() {
+        let invocation = DriverInvocation::try_from_arguments([
+            "brayc",
+            "inspect",
+            "mir",
+            "--source",
+            "main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("MIR source annotations should parse: {error:?}"));
+
+        assert!(invocation.command().mir_source_annotations());
     }
 
     #[test]

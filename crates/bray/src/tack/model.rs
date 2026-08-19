@@ -185,6 +185,7 @@ pub(crate) enum TackCommand {
         inspection: TackInspection,
         source_id: u32,
         position: Option<u32>,
+        source: bool,
     },
     ProfileShow {
         report: PathBuf,

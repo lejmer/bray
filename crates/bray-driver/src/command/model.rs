@@ -192,6 +192,8 @@ pub enum DriverCommand {
         target: InspectionTarget,
         /// Source files to inspect.
         files: Vec<PathBuf>,
+        /// Whether text notation includes source-anchored comments.
+        source: bool,
     },
 }
 
@@ -265,8 +267,12 @@ impl DriverCommand {
     }
 
     /// Creates an inspect-MIR command.
-    pub fn inspect_mir(target: InspectionTarget, files: Vec<PathBuf>) -> Self {
-        Self::InspectMir { target, files }
+    pub fn inspect_mir(target: InspectionTarget, files: Vec<PathBuf>, source: bool) -> Self {
+        Self::InspectMir {
+            target,
+            files,
+            source,
+        }
     }
 
     /// Returns this command's stable category.
@@ -297,6 +303,14 @@ impl DriverCommand {
             | Self::InspectLowered { target, .. }
             | Self::InspectMir { target, .. } => Some(*target),
             _ => None,
+        }
+    }
+
+    /// Returns whether MIR notation should include source-anchored comments.
+    pub const fn mir_source_annotations(&self) -> bool {
+        match self {
+            Self::InspectMir { source, .. } => *source,
+            _ => false,
         }
     }
 

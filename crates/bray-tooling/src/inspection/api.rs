@@ -121,14 +121,14 @@ pub fn render_mir_inspection(
     compilation: &Compilation,
     target: InspectionTarget,
     output_format: OutputFormat,
+    include_source: bool,
 ) -> Result<InspectionOutput, InspectionError> {
-    super::lowered::render_mir_inspection(compilation, target, output_format).map_err(|error| {
-        DiagnosticInspectionFailure::Mir {
+    super::lowered::render_mir_inspection(compilation, target, output_format, include_source)
+        .map_err(|error| DiagnosticInspectionFailure::Mir {
             target: diagnostic_target(target),
             format: diagnostic_format(output_format),
             cause: lowered_inspection_failure(error),
-        }
-    })
+        })
 }
 
 const fn diagnostic_format(format: OutputFormat) -> DiagnosticInspectionOutputFormat {

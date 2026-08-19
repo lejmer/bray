@@ -342,6 +342,7 @@ impl CliCommand {
                 inspection: inspect.inspection.into(),
                 source_id: inspect.source_id,
                 position: inspect.offset,
+                source: inspect.source,
             },
             Self::Profile(profile) => profile.into_command(),
             Self::LanguageServer(server) => TackCommand::LanguageServer {
@@ -523,6 +524,8 @@ struct CliInspect {
     source_id: u32,
     #[arg(long, help = help::SOURCE_OFFSET)]
     offset: Option<u32>,
+    #[arg(long, help = help::MIR_SOURCE)]
+    source: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -692,6 +695,25 @@ mod tests {
             .unwrap_or_else(|error| panic!("verbose build should parse: {error:?}"));
 
         assert!(invocation.verbose());
+    }
+
+    #[test]
+    fn keeps_mir_source_annotations_opt_in() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "inspect",
+            "mir",
+            "--source",
+        ])
+        .unwrap_or_else(|error| panic!("MIR source annotations should parse: {error:?}"));
+
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Inspect { source, .. } = command else {
+            panic!("expected MIR inspection command");
+        };
+
+        assert!(source);
     }
 
     #[test]
