@@ -1228,10 +1228,7 @@ mod tests {
 
         AWAITED_BLOCKING_COMPLETIONS.store(completed + 1, Ordering::Relaxed);
 
-        bray_runtime_awaited_frame_composition_v1(NativeInactiveFrame::new(
-            0,
-            move_blocking_child,
-        ));
+        bray_runtime_awaited_frame_composition_v1(NativeInactiveFrame::new(0, move_blocking_child));
 
         bray_runtime_suspension_registration_v1(1)
     }
@@ -1241,7 +1238,7 @@ mod tests {
             8,
             movable_blocking_frame_state,
             resume_frame,
-            record_root_completion_destination,
+            ignore_completion_move,
             ignore_action,
         )
     }

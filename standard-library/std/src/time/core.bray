@@ -2,8 +2,6 @@ trusted module std.time;
 
 const NANOSECONDS_PER_SECOND: u32 = 1000000000;
 
-const MONOTONIC_TICKS_UNAVAILABLE: u64 = 18446744073709551615;
-
 internal struct DurationState
 {
     seconds: i64;
@@ -279,12 +277,10 @@ union ClockError
 
 func monotonic_now() -> Result<Instant, ClockError>
 {
-    let ticks: u64 = trusted monotonic_ticks();
+    let mut ticks: u64 = 0;
+    let status: std.platform.PlatformStatus = trusted monotonic_ticks(std.memory.address_of_mut<u64>(&mut ticks));
 
-    if ticks == MONOTONIC_TICKS_UNAVAILABLE
-    {
-        return Error(ClockError.Unavailable);
-    }
+    try checked_clock_status(status.category, status.reserved, status.native_code);
 
     return Ok(
         {
@@ -293,10 +289,10 @@ func monotonic_now() -> Result<Instant, ClockError>
     );
 }
 
-trusted internal func monotonic_ticks() -> u64
+trusted internal func monotonic_ticks(pos ticks: RawPointer<u64>) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    return trusted internal std.platform.clock_monotonic_now();
+    return trusted internal std.platform.clock_monotonic_now(ticks);
 }
 
 func wall_now() -> Result<Timestamp, ClockError>
@@ -315,7 +311,7 @@ trusted internal func wall_now_from_platform() -> Result<Timestamp, ClockError>
         nanoseconds = std.memory.address_of_mut<u32>(&mut nanoseconds),
     );
 
-    try checked_clock_status(status);
+    try checked_clock_status(status.category, status.reserved, status.native_code);
 
     if nanoseconds >= NANOSECONDS_PER_SECOND
     {
@@ -345,7 +341,7 @@ trusted internal func sleep_on_platform(pos duration: Duration) -> Result<unit, 
         nanoseconds = duration.nanoseconds(),
     );
 
-    return checked_clock_status(status);
+    return checked_clock_status(status.category, status.reserved, status.native_code);
 }
 
 trusted async func sleep_async(pos duration: Duration) -> Result<unit, ClockError>
@@ -366,22 +362,33 @@ internal func timestamp_from_parts(seconds: i64, nanoseconds: u32) -> Timestamp
     };
 }
 
-internal func checked_clock_status(pos status: std.platform.PlatformStatus) -> Result<unit, ClockError>
+internal func checked_clock_status(
+    pos category: u32,
+    pos reserved: u32,
+    pos native_code: i64
+) -> Result<unit, ClockError>
 {
-    if status.reserved != 0
+    if reserved != 0
     {
         return Error(ClockError.Platform(internal std.io.invalid_transfer_error()));
     }
 
-    if status.category == 0
+    if category == 0
     {
         return Ok(unit);
     }
 
-    if status.category == 1
+    if category == 1
     {
         return Error(ClockError.Unavailable);
     }
+
+    let status: std.platform.PlatformStatus =
+    {
+        category = category,
+        reserved = reserved,
+        native_code = native_code,
+    };
 
     return Error(ClockError.Platform(internal std.io.platform_status_error(status)));
 }

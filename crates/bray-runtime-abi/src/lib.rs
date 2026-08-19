@@ -12,9 +12,9 @@ mod runtime;
 mod temporal;
 
 pub use platform::{
-    NATIVE_MONOTONIC_TICKS_UNAVAILABLE, NativePlatformEnvironmentEntry,
-    NativePlatformEnvironmentList, NativePlatformFileMetadata, NativePlatformFileOptions,
-    NativePlatformPath, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
+    NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
+    NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,
+    NativePlatformText,
 };
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
 pub use product::{

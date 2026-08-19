@@ -1,6 +1,3 @@
-/// Reserved monotonic tick value reporting that the clock could not be observed.
-pub const NATIVE_MONOTONIC_TICKS_UNAVAILABLE: u64 = u64::MAX;
-
 /// Call-only target-native path bytes passed across the platform ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

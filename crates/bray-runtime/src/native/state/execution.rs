@@ -2,24 +2,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame,
-    NativeRootHandle, NativeRunOutcome, NativeRunState,
-    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
+    NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame, NativeRootHandle,
+    NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
+    NativeWakeCallback,
 };
 use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::with_task_execution_context;
 use crate::{
-    CleanupIncidentOrigin, CleanupIncidentProducer,
-    ExecutionLanePlacement, FrameSuspensionKind, JoinWaitRegistration,
-    RootCancellationHandle, TaskControlBlock,
-    TaskExecutionContext, TaskObservationError, TaskResumeStatus,
+    CleanupIncidentOrigin, CleanupIncidentProducer, ExecutionLanePlacement, FrameSuspensionKind,
+    JoinWaitRegistration, RootCancellationHandle, TaskControlBlock, TaskExecutionContext,
+    TaskObservationError, TaskResumeStatus,
 };
 
 use super::super::frame::NativeFrame;
 use super::binding::{
-    current_native_task, current_thread_lanes, CleanupWorkloadScope, lane_result, runtime_failure, task_outcome,
-    write_cleanup_incident_report,
+    CleanupWorkloadScope, current_native_task, current_thread_lanes, lane_result, runtime_failure,
+    task_outcome, write_cleanup_incident_report,
 };
 use super::core::{CURRENT_NATIVE_TASK, NativeRuntime, NativeTaskSlot, StartedTask};
 
@@ -32,10 +31,7 @@ impl Drop for TaskObservationClaim<'_> {
 }
 
 impl NativeRuntime {
-    pub(in crate::native) fn with_cleanup_driving<T>(
-        &self,
-        callback: impl FnOnce() -> T,
-    ) -> T {
+    pub(in crate::native) fn with_cleanup_driving<T>(&self, callback: impl FnOnce() -> T) -> T {
         let previous = self.cleanup_workloads.replace(true);
 
         let _workloads = CleanupWorkloadScope {
@@ -112,9 +108,8 @@ impl NativeRuntime {
 
         if self.cleanup_workloads.get()
             && !self.main_thread_lane
-            && cleanup_lane.is_ok_and(|lane| {
-                matches!(lane.placement(), ExecutionLanePlacement::MainThread(_))
-            })
+            && cleanup_lane
+                .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
         {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
@@ -147,11 +142,9 @@ impl NativeRuntime {
     pub(in crate::native) fn drive_main_thread(&self) -> NativeRuntimeStatus {
         let thread = self.thread.runtime().id();
 
-        for lane in current_thread_lanes(
-            thread,
-            self.main_thread_lane,
-            self.cleanup_workloads.get(),
-        ) {
+        for lane in
+            current_thread_lanes(thread, self.main_thread_lane, self.cleanup_workloads.get())
+        {
             match self.scheduler.take_ready(lane) {
                 Ok(Some(ready)) => return self.drive_ready(ready),
                 Ok(None) => {}
@@ -169,21 +162,21 @@ impl NativeRuntime {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .find_map(|(handle, slot)| {
-            let NativeTaskSlot::Started(task) = slot else {
-                return None;
-            };
+                let NativeTaskSlot::Started(task) = slot else {
+                    return None;
+                };
 
-            if task.task.id() != ready.task() {
-                return None;
-            }
+                if task.task.id() != ready.task() {
+                    return None;
+                }
 
-            task.waits
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .retain(JoinWaitRegistration::is_pending);
+                task.waits
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .retain(JoinWaitRegistration::is_pending);
 
-            Some((*handle, Arc::clone(task)))
-        });
+                Some((*handle, Arc::clone(task)))
+            });
 
         let Some((handle, started)) = selected else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -234,7 +227,10 @@ impl NativeRuntime {
         }
     }
 
-    pub(in crate::native) fn compose_awaited(&self, frame: NativeInactiveFrame) -> NativeRuntimeStatus {
+    pub(in crate::native) fn compose_awaited(
+        &self,
+        frame: NativeInactiveFrame,
+    ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
@@ -268,7 +264,9 @@ impl NativeRuntime {
         NativeRuntimeStatus::SUCCESS
     }
 
-    pub(in crate::native) fn resolve_awaited_completion(&self) -> Result<usize, NativeRuntimeStatus> {
+    pub(in crate::native) fn resolve_awaited_completion(
+        &self,
+    ) -> Result<usize, NativeRuntimeStatus> {
         let parent = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         let child = self
@@ -299,7 +297,11 @@ impl NativeRuntime {
         Ok(outcome.payload())
     }
 
-    pub(in crate::native) fn wake(&self, handle: NativeTaskHandle, state: u32) -> NativeRuntimeStatus {
+    pub(in crate::native) fn wake(
+        &self,
+        handle: NativeTaskHandle,
+        state: u32,
+    ) -> NativeRuntimeStatus {
         self.with_started(handle, |task| {
             task.registration
                 .wake_handle()
@@ -311,7 +313,10 @@ impl NativeRuntime {
         .unwrap_or_else(|status| status)
     }
 
-    pub(in crate::native) fn request_cancellation(&self, handle: NativeTaskHandle) -> NativeRuntimeStatus {
+    pub(in crate::native) fn request_cancellation(
+        &self,
+        handle: NativeTaskHandle,
+    ) -> NativeRuntimeStatus {
         self.with_started(handle, |task| {
             task.task.request_cancellation();
 
@@ -320,7 +325,10 @@ impl NativeRuntime {
         .unwrap_or_else(|status| status)
     }
 
-    pub(in crate::native) fn request_root_cancellation(&self, root: NativeRootHandle) -> NativeRuntimeStatus {
+    pub(in crate::native) fn request_root_cancellation(
+        &self,
+        root: NativeRootHandle,
+    ) -> NativeRuntimeStatus {
         let Some(task) = NativeTaskHandle::new(root.raw()) else {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
@@ -365,7 +373,10 @@ impl NativeRuntime {
         }
     }
 
-    pub(in crate::native) fn resolve_root_completion(&self, root: NativeRootHandle) -> NativeRuntimeStatus {
+    pub(in crate::native) fn resolve_root_completion(
+        &self,
+        root: NativeRootHandle,
+    ) -> NativeRuntimeStatus {
         let Some(task) = NativeTaskHandle::new(root.raw()) else {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
@@ -459,26 +470,30 @@ impl NativeRuntime {
 
     pub(in crate::native) fn observe(&self, handle: NativeTaskHandle) -> NativeRunOutcome {
         // A running frame may need the task table while observation waits for its task lock.
-        let task = match self
-            .tasks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&handle)
-        {
-            Some(NativeTaskSlot::Started(task)) => Arc::clone(task),
-            Some(NativeTaskSlot::Terminal { outcome, .. }) => return *outcome,
-            Some(NativeTaskSlot::Allocated) | None => {
-                return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
+        let task = {
+            let tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            match tasks.get(&handle) {
+                Some(NativeTaskSlot::Started(task)) => {
+                    if task
+                        .observation_claimed
+                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                        .is_err()
+                    {
+                        return NativeRunOutcome::new(NativeRunState::PENDING, 0);
+                    }
+
+                    Arc::clone(task)
+                }
+                Some(NativeTaskSlot::Terminal { outcome, .. }) => return *outcome,
+                Some(NativeTaskSlot::Allocated) | None => {
+                    return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
+                }
             }
         };
-
-        if task
-            .observation_claimed
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return NativeRunOutcome::new(NativeRunState::PENDING, 0);
-        }
 
         let _claim = TaskObservationClaim(&task.observation_claimed);
 
@@ -496,18 +511,19 @@ impl NativeRuntime {
                 self.tasks
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(handle, NativeTaskSlot::Terminal {
-                        outcome,
-                        _task: Arc::clone(&task),
-                    });
+                    .insert(
+                        handle,
+                        NativeTaskSlot::Terminal {
+                            outcome,
+                            _task: Arc::clone(&task),
+                        },
+                    );
 
                 self.release_resolved_awaits(handle);
 
                 outcome
             }
-            Err(TaskObservationError::Pending) => {
-                NativeRunOutcome::new(NativeRunState::PENDING, 0)
-            }
+            Err(TaskObservationError::Pending) => NativeRunOutcome::new(NativeRunState::PENDING, 0),
             Err(TaskObservationError::RuntimeFailed(_)) => {
                 task.waits
                     .lock()
@@ -521,10 +537,13 @@ impl NativeRuntime {
                 self.tasks
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(handle, NativeTaskSlot::Terminal {
-                        outcome,
-                        _task: Arc::clone(&task),
-                    });
+                    .insert(
+                        handle,
+                        NativeTaskSlot::Terminal {
+                            outcome,
+                            _task: Arc::clone(&task),
+                        },
+                    );
 
                 outcome
             }
@@ -536,7 +555,11 @@ impl NativeRuntime {
         }
     }
 
-    pub(in crate::native) fn lane(&self, handle: NativeTaskHandle, state: u32) -> NativeExecutionLaneResult {
+    pub(in crate::native) fn lane(
+        &self,
+        handle: NativeTaskHandle,
+        state: u32,
+    ) -> NativeExecutionLaneResult {
         self.with_started(handle, |task| {
             task.registration
                 .lane(ProtectedFrameStateId::new(state))
@@ -578,14 +601,11 @@ impl NativeRuntime {
 
         let thread = self.thread.runtime().id();
 
-        let lanes = current_thread_lanes(
-            thread,
-            self.main_thread_lane,
-            self.cleanup_workloads.get(),
-        );
+        let lanes =
+            current_thread_lanes(thread, self.main_thread_lane, self.cleanup_workloads.get());
 
-        let deadline = bray_platform::MonotonicClock
-            .deadline_after(std::time::Duration::from_millis(10));
+        let deadline =
+            bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(10));
 
         match self.scheduler.wait_ready_from(&lanes, deadline) {
             Ok(Some(ready)) => self.drive_ready(ready),

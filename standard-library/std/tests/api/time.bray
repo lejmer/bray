@@ -42,6 +42,17 @@ func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std
 }
 
 @test
+func unavailable_monotonic_clocks_preserve_the_typed_failure()
+{
+    match internal std.time.checked_clock_status(1, 0, 0)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.ClockError.Unavailable) {}
+        case Error(_) { assert(false); }
+    }
+}
+
+@test
 func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.time.TimeError>
 {
     let leap: std.time.Date = try std.time.Date(year = 2000, month = 2, day = 29);
