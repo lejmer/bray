@@ -832,6 +832,7 @@ mod tests {
                 .iter()
                 .any(|argument| argument == "-pthread")
         );
+
         assert!(
             !sequential
                 .arguments
