@@ -290,6 +290,10 @@ fn cpp_configuration(
 
     arguments.push(format!("-DBRAY_WORKLOAD={selector}"));
 
+    if selector == "14" && target.object_format() == ObjectFormat::Elf {
+        arguments.push("-pthread".to_owned());
+    }
+
     if let Some(inner_iterations) = controlled_inner_iterations {
         arguments.push("-DBRAY_PEER_TIMING".to_owned());
 
@@ -796,6 +800,34 @@ mod tests {
                 .iter()
                 .any(|argument| argument.contains("runtime-lib=dll"))
         );
+    }
+
+    #[test]
+    fn linux_contended_output_enables_native_thread_support() {
+        let target = NativeTarget::X86_64LinuxGnu;
+
+        let contended = cpp_configuration(
+            std::path::Path::new("peer.cpp"),
+            std::path::Path::new("peer"),
+            std::path::Path::new("peer.map"),
+            target,
+            "14",
+            None,
+        )
+        .unwrap_or_else(|error| panic!("C++ fixture configuration must build: {error}"));
+
+        let sequential = cpp_configuration(
+            std::path::Path::new("peer.cpp"),
+            std::path::Path::new("peer"),
+            std::path::Path::new("peer.map"),
+            target,
+            "9",
+            None,
+        )
+        .unwrap_or_else(|error| panic!("C++ fixture configuration must build: {error}"));
+
+        assert!(contended.arguments.iter().any(|argument| argument == "-pthread"));
+        assert!(!sequential.arguments.iter().any(|argument| argument == "-pthread"));
     }
 
     #[test]

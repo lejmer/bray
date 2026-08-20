@@ -205,12 +205,48 @@ impl MirSwitchCase {
 /// Completed, panicked, and cancelled successors of a run-result forwarding operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirRunResultEdges {
-    completed_variant: UnionVariantSymbolId,
+    variants: MirRunResultVariants,
     completed: MirEdge,
-    panicked_variant: UnionVariantSymbolId,
     panicked: MirCleanupEdge,
-    cancelled_variant: UnionVariantSymbolId,
     cancelled: MirCleanupEdge,
+}
+
+/// Exact union variants used to form one compiler-known run result.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct MirRunResultVariants {
+    completed: UnionVariantSymbolId,
+    panicked: UnionVariantSymbolId,
+    cancelled: UnionVariantSymbolId,
+}
+
+impl MirRunResultVariants {
+    /// Creates the three distinct compiler-known run-result variants.
+    pub const fn new(
+        completed: UnionVariantSymbolId,
+        panicked: UnionVariantSymbolId,
+        cancelled: UnionVariantSymbolId,
+    ) -> Self {
+        Self {
+            completed,
+            panicked,
+            cancelled,
+        }
+    }
+
+    /// Returns the normal completion variant.
+    pub const fn completed(self) -> UnionVariantSymbolId {
+        self.completed
+    }
+
+    /// Returns the panic propagation variant.
+    pub const fn panicked(self) -> UnionVariantSymbolId {
+        self.panicked
+    }
+
+    /// Returns the cooperative cancellation variant.
+    pub const fn cancelled(self) -> UnionVariantSymbolId {
+        self.cancelled
+    }
 }
 
 /// Reason a protected frame voluntarily suspended.
@@ -240,18 +276,16 @@ impl MirRunResultEdges {
         cancelled: (UnionVariantSymbolId, MirCleanupEdge),
     ) -> Self {
         Self {
-            completed_variant: completed.0,
+            variants: MirRunResultVariants::new(completed.0, panicked.0, cancelled.0),
             completed: completed.1,
-            panicked_variant: panicked.0,
             panicked: panicked.1,
-            cancelled_variant: cancelled.0,
             cancelled: cancelled.1,
         }
     }
 
     /// Returns the completed variant selected by checked lowering.
     pub const fn completed_variant(&self) -> UnionVariantSymbolId {
-        self.completed_variant
+        self.variants.completed()
     }
 
     /// Returns the normal completion successor.
@@ -261,7 +295,7 @@ impl MirRunResultEdges {
 
     /// Returns the panicked variant selected by checked lowering.
     pub const fn panicked_variant(&self) -> UnionVariantSymbolId {
-        self.panicked_variant
+        self.variants.panicked()
     }
 
     /// Returns the panic cleanup successor.
@@ -271,7 +305,7 @@ impl MirRunResultEdges {
 
     /// Returns the cancelled variant selected by checked lowering.
     pub const fn cancelled_variant(&self) -> UnionVariantSymbolId {
-        self.cancelled_variant
+        self.variants.cancelled()
     }
 
     /// Returns the cancellation cleanup successor.

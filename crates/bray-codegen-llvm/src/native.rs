@@ -51,7 +51,12 @@ pub(crate) fn indirect_result_type<'context>(
             RuntimeAbiRole::RootExecution => Some(root_start_type(context).into()),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
-            | RuntimeAbiRole::RootTerminalObservation => Some(run_outcome_type(context).into()),
+            | RuntimeAbiRole::RootTerminalObservation
+            | RuntimeAbiRole::JoinRegistration => {
+                Some(run_outcome_type(context, target).into())
+            }
+            RuntimeAbiRole::TaskAllocation => Some(task_allocation_type(context).into()),
+            RuntimeAbiRole::TaskObservationCreation => Some(inactive_frame_type(context).into()),
             _ => None,
         },
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
@@ -279,9 +284,45 @@ pub(crate) fn frame_progress_type(context: &Context) -> StructType<'_> {
     )
 }
 
-pub(crate) fn run_outcome_type(context: &Context) -> StructType<'_> {
+pub(crate) fn run_outcome_type<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+) -> StructType<'context> {
+    context.struct_type(
+        &[
+            context.i32_type().into(),
+            pointer_integer_type(context, target).into(),
+        ],
+        false,
+    )
+}
+
+pub(crate) fn task_allocation_type(context: &Context) -> StructType<'_> {
     context.struct_type(
         &[context.i32_type().into(), context.i64_type().into()],
+        false,
+    )
+}
+
+pub(crate) fn run_result_layout_type<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+) -> StructType<'context> {
+    let usize = pointer_integer_type(context, target);
+
+    context.struct_type(
+        &[
+            usize.into(),
+            usize.into(),
+            usize.into(),
+            context.i64_type().into(),
+            usize.into(),
+            usize.into(),
+            usize.into(),
+            context.i64_type().into(),
+            usize.into(),
+            context.i64_type().into(),
+        ],
         false,
     )
 }
@@ -353,6 +394,7 @@ fn runtime_function_type<'context>(
 ) -> Option<FunctionType<'context>> {
     if uses_microsoft_x64_abi(target) {
         let pointer = context.ptr_type(AddressSpace::default());
+        let usize = pointer_integer_type(context, target);
 
         match role {
             RuntimeAbiRole::RootExecution => {
@@ -382,6 +424,46 @@ fn runtime_function_type<'context>(
                         .fn_type(&[pointer.into(), context.i64_type().into()], false),
                 );
             }
+            RuntimeAbiRole::TaskAllocation => {
+                return Some(context.void_type().fn_type(&[pointer.into()], false));
+            }
+            RuntimeAbiRole::TaskStart => {
+                return Some(
+                    context
+                        .i32_type()
+                        .fn_type(&[context.i64_type().into(), pointer.into()], false),
+                );
+            }
+            RuntimeAbiRole::TaskObservationCreation => {
+                return Some(context.void_type().fn_type(
+                    &[
+                        pointer.into(),
+                        context.i64_type().into(),
+                        context.i8_type().into(),
+                        pointer.into(),
+                        pointer.into(),
+                        pointer.into(),
+                    ],
+                    false,
+                ));
+            }
+            RuntimeAbiRole::TaskResolution => {
+                return Some(context.i32_type().fn_type(
+                    &[context.i64_type().into(), pointer.into(), pointer.into()],
+                    false,
+                ));
+            }
+            RuntimeAbiRole::JoinRegistration => {
+                return Some(context.void_type().fn_type(
+                    &[
+                        pointer.into(),
+                        context.i64_type().into(),
+                        pointer.into(),
+                        usize.into(),
+                    ],
+                    false,
+                ));
+            }
             RuntimeAbiRole::PanicReportConstruction => {
                 return Some(pointer_integer_type(context, target).fn_type(
                     &[context.i32_type().into(), pointer.into(), pointer.into()],
@@ -403,15 +485,47 @@ fn runtime_function_type<'context>(
             ],
             false,
         )),
+        RuntimeAbiRole::TaskAllocation => Some(task_allocation_type(context).fn_type(&[], false)),
         RuntimeAbiRole::TaskStart => Some(context.i32_type().fn_type(
             &[
                 context.i64_type().into(),
+                inactive_frame_type(context).into(),
+            ],
+            false,
+        )),
+        RuntimeAbiRole::TaskObservationCreation => Some(inactive_frame_type(context).fn_type(
+            &[
+                context.i64_type().into(),
+                context.i8_type().into(),
+                context.ptr_type(AddressSpace::default()).into(),
+                context.ptr_type(AddressSpace::default()).into(),
+                context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        )),
+        RuntimeAbiRole::TaskResolution => Some(context.i32_type().fn_type(
+            &[
+                context.i64_type().into(),
+                context.ptr_type(AddressSpace::default()).into(),
+                context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        )),
+        RuntimeAbiRole::JoinRegistration => Some(run_outcome_type(context, target).fn_type(
+            &[
+                context.i64_type().into(),
+                context.ptr_type(AddressSpace::default()).into(),
                 pointer_integer_type(context, target).into(),
             ],
             false,
         )),
+        RuntimeAbiRole::TaskCancellationRequest | RuntimeAbiRole::TaskDestruction => Some(
+            context
+                .i32_type()
+                .fn_type(&[context.i64_type().into()], false),
+        ),
         RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
-            Some(run_outcome_type(context).fn_type(
+            Some(run_outcome_type(context, target).fn_type(
                 &[
                     context.ptr_type(AddressSpace::default()).into(),
                     pointer_integer_type(context, target).into(),
@@ -425,7 +539,7 @@ fn runtime_function_type<'context>(
                 .fn_type(&[context.i64_type().into()], false),
         ),
         RuntimeAbiRole::RootTerminalObservation => {
-            Some(run_outcome_type(context).fn_type(&[context.i64_type().into()], false))
+            Some(run_outcome_type(context, target).fn_type(&[context.i64_type().into()], false))
         }
         RuntimeAbiRole::RootCompletionResolution => Some(
             context

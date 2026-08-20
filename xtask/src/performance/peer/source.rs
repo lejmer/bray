@@ -23,6 +23,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "format_writer" => ("format_writer", "13"),
         "stream_output" => ("stream_output", "9"),
         "async_output" => ("async_output", "10"),
+        "contended_output" => ("contended_output", "14"),
         "file_output" => ("file_output", "11"),
         _ => {
             return Err(format!(
@@ -97,6 +98,9 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         ),
         "async_output" => Some(
             "complete and await 128 sequential asynchronous standard-output calls that each write one byte and flush before returning",
+        ),
+        "contended_output" => Some(
+            "start two concurrent tasks that each complete 64 standard-output operations that write one byte and flush before returning, then join both tasks",
         ),
         "file_output" => Some(
             "create a new file, write all 4096 bytes while accepting partial writes, flush, close, and remove the file",

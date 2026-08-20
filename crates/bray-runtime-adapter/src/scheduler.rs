@@ -1,10 +1,12 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
-    NativeProtectedFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunState,
-    NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
+    NativeProtectedFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
+    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation,
+    NativeTaskHandle, NativeWakeCallback,
 };
+
+type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution_v1(
@@ -36,11 +38,47 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_task_start_v1(
+    pub extern "C" fn bray_runtime_task_start_v2(
         task: NativeTaskHandle,
-        frame: NativeProtectedFrameTransfer,
+        frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_start_v1(task, frame)
+        implementation::bray_runtime_task_start_v2(task, frame)
+    }
+}
+
+native_adapter! {
+    pub extern "C-unwind" fn bray_runtime_task_observation_creation_v1(
+        task: NativeTaskHandle,
+        request_cancellation: u8,
+        layout: *const NativeRunResultLayout,
+        cancellation: Option<NativeValueCleanupCallback>,
+        lifecycle: Option<NativeValueCleanupCallback>,
+    ) -> NativeInactiveFrame {
+        implementation::bray_runtime_task_observation_creation_v1(
+            task,
+            request_cancellation,
+            layout,
+            cancellation,
+            lifecycle,
+        )
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_task_resolution_v1(
+        task: NativeTaskHandle,
+        destination: *mut u8,
+        layout: *const NativeRunResultLayout,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_task_resolution_v1(task, destination, layout)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_task_destruction_v1(
+        task: NativeTaskHandle,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_task_destruction_v1(task)
     }
 }
 

@@ -5,7 +5,7 @@ use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
     NativePanicCause, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostOperation, NativeProtectedFrame, NativeProtectedFrameTransfer,
-    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
+    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
     NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
     NativeSourceAnchor, NativeStringView, NativeTaskAllocation, NativeTaskHandle,
     NativeThreadStaticCleanupRegistration, NativeWakeCallback,
@@ -287,16 +287,12 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_task_start_v1(
+    pub extern "C" fn bray_runtime_task_start_v2(
         task: NativeTaskHandle,
-        frame: NativeProtectedFrameTransfer,
+        frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            let Some(frame) = take_transferred_frame(frame) else {
-                return NativeRuntimeStatus::INVALID_ARGUMENT;
-            };
-
-            with_runtime(|runtime| runtime.start(task, frame))
+            with_runtime(|runtime| runtime.start(task, frame.into_protected()))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -310,6 +306,67 @@ native_export! {
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
+    }
+}
+
+native_export! {
+    #[expect(
+        unsafe_code,
+        reason = "the factory copies the compiler-owned layout during this call"
+    )]
+    pub extern "C-unwind" fn bray_runtime_task_observation_creation_v1(
+        task: NativeTaskHandle,
+        request_cancellation: u8,
+        layout: *const NativeRunResultLayout,
+        cancellation: Option<super::task_observation::NativeValueCleanupCallback>,
+        lifecycle: Option<super::task_observation::NativeValueCleanupCallback>,
+    ) -> NativeInactiveFrame {
+        let layout = unsafe { layout.as_ref() }
+            .copied()
+            .unwrap_or_else(|| panic!("task observation layout is required"));
+
+        super::task_observation::create(
+            task,
+            request_cancellation != 0,
+            layout,
+            cancellation,
+            lifecycle,
+        )
+        .unwrap_or_else(|| panic!("task observation layout is invalid"))
+    }
+}
+
+native_export! {
+    #[expect(
+        unsafe_code,
+        reason = "the resolver borrows the compiler-owned layout only for this call"
+    )]
+    pub extern "C" fn bray_runtime_task_resolution_v1(
+        task: NativeTaskHandle,
+        destination: *mut u8,
+        layout: *const NativeRunResultLayout,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| {
+            let Some(layout) = (unsafe { layout.as_ref() }).copied() else {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            };
+            let outcome = with_runtime(|runtime| runtime.resolve_task(task))
+                .unwrap_or_else(runtime_failure);
+
+            super::task_observation::transfer_outcome(outcome, destination.addr(), layout)
+                .map_or_else(|status| status, |()| NativeRuntimeStatus::SUCCESS)
+        })
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_task_destruction_v1(
+        task: NativeTaskHandle,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| {
+            with_runtime(|runtime| runtime.destroy_task(task))
+                .unwrap_or_else(|status| status)
+        })
     }
 }
 
@@ -538,7 +595,7 @@ mod tests {
         bray_runtime_main_thread_lane_startup_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
         bray_runtime_structured_shutdown_v1, bray_runtime_suspension_registration_v1,
-        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
+        bray_runtime_task_allocation_v1, bray_runtime_task_start_v2,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -1085,9 +1142,18 @@ mod tests {
         task: super::NativeTaskHandle,
         frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
-        let transfer = NativeProtectedFrameTransfer::new(&frame);
+        bray_runtime_task_start_v2(
+            task,
+            NativeInactiveFrame::new(Box::into_raw(Box::new(frame)).addr(), move_test_frame),
+        )
+    }
 
-        bray_runtime_task_start_v1(task, transfer)
+    #[expect(
+        unsafe_code,
+        reason = "the inactive test frame transfers its exact descriptor allocation"
+    )]
+    extern "C" fn move_test_frame(context: usize) -> NativeProtectedFrame {
+        unsafe { *Box::from_raw(context as *mut NativeProtectedFrame) }
     }
 
     #[test]

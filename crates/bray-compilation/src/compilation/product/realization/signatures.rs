@@ -568,6 +568,21 @@ impl Compilation {
             ));
         }
 
+        if matches!(
+            role,
+            RuntimeAbiRole::TaskCancellationRequest | RuntimeAbiRole::TaskDestruction
+        ) {
+            let task = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
+            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(task, None, [])],
+                CodegenResultMapping::direct(status, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
         if !matches!(
             role,
             RuntimeAbiRole::GeneratorBegin

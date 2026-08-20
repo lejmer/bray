@@ -474,7 +474,7 @@ impl Compilation {
             },
             MirFrameInitializer::TaskObservation { .. } => Ok(helper_runtime_symbol(
                 owner,
-                RuntimeAbiRole::JoinRegistration,
+                RuntimeAbiRole::TaskObservationCreation,
             )),
         }
     }

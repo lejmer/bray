@@ -35,8 +35,12 @@ pub enum RuntimeAbiRole {
     CurrentRunCancellationObservation,
     /// Transfer current-run cancellation to the nearest run boundary.
     CurrentRunCancellationPropagation,
-    /// Register and resolve a task join.
+    /// Register one observer for a task terminal state.
     JoinRegistration,
+    /// Create one lazy task-observation frame.
+    TaskObservationCreation,
+    /// Resolve one task to its terminal result.
+    TaskResolution,
     /// Publish one terminal run outcome.
     TerminalPublication,
     /// Integrate one runtime event source.
@@ -97,7 +101,7 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 46] = [
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::ForeignCallbackExecution,
@@ -114,6 +118,8 @@ impl RuntimeAbiRole {
         Self::CurrentRunCancellationObservation,
         Self::CurrentRunCancellationPropagation,
         Self::JoinRegistration,
+        Self::TaskObservationCreation,
+        Self::TaskResolution,
         Self::TerminalPublication,
         Self::RuntimeEvent,
         Self::CompatibleLaneSelection,
@@ -174,6 +180,8 @@ impl RuntimeAbiRole {
             Self::CurrentRunCancellationObservation => "current_run_cancellation_observation",
             Self::CurrentRunCancellationPropagation => "current_run_cancellation_propagation",
             Self::JoinRegistration => "join_registration",
+            Self::TaskObservationCreation => "task_observation_creation",
+            Self::TaskResolution => "task_resolution",
             Self::TerminalPublication => "terminal_publication",
             Self::RuntimeEvent => "runtime_event",
             Self::CompatibleLaneSelection => "compatible_lane_selection",
@@ -435,6 +443,11 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::CurrentRunCancellationPropagation => &[Effect::PropagateCancellation],
         RuntimeAbiRole::JoinRegistration => &[
             Effect::RegisterContinuation,
+            Effect::AcquireTerminalState,
+            Effect::EstablishVisibility,
+        ],
+        RuntimeAbiRole::TaskObservationCreation => &[Effect::CreateFrame],
+        RuntimeAbiRole::TaskResolution => &[
             Effect::AcquireTerminalState,
             Effect::EstablishVisibility,
         ],

@@ -284,6 +284,10 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
+        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+            initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
+            ..
+        }) => [Some(*runtime), None, None],
         MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
             completion,
             panic,
@@ -338,7 +342,10 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             MirHostOperation::MaterializeStatic { .. } | MirHostOperation::BeginStaticCleanup,
         )
         | MirOperationKind::Async(
-            MirAsyncOperation::CreateFrame { .. }
+            MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(_),
+                ..
+            }
             | MirAsyncOperation::MoveInactiveFrame { .. }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::CommitAwaitedCompletion { .. }

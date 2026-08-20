@@ -2,6 +2,6 @@ mod binding;
 mod core;
 mod execution;
 
-pub(super) use binding::{runtime_failure, with_cleanup_runtime};
+pub(super) use binding::{current_native_task, runtime_failure, with_cleanup_runtime};
 pub(super) use core::{NativeRuntimeCore, initialize, run_worker, shutdown, with_runtime};
 pub(crate) use core::{RetainedRuntime, retain_runtime};

@@ -11,6 +11,7 @@ use std::fs::OpenOptions;
     peer_workload = "format_numbers",
     peer_workload = "format_writer",
     peer_workload = "stream_output",
+    peer_workload = "contended_output",
     peer_workload = "file_output"
 ))]
 use std::io::Write as _;
@@ -316,12 +317,31 @@ fn workload() -> bool {
     true
 }
 
-#[cfg(any(peer_workload = "stream_output", peer_workload = "async_output"))]
+#[cfg(any(
+    peer_workload = "stream_output",
+    peer_workload = "async_output",
+    peer_workload = "contended_output"
+))]
 fn write_standard_output() -> bool {
     let output = std::io::stdout();
     let mut locked = output.lock();
 
     locked.write_all(b"x").is_ok() && locked.flush().is_ok()
+}
+
+#[cfg(peer_workload = "contended_output")]
+fn workload() -> bool {
+    std::thread::scope(|scope| {
+        let first = scope.spawn(write_standard_output_repeatedly);
+        let second = scope.spawn(write_standard_output_repeatedly);
+
+        first.join().unwrap_or(false) && second.join().unwrap_or(false)
+    })
+}
+
+#[cfg(peer_workload = "contended_output")]
+fn write_standard_output_repeatedly() -> bool {
+    (0..64).all(|_| write_standard_output())
 }
 
 #[cfg(peer_workload = "async_output")]

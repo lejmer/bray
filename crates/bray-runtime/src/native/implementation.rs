@@ -16,7 +16,9 @@ pub use super::export::{
     bray_runtime_root_completion_resolution_v1, bray_runtime_root_execution_v1,
     bray_runtime_root_terminal_observation_v1, bray_runtime_structured_shutdown_v1,
     bray_runtime_suspension_registration_v1, bray_runtime_task_allocation_v1,
-    bray_runtime_task_cancellation_request_v1, bray_runtime_task_start_v1,
+    bray_runtime_task_cancellation_request_v1, bray_runtime_task_start_v2,
+    bray_runtime_task_destruction_v1, bray_runtime_task_observation_creation_v1,
+    bray_runtime_task_resolution_v1,
     bray_runtime_terminal_publication_v1, bray_runtime_thread_attachment_identity_v1,
     bray_runtime_thread_static_cleanup_registration_v1, bray_runtime_wake_v1,
 };

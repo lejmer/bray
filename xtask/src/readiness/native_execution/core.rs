@@ -21,6 +21,7 @@ const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-lin
 const ASYNC_UNIT_FIXTURE: &str = "xtask/fixtures/native-execution/async-unit.bray";
 const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray";
 const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
+const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
 const ATOMIC_FIXTURE: &str = "xtask/fixtures/native-execution/atomic-operations.bray";
@@ -411,6 +412,7 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     for (name, fixture, expected, stderr) in [
         ("async unit", ASYNC_UNIT_FIXTURE, 0, None),
         ("async i32", ASYNC_I32_FIXTURE, 42, None),
+        ("independently started tasks", ASYNC_TASKS_FIXTURE, 0, None),
         (
             "async Result.Error",
             ASYNC_ERROR_FIXTURE,

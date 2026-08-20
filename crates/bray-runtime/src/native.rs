@@ -8,6 +8,7 @@ mod host;
 pub mod implementation;
 mod state;
 mod static_finalizer;
+mod task_observation;
 mod workers;
 
 pub(crate) use state::{RetainedRuntime, retain_runtime};

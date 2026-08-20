@@ -9,7 +9,7 @@ use super::{ImplementationTemplateSchemaRevision, PackageImplementationConfigura
 
 /// Exact MIR schema revision supported by optional pre-specialized payloads.
 pub const CURRENT_MIR_SCHEMA_REVISION: ImplementationMirSchemaRevision =
-    ImplementationMirSchemaRevision::new(2);
+    ImplementationMirSchemaRevision::new(3);
 
 /// Exact schema used to interpret a pre-specialized MIR payload.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -242,7 +242,7 @@ mod tests {
     use super::CURRENT_MIR_SCHEMA_REVISION;
 
     #[test]
-    fn range_iteration_uses_mir_schema_revision_two() {
-        assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 2);
+    fn task_observation_uses_mir_schema_revision_three() {
+        assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 3);
     }
 }

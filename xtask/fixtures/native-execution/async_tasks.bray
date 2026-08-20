@@ -1,0 +1,48 @@
+module async_tasks;
+
+async func complete()
+{
+    return unit;
+}
+
+async func produce() -> Result<i32, i32>
+{
+    return Ok(42);
+}
+
+async func fail()
+{
+    panic("independent task panic");
+}
+
+async func main()
+{
+    let first: Task<unit> = complete().start();
+    let second: Task<unit> = complete().start();
+    let result_task: Task<Result<i32, i32>> = produce().start();
+    let failed: Task<unit> = fail().start();
+    let cancelled: Task<unit> = complete().start();
+
+    try await first.join();
+    try await second.join();
+
+    match try await result_task.join()
+    {
+        case Ok(value) { assert(value == 42); }
+        case Error(_) { assert(false); }
+    }
+
+    match await failed.join()
+    {
+        case Completed(_) { assert(false); }
+        case Panicked(_) {}
+        case Cancelled { assert(false); }
+    }
+
+    match await cancelled.cancel()
+    {
+        case Completed(_) {}
+        case Panicked(_) { assert(false); }
+        case Cancelled {}
+    }
+}

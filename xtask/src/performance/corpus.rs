@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 10;
+pub(super) const CORPUS_REVISION: u32 = 11;
 pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
 pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
 pub(super) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;
@@ -58,7 +58,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 13] = [
+pub(super) const WORKLOADS: [Workload; 14] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -485,23 +485,7 @@ func main()
         scale: 1024,
         units: "writes",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module stream_output;
-
-using std.io;
-
-func main() -> Result<unit, std.io.IoError>
-{
-    let mut index: usize = 0;
-
-    while index < 1024
-    {
-        try std.io.print(&"x");
-        index += 1;
-    }
-
-    return Ok(unit);
-}
-"#,
+        source: super::source::STREAM_OUTPUT,
         expected_output: ExpectedOutput::Repeated {
             byte: b'x',
             count: 1024,
@@ -552,23 +536,28 @@ func main() -> Result<unit, std.io.IoError>
         scale: 128,
         units: "awaits",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module async_output;
-
-using std.io;
-
-async func main() -> Result<unit, std.io.IoError>
-{
-    let mut index: usize = 0;
-
-    while index < 128
-    {
-        try await std.io.print_async(&"x");
-        index += 1;
-    }
-
-    return Ok(unit);
-}
-"#,
+        source: super::source::ASYNC_OUTPUT,
+        expected_output: ExpectedOutput::Repeated {
+            byte: b'x',
+            count: 128,
+        },
+        expected_side_effects: ExpectedSideEffects::None,
+        platform_operations: &[
+            "platform.standard_output.write",
+            "platform.standard_output.flush",
+            "platform.standard_output.lock",
+            "platform.standard_output.unlock",
+        ],
+        retention: NO_RETENTION_CONTRACT,
+        storage: None,
+    },
+    Workload {
+        id: "contended_output",
+        category: WorkloadCategory::Concurrent,
+        scale: 128,
+        units: "writes",
+        batching: BatchingPolicy::SingleExecution,
+        source: super::source::CONTENDED_OUTPUT,
         expected_output: ExpectedOutput::Repeated {
             byte: b'x',
             count: 128,
@@ -845,6 +834,24 @@ mod tests {
         assert_eq!(storage.allocation_count, 0);
         assert_eq!(storage.allocated_bytes, 0);
         assert_eq!(storage.copied_bytes, 0);
+    }
+
+    #[test]
+    fn contended_output_reports_synchronization_and_write_throughput() {
+        let workload = workload("contended_output");
+
+        assert_eq!(workload.scale, 128);
+        assert_eq!(workload.units, "writes");
+
+        assert_eq!(
+            workload.platform_operations,
+            [
+                "platform.standard_output.write",
+                "platform.standard_output.flush",
+                "platform.standard_output.lock",
+                "platform.standard_output.unlock",
+            ]
+        );
     }
 
     fn workload(identity: &str) -> &super::Workload {

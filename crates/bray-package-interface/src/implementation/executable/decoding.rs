@@ -1668,6 +1668,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     1 => bray_ir::MirFrameInitializer::TaskObservation {
                         task: self.operand()?,
                         result: BoundFutureConstruction::new(self.ty()?, self.ty()?),
+                        variants: self.run_result_variants()?,
+                        runtime: self.runtime_reference()?,
                         request_cancellation: read_bool(&mut self.reader)?,
                     },
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
@@ -1709,6 +1711,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             8 => Ok(Operation::ResolveTask {
                 task: self.operand()?,
+                variants: self.run_result_variants()?,
                 runtime: self.runtime_reference()?,
             }),
             9 => {
@@ -1741,6 +1744,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
+    }
+
+    fn run_result_variants(
+        &mut self,
+    ) -> Result<bray_ir::MirRunResultVariants, ExecutableTemplateDecodeError> {
+        Ok(bray_ir::MirRunResultVariants::new(
+            self.exact_symbol()?,
+            self.exact_symbol()?,
+            self.exact_symbol()?,
+        ))
     }
 
     fn frame_reference(&mut self) -> Result<MirFrameReference, ExecutableTemplateDecodeError> {

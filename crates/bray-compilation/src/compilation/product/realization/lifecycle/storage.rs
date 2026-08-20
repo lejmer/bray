@@ -290,17 +290,12 @@ impl Compilation {
 
         match reference {
             MirHelperReference::Finalize(_) | MirHelperReference::StaticFinalize(_) => {
-                self.push_lifecycle_operation(
+                self.push_task_resolution(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Async(MirAsyncOperation::ResolveTask {
-                        task: MirOperand::Move(place.clone()),
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::JoinRegistration,
-                            runtime_abi,
-                        ),
-                    }),
+                    place.clone(),
+                    runtime_abi,
                 )?;
             }
             MirHelperReference::Destroy(_) => {
@@ -334,17 +329,12 @@ impl Compilation {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ..
             } => {
-                self.push_lifecycle_operation(
+                self.push_task_resolution(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Async(MirAsyncOperation::ResolveTask {
-                        task: MirOperand::Move(place.clone()),
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::JoinRegistration,
-                            runtime_abi,
-                        ),
-                    }),
+                    place.clone(),
+                    runtime_abi,
                 )?;
 
                 self.push_lifecycle_operation(

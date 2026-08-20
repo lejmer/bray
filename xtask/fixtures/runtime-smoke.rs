@@ -130,6 +130,12 @@ struct ProtectedFrame {
     destroy: extern "C-unwind" fn(usize),
 }
 
+#[repr(C)]
+struct InactiveFrame {
+    context: usize,
+    move_before_start: extern "C" fn(usize) -> ProtectedFrame,
+}
+
 #[repr(transparent)]
 struct ProtectedFrameTransfer(usize);
 
@@ -152,9 +158,9 @@ unsafe extern "C" {
     safe fn bray_runtime_wake_v1(task: TaskHandle, state: u32) -> Status;
     safe fn bray_runtime_main_thread_lane_startup_v1(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation_v1() -> TaskAllocation;
-    safe fn bray_runtime_task_start_v1(
+    safe fn bray_runtime_task_start_v2(
         task: TaskHandle,
-        frame: ProtectedFrameTransfer,
+        frame: InactiveFrame,
     ) -> Status;
     safe fn bray_runtime_main_thread_lane_drive_v1() -> Status;
     safe fn bray_runtime_structured_shutdown_v1() -> Status;
@@ -276,6 +282,13 @@ extern "C-unwind" fn record_failure_resolution(_: usize, _: FrameExit) {
 }
 
 extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
+
+extern "C" fn move_before_start(context: usize) -> ProtectedFrame {
+    unsafe {
+        // The inactive-frame transfer gives this callback sole ownership of the descriptor.
+        *Box::from_raw(context as *mut ProtectedFrame)
+    }
+}
 
 extern "C-unwind" fn record_failure_action(_: usize) {
     FAILURE_CLEANUP.fetch_add(1, Ordering::Relaxed);
@@ -421,10 +434,18 @@ fn main() {
     assert!(allocation.status == Status::SUCCESS);
 
     let task = TaskHandle(allocation.task);
-    let frame = protected_frame(11, resume_frame, cancel_frame, ignore_action);
-    let transfer = ProtectedFrameTransfer(&frame as *const ProtectedFrame as usize);
 
-    assert!(bray_runtime_task_start_v1(task, transfer) == Status::SUCCESS);
+    let frame = InactiveFrame {
+        context: Box::into_raw(Box::new(protected_frame(
+            11,
+            resume_frame,
+            cancel_frame,
+            ignore_action,
+        ))) as usize,
+        move_before_start,
+    };
+
+    assert!(bray_runtime_task_start_v2(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive_v1() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown_v1() == Status::SUCCESS);
 }

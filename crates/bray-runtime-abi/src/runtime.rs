@@ -327,7 +327,7 @@ pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whit
 pub const CHARACTER_UNICODE_DATA_VERSION: (u8, u8, u8) = (17, 0, 0);
 
 /// Stable symbol publishing an allocated task for execution.
-pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
+pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v2";
 
 /// Stable symbol transferring one inactive frame into the current task.
 pub const AWAITED_FRAME_COMPOSITION_SYMBOL: &str = "bray_runtime_awaited_frame_composition_v1";
@@ -346,6 +346,15 @@ pub const TASK_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_task_cancellati
 
 /// Stable symbol registering an observer for one task terminal state.
 pub const JOIN_REGISTRATION_SYMBOL: &str = "bray_runtime_join_registration_v1";
+
+/// Stable symbol creating one lazy task-observation frame.
+pub const TASK_OBSERVATION_CREATION_SYMBOL: &str = "bray_runtime_task_observation_creation_v1";
+
+/// Stable symbol resolving one task to a terminal run outcome.
+pub const TASK_RESOLUTION_SYMBOL: &str = "bray_runtime_task_resolution_v1";
+
+/// Stable symbol consuming one resolved terminal task record.
+pub const TASK_DESTRUCTION_SYMBOL: &str = "bray_runtime_task_destruction_v1";
 
 /// Stable symbol constructing a terminal frame result.
 pub const TERMINAL_PUBLICATION_SYMBOL: &str = "bray_runtime_terminal_publication_v1";

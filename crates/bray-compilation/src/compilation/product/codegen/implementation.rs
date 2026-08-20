@@ -1931,6 +1931,33 @@ mod tests {
     }
 
     #[test]
+    fn independently_started_tasks_emit_native_units() {
+        let (backend, compilation) = codegen_compilation_for_product(
+            include_str!("../../../../../../xtask/fixtures/native-execution/async_tasks.bray"),
+            ProductKind::Executable,
+        );
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("started tasks must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
         let cases = [
             (

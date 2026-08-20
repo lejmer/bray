@@ -838,9 +838,9 @@ fn validate_async_operation(
                 RuntimeAbiRole::CurrentRunCancellationObservation,
             )?;
         }
-        MirAsyncOperation::ResolveTask { task, runtime } => {
+        MirAsyncOperation::ResolveTask { task, runtime, .. } => {
             validate_operand(unit, task, block, Some(operation_id))?;
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::JoinRegistration)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskResolution)?;
         }
         MirAsyncOperation::PublishTerminalState { state, runtime } => {
             validate_terminal_state(unit, block, operation_id, state)?;
@@ -874,8 +874,10 @@ fn validate_frame_initializer(
 ) -> Result<(), MirUnitBuildError> {
     match initializer {
         crate::MirFrameInitializer::Callable(call) => validate_call(unit, block, operation, call),
-        crate::MirFrameInitializer::TaskObservation { task, .. } => {
-            validate_operand(unit, task, block, Some(operation))
+        crate::MirFrameInitializer::TaskObservation { task, runtime, .. } => {
+            validate_operand(unit, task, block, Some(operation))?;
+
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskObservationCreation)
         }
     }
 }

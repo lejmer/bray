@@ -209,8 +209,21 @@ impl MirOperationKind {
                 ty: place.ty(),
             }),
             Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
-                if let MirFrameInitializer::Callable(call) = initializer {
-                    collect_call_defaults(call, &mut helpers);
+                match initializer {
+                    MirFrameInitializer::Callable(call) => {
+                        collect_call_defaults(call, &mut helpers);
+                    }
+                    MirFrameInitializer::TaskObservation { result, .. } => {
+                        for phase in [
+                            MirCleanupPhase::TaskCancellation,
+                            MirCleanupPhase::LifecycleResolution,
+                        ] {
+                            helpers.push(MirHelperReference::Cleanup {
+                                phase,
+                                ty: result.completion_type(),
+                            });
+                        }
+                    }
                 }
 
                 helpers.push(MirHelperReference::CreateFrame(*frame));

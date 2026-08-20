@@ -16,7 +16,7 @@ use super::codec::runtime_requirements_identity;
 
 /// Exact compiler template-schema revision implemented by this crate.
 pub const CURRENT_TEMPLATE_SCHEMA_REVISION: ImplementationTemplateSchemaRevision =
-    ImplementationTemplateSchemaRevision::new(2);
+    ImplementationTemplateSchemaRevision::new(3);
 
 /// Exact compiler schema used to interpret checked implementation templates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
