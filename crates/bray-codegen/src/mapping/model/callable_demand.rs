@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_ir::{
-    MirAsyncOperation, MirCallTarget, MirCallableReference, MirFrameInitializer, MirOperationKind,
-    MirTerminatorKind,
+    MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirFrameInitializer,
+    MirOperationKind, MirTerminatorKind,
 };
 use bray_symbols::ImplementationInstanceId;
 
@@ -143,8 +143,18 @@ fn operation_callable_instances(
         | MirOperationKind::Host(_) => return Vec::new(),
     };
 
+    demanded_callable_instance_for_call(CodegenCallSite::Operation(operation_id), call)
+        .into_iter()
+        .collect()
+}
+
+/// Returns the direct callable demand represented by one call occurrence.
+pub fn demanded_callable_instance_for_call(
+    site: CodegenCallSite,
+    call: &MirCall,
+) -> Option<DemandedCallableInstance> {
     let MirCallTarget::Direct(reference) = call.target() else {
-        return Vec::new();
+        return None;
     };
 
     let mut witnesses = call.dispatch_witnesses().to_vec();
@@ -153,13 +163,13 @@ fn operation_callable_instances(
     witnesses.sort_unstable();
     witnesses.dedup();
 
-    vec![DemandedCallableInstance {
-        site: CodegenCallSite::Operation(operation_id),
+    Some(DemandedCallableInstance {
+        site,
         reference: *reference,
         trait_dispatch: call.trait_dispatch(),
         intrinsic: call.intrinsic(),
         witnesses: witnesses.into(),
-    }]
+    })
 }
 
 fn terminator_callable_instances(

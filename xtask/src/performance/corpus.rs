@@ -617,7 +617,9 @@ func main() -> Result<unit, std.io.IoError>
         source: r#"module file_output;
 
 using std.fs;
+using std.fs.FileWriter;
 using std.io;
+using std.io.BufferedWriterSinkWriter;
 using std.path;
 
 func main() -> Result<unit, std.io.IoError>
@@ -635,19 +637,15 @@ func main() -> Result<unit, std.io.IoError>
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
+    let opened: std.fs.File = try std.fs.File.open(&path, options = options);
+    let mut writer: std.io.BufferedWriter<std.fs.File> =
+        try std.io.BufferedWriter<std.fs.File>(opened, capacity = 256);
     let bytes: [u8; 4096] = [120; 4096];
-    let mut written: usize = 0;
 
-    while written < 4096
-    {
-        let remaining: &[u8] = &bytes[written.. 4096];
+    try std.io.write_all<std.io.BufferedWriter<std.fs.File>>(&mut writer, &bytes[..]);
 
-        written += try file.write(remaining);
-    }
-
-    try file.flush();
-    try file.close();
+    let mut completed: std.fs.File = try writer.into_sink();
+    try completed.close();
     try std.fs.remove_file(&path);
 
     return Ok(unit);
@@ -852,6 +850,20 @@ mod tests {
                 "platform.standard_output.unlock",
             ]
         );
+    }
+
+    #[test]
+    fn file_output_exercises_large_buffer_bypass() {
+        let workload = workload("file_output");
+
+        assert!(
+            workload
+                .source
+                .contains("std.io.BufferedWriter<std.fs.File>")
+        );
+
+        assert!(workload.source.contains("capacity = 256"));
+        assert!(workload.source.contains("std.io.write_all<"));
     }
 
     fn workload(identity: &str) -> &super::Workload {

@@ -28,9 +28,65 @@ struct StandardError
     internal marker: bool;
 }
 
-internal func normalize_write_flush_error(pos error: IoError) -> IoError
+internal func normalize_buffer_drain_error(pos error: IoError) -> IoError
 {
     return transferred_error(error, transferred = 0);
+}
+
+/// Writes the complete borrowed byte range or reports the exact accepted prefix.
+func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<unit, IoError>
+    with(Sink: Writer)
+    requires(blocking_execution())
+{
+    let length: usize = internal std.memory.slice_length<u8>(source);
+    let mut written: usize = 0;
+
+    while written < length
+    {
+        let remaining: &[u8] = &source[written..length];
+        let result: Result<usize, IoError> = sink.write(remaining);
+
+        match consume advance_transfer(
+            result = result,
+            completed = written,
+            remaining = length - written,
+            require_progress = true,
+        )
+        {
+            case Ok(next) { written = next; }
+            case Error(error) { return Error(error); }
+        }
+    }
+
+    return Ok(unit);
+}
+
+/// Asynchronously writes the complete borrowed byte range or reports the exact accepted prefix.
+async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<unit, IoError>
+    with(Sink: AsyncWriter)
+    requires(blocking_execution())
+{
+    let length: usize = internal std.memory.slice_length<u8>(source);
+    let mut written: usize = 0;
+
+    while written < length
+    {
+        let remaining: &[u8] = &source[written..length];
+        let result: Result<usize, IoError> = await sink.write_async(remaining);
+
+        match consume advance_transfer(
+            result = result,
+            completed = written,
+            remaining = length - written,
+            require_progress = true,
+        )
+        {
+            case Ok(next) { written = next; }
+            case Error(error) { return Error(error); }
+        }
+    }
+
+    return Ok(unit);
 }
 
 internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos source: &[u8]) -> usize
@@ -57,7 +113,7 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
 
 impl BufferedWriter<Sink>
 {
-    mut func flush_buffered() -> Result<unit, IoError>
+    mut func drain_buffered() -> Result<usize, IoError>
         with(Sink: Writer)
         requires(blocking_execution())
     {
@@ -75,35 +131,23 @@ impl BufferedWriter<Sink>
                 yield self.sink.write(pending);
             };
 
-            match consume result
+            match consume advance_transfer(
+                result = result,
+                completed = committed,
+                remaining = pending_length,
+                require_progress = true,
+            )
             {
-                case Ok(transferred)
+                case Ok(next)
                 {
-                    if transferred > pending_length
-                    {
-                        return Error(invalid_transfer_error(transferred = committed));
-                    }
-
-                    if transferred == 0
-                    {
-                        return Error(no_progress_error(transferred = committed));
-                    }
-
-                    self.start += transferred;
-                    committed += transferred;
+                    self.start += next - committed;
+                    committed = next;
                 }
                 case Error(error)
                 {
-                    if error.transferred > pending_length
-                    {
-                        return Error(invalid_transfer_error(transferred = committed));
-                    }
+                    self.start += error.transferred - committed;
 
-                    let transferred: usize = error.transferred;
-
-                    self.start += transferred;
-
-                    return Error(prefixed_error(error, prefix = committed));
+                    return Error(error);
                 }
             }
         }
@@ -111,6 +155,14 @@ impl BufferedWriter<Sink>
         self.start = 0;
         self.length = 0;
 
+        return Ok(committed);
+    }
+
+    mut func flush_buffered() -> Result<unit, IoError>
+        with(Sink: Writer)
+        requires(blocking_execution())
+    {
+        let committed: usize = try self.drain_buffered();
         let result: Result<unit, IoError> = self.sink.flush();
 
         match consume result
@@ -124,21 +176,40 @@ impl BufferedWriter<Sink>
         with(Sink: Writer)
         requires(blocking_execution())
     {
-        if self.length == self.capacity
-        {
-            let result: Result<unit, IoError> = self.flush_buffered();
+        let source_length: usize = internal std.memory.slice_length<u8>(source);
 
-            match consume result
+        if source_length == 0
+        {
+            return Ok(0);
+        }
+
+        if source_length <= self.capacity - self.length
+        {
+            return Ok(buffer_bytes(&mut self, source));
+        }
+
+        if self.length > 0
+        {
+            let drained: Result<usize, IoError> = self.drain_buffered();
+
+            match consume drained
             {
                 case Ok(_) {}
-                case Error(error) { return Error(normalize_write_flush_error(error)); }
+                case Error(error) { return Error(normalize_buffer_drain_error(error)); }
             }
+        }
+
+        if source_length >= self.capacity
+        {
+            let result: Result<usize, IoError> = self.sink.write(source);
+
+            return advance_transfer(result = result, completed = 0, remaining = source_length, require_progress = true);
         }
 
         return Ok(buffer_bytes(&mut self, source));
     }
 
-    mut async func flush_buffered_async() -> Result<unit, IoError>
+    mut async func drain_buffered_async() -> Result<usize, IoError>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
@@ -156,35 +227,23 @@ impl BufferedWriter<Sink>
                 yield await self.sink.write_async(pending);
             };
 
-            match consume result
+            match consume advance_transfer(
+                result = result,
+                completed = committed,
+                remaining = pending_length,
+                require_progress = true,
+            )
             {
-                case Ok(transferred)
+                case Ok(next)
                 {
-                    if transferred > pending_length
-                    {
-                        return Error(invalid_transfer_error(transferred = committed));
-                    }
-
-                    if transferred == 0
-                    {
-                        return Error(no_progress_error(transferred = committed));
-                    }
-
-                    self.start += transferred;
-                    committed += transferred;
+                    self.start += next - committed;
+                    committed = next;
                 }
                 case Error(error)
                 {
-                    if error.transferred > pending_length
-                    {
-                        return Error(invalid_transfer_error(transferred = committed));
-                    }
+                    self.start += error.transferred - committed;
 
-                    let transferred: usize = error.transferred;
-
-                    self.start += transferred;
-
-                    return Error(prefixed_error(error, prefix = committed));
+                    return Error(error);
                 }
             }
         }
@@ -192,6 +251,14 @@ impl BufferedWriter<Sink>
         self.start = 0;
         self.length = 0;
 
+        return Ok(committed);
+    }
+
+    mut async func flush_buffered_async() -> Result<unit, IoError>
+        with(Sink: AsyncWriter)
+        requires(blocking_execution())
+    {
+        let committed: usize = try await self.drain_buffered_async();
         let result: Result<unit, IoError> = await self.sink.flush_async();
 
         match consume result
@@ -205,23 +272,52 @@ impl BufferedWriter<Sink>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
-        if self.length == self.capacity
-        {
-            let result: Result<unit, IoError> = await self.flush_buffered_async();
+        let source_length: usize = internal std.memory.slice_length<u8>(source);
 
-            match consume result
+        if source_length == 0
+        {
+            return Ok(0);
+        }
+
+        if source_length <= self.capacity - self.length
+        {
+            return Ok(buffer_bytes(&mut self, source));
+        }
+
+        if self.length > 0
+        {
+            let drained: Result<usize, IoError> = await self.drain_buffered_async();
+
+            match consume drained
             {
                 case Ok(_) {}
-                case Error(error) { return Error(normalize_write_flush_error(error)); }
+                case Error(error) { return Error(normalize_buffer_drain_error(error)); }
             }
+        }
+
+        if source_length >= self.capacity
+        {
+            let result: Result<usize, IoError> = await self.sink.write_async(source);
+
+            return advance_transfer(result = result, completed = 0, remaining = source_length, require_progress = true);
         }
 
         return Ok(buffer_bytes(&mut self, source));
     }
-}
 
-impl BufferedWriter<Sink>
-{
+    consume mut async func into_sink_async() -> Result<Sink, IoError>
+        with(Sink: AsyncWriter)
+        requires(blocking_execution())
+    {
+        let result: Result<unit, IoError> = await self.flush_buffered_async();
+
+        match consume result
+        {
+            case Ok(_) { return Ok(self.sink); }
+            case Error(error) { return Error(error); }
+        }
+    }
+
     consume mut func into_sink() -> Result<Sink, IoError>
         with(Sink: Writer)
         requires(blocking_execution())

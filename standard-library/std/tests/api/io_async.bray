@@ -1,9 +1,150 @@
 module bray.standard_library_tests.io_async;
 
+using std.bytes;
 using std.io;
+using internal std.io.BufferedReaderSourceAsyncReader;
+using internal std.io.BufferedWriterSinkAsyncWriter;
+
+struct AsyncCountingWriter
+{
+    mut calls: usize;
+    mut flushes: usize;
+    mut total: usize;
+    mut last_request: usize;
+    limit: usize;
+
+    construct(limit: usize) -> Self
+    {
+        return
+        {
+            calls = 0,
+            flushes = 0,
+            total = 0,
+            last_request = 0,
+            limit = limit,
+        };
+    }
+}
+
+impl AsyncCountingWriterIo = AsyncCountingWriter(std.io.AsyncWriter)
+{
+    mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(source);
+        let accepted: usize = smaller(requested, self.limit);
+
+        self.calls += 1;
+        self.total += accepted;
+        self.last_request = requested;
+
+        return Ok(accepted);
+    }
+
+    mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        self.flushes += 1;
+
+        return Ok(unit);
+    }
+}
+
+struct AsyncCountingReader
+{
+    mut calls: usize;
+    mut remaining: usize;
+    mut last_request: usize;
+    limit: usize;
+
+    construct(remaining: usize, limit: usize) -> Self
+    {
+        return
+        {
+            calls = 0,
+            remaining = remaining,
+            last_request = 0,
+            limit = limit,
+        };
+    }
+}
+
+impl AsyncCountingReaderIo = AsyncCountingReader(std.io.AsyncReader)
+{
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(&destination);
+        let available: usize = smaller(self.remaining, self.limit);
+        let transferred: usize = smaller(requested, available);
+
+        self.calls += 1;
+        self.remaining -= transferred;
+        self.last_request = requested;
+
+        return Ok(transferred);
+    }
+}
 
 @test
 async func asynchronous_standard_output_is_captured() -> Result<unit, std.io.IoError>
 {
     return await std.io.print_async(&"captured-async-output");
+}
+
+@test
+async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> Result<unit, std.io.IoError>
+{
+    let bytes: [u8; 5] = [1, 2, 3, 4, 5];
+    let mut writer: AsyncCountingWriter = AsyncCountingWriter(limit = 2);
+
+    try await std.io.write_all_async<AsyncCountingWriter>(&mut writer, &bytes[..]);
+
+    assert(writer.calls == 3);
+    assert(writer.total == 5);
+
+    let sink: AsyncCountingWriter = AsyncCountingWriter(limit = 16);
+
+    let mut buffered: std.io.BufferedWriter<AsyncCountingWriter> = try std.io.BufferedWriter<AsyncCountingWriter>(
+        sink,
+        capacity = 4
+    );
+
+    let large: [u8; 8] = [9; 8];
+
+    let written: usize = try await buffered(std.io.AsyncWriter).write_async(&large[..]);
+    let completed_sink: AsyncCountingWriter = try await buffered.into_sink_async();
+
+    assert(written == 8);
+    assert(completed_sink.calls == 1);
+    assert(completed_sink.last_request == 8);
+    assert(completed_sink.flushes == 1);
+
+    let source: AsyncCountingReader = AsyncCountingReader(remaining = 8, limit = 8);
+
+    let mut reader: std.io.BufferedReader<AsyncCountingReader> = try std.io.BufferedReader<AsyncCountingReader>(
+        source,
+        capacity = 4
+    );
+
+    let mut destination: [u8; 8] = [0; 8];
+
+    try await std.io.read_exact_async<std.io.BufferedReader<AsyncCountingReader>>(&mut reader, &mut destination[..]);
+
+    let completed_source: AsyncCountingReader = reader.into_source();
+
+    assert(completed_source.calls == 1);
+    assert(completed_source.last_request == 8);
+
+    return Ok(unit);
+}
+
+func smaller(pos left: usize, pos right: usize) -> usize
+{
+    if left < right
+    {
+        return left;
+    }
+
+    return right;
 }

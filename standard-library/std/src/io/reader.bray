@@ -17,6 +17,62 @@ struct StandardInput
     internal marker: bool;
 }
 
+/// Fills the borrowed byte range or reports the exact initialized prefix.
+func read_exact<Source>(pos source: &mut Source, pos destination: &mut [u8]) -> Result<unit, IoError>
+    with(Source: Reader)
+    requires(blocking_execution())
+{
+    let length: usize = internal std.memory.slice_length<u8>(&destination);
+    let mut read: usize = 0;
+
+    while read < length
+    {
+        let remaining: &mut [u8] = &mut destination[read..length];
+        let result: Result<usize, IoError> = source.read(remaining);
+
+        match consume advance_transfer(
+            result = result,
+            completed = read,
+            remaining = length - read,
+            require_progress = true,
+        )
+        {
+            case Ok(next) { read = next; }
+            case Error(error) { return Error(error); }
+        }
+    }
+
+    return Ok(unit);
+}
+
+/// Asynchronously fills the borrowed byte range or reports the exact initialized prefix.
+async func read_exact_async<Source>(pos source: &mut Source, pos destination: &mut [u8]) -> Result<unit, IoError>
+    with(Source: AsyncReader)
+    requires(blocking_execution())
+{
+    let length: usize = internal std.memory.slice_length<u8>(&destination);
+    let mut read: usize = 0;
+
+    while read < length
+    {
+        let remaining: &mut [u8] = &mut destination[read..length];
+        let result: Result<usize, IoError> = await source.read_async(remaining);
+
+        match consume advance_transfer(
+            result = result,
+            completed = read,
+            remaining = length - read,
+            require_progress = true,
+        )
+        {
+            case Ok(next) { read = next; }
+            case Error(error) { return Error(error); }
+        }
+    }
+
+    return Ok(unit);
+}
+
 internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source>, pos destination: &mut [u8]) -> usize
 {
     let destination_length: usize = internal std.memory.slice_length<u8>(&destination);
@@ -104,6 +160,18 @@ internal func read_buffered<Source>(
         return Ok(transferred);
     }
 
+    if destination_length >= reader.capacity
+    {
+        let result: Result<usize, IoError> = reader.source.read(destination);
+
+        return advance_transfer(
+            result = result,
+            completed = 0,
+            remaining = destination_length,
+            require_progress = false,
+        );
+    }
+
     let result: Result<usize, IoError> =
     {
         let storage: &mut [u8] = std.bytes.as_slice_mut(&mut reader.storage);
@@ -133,6 +201,18 @@ internal async func read_buffered_async<Source>(
         let transferred: usize = 0;
 
         return Ok(transferred);
+    }
+
+    if destination_length >= reader.capacity
+    {
+        let result: Result<usize, IoError> = await reader.source.read_async(destination);
+
+        return advance_transfer(
+            result = result,
+            completed = 0,
+            remaining = destination_length,
+            require_progress = false,
+        );
     }
 
     let result: Result<usize, IoError> =

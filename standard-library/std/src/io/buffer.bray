@@ -121,6 +121,41 @@ internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError
     return transferred_error(error, transferred = transferred);
 }
 
+internal func advance_transfer(
+    result: Result<usize, IoError>,
+    completed: usize,
+    remaining: usize,
+    require_progress: bool,
+) -> Result<usize, IoError>
+{
+    match consume result
+    {
+        case Ok(transferred)
+        {
+            if transferred > remaining
+            {
+                return Error(invalid_transfer_error(transferred = completed));
+            }
+
+            if require_progress && remaining > 0 && transferred == 0
+            {
+                return Error(no_progress_error(transferred = completed));
+            }
+
+            return Ok(completed + transferred);
+        }
+        case Error(error)
+        {
+            if error.transferred > remaining
+            {
+                return Error(invalid_transfer_error(transferred = completed));
+            }
+
+            return Error(prefixed_error(error, prefix = completed));
+        }
+    }
+}
+
 internal func smaller(pos left: usize, pos right: usize) -> usize
 {
     if left < right
