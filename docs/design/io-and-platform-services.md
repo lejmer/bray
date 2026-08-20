@@ -401,7 +401,7 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 |---------:|-----------------------------------|------------------------------------------------------------|------------------------|------------|-----------------------------------------------------------|
 | `0x0101` | `platform.standard_input.read`    | `mut_bytes(call)`                                          | `out<u64> transferred` | `stream`   | `may_block`. Process-root input identity is implicit      |
 | `0x0102` | `platform.standard_input.lock`    | none                                                       | none                   | `stream`   | `may_block`. Acquires product-wide input serialization    |
-| `0x0103` | `platform.standard_input.unlock`  | none                                                       | none                   | `stream`   | `nonblocking`. Releases product-wide input serialization |
+| `0x0103` | `platform.standard_input.unlock`  | none                                                       | none                   | `stream`   | `nonblocking`. Releases product-wide input serialization  |
 | `0x0111` | `platform.standard_output.write`  | `const_bytes(call)`                                        | `out<u64> transferred` | `stream`   | `may_block`. Process-root output identity is implicit     |
 | `0x0112` | `platform.standard_output.flush`  | none                                                       | none                   | `stream`   | `may_block`. Output identity is implicit                  |
 | `0x0113` | `platform.standard_output.lock`   | none                                                       | none                   | `stream`   | `may_block`. Acquires product-wide output serialization   |
