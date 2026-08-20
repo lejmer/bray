@@ -40,7 +40,7 @@ inline bool bray_validate_standard_stream_transfer(
     return bytes_end <= transferred_start || transferred_end <= bytes_start;
 }
 
-inline BrayPlatformStatus bray_read_standard_stream(
+inline BrayPlatformStatus bray_read_standard_stream_unlocked(
 #if defined(_WIN32)
     DWORD stream,
 #else

@@ -63,6 +63,14 @@
           "declaration": "std.io.platform_standard_input_read"
         },
         {
+          "role": "platform.standard_input.lock",
+          "declaration": "std.io.platform_standard_input_lock"
+        },
+        {
+          "role": "platform.standard_input.unlock",
+          "declaration": "std.io.platform_standard_input_unlock"
+        },
+        {
           "role": "platform.standard_output.write",
           "declaration": "std.io.platform_standard_output_write"
         },

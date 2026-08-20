@@ -54,7 +54,9 @@ Standard input, standard output, and standard error are process-root resources. 
 Concurrent access follows the synchronization contract of the standard-library wrapper and does not permit an
 unsynchronized data race.
 
-Each standard-output and standard-error operation has one guard owned by the concrete standard stream. A `print` or
+Each standard-input, standard-output, and standard-error operation has one guard owned by the concrete standard stream.
+Every `StandardInput.read` call holds the input guard for the complete read, so independently obtained input values
+coordinate through the same process-root owner. A `print` or
 `print_line` call holds that guard across every partial-write retry, the optional line ending, and the final flush. A
 direct `Writer.write` or `Writer.flush` call on a standard stream is one operation with its own guard. Synchronous and
 asynchronous forms use the same boundary.

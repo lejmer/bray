@@ -9,6 +9,14 @@ extern trusted internal func platform_standard_input_read(
     uses(foreign_call);
 
 @abi(c)
+extern trusted internal func platform_standard_input_lock() -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_standard_input_unlock() -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
 extern trusted internal func platform_standard_output_write(
     pos source: RawPointer<u8>,
     pos length: u64,
@@ -47,6 +55,20 @@ extern trusted internal func platform_standard_error_lock() -> std.platform.Plat
 @abi(c)
 extern trusted internal func platform_standard_error_unlock() -> std.platform.PlatformStatus
     uses(foreign_call);
+
+internal struct StandardInputLock
+{
+    acquired: bool;
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.acquired
+        {
+            let _: std.platform.PlatformStatus = trusted platform_standard_input_unlock();
+        }
+    }
+}
 
 internal struct StandardOutputLock
 {
@@ -226,6 +248,27 @@ trusted internal func acquire_standard_output() -> Result<StandardOutputLock, Io
     }
 }
 
+trusted internal func acquire_standard_input() -> Result<StandardInputLock, IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let status: std.platform.PlatformStatus = trusted platform_standard_input_lock();
+
+    match consume checked_status(status)
+    {
+        case Ok(_)
+        {
+            return Ok(
+                StandardInputLock
+                {
+                    acquired = true,
+                }
+            );
+        }
+        case Error(error) { return Error(error); }
+    }
+}
+
 trusted internal func acquire_standard_error() -> Result<StandardErrorLock, IoError>
     requires(blocking_execution())
     uses(foreign_call)
@@ -335,6 +378,7 @@ trusted internal func read_standard_input(pos destination: &mut [u8]) -> Result<
     requires(blocking_execution())
     uses(foreign_call)
 {
+    let lock: StandardInputLock = try trusted acquire_standard_input();
     let capacity: usize = internal std.memory.slice_length<u8>(&destination);
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
     let mut transferred: u64 = 0;

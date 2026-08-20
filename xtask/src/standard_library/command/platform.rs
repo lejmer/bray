@@ -50,6 +50,8 @@ pub(super) const PARTITIONS: &[Partition] = &[
         uses_rust_standard_library: false,
         roles: &[
             PlatformServiceRole::StandardInputRead,
+            PlatformServiceRole::StandardInputLock,
+            PlatformServiceRole::StandardInputUnlock,
             PlatformServiceRole::StandardOutputWrite,
             PlatformServiceRole::StandardOutputFlush,
             PlatformServiceRole::StandardOutputLock,

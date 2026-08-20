@@ -48,7 +48,8 @@ library storage and are not part of the public package interface.
 Changes to these modules must preserve the names, parameter modes, result shapes, ownership behavior, and blocking
 requirements defined here unless the standard-library contract itself is revised.
 
-Standard output and standard error each own one operation-scoped synchronization guard. `print` and `print_line` hold
+Standard input, standard output, and standard error each own one operation-scoped synchronization guard. Input reads
+from independently obtained values coordinate through the process-root input owner. `print` and `print_line` hold
 one guard across all partial writes and their flush. Direct standard-stream writer operations acquire one guard per
 call. Native leaves, generic writers, formatting, and buffering add no hidden guard. Captured, discarded, and inherited
 destinations implement the same operation boundary independently, and lifecycle cleanup releases the guard on every

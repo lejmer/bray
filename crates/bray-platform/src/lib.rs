@@ -47,8 +47,7 @@ pub use network::{
 pub use output::{
     CapturedRunStream, RunOutputContext, RunOutputOperation, RunOutputOperationError,
     RunOutputStream, begin_current_run_output_operation, current_run_output_context,
-    flush_current_run_output, with_optional_run_output_context, with_run_output_context,
-    write_current_run_output,
+    with_optional_run_output_context, with_run_output_context,
 };
 #[cfg(feature = "process")]
 pub use process::{

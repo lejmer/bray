@@ -9,7 +9,7 @@ impl DiagnosticPlatformServiceRole {
     pub const fn try_new(id: u32) -> Option<Self> {
         match id {
             0x0001..=0x0008
-            | 0x0101
+            | 0x0101..=0x0103
             | 0x0111..=0x0114
             | 0x0121..=0x0124
             | 0x0201..=0x0205

@@ -55,6 +55,22 @@ pub(super) fn audit(
 
     require_atomic_standard_output(&print.standard_output)?;
 
+    let input = link_fixture(
+        root,
+        &output,
+        &standard_stream_include,
+        &standard_stream,
+        target,
+        "provider-retention-input",
+    )?;
+
+    require_members(
+        &input.map,
+        &[STANDARD_INPUT_MEMBER],
+        &[STANDARD_OUTPUT_MEMBER, STANDARD_ERROR_MEMBER],
+        "input-only",
+    )?;
+
     let civil = link_fixture(
         root,
         &output,

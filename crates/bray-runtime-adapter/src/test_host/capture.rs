@@ -50,6 +50,34 @@ native_adapter! {
     }
 }
 
+native_adapter! {
+    pub extern "C" fn bray_platform_standard_input_lock() -> NativePlatformStatus {
+        STANDARD_INPUT_OPERATION.with(|operation| {
+            let mut operation = operation.borrow_mut();
+
+            if operation.is_some() {
+                return NativePlatformStatus::INVALID_INPUT;
+            }
+
+            *operation = Some(INHERITED_STANDARD_INPUT.get_or_init(io::stdin).lock());
+
+            NativePlatformStatus::SUCCESS
+        })
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_platform_standard_input_unlock() -> NativePlatformStatus {
+        STANDARD_INPUT_OPERATION.with(|operation| {
+            operation
+                .borrow_mut()
+                .take()
+                .map(|_| NativePlatformStatus::SUCCESS)
+                .unwrap_or(NativePlatformStatus::INVALID_INPUT)
+        })
+    }
+}
+
 #[expect(
     unsafe_code,
     reason = "the validated test-host input boundary initializes caller-owned count storage"
@@ -62,6 +90,10 @@ fn reject_standard_input(
     let Some(_) = validate_transfer(destination, length, transferred) else {
         return NativePlatformStatus::INVALID_INPUT;
     };
+
+    if !STANDARD_INPUT_OPERATION.with(|operation| operation.borrow().is_some()) {
+        return NativePlatformStatus::INVALID_INPUT;
+    }
 
     unsafe { publish_transfer_count(transferred, 0) };
 
@@ -138,8 +170,11 @@ impl StandardStreamOperation {
 
 static INHERITED_STANDARD_OUTPUT: OnceLock<io::Stdout> = OnceLock::new();
 static INHERITED_STANDARD_ERROR: OnceLock<io::Stderr> = OnceLock::new();
+static INHERITED_STANDARD_INPUT: OnceLock<io::Stdin> = OnceLock::new();
 
 thread_local! {
+    static STANDARD_INPUT_OPERATION: RefCell<Option<io::StdinLock<'static>>> =
+        const { RefCell::new(None) };
     static STANDARD_OUTPUT_OPERATION: RefCell<Option<StandardStreamOperation>> =
         const { RefCell::new(None) };
     static STANDARD_ERROR_OPERATION: RefCell<Option<StandardStreamOperation>> =
@@ -278,7 +313,8 @@ mod tests {
     use bray_runtime_abi::NativePlatformStatus;
 
     use super::{
-        bray_platform_standard_input_read, bray_platform_standard_output_flush,
+        bray_platform_standard_input_lock, bray_platform_standard_input_read,
+        bray_platform_standard_input_unlock, bray_platform_standard_output_flush,
         bray_platform_standard_output_lock, bray_platform_standard_output_unlock,
         bray_platform_standard_output_write,
     };
@@ -289,8 +325,27 @@ mod tests {
         let mut transferred = 9;
 
         assert_eq!(
+            bray_platform_standard_input_read(
+                destination.as_mut_ptr(),
+                1,
+                &raw mut transferred,
+            ),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(
+            bray_platform_standard_input_lock(),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(
             bray_platform_standard_input_read(destination.as_mut_ptr(), 1, &raw mut transferred,),
             NativePlatformStatus::UNSUPPORTED
+        );
+
+        assert_eq!(
+            bray_platform_standard_input_unlock(),
+            NativePlatformStatus::SUCCESS
         );
 
         assert_eq!(transferred, 0);

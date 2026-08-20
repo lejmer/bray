@@ -79,17 +79,6 @@ impl RunOutputContext {
         self.destination(stream).snapshot()
     }
 
-    pub(crate) fn write(&self, stream: RunOutputStream, bytes: &[u8]) -> Option<usize> {
-        self.destination(stream).write(bytes)
-    }
-
-    pub(crate) const fn flush(&self, stream: RunOutputStream) -> Option<()> {
-        match self.destination(stream) {
-            RunOutputDestination::Inherited => None,
-            RunOutputDestination::Redirected(_) => Some(()),
-        }
-    }
-
     const fn destination(&self, stream: RunOutputStream) -> &RunOutputDestination {
         match stream {
             RunOutputStream::StandardOutput => &self.standard_output,
@@ -121,13 +110,6 @@ impl RunOutputDestination {
             sink: RedirectedRunOutputSink::Discard,
             operation: RunOutputLock::new(),
         }))
-    }
-
-    fn write(&self, bytes: &[u8]) -> Option<usize> {
-        match self {
-            Self::Inherited => None,
-            Self::Redirected(output) => Some(output.write(bytes)),
-        }
     }
 
     fn snapshot(&self) -> Option<CapturedRunStream> {
@@ -361,26 +343,6 @@ pub fn with_optional_run_output_context<T>(
     callback()
 }
 
-/// Writes bytes through the standard-stream routing active on the current thread.
-pub fn write_current_run_output(stream: RunOutputStream, bytes: &[u8]) -> Option<usize> {
-    CURRENT_RUN_OUTPUT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .and_then(|output| output.write(stream, bytes))
-    })
-}
-
-/// Flushes the current run destination when output is redirected by the host.
-pub fn flush_current_run_output(stream: RunOutputStream) -> Option<()> {
-    CURRENT_RUN_OUTPUT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .and_then(|output| output.flush(stream))
-    })
-}
-
 struct RunOutputGuard(Option<RunOutputContext>);
 
 impl Drop for RunOutputGuard {
@@ -400,25 +362,23 @@ mod tests {
         with_run_output_context,
     };
 
+    fn write_current(stream: RunOutputStream, bytes: &[u8]) -> usize {
+        super::begin_current_run_output_operation(stream)
+            .unwrap_or_else(|error| panic!("operation must begin: {error:?}"))
+            .unwrap_or_else(|| panic!("test output must be redirected"))
+            .write(bytes)
+    }
+
     #[test]
     fn bounded_capture_retains_prefix_and_counts_every_discarded_byte() {
         let output = RunOutputContext::captured(5, 5);
 
         with_run_output_context(output.clone(), || {
-            assert_eq!(
-                super::write_current_run_output(RunOutputStream::StandardOutput, b"abc"),
-                Some(3)
-            );
+            assert_eq!(write_current(RunOutputStream::StandardOutput, b"abc"), 3);
 
-            assert_eq!(
-                super::write_current_run_output(RunOutputStream::StandardOutput, b"defgh"),
-                Some(5)
-            );
+            assert_eq!(write_current(RunOutputStream::StandardOutput, b"defgh"), 5);
 
-            assert_eq!(
-                super::write_current_run_output(RunOutputStream::StandardError, b"xy"),
-                Some(2)
-            );
+            assert_eq!(write_current(RunOutputStream::StandardError, b"xy"), 2);
         });
 
         let captured = output
@@ -443,11 +403,11 @@ mod tests {
         let second = RunOutputContext::captured(16, 16);
 
         with_run_output_context(first.clone(), || {
-            super::write_current_run_output(RunOutputStream::StandardError, b"first");
+            write_current(RunOutputStream::StandardError, b"first");
         });
 
         with_run_output_context(second.clone(), || {
-            super::write_current_run_output(RunOutputStream::StandardError, b"second");
+            write_current(RunOutputStream::StandardError, b"second");
         });
 
         assert_eq!(

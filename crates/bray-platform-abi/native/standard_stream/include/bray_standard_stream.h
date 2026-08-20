@@ -37,6 +37,9 @@ BrayPlatformStatus bray_platform_standard_input_read(
     std::uint64_t* transferred
 );
 
+BrayPlatformStatus bray_platform_standard_input_lock();
+BrayPlatformStatus bray_platform_standard_input_unlock();
+
 BrayPlatformStatus bray_platform_standard_output_write(
     const std::uint8_t* source,
     std::uint64_t length,
