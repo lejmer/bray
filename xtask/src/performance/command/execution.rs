@@ -11,7 +11,9 @@ use bray_compilation::{
 };
 use bray_emitter::{ArtifactKind as EmittedArtifactKind, resolve_published_artifact};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-use bray_standard_library::StandardLibraryRoot;
+use bray_standard_library::{
+    StandardLibraryArtifactKind, StandardLibraryRoot, decode_standard_library_manifest,
+};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_tooling::load_llvm_compilation;
 
@@ -20,8 +22,8 @@ use super::super::corpus::{
     BatchingPolicy, CALIBRATION_SEED_INNER_ITERATIONS, WORKLOADS, Workload,
 };
 use super::super::model::{
-    ArtifactKind, Observation, PeerLanguage, PeerReport, PerformanceReport, SCHEMA_REVISION,
-    WorkloadBatching, WorkloadReport,
+    ArtifactKind, Observation, OptimizationArtifactReport, PeerLanguage, PeerReport,
+    PerformanceReport, SCHEMA_REVISION, WorkloadBatching, WorkloadReport,
 };
 use super::super::{report, retention, statistics};
 use super::comparison_build;
@@ -124,11 +126,18 @@ fn execute(mut options: Options) -> Result<(), String> {
         )?);
     }
 
+    let optimization_artifacts = optimization_artifacts(
+        prepared.standard_library(),
+        options.target,
+        &workloads,
+    )?;
+
     let candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,
         identity,
         application_compilation,
         library_compilation,
+        optimization_artifacts,
         workloads,
     };
 
@@ -164,6 +173,71 @@ fn execute(mut options: Options) -> Result<(), String> {
     println!("{}", candidate_path.display());
 
     Ok(())
+}
+
+fn optimization_artifacts(
+    root: &Path,
+    target: bray_target::NativeTarget,
+    workloads: &[WorkloadReport],
+) -> Result<Vec<OptimizationArtifactReport>, String> {
+    let manifest_path = root.join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME);
+
+    let bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("could not read {}: {error}", manifest_path.display()))?;
+
+    let manifest = decode_standard_library_manifest(&bytes)
+        .map_err(|error| format!("performance standard library is invalid: {error:?}"))?;
+
+    let selected = manifest
+        .targets()
+        .iter()
+        .find(|candidate| candidate.target().as_str() == target.as_str())
+        .ok_or_else(|| "performance standard library does not contain the target".to_owned())?;
+
+    selected
+        .artifacts()
+        .iter()
+        .filter(|artifact| artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
+        .map(|artifact| {
+            let optimization = artifact.optimization().ok_or_else(|| {
+                "validated optimization archive has no selection metadata".to_owned()
+            })?;
+
+            let fallback = optimization.fallback().path();
+
+            let selected_by_workloads = workloads
+                .iter()
+                .filter(|workload| workload_selects_fallback(workload, fallback))
+                .map(|workload| workload.id.clone())
+                .collect();
+
+            Ok(OptimizationArtifactReport {
+                partition: optimization.partition().to_owned(),
+                path: artifact.path().to_owned(),
+                bytes: artifact.byte_len(),
+                fallback: fallback.to_owned(),
+                selected_by_workloads,
+            })
+        })
+        .collect()
+}
+
+fn workload_selects_fallback(workload: &WorkloadReport, fallback: &str) -> bool {
+    workload.artifacts.iter().any(|artifact| {
+        artifact
+            .dependencies
+            .static_archives
+            .entries
+            .iter()
+            .any(|archive| archive_matches_fallback(archive, fallback))
+    })
+}
+
+fn archive_matches_fallback(archive: &str, fallback: &str) -> bool {
+    let archive = Path::new(archive).file_name();
+    let fallback = Path::new(fallback);
+
+    archive == fallback.file_name() || archive == fallback.file_stem()
 }
 
 fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
@@ -701,14 +775,14 @@ mod tests {
 
     #[test]
     #[ignore = "requires the pinned LLVM toolchain and native process execution"]
-    fn small_cross_language_comparison_runs_end_to_end() {
+    fn stream_output_cross_language_comparison_runs_end_to_end() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("comparison directory must exist: {error}"));
 
         let target = bray_target::NativeTarget::current()
             .unwrap_or_else(|| panic!("comparison test requires a supported native host"));
 
-        let workloads = BTreeSet::from(["small_output".to_owned()]);
+        let workloads = BTreeSet::from(["stream_output".to_owned()]);
         let baseline_output = directory.path().join("baseline");
 
         execute(Options {
@@ -743,6 +817,15 @@ mod tests {
 
         assert_eq!(comparison.workloads.len(), 1);
         assert_eq!(comparison.workloads[0].peers.len(), 2);
+        assert!(!report.optimization_artifacts.is_empty());
+
+        assert!(report.optimization_artifacts.iter().any(|artifact| {
+            artifact
+                .selected_by_workloads
+                .iter()
+                .any(|workload| workload == "stream_output")
+        }));
+
         assert!(baseline_output.join("candidate.html").is_file());
         assert!(comparison_path.is_file());
         assert!(baseline_output.join("comparison.html").is_file());

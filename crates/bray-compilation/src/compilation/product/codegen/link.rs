@@ -232,6 +232,7 @@ impl Compilation {
                 bray_standard_library::StandardLibraryArtifactKind::PackageInterface
                 | bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
                 | bray_standard_library::StandardLibraryArtifactKind::DependencyMetadata
+                | bray_standard_library::StandardLibraryArtifactKind::OptimizationArchive
                 | bray_standard_library::StandardLibraryArtifactKind::RuntimeArtifact => {
                     return None;
                 }

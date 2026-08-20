@@ -31,6 +31,8 @@ pub enum DiagnosticStandardLibraryManifestProblem {
     InvalidNativeLink,
     InvalidPlatformServices,
     DuplicatePlatformService,
+    InvalidOptimizationMetadata,
+    InvalidOptimizationFallback,
     BundleDigestMismatch,
     LengthExceeded,
 }
@@ -55,6 +57,8 @@ impl DiagnosticStandardLibraryManifestProblem {
             Self::InvalidNativeLink => "invalid_native_link",
             Self::InvalidPlatformServices => "invalid_platform_services",
             Self::DuplicatePlatformService => "duplicate_platform_service",
+            Self::InvalidOptimizationMetadata => "invalid_optimization_metadata",
+            Self::InvalidOptimizationFallback => "invalid_optimization_fallback",
             Self::BundleDigestMismatch => "bundle_digest_mismatch",
             Self::LengthExceeded => "length_exceeded",
         }

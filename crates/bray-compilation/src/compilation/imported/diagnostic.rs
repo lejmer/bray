@@ -209,6 +209,12 @@ const fn manifest_problem(
         StandardLibraryManifestError::DuplicatePlatformService => {
             DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService
         }
+        StandardLibraryManifestError::InvalidOptimizationMetadata => {
+            DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata
+        }
+        StandardLibraryManifestError::InvalidOptimizationFallback => {
+            DiagnosticStandardLibraryManifestProblem::InvalidOptimizationFallback
+        }
         StandardLibraryManifestError::BundleDigestMismatch => {
             DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch
         }

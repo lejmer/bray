@@ -70,6 +70,50 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
         validate_workload(report, workload, target)?;
     }
 
+    validate_optimization_artifacts(report, &identities)?;
+
+    Ok(())
+}
+
+fn validate_optimization_artifacts(
+    report: &PerformanceReport,
+    workload_ids: &BTreeSet<&str>,
+) -> Result<(), String> {
+    if !report
+        .optimization_artifacts
+        .windows(2)
+        .all(|pair| pair[0].partition < pair[1].partition)
+    {
+        return Err("performance optimization artifacts are not canonical".to_owned());
+    }
+
+    let mut partitions = BTreeSet::new();
+    let mut paths = BTreeSet::new();
+
+    for artifact in &report.optimization_artifacts {
+        if artifact.partition.is_empty()
+            || artifact.path.is_empty()
+            || artifact.fallback.is_empty()
+            || artifact.bytes == 0
+            || !partitions.insert(artifact.partition.as_str())
+            || !paths.insert(artifact.path.as_str())
+        {
+            return Err("performance optimization artifact inventory is invalid".to_owned());
+        }
+
+        if !strictly_sorted(&artifact.selected_by_workloads)
+            || artifact
+                .selected_by_workloads
+                .iter()
+                .any(|workload| !workload_ids.contains(workload.as_str()))
+        {
+            return Err(format!(
+                "optimization artifact {} has an invalid workload selection",
+                artifact.partition
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -545,6 +589,7 @@ fn execution_is_valid(
 fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {
     if artifact.path.is_empty()
         || artifact.sections.entries.len() > MAX_SECTION_COUNT
+        || artifact.dependencies.static_archives.entries.len() > MAX_RETAINED_INPUT_COUNT
         || artifact.dependencies.static_inputs.entries.len() > MAX_RETAINED_INPUT_COUNT
         || artifact.dependencies.dynamic_libraries.entries.len() > MAX_DYNAMIC_LIBRARY_COUNT
     {
@@ -564,6 +609,13 @@ fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {
             .entries
             .iter()
             .any(|section| section.name.is_empty())
+        || !strictly_sorted(&artifact.dependencies.static_archives.entries)
+        || artifact
+            .dependencies
+            .static_archives
+            .entries
+            .iter()
+            .any(String::is_empty)
         || !strictly_sorted(&artifact.dependencies.static_inputs.entries)
         || !strictly_sorted(&artifact.dependencies.dynamic_libraries.entries)
     {

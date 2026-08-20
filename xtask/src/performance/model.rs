@@ -25,7 +25,17 @@ pub(super) struct PerformanceReport {
     pub identity: ReportIdentity,
     pub application_compilation: CompilationComparisonReport,
     pub library_compilation: CompilationComparisonReport,
+    pub optimization_artifacts: Vec<OptimizationArtifactReport>,
     pub workloads: Vec<WorkloadReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct OptimizationArtifactReport {
+    pub partition: String,
+    pub path: String,
+    pub bytes: u64,
+    pub fallback: String,
+    pub selected_by_workloads: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -291,6 +301,7 @@ pub(super) struct SectionSize {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct ArtifactDependencies {
+    pub static_archives: BoundedList<String>,
     pub static_inputs: BoundedList<RetainedInput>,
     pub dynamic_libraries: BoundedList<String>,
 }

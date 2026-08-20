@@ -1,7 +1,9 @@
+use std::num::NonZeroU32;
+
 use bray_base::NonEmptySharedStr;
-use bray_runtime_interface::PlatformServiceRole;
+use bray_runtime_interface::{BinarySymbolName, PlatformServiceRole};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::TargetIdentity;
+use bray_target::{CodeModel, RelocationModel, TargetIdentity};
 
 use crate::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
@@ -13,9 +15,14 @@ use super::model::{
     StandardLibraryBundleDigest, StandardLibraryBundleManifest, StandardLibraryManifestError,
     StandardLibraryTargetArtifacts,
 };
+use super::optimization::{
+    StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
+    StandardLibraryOptimizationFallback, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
+};
 use super::wire::{
-    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedPublishedWire,
-    decode_digest, encode_published, runtime_abi,
+    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedOptimizationWire,
+    OwnedPublishedWire, decode_digest, encode_published, runtime_abi,
 };
 
 /// Encodes a manifest using its canonical compact UTF-8 JSON representation.
@@ -108,9 +115,120 @@ fn decode_artifact(
         .map(decode_native_link)
         .collect::<Result<Vec<_>, _>>()?;
 
+    let optimization = wire
+        .optimization
+        .map(decode_optimization)
+        .transpose()?;
+
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
         .map(|artifact| artifact.with_platform_services(platform_services))
         .map(|artifact| artifact.with_native_links(native_links))
+        .map(|artifact| match optimization {
+            Some(optimization) => artifact.with_optimization(optimization),
+            None => artifact,
+        })
+}
+
+fn decode_optimization(
+    wire: OwnedOptimizationWire,
+) -> Result<StandardLibraryOptimizationMetadata, StandardLibraryManifestError> {
+    if wire.semantics != "thin_lto" {
+        return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+    }
+
+    let producer_kind = match wire.producer.kind.as_str() {
+        "bray" => StandardLibraryOptimizationProducerKind::Bray,
+        "pinned_native" => StandardLibraryOptimizationProducerKind::PinnedNative,
+        _ => return Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+    };
+
+    let producer = StandardLibraryOptimizationProducer::try_new(
+        producer_kind,
+        wire.producer.implementation,
+        wire.producer.implementation_revision,
+        wire.producer.toolchain,
+        wire.producer.toolchain_revision,
+    )?;
+
+    let compatibility = StandardLibraryOptimizationCompatibility::try_new(
+        wire.compatibility.triple,
+        wire.compatibility.data_layout,
+        decode_relocation_model(&wire.compatibility.relocation_model)?,
+        decode_code_model(&wire.compatibility.code_model)?,
+        runtime_abi(wire.compatibility.runtime_abi),
+    )?;
+
+    let fallback = StandardLibraryOptimizationFallback::try_new(
+        wire.fallback.path,
+        StandardLibraryArtifactDigest::new(decode_digest(wire.fallback.digest)?),
+    )?;
+
+    let module_count = NonZeroU32::new(wire.module_count)
+        .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+
+    let preservation_roots = wire
+        .preservation_roots
+        .into_iter()
+        .map(|name| {
+            BinarySymbolName::try_new(name)
+                .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let platform_services = wire
+        .platform_services
+        .into_iter()
+        .map(|role| {
+            PlatformServiceRole::from_name(&role)
+                .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let dependencies = wire
+        .dependencies
+        .into_iter()
+        .map(|dependency| {
+            StandardLibraryOptimizationDependency::try_new(
+                dependency.path,
+                StandardLibraryArtifactDigest::new(decode_digest(dependency.digest)?),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    StandardLibraryOptimizationMetadata::try_new(
+        wire.partition,
+        producer,
+        compatibility,
+        fallback,
+        module_count,
+    )
+    .map(|metadata| metadata.with_preservation_roots(preservation_roots))
+    .map(|metadata| metadata.with_platform_services(platform_services))
+    .map(|metadata| metadata.with_dependencies(dependencies))
+}
+
+fn decode_relocation_model(
+    value: &str,
+) -> Result<RelocationModel, StandardLibraryManifestError> {
+    match value {
+        "default" => Ok(RelocationModel::Default),
+        "static" => Ok(RelocationModel::Static),
+        "position_independent" => Ok(RelocationModel::PositionIndependent),
+        "dynamic_no_pic" => Ok(RelocationModel::DynamicNoPic),
+        _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+    }
+}
+
+fn decode_code_model(value: &str) -> Result<CodeModel, StandardLibraryManifestError> {
+    match value {
+        "default" => Ok(CodeModel::Default),
+        "tiny" => Ok(CodeModel::Tiny),
+        "small" => Ok(CodeModel::Small),
+        "medium" => Ok(CodeModel::Medium),
+        "large" => Ok(CodeModel::Large),
+        "kernel" => Ok(CodeModel::Kernel),
+        _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+    }
 }
 
 fn decode_native_link(
@@ -127,15 +245,20 @@ fn decode_native_link(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
+
     use bray_base::NonEmptySharedStr;
     use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-    use bray_target::TargetIdentity;
+    use bray_target::{CodeModel, RelocationModel, TargetIdentity};
 
     use super::{decode_standard_library_manifest, encode_standard_library_manifest};
     use crate::{
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-        StandardLibraryManifestError, StandardLibraryTargetArtifacts,
+        StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
+        StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
+        StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
+        StandardLibraryOptimizationProducerKind, StandardLibraryTargetArtifacts,
     };
 
     #[test]
@@ -153,6 +276,29 @@ mod tests {
 
         assert_eq!(decoded, manifest);
         assert_eq!(second, first);
+    }
+
+    #[test]
+    fn optimization_dependencies_resolve_to_exact_packaged_metadata() {
+        let manifest = manifest();
+        let target = &manifest.targets()[0];
+
+        let result = StandardLibraryTargetArtifacts::try_new(
+            target.target().clone(),
+            target.runtime_abi(),
+            target
+                .artifacts()
+                .iter()
+                .filter(|artifact| {
+                    artifact.kind() != StandardLibraryArtifactKind::DependencyMetadata
+                })
+                .cloned(),
+        );
+
+        assert_eq!(
+            result,
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+        );
     }
 
     #[test]
@@ -297,13 +443,115 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("provider must be valid: {error:?}"));
 
+        let dependency = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::DependencyMetadata,
+            "targets/x86_64-unknown-linux-gnu/1.0/native-provider.json",
+            b"dependency",
+        )
+        .unwrap_or_else(|error| panic!("dependency metadata must be valid: {error:?}"));
+
+        let producer = StandardLibraryOptimizationProducer::try_new(
+            StandardLibraryOptimizationProducerKind::Bray,
+            "llvm",
+            "1",
+            "llvm",
+            "22.1.8",
+        )
+        .unwrap_or_else(|error| panic!("optimization producer must be valid: {error:?}"));
+
+        let compatibility = StandardLibraryOptimizationCompatibility::try_new(
+            "x86_64-unknown-linux-gnu",
+            "e-m:e-p:64:64",
+            RelocationModel::PositionIndependent,
+            CodeModel::Small,
+            RuntimeAbiVersion::new(1, 0),
+        )
+        .unwrap_or_else(|error| panic!("optimization compatibility must be valid: {error:?}"));
+
+        let fallback = StandardLibraryOptimizationFallback::try_new(
+            archive.path(),
+            archive.digest(),
+        )
+        .unwrap_or_else(|error| panic!("optimization fallback must be valid: {error:?}"));
+
+        let optimization = StandardLibraryOptimizationMetadata::try_new(
+            "std",
+            producer,
+            compatibility.clone(),
+            fallback,
+            NonZeroU32::MIN,
+        )
+        .unwrap_or_else(|error| panic!("optimization metadata must be valid: {error:?}"));
+
+        let optimization = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "targets/x86_64-unknown-linux-gnu/1.0/libstd_optimization.a",
+            b"optimization",
+        )
+        .map(|artifact| artifact.with_optimization(optimization))
+        .unwrap_or_else(|error| panic!("optimization artifact must be valid: {error:?}"));
+
+        let provider_producer = StandardLibraryOptimizationProducer::try_new(
+            StandardLibraryOptimizationProducerKind::PinnedNative,
+            "platform-core",
+            "1",
+            "llvm",
+            "22.1.8",
+        )
+        .unwrap_or_else(|error| panic!("provider producer must be valid: {error:?}"));
+
+        let provider_fallback = StandardLibraryOptimizationFallback::try_new(
+            provider.path(),
+            provider.digest(),
+        )
+        .unwrap_or_else(|error| panic!("provider fallback must be valid: {error:?}"));
+
+        let provider_optimization = StandardLibraryOptimizationMetadata::try_new(
+            "platform-core",
+            provider_producer,
+            compatibility,
+            provider_fallback,
+            NonZeroU32::MIN,
+        )
+        .map(|metadata| {
+            metadata.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
+        })
+        .map(|metadata| {
+            metadata.with_dependencies([
+                StandardLibraryOptimizationDependency::try_new(
+                    dependency.path(),
+                    dependency.digest(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("optimization dependency must be valid: {error:?}")
+                }),
+            ])
+        })
+        .unwrap_or_else(|error| panic!("provider optimization metadata must be valid: {error:?}"));
+
+        let provider_optimization = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform-core-optimization.a",
+            b"provider optimization",
+        )
+        .map(|artifact| artifact.with_optimization(provider_optimization))
+        .unwrap_or_else(|error| panic!("provider optimization must be valid: {error:?}"));
+
         let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("target identity must be valid"));
 
         let target = StandardLibraryTargetArtifacts::try_new(
             target,
             RuntimeAbiVersion::new(1, 0),
-            [interface, implementation, archive, provider],
+            [
+                interface,
+                implementation,
+                archive,
+                provider,
+                dependency,
+                optimization,
+                provider_optimization,
+            ],
         )
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 

@@ -9,6 +9,7 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use super::wire::encode_payload;
+use super::StandardLibraryOptimizationMetadata;
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -98,6 +99,8 @@ pub enum StandardLibraryArtifactKind {
     StaticLibrary,
     /// Native platform-service provider archive.
     PlatformServiceLibrary,
+    /// Summary-bearing LLVM modules for one independently selectable native partition.
+    OptimizationArchive,
     /// Native shared library.
     SharedLibrary,
     /// Private runtime artifact metadata.
@@ -113,6 +116,7 @@ impl StandardLibraryArtifactKind {
             Self::RelocatableObject => "relocatable_object",
             Self::StaticLibrary => "static_library",
             Self::PlatformServiceLibrary => "platform_service_library",
+            Self::OptimizationArchive => "optimization_archive",
             Self::SharedLibrary => "shared_library",
             Self::RuntimeArtifact => "runtime_artifact",
         }
@@ -126,6 +130,7 @@ impl StandardLibraryArtifactKind {
             "relocatable_object" => Some(Self::RelocatableObject),
             "static_library" => Some(Self::StaticLibrary),
             "platform_service_library" => Some(Self::PlatformServiceLibrary),
+            "optimization_archive" => Some(Self::OptimizationArchive),
             "shared_library" => Some(Self::SharedLibrary),
             "runtime_artifact" => Some(Self::RuntimeArtifact),
             _ => None,
@@ -142,6 +147,7 @@ pub struct StandardLibraryArtifact {
     digest: StandardLibraryArtifactDigest,
     platform_services: Arc<[PlatformServiceRole]>,
     native_links: Arc<[NativeLinkRequirement]>,
+    optimization: Option<StandardLibraryOptimizationMetadata>,
 }
 
 impl StandardLibraryArtifact {
@@ -165,6 +171,7 @@ impl StandardLibraryArtifact {
             digest,
             platform_services: Arc::from([]),
             native_links: Arc::from([]),
+            optimization: None,
         })
     }
 
@@ -189,6 +196,16 @@ impl StandardLibraryArtifact {
         native_links: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         self.native_links = sorted_unique_shared_slice(native_links);
+
+        self
+    }
+
+    /// Returns this archive with its cross-artifact optimization contract.
+    pub fn with_optimization(
+        mut self,
+        optimization: StandardLibraryOptimizationMetadata,
+    ) -> Self {
+        self.optimization = Some(optimization);
 
         self
     }
@@ -240,6 +257,11 @@ impl StandardLibraryArtifact {
         &self.native_links
     }
 
+    /// Returns the selection and preservation contract for an optimization archive.
+    pub const fn optimization(&self) -> Option<&StandardLibraryOptimizationMetadata> {
+        self.optimization.as_ref()
+    }
+
     /// Resolves the portable path beneath a configured bundle root.
     pub fn beneath(&self, root: &Path) -> PathBuf {
         self.path
@@ -289,6 +311,13 @@ impl StandardLibraryTargetArtifacts {
             return Err(StandardLibraryManifestError::InvalidNativeLink);
         }
 
+        if artifacts.iter().any(|artifact| {
+            (artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
+                != artifact.optimization().is_some()
+        }) {
+            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+        }
+
         let mut platform_services = BTreeSet::new();
 
         if artifacts
@@ -298,6 +327,8 @@ impl StandardLibraryTargetArtifacts {
         {
             return Err(StandardLibraryManifestError::DuplicatePlatformService);
         }
+
+        super::optimization::validate_target(&artifacts, &target, runtime_abi)?;
 
         let prefix = format!(
             "{}/",
@@ -487,6 +518,10 @@ pub enum StandardLibraryManifestError {
     InvalidPlatformServices,
     /// A platform-service role is implemented by more than one provider archive.
     DuplicatePlatformService,
+    /// Optimization metadata is missing, incomplete, or attached to another artifact kind.
+    InvalidOptimizationMetadata,
+    /// An optimization artifact does not name its exact compatible object-only fallback.
+    InvalidOptimizationFallback,
     /// The published bundle digest does not match the canonical payload.
     BundleDigestMismatch,
     /// A platform length cannot fit the manifest contract.

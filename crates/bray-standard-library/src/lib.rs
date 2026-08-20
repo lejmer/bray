@@ -16,8 +16,13 @@ pub use identity::{
 pub use manifest::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
-    StandardLibraryManifestError, StandardLibraryTargetArtifacts, decode_standard_library_manifest,
-    encode_standard_library_manifest, standard_library_target_artifact_directory,
+    StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
+    StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
+    StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
+    StandardLibraryOptimizationProducerKind, StandardLibraryOptimizationSemantics,
+    StandardLibraryTargetArtifacts,
+    decode_standard_library_manifest, encode_standard_library_manifest,
+    standard_library_target_artifact_directory,
 };
 pub use resolver::{
     ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,

@@ -44,6 +44,32 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     );
 
     html.push_str(
+        "<section><h2>Packaged optimization artifacts</h2><div class=\"table-scroll\"><table><thead><tr>\
+        <th>Partition</th><th>Artifact</th><th>Size</th><th>Fallback</th><th>Selected by workloads</th>\
+        </tr></thead><tbody>",
+    );
+
+    for artifact in &report.optimization_artifacts {
+        let selected = if artifact.selected_by_workloads.is_empty() {
+            "None in this run".to_owned()
+        } else {
+            artifact.selected_by_workloads.join(", ")
+        };
+
+        let _ = write!(
+            html,
+            "<tr><th>{}</th><td><code>{}</code></td><td>{}</td><td><code>{}</code></td><td>{}</td></tr>",
+            escape(&artifact.partition),
+            escape(&artifact.path),
+            kibibytes(artifact.bytes),
+            escape(&artifact.fallback),
+            escape(&selected),
+        );
+    }
+
+    html.push_str("</tbody></table></div></section>");
+
+    html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
         <th>Workload</th><th>Language</th><th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
         <th>Throughput</th><th>Executable</th><th>Allocations</th><th>Allocated</th><th>Copied</th>

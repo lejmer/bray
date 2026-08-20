@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use bray_codegen::{BackendIdentity, CodegenTarget};
 use bray_compilation::{
     BuildConfiguration, CompilationOptions, CompilationRequest, ProductEmissionInputs,
     SelectedTarget, WorkerBudget,
@@ -15,13 +16,13 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_project::{ProjectGraph, ProjectProduct, load_standard_library_project_graph};
-use bray_runtime_interface::PlatformServiceRole;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
     StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-    StandardLibraryTargetArtifacts, decode_standard_library_manifest,
-    encode_standard_library_manifest, standard_library_target_artifact_directory,
+    StandardLibraryTargetArtifacts,
+    decode_standard_library_manifest, encode_standard_library_manifest,
+    standard_library_target_artifact_directory,
 };
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{
@@ -349,9 +350,12 @@ fn build_bundle(
         let BuiltTarget {
             selected,
             native,
+            backend,
+            codegen_target,
             interface_bytes,
             implementation_bytes,
             archive_bytes,
+            optimization,
             platform_archives,
         } = built;
 
@@ -393,7 +397,32 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let mut artifacts = vec![interface, implementation, archive];
+        let provenance_path = format!("{target_path}/temporal-provider.json");
+
+        write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
+
+        let provenance = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::DependencyMetadata,
+            provenance_path,
+            &temporal_provenance,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+        let optimization_publication =
+            super::super::optimization::OptimizationPublication::new(
+                bundle,
+                &target_path,
+                native,
+                abi,
+                &backend,
+                &codegen_target,
+                &optimization,
+            );
+
+        let optimization_artifact =
+            optimization_publication.publish_bray(&archive, optimization)?;
+
+        let mut artifacts = vec![interface, implementation, archive, optimization_artifact];
 
         for platform in platform_archives {
             let platform_file_name = platform_abi_archive_name(native, platform.name)?;
@@ -410,19 +439,26 @@ fn build_bundle(
             .map(|artifact| artifact.with_native_links(platform.native_links))
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
+            if let Some(optimization) = platform.optimization {
+                let dependencies = if platform.uses_temporal_dependency_metadata {
+                    std::slice::from_ref(&provenance)
+                } else {
+                    &[]
+                };
+
+                let artifact = optimization_publication.publish_native(
+                    platform.name,
+                    platform.optimization_roles,
+                    dependencies,
+                    &platform_archive,
+                    optimization,
+                )?;
+
+                artifacts.push(artifact);
+            }
+
             artifacts.push(platform_archive);
         }
-
-        let provenance_path = format!("{target_path}/temporal-provider.json");
-
-        write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
-
-        let provenance = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::DependencyMetadata,
-            provenance_path,
-            &temporal_provenance,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         artifacts.push(provenance);
 
@@ -439,57 +475,13 @@ fn build_bundle(
 struct BuiltTarget {
     selected: SelectedTarget,
     native: NativeTarget,
+    backend: BackendIdentity,
+    codegen_target: CodegenTarget,
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
-    platform_archives: Vec<BuiltPlatformArchive>,
-}
-
-struct BuiltPlatformArchive {
-    name: &'static str,
-    roles: &'static [PlatformServiceRole],
-    bytes: Vec<u8>,
-    native_links: Vec<bray_symbols::NativeLinkRequirement>,
-}
-
-struct BuiltPlatformArtifacts {
-    archives: Vec<BuiltPlatformArchive>,
-}
-
-fn build_platform_archives(
-    root: &Path,
-    native: NativeTarget,
-) -> Result<BuiltPlatformArtifacts, BuildError> {
-    let mut archives = Vec::new();
-
-    for partition in super::platform::PARTITIONS {
-        let build = if partition.uses_rust_standard_library {
-            crate::native_archive::build_rust_static_library
-        } else {
-            crate::native_archive::build_no_std_rust_static_library
-        };
-
-        let built = build(
-            root,
-            native,
-            "bray-platform-abi",
-            "release",
-            &[partition.feature],
-        )
-        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-        let bytes =
-            fs::read(built.archive()).map_err(|error| BuildError::read(built.archive(), error))?;
-
-        archives.push(BuiltPlatformArchive {
-            name: partition.name,
-            roles: partition.roles,
-            bytes,
-            native_links: built.native_links().to_vec(),
-        });
-    }
-
-    Ok(BuiltPlatformArtifacts { archives })
+    optimization: super::super::optimization::BuiltOptimizationArchive,
+    platform_archives: Vec<super::platform::BuiltPlatformArchive>,
 }
 
 fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
@@ -526,19 +518,17 @@ fn build_target(
 
     let root = workspace::root().map_err(BuildError::Workspace)?;
 
-    let platform = if product.platform_services().is_empty() {
-        BuiltPlatformArtifacts {
-            archives: Vec::new(),
-        }
-    } else {
-        crate::progress::run("Building standard library platform providers", || {
-            build_platform_archives(&root, native)
-        })?
-    };
-
     let output = work.join(target.as_str());
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
+
+    let platform = if product.platform_services().is_empty() {
+        Vec::new()
+    } else {
+        crate::progress::run("Building standard library platform providers", || {
+            super::platform::build_archives(&root, native, &output)
+        })?
+    };
 
     let request = standard_library_source_request(
         product,
@@ -581,6 +571,7 @@ fn build_target(
         [
             TargetOutputKind::PackageInterface,
             TargetOutputKind::PackageImplementation,
+            TargetOutputKind::BackendBitcode,
             TargetOutputKind::StaticLibrary,
         ],
     );
@@ -601,6 +592,10 @@ fn build_target(
                 ArtifactRequirement::Required,
             ),
             RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
+            RequestedArtifact::new(
+                ArtifactKind::BackendBitcode,
+                ArtifactRequirement::Required,
+            ),
         ],
         ReplacementPolicy::RequireAbsent,
     )
@@ -633,6 +628,7 @@ fn build_target(
     let interface_path = emitted_path(&outcome, ArtifactKind::PackageInterface)?;
     let implementation_path = emitted_path(&outcome, ArtifactKind::PackageImplementation)?;
     let archive_path = emitted_path(&outcome, ArtifactKind::StaticLibrary)?;
+    let bitcode_paths = emitted_paths(&outcome, ArtifactKind::BackendBitcode);
 
     let interface_bytes =
         fs::read(&interface_path).map_err(|error| BuildError::read(&interface_path, error))?;
@@ -643,13 +639,31 @@ fn build_target(
     let archive_bytes =
         fs::read(&archive_path).map_err(|error| BuildError::read(&archive_path, error))?;
 
+    let bitcode_modules = bitcode_paths
+        .iter()
+        .map(|path| fs::read(path).map_err(|error| BuildError::read(path, error)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let optimization = super::super::optimization::from_bray_modules(
+        &root,
+        work,
+        bitcode_modules,
+        native_plan.preservation_roots().cloned(),
+    )?;
+
+    let backend = native_plan.backend().identity().clone();
+    let codegen_target = native_plan.target().clone();
+
     Ok(BuiltTarget {
         selected,
         native,
+        backend,
+        codegen_target,
         interface_bytes,
         implementation_bytes,
         archive_bytes,
-        platform_archives: platform.archives,
+        optimization,
+        platform_archives: platform,
     })
 }
 
@@ -690,6 +704,25 @@ fn emitted_path(
             OutputSink::Memory { .. } | OutputSink::Stream(_) => None,
         })
         .ok_or(BuildError::MissingEmittedArtifact(kind))
+}
+
+fn emitted_paths(
+    outcome: &bray_emitter::EmissionOutcome,
+    kind: ArtifactKind,
+) -> Vec<PathBuf> {
+    outcome
+        .artifacts()
+        .artifacts()
+        .iter()
+        .filter(|artifact| artifact.id().kind() == kind)
+        .filter_map(|artifact| match artifact.sink() {
+            OutputSink::ManagedFilesystem { .. } => outcome
+                .generation()
+                .and_then(|generation| generation.artifact_path(artifact.id())),
+            OutputSink::Filesystem(path) => Some(path.clone()),
+            OutputSink::Memory { .. } | OutputSink::Stream(_) => None,
+        })
+        .collect()
 }
 
 fn interface_export_request(

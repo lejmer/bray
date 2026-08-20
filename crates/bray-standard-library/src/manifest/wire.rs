@@ -1,5 +1,6 @@
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_symbols::NativeLinkRequirement;
+use bray_target::{CodeModel, RelocationModel};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -10,6 +11,9 @@ use crate::{
 use super::model::{
     StandardLibraryArtifact, StandardLibraryBundleDigest, StandardLibraryManifestError,
     StandardLibraryTargetArtifacts,
+};
+use super::optimization::{
+    StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducerKind,
 };
 
 pub(super) const MANIFEST_FORMAT_REVISION: u32 = 1;
@@ -44,6 +48,51 @@ struct ArtifactWire<'manifest> {
     digest: DigestWire,
     platform_services: Vec<&'manifest str>,
     native_links: Vec<NativeLinkWire<'manifest>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    optimization: Option<OptimizationWire<'manifest>>,
+}
+
+#[derive(Serialize)]
+struct OptimizationWire<'manifest> {
+    partition: &'manifest str,
+    producer: OptimizationProducerWire<'manifest>,
+    compatibility: OptimizationCompatibilityWire<'manifest>,
+    semantics: &'static str,
+    fallback: OptimizationFallbackWire<'manifest>,
+    module_count: u32,
+    preservation_roots: Vec<&'manifest str>,
+    platform_services: Vec<&'manifest str>,
+    dependencies: Vec<OptimizationDependencyWire<'manifest>>,
+}
+
+#[derive(Serialize)]
+struct OptimizationProducerWire<'manifest> {
+    kind: &'static str,
+    implementation: &'manifest str,
+    implementation_revision: &'manifest str,
+    toolchain: &'manifest str,
+    toolchain_revision: &'manifest str,
+}
+
+#[derive(Serialize)]
+struct OptimizationCompatibilityWire<'manifest> {
+    triple: &'manifest str,
+    data_layout: &'manifest str,
+    relocation_model: &'static str,
+    code_model: &'static str,
+    runtime_abi: RuntimeAbiWire,
+}
+
+#[derive(Serialize)]
+struct OptimizationFallbackWire<'manifest> {
+    path: &'manifest str,
+    digest: DigestWire,
+}
+
+#[derive(Serialize)]
+struct OptimizationDependencyWire<'manifest> {
+    path: &'manifest str,
+    digest: DigestWire,
 }
 
 #[derive(Serialize)]
@@ -80,6 +129,56 @@ pub(super) struct OwnedArtifactWire {
     pub digest: OwnedDigestWire,
     pub platform_services: Vec<String>,
     pub native_links: Vec<OwnedNativeLinkWire>,
+    #[serde(default)]
+    pub optimization: Option<OwnedOptimizationWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedOptimizationWire {
+    pub partition: String,
+    pub producer: OwnedOptimizationProducerWire,
+    pub compatibility: OwnedOptimizationCompatibilityWire,
+    pub semantics: String,
+    pub fallback: OwnedOptimizationFallbackWire,
+    pub module_count: u32,
+    pub preservation_roots: Vec<String>,
+    pub platform_services: Vec<String>,
+    pub dependencies: Vec<OwnedOptimizationDependencyWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedOptimizationProducerWire {
+    pub kind: String,
+    pub implementation: String,
+    pub implementation_revision: String,
+    pub toolchain: String,
+    pub toolchain_revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedOptimizationCompatibilityWire {
+    pub triple: String,
+    pub data_layout: String,
+    pub relocation_model: String,
+    pub code_model: String,
+    pub runtime_abi: RuntimeAbiWire,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedOptimizationFallbackWire {
+    pub path: String,
+    pub digest: OwnedDigestWire,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedOptimizationDependencyWire {
+    pub path: String,
+    pub digest: OwnedDigestWire,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -186,6 +285,60 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
             .iter()
             .map(native_link_wire)
             .collect(),
+        optimization: artifact.optimization().map(optimization_wire),
+    }
+}
+
+fn optimization_wire(
+    optimization: &StandardLibraryOptimizationMetadata,
+) -> OptimizationWire<'_> {
+    let producer = optimization.producer();
+    let compatibility = optimization.compatibility();
+    let runtime_abi = compatibility.runtime_abi();
+
+    OptimizationWire {
+        partition: optimization.partition(),
+        producer: OptimizationProducerWire {
+            kind: optimization_producer_kind(producer.kind()),
+            implementation: producer.implementation(),
+            implementation_revision: producer.implementation_revision(),
+            toolchain: producer.toolchain(),
+            toolchain_revision: producer.toolchain_revision(),
+        },
+        compatibility: OptimizationCompatibilityWire {
+            triple: compatibility.triple(),
+            data_layout: compatibility.data_layout(),
+            relocation_model: relocation_model(compatibility.relocation_model()),
+            code_model: code_model(compatibility.code_model()),
+            runtime_abi: RuntimeAbiWire {
+                major: runtime_abi.major(),
+                minor: runtime_abi.minor(),
+            },
+        },
+        semantics: "thin_lto",
+        fallback: OptimizationFallbackWire {
+            path: optimization.fallback().path(),
+            digest: digest_wire(optimization.fallback().digest().bytes()),
+        },
+        module_count: optimization.module_count().get(),
+        preservation_roots: optimization
+            .preservation_roots()
+            .iter()
+            .map(|symbol| symbol.as_str())
+            .collect(),
+        platform_services: optimization
+            .platform_services()
+            .iter()
+            .map(|role| role.as_str())
+            .collect(),
+        dependencies: optimization
+            .dependencies()
+            .iter()
+            .map(|dependency| OptimizationDependencyWire {
+                path: dependency.path(),
+                digest: digest_wire(dependency.digest().bytes()),
+            })
+            .collect(),
     }
 }
 
@@ -221,5 +374,34 @@ fn digest_wire(bytes: [u8; 32]) -> DigestWire {
     DigestWire {
         algorithm: DIGEST_ALGORITHM,
         bytes: encoded,
+    }
+}
+
+const fn optimization_producer_kind(
+    kind: StandardLibraryOptimizationProducerKind,
+) -> &'static str {
+    match kind {
+        StandardLibraryOptimizationProducerKind::Bray => "bray",
+        StandardLibraryOptimizationProducerKind::PinnedNative => "pinned_native",
+    }
+}
+
+const fn relocation_model(model: RelocationModel) -> &'static str {
+    match model {
+        RelocationModel::Default => "default",
+        RelocationModel::Static => "static",
+        RelocationModel::PositionIndependent => "position_independent",
+        RelocationModel::DynamicNoPic => "dynamic_no_pic",
+    }
+}
+
+const fn code_model(model: CodeModel) -> &'static str {
+    match model {
+        CodeModel::Default => "default",
+        CodeModel::Tiny => "tiny",
+        CodeModel::Small => "small",
+        CodeModel::Medium => "medium",
+        CodeModel::Large => "large",
+        CodeModel::Kernel => "kernel",
     }
 }

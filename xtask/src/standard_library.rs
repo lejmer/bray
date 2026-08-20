@@ -3,6 +3,7 @@ mod command;
 mod conformance;
 mod interoperability;
 mod native;
+mod optimization;
 mod os_constants;
 mod provider_retention;
 
