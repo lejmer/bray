@@ -38,11 +38,11 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_task_start_v2(
+    pub extern "C" fn bray_runtime_task_start_v1(
         task: NativeTaskHandle,
         frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_start_v2(task, frame)
+        implementation::bray_runtime_task_start_v1(task, frame)
     }
 }
 

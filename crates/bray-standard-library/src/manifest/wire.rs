@@ -12,7 +12,8 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 
-pub(super) const MANIFEST_FORMAT_REVISION: u32 = 4;
+/// Version 1 describes the combined unreleased standard-library manifest format.
+pub(super) const MANIFEST_FORMAT_REVISION: u32 = 1;
 const DIGEST_ALGORITHM: &str = "blake3";
 
 #[derive(Serialize)]

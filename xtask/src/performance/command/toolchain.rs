@@ -8,7 +8,8 @@ use sha2::{Digest as _, Sha256};
 use super::progress;
 use crate::bundle::DirectoryPublication;
 
-const CACHE_FORMAT_REVISION: u8 = 3;
+/// Revision 1 describes the combined unreleased peer-toolchain cache format.
+const CACHE_FORMAT_REVISION: u8 = 1;
 const CACHE_INPUT_FILE_NAME: &str = "input.sha256";
 const INPUT_FILES: &[&str] = &["Cargo.lock", "Cargo.toml", "xtask/Cargo.toml"];
 const SOURCE_ROOTS: &[&str] = &[

@@ -34,7 +34,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_product_host_control_v3(
+    pub extern "C" fn bray_runtime_product_host_control_v1(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {
@@ -287,7 +287,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_task_start_v2(
+    pub extern "C" fn bray_runtime_task_start_v1(
         task: NativeTaskHandle,
         frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
@@ -595,7 +595,7 @@ mod tests {
         bray_runtime_main_thread_lane_startup_v1, bray_runtime_root_completion_resolution_v1,
         bray_runtime_root_execution_v1, bray_runtime_root_terminal_observation_v1,
         bray_runtime_structured_shutdown_v1, bray_runtime_suspension_registration_v1,
-        bray_runtime_task_allocation_v1, bray_runtime_task_start_v2,
+        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -1142,7 +1142,7 @@ mod tests {
         task: super::NativeTaskHandle,
         frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
-        bray_runtime_task_start_v2(
+        bray_runtime_task_start_v1(
             task,
             NativeInactiveFrame::new(Box::into_raw(Box::new(frame)).addr(), move_test_frame),
         )

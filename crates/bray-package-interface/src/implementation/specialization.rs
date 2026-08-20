@@ -8,8 +8,9 @@ use crate::{ExecutableTemplateDecodeError, InterfaceDependency, InterfaceValidat
 use super::{ImplementationTemplateSchemaRevision, PackageImplementationConfiguration};
 
 /// Exact MIR schema revision supported by optional pre-specialized payloads.
+/// Version 1 describes the combined unreleased pre-specialized MIR schema.
 pub const CURRENT_MIR_SCHEMA_REVISION: ImplementationMirSchemaRevision =
-    ImplementationMirSchemaRevision::new(3);
+    ImplementationMirSchemaRevision::new(1);
 
 /// Exact schema used to interpret a pre-specialized MIR payload.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -242,7 +243,7 @@ mod tests {
     use super::CURRENT_MIR_SCHEMA_REVISION;
 
     #[test]
-    fn task_observation_uses_mir_schema_revision_three() {
-        assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 3);
+    fn unreleased_pre_specialized_mir_schema_is_version_one() {
+        assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 1);
     }
 }

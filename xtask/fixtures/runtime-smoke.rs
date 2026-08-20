@@ -158,7 +158,7 @@ unsafe extern "C" {
     safe fn bray_runtime_wake_v1(task: TaskHandle, state: u32) -> Status;
     safe fn bray_runtime_main_thread_lane_startup_v1(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation_v1() -> TaskAllocation;
-    safe fn bray_runtime_task_start_v2(
+    safe fn bray_runtime_task_start_v1(
         task: TaskHandle,
         frame: InactiveFrame,
     ) -> Status;
@@ -445,7 +445,7 @@ fn main() {
         move_before_start,
     };
 
-    assert!(bray_runtime_task_start_v2(task, frame) == Status::SUCCESS);
+    assert!(bray_runtime_task_start_v1(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive_v1() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown_v1() == Status::SUCCESS);
 }

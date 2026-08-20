@@ -15,7 +15,8 @@ use crate::{
 };
 
 const FORMAT: &str = "bray_native_runtime";
-const FORMAT_VERSION: u16 = 2;
+/// Version 1 describes the combined unreleased runtime-artifact metadata format.
+const FORMAT_VERSION: u16 = 1;
 const MAXIMUM_METADATA_BYTES: usize = 64 * 1024;
 
 /// Content digest of one packaged native runtime archive.

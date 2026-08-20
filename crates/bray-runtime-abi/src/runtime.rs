@@ -327,7 +327,7 @@ pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whit
 pub const CHARACTER_UNICODE_DATA_VERSION: (u8, u8, u8) = (17, 0, 0);
 
 /// Stable symbol publishing an allocated task for execution.
-pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v2";
+pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
 
 /// Stable symbol transferring one inactive frame into the current task.
 pub const AWAITED_FRAME_COMPOSITION_SYMBOL: &str = "bray_runtime_awaited_frame_composition_v1";
