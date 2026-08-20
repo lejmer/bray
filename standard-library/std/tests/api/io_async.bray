@@ -32,7 +32,7 @@ impl AsyncCountingWriterIo = AsyncCountingWriter(std.io.AsyncWriter)
         requires(blocking_execution())
     {
         let requested: usize = std.bytes.slice_length(source);
-        let accepted: usize = smaller(requested, self.limit);
+        let accepted: usize = internal std.io.smaller(requested, self.limit);
 
         self.calls += 1;
         self.total += accepted;
@@ -75,14 +75,83 @@ impl AsyncCountingReaderIo = AsyncCountingReader(std.io.AsyncReader)
         requires(blocking_execution())
     {
         let requested: usize = std.bytes.slice_length(&destination);
-        let available: usize = smaller(self.remaining, self.limit);
-        let transferred: usize = smaller(requested, available);
+        let available: usize = internal std.io.smaller(self.remaining, self.limit);
+        let transferred: usize = internal std.io.smaller(requested, available);
 
         self.calls += 1;
         self.remaining -= transferred;
         self.last_request = requested;
 
         return Ok(transferred);
+    }
+}
+
+struct AsyncRecoveringWriter
+{
+    mut bytes: [u8; 8];
+    mut length: usize;
+    mut fail_drain: bool;
+    mut fail_flush: bool;
+}
+
+impl AsyncRecoveringWriterIo = AsyncRecoveringWriter(std.io.AsyncWriter)
+{
+    mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(source);
+        let mut accepted: usize = requested;
+
+        if self.fail_drain
+        {
+            accepted = 2;
+        }
+
+        let mut index: usize = 0;
+
+        while index < accepted
+        {
+            self.bytes[self.length + index] = source[index];
+            index += 1;
+        }
+
+        self.length += accepted;
+
+        if self.fail_drain
+        {
+            self.fail_drain = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = accepted,
+                }
+            );
+        }
+
+        return Ok(accepted);
+    }
+
+    mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        if self.fail_flush
+        {
+            self.fail_flush = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = 0,
+                }
+            );
+        }
+
+        return Ok(unit);
     }
 }
 
@@ -136,15 +205,49 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
     assert(completed_source.calls == 1);
     assert(completed_source.last_request == 8);
 
-    return Ok(unit);
-}
-
-func smaller(pos left: usize, pos right: usize) -> usize
-{
-    if left < right
+    let recovering_sink: AsyncRecoveringWriter =
     {
-        return left;
+        bytes = [0; 8],
+        length = 0,
+        fail_drain = true,
+        fail_flush = true,
+    };
+
+    let mut recovering: std.io.BufferedWriter<AsyncRecoveringWriter> = try std.io.BufferedWriter<AsyncRecoveringWriter>(
+        recovering_sink,
+        capacity = 4
+    );
+
+    let full: [u8; 4] = [1, 2, 3, 4];
+    let trailing: [u8; 1] = [5];
+
+    let _: usize = try await recovering(std.io.AsyncWriter).write_async(&full[..]);
+
+    match await recovering(std.io.AsyncWriter).write_async(&trailing[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 0); }
     }
 
-    return right;
+    let retried: usize = try await recovering(std.io.AsyncWriter).write_async(&trailing[..]);
+    assert(retried == 1);
+
+    match await recovering(std.io.AsyncWriter).flush_async()
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 1); }
+    }
+
+    try await recovering(std.io.AsyncWriter).flush_async();
+
+    let recovered: AsyncRecoveringWriter = try await recovering.into_sink_async();
+
+    assert(recovered.length == 5);
+    assert(recovered.bytes[0] == 1);
+    assert(recovered.bytes[1] == 2);
+    assert(recovered.bytes[2] == 3);
+    assert(recovered.bytes[3] == 4);
+    assert(recovered.bytes[4] == 5);
+
+    return Ok(unit);
 }

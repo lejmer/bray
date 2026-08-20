@@ -35,7 +35,7 @@ impl CountingWriterIo = CountingWriter(std.io.Writer)
         requires(blocking_execution())
     {
         let requested: usize = std.bytes.slice_length(source);
-        let accepted: usize = smaller(requested, self.limit);
+        let accepted: usize = internal std.io.smaller(requested, self.limit);
 
         self.calls += 1;
         self.total += accepted;
@@ -106,14 +106,83 @@ struct CountingReader
     }
 }
 
+struct RecoveringWriter
+{
+    mut bytes: [u8; 8];
+    mut length: usize;
+    mut fail_drain: bool;
+    mut fail_flush: bool;
+}
+
+impl RecoveringWriterIo = RecoveringWriter(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(source);
+        let mut accepted: usize = requested;
+
+        if self.fail_drain
+        {
+            accepted = 2;
+        }
+
+        let mut index: usize = 0;
+
+        while index < accepted
+        {
+            self.bytes[self.length + index] = source[index];
+            index += 1;
+        }
+
+        self.length += accepted;
+
+        if self.fail_drain
+        {
+            self.fail_drain = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = accepted,
+                }
+            );
+        }
+
+        return Ok(accepted);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        if self.fail_flush
+        {
+            self.fail_flush = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = 0,
+                }
+            );
+        }
+
+        return Ok(unit);
+    }
+}
+
 impl CountingReaderIo = CountingReader(std.io.Reader)
 {
     mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
         let requested: usize = std.bytes.slice_length(&destination);
-        let available: usize = smaller(self.remaining, self.limit);
-        let transferred: usize = smaller(requested, available);
+        let available: usize = internal std.io.smaller(self.remaining, self.limit);
+        let transferred: usize = internal std.io.smaller(requested, available);
 
         self.calls += 1;
         self.remaining -= transferred;
@@ -261,15 +330,49 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     assert(completed_buffered_source.calls == 1);
     assert(completed_buffered_source.last_request == 4);
 
-    return Ok(unit);
-}
-
-func smaller(pos left: usize, pos right: usize) -> usize
-{
-    if left < right
+    let recovering_sink: RecoveringWriter =
     {
-        return left;
+        bytes = [0; 8],
+        length = 0,
+        fail_drain = true,
+        fail_flush = true,
+    };
+
+    let mut recovering: std.io.BufferedWriter<RecoveringWriter> = try std.io.BufferedWriter<RecoveringWriter>(
+        recovering_sink,
+        capacity = 4
+    );
+
+    let full: [u8; 4] = [1, 2, 3, 4];
+    let trailing: [u8; 1] = [5];
+
+    let _: usize = try recovering(std.io.Writer).write(&full[..]);
+
+    match recovering(std.io.Writer).write(&trailing[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 0); }
     }
 
-    return right;
+    let retried: usize = try recovering(std.io.Writer).write(&trailing[..]);
+    assert(retried == 1);
+
+    match recovering(std.io.Writer).flush()
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 1); }
+    }
+
+    try recovering(std.io.Writer).flush();
+
+    let recovered: RecoveringWriter = try recovering.into_sink();
+
+    assert(recovered.length == 5);
+    assert(recovered.bytes[0] == 1);
+    assert(recovered.bytes[1] == 2);
+    assert(recovered.bytes[2] == 3);
+    assert(recovered.bytes[3] == 4);
+    assert(recovered.bytes[4] == 5);
+
+    return Ok(unit);
 }

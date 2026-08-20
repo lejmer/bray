@@ -24,6 +24,8 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "stream_output" => ("stream_output", "9"),
         "async_output" => ("async_output", "10"),
         "contended_output" => ("contended_output", "14"),
+        "captured_output" => ("captured_output", "15"),
+        "process_pipe_transfer" => ("process_pipe_transfer", "16"),
         "file_output" => ("file_output", "11"),
         _ => {
             return Err(format!(
@@ -101,6 +103,12 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         ),
         "contended_output" => Some(
             "start two concurrent tasks that each complete 64 standard-output operations that write one byte and flush before returning, then join both tasks",
+        ),
+        "captured_output" => Some(
+            "write one borrowed 4096-byte range into a preallocated captured-output sink and validate its final length",
+        ),
+        "process_pipe_transfer" => Some(
+            "start one child copy of the workload, write one borrowed 4096-byte range to its piped standard input, close the pipe, and join the child successfully",
         ),
         "file_output" => Some(
             "create a new file, write all 4096 bytes while accepting partial writes, flush, close, and remove the file",
