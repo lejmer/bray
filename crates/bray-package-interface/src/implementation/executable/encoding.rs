@@ -1940,12 +1940,16 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     bray_ir::MirFrameInitializer::TaskObservation {
                         task,
                         result,
+                        variants,
+                        runtime,
                         request_cancellation,
                     } => {
                         self.wire.write_u32(1);
                         self.operand(task)?;
                         self.ty(result.completion_type())?;
                         self.ty(result.future_type())?;
+                        self.run_result_variants(*variants)?;
+                        self.runtime_reference(*runtime);
                         write_bool(&mut self.wire, *request_cancellation);
                     }
                 }
@@ -2007,9 +2011,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(7);
                 self.runtime_reference(*runtime);
             }
-            Operation::ResolveTask { task, runtime } => {
+            Operation::ResolveTask {
+                task,
+                variants,
+                runtime,
+            } => {
                 self.wire.write_u32(8);
                 self.operand(task)?;
+                self.run_result_variants(*variants)?;
                 self.runtime_reference(*runtime);
             }
             Operation::PublishTerminalState { state, runtime } => {
@@ -2051,6 +2060,16 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         Ok(())
+    }
+
+    fn run_result_variants(
+        &mut self,
+        variants: bray_ir::MirRunResultVariants,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.symbol(variants.completed().into())?;
+        self.symbol(variants.panicked().into())?;
+
+        self.symbol(variants.cancelled().into())
     }
 
     fn frame_reference(&mut self, reference: bray_ir::MirFrameReference) {

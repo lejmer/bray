@@ -1,10 +1,10 @@
 use super::runtime::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 3;
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
 
 /// Stable runtime symbol controlling one compiler-generated product host.
-pub const PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL: &str = "bray_runtime_product_host_control_v3";
+pub const PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL: &str = "bray_runtime_product_host_control";
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]

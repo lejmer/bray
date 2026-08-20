@@ -352,6 +352,10 @@ impl NativeRuntime {
             return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
         };
 
+        self.resolve_task(task)
+    }
+
+    pub(in crate::native) fn resolve_task(&self, task: NativeTaskHandle) -> NativeRunOutcome {
         loop {
             let outcome = self.observe(task);
 
@@ -381,6 +385,10 @@ impl NativeRuntime {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
 
+        self.destroy_task(task)
+    }
+
+    pub(in crate::native) fn destroy_task(&self, task: NativeTaskHandle) -> NativeRuntimeStatus {
         let mut tasks = self
             .tasks
             .lock()

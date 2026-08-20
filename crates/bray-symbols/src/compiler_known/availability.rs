@@ -15,7 +15,7 @@ use super::{
 };
 use crate::availability::resolve_owned_availability;
 use crate::provider::SymbolProvider;
-use crate::{AnySymbolId, ExactSymbolId};
+use crate::{AnySymbolId, ExactSymbolId, NamedTypeSymbolId};
 
 /// An immutable target-filtered view over one complete compiler-known symbol provider.
 ///
@@ -145,14 +145,26 @@ impl AvailableCompilerKnownSymbols {
         role: RepresentationRole,
         argument: crate::TypeId,
     ) -> Option<crate::TypeId> {
-        let definition = self.representation_symbol::<crate::StructSymbolId>(role)?;
-        let symbol = self.provider().symbol(definition)?;
-
-        let [parameter] = symbol.generic_type_parameters() else {
+        let RepresentationTarget::Symbol(symbol) = self.representation_target(role)? else {
             return None;
         };
 
-        let owner = crate::GenericOwnerId::try_new(definition.into())?;
+        let definition = NamedTypeSymbolId::try_from_any(symbol)?;
+
+        let [parameter] = (match definition {
+            NamedTypeSymbolId::Struct(definition) => self
+                .provider()
+                .symbol(definition)?
+                .generic_type_parameters(),
+            NamedTypeSymbolId::Union(definition) => self
+                .provider()
+                .symbol(definition)?
+                .generic_type_parameters(),
+        }) else {
+            return None;
+        };
+
+        let owner = crate::GenericOwnerId::try_new(definition.into_any())?;
 
         let substitution = crate::GenericSubstitutionData::try_new(
             owner,
@@ -165,7 +177,7 @@ impl AvailableCompilerKnownSymbols {
 
         values
             .intern_type(crate::TypeData::Named {
-                definition: crate::NamedTypeSymbolId::Struct(definition),
+                definition,
                 substitution,
             })
             .ok()
@@ -178,11 +190,15 @@ impl AvailableCompilerKnownSymbols {
         role: RepresentationRole,
         ty: crate::TypeId,
     ) -> Option<crate::TypeId> {
-        let definition = self.representation_symbol::<crate::StructSymbolId>(role)?;
+        let RepresentationTarget::Symbol(symbol) = self.representation_target(role)? else {
+            return None;
+        };
+
+        let definition = NamedTypeSymbolId::try_from_any(symbol)?;
         let data = values.type_data(ty).ok()?;
 
         let crate::TypeData::Named {
-            definition: crate::NamedTypeSymbolId::Struct(candidate),
+            definition: candidate,
             substitution,
         } = data.as_ref()
         else {
@@ -514,6 +530,10 @@ mod tests {
             .unary_representation_type(&values, RepresentationRole::Future, completion)
             .unwrap_or_else(|| panic!("Future must be available"));
 
+        let run_result = view
+            .unary_representation_type(&values, RepresentationRole::RunResult, completion)
+            .unwrap_or_else(|| panic!("RunResult must be available"));
+
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::Future, future,),
             Some(completion)
@@ -522,6 +542,11 @@ mod tests {
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::Task, future,),
             None
+        );
+
+        assert_eq!(
+            view.unary_representation_argument(&values, RepresentationRole::RunResult, run_result,),
+            Some(completion)
         );
     }
 

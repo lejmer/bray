@@ -740,12 +740,17 @@ impl Compilation {
                 )
                 .map(Some)
             }
-            RepresentationRole::Task => Ok(Some(pointer_mapping(
+            RepresentationRole::Task => scalar_mapping(
+                self,
                 ty,
-                ty,
+                RepresentationRole::ScalarU64,
+                TargetScalarKind::U64,
                 target,
-                TargetAddressSpaceKind::Default,
-            ))),
+                cancellation,
+                mappings,
+                pending,
+            )
+            .map(Some),
             RepresentationRole::Result
             | RepresentationRole::RunResult
             | RepresentationRole::ConversionError => Ok(None),

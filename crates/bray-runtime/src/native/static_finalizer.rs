@@ -34,7 +34,7 @@ pub(crate) fn run_static_finalizer(
                 }
             }
             NativeRunState::PANICKED => {
-                let _ = super::export::bray_runtime_panic_reporting_v1(outcome.payload());
+                let _ = super::export::bray_runtime_panic_reporting(outcome.payload());
 
                 vec![crate::product::CleanupIncident::runtime_failure()]
             }

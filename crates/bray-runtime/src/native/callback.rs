@@ -14,7 +14,7 @@ use super::state::runtime_failure;
 pub(super) struct PropagatedPanicReport(pub(super) usize);
 
 native_export! {
-    pub extern "C" fn bray_runtime_synchronous_root_execution_v1(
+    pub extern "C" fn bray_runtime_synchronous_root_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
@@ -31,7 +31,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_foreign_callback_execution_v1(
+    pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {

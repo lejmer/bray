@@ -1336,6 +1336,7 @@ fn async_operation(
                     task,
                     result,
                     request_cancellation,
+                    ..
                 } => {
                     parts.attribute("initializer", "task_observation");
                     parts.attribute("request_cancellation", *request_cancellation);
@@ -1411,7 +1412,7 @@ fn async_operation(
 
             "observe_current_run_cancellation"
         }
-        MirAsyncOperation::ResolveTask { task, runtime } => {
+        MirAsyncOperation::ResolveTask { task, runtime, .. } => {
             runtime_reference("runtime", *runtime, parts);
             parts.operand("task", task, context)?;
 

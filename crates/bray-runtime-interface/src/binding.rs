@@ -36,6 +36,7 @@ use bray_runtime_abi::{
     ROOT_COMPLETION_RESOLUTION_SYMBOL, ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL,
     RUNTIME_EVENT_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
+    TASK_DESTRUCTION_SYMBOL, TASK_OBSERVATION_CREATION_SYMBOL, TASK_RESOLUTION_SYMBOL,
     TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL,
     THREAD_ATTACHMENT_IDENTITY_SYMBOL, THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL, WAKE_SYMBOL,
 };
@@ -64,6 +65,8 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
             Some(CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL)
         }
         Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
+        Role::TaskObservationCreation => Some(TASK_OBSERVATION_CREATION_SYMBOL),
+        Role::TaskResolution => Some(TASK_RESOLUTION_SYMBOL),
         Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
         Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),
         Role::CompatibleLaneSelection => Some(COMPATIBLE_LANE_SELECTION_SYMBOL),
@@ -91,8 +94,8 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
         | Role::GeneratorCleanupBroadcast
         | Role::GeneratorDestruction
         | Role::FrameCreation
-        | Role::InactiveFrameMove
-        | Role::TaskDestruction => None,
+        | Role::InactiveFrameMove => None,
+        Role::TaskDestruction => Some(TASK_DESTRUCTION_SYMBOL),
     }
 }
 

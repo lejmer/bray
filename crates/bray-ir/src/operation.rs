@@ -421,6 +421,10 @@ pub enum MirFrameInitializer {
         task: MirOperand,
         /// Checked lazy future produced by the task operation.
         result: bray_bound_tree::BoundFutureConstruction,
+        /// Exact compiler-known variants used to form the observed result.
+        variants: crate::MirRunResultVariants,
+        /// Selected private observation-frame creation ABI role.
+        runtime: MirRuntimeReference,
         /// Whether driving the frame first requests task cancellation.
         request_cancellation: bool,
     },
@@ -510,7 +514,9 @@ pub enum MirAsyncOperation {
     ResolveTask {
         /// Owned task control state.
         task: MirOperand,
-        /// Selected private join ABI role.
+        /// Exact compiler-known variants used to form the terminal result.
+        variants: crate::MirRunResultVariants,
+        /// Selected private terminal-resolution ABI role.
         runtime: MirRuntimeReference,
     },
     /// Publish exactly one task terminal state.

@@ -189,7 +189,10 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Validate external input at serialization boundaries.
 - Keep serialized contracts explicit and typed.
 - Keep compiler logic separate from loosely typed payload handling.
-- Treat persisted formats as contracts once they are used by tests, tools, caches, or external users.
+- Introduce a serialized format, schema, protocol, cache, corpus, or ABI at version 1.
+- Increment a version only when an earlier version remains a supported compatibility contract.
+- Regenerate in-repository artifacts and disposable local caches in place when compatibility is not required.
+- Treat every supported persisted format as a compatibility contract.
 
 ## Concurrency
 

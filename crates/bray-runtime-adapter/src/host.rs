@@ -7,103 +7,103 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_thread_attachment_identity_v1(
+    pub extern "C" fn bray_runtime_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {
-        implementation::bray_runtime_thread_attachment_identity_v1(descriptor)
+        implementation::bray_runtime_thread_attachment_identity(descriptor)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_thread_static_cleanup_registration_v1(
+    pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_thread_static_cleanup_registration_v1(registration)
+        implementation::bray_runtime_thread_static_cleanup_registration(registration)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_product_host_control_v3(
+    pub extern "C" fn bray_runtime_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {
-        implementation::bray_runtime_product_host_control_v3(descriptor, operation)
+        implementation::bray_runtime_product_host_control(descriptor, operation)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_synchronous_root_execution_v1(
+    pub extern "C" fn bray_runtime_synchronous_root_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        implementation::bray_runtime_synchronous_root_execution_v1(callback, destination)
+        implementation::bray_runtime_synchronous_root_execution(callback, destination)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_foreign_callback_execution_v1(
+    pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        implementation::bray_runtime_foreign_callback_execution_v1(callback, destination)
+        implementation::bray_runtime_foreign_callback_execution(callback, destination)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_root_terminal_observation_v1(
+    pub extern "C" fn bray_runtime_root_terminal_observation(
         root: NativeRootHandle,
     ) -> NativeRunOutcome {
-        implementation::bray_runtime_root_terminal_observation_v1(root)
+        implementation::bray_runtime_root_terminal_observation(root)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_root_completion_resolution_v1(
+    pub extern "C" fn bray_runtime_root_completion_resolution(
         root: NativeRootHandle,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_root_completion_resolution_v1(root)
+        implementation::bray_runtime_root_completion_resolution(root)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_panic_reporting_v1(payload: usize) -> NativeRuntimeStatus {
-        implementation::bray_runtime_panic_reporting_v1(payload)
+    pub extern "C" fn bray_runtime_panic_reporting(payload: usize) -> NativeRuntimeStatus {
+        implementation::bray_runtime_panic_reporting(payload)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_entry_failure_reporting_v1(
+    pub extern "C" fn bray_runtime_entry_failure_reporting(
         payload: usize,
         size: usize,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_entry_failure_reporting_v1(payload, size)
+        implementation::bray_runtime_entry_failure_reporting(payload, size)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_panic_report_construction_v1(
+    pub extern "C" fn bray_runtime_panic_report_construction(
         cause: NativePanicCause,
         source: NativeSourceAnchor,
         message: NativeStringView,
     ) -> usize {
-        implementation::bray_runtime_panic_report_construction_v1(cause, source, message)
+        implementation::bray_runtime_panic_report_construction(cause, source, message)
     }
 }
 
 native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_panic_propagation_v1(payload: usize) -> ! {
-        implementation::bray_runtime_panic_propagation_v1(payload)
+    pub extern "C-unwind" fn bray_runtime_panic_propagation(payload: usize) -> ! {
+        implementation::bray_runtime_panic_propagation(payload)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_cleanup_incident_reporting_v1() -> NativeRuntimeStatus {
-        implementation::bray_runtime_cleanup_incident_reporting_v1()
+    pub extern "C" fn bray_runtime_cleanup_incident_reporting() -> NativeRuntimeStatus {
+        implementation::bray_runtime_cleanup_incident_reporting()
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_structured_shutdown_v1() -> NativeRuntimeStatus {
-        implementation::bray_runtime_structured_shutdown_v1()
+    pub extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStatus {
+        implementation::bray_runtime_structured_shutdown()
     }
 }

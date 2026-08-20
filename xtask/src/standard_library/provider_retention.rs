@@ -223,11 +223,9 @@ fn link_fixture(
 
     execution.current_dir(output);
 
-    let execution = crate::command::require_success(
-        execution,
-        "executing native provider retention fixture",
-    )
-        .map_err(|error| BuildError::conformance("native provider retention", error))?;
+    let execution =
+        crate::command::require_success(execution, "executing native provider retention fixture")
+            .map_err(|error| BuildError::conformance("native provider retention", error))?;
 
     let map = fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))?;
 

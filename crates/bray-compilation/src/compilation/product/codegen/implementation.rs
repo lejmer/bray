@@ -1931,6 +1931,49 @@ mod tests {
     }
 
     #[test]
+    fn independently_started_tasks_emit_native_units() {
+        let source = concat!(
+            "module async_tasks;\n",
+            "\n",
+            "async func complete()\n",
+            "{\n",
+            "    return unit;\n",
+            "}\n",
+            "\n",
+            "async func main()\n",
+            "{\n",
+            "    let first: Task<unit> = complete().start();\n",
+            "    let second: Task<unit> = complete().start();\n",
+            "\n",
+            "    try await first.join();\n",
+            "    try await second.join();\n",
+            "}\n",
+        );
+
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Executable);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("started tasks must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
         let cases = [
             (
@@ -1985,7 +2028,7 @@ mod tests {
                     .unwrap_or_else(|error| panic!("LLVM IR must be UTF-8: {error}"));
 
                 assert!(ir.contains("entry.failure"));
-                assert!(ir.contains("bray_runtime_entry_failure_reporting_v1"));
+                assert!(ir.contains("bray_runtime_entry_failure_reporting"));
             } else {
                 assert_eq!(host.entries()[0].result(), ExecutableEntryResult::Unit);
             }
@@ -3595,7 +3638,7 @@ mod tests {
         let roles: Vec<_> = roles.into_iter().collect();
 
         let bindings = roles.iter().copied().map(|role| {
-            let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}_v1", role.as_str()))
+            let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}", role.as_str()))
                 .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
 
             RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)

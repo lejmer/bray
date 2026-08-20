@@ -32,12 +32,17 @@
 #include <charconv>
 #endif
 
-#if BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10
+#if BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10 || BRAY_WORKLOAD == 14
 #include <iostream>
 #endif
 
 #if BRAY_WORKLOAD == 10
 #include <coroutine>
+#endif
+
+#if BRAY_WORKLOAD == 14
+#include <mutex>
+#include <thread>
 #endif
 
 #if BRAY_WORKLOAD == 4
@@ -378,9 +383,14 @@ bool workload()
 
     return writer.valid();
 }
-#elif BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10
+#elif BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10 || BRAY_WORKLOAD == 14
 bool write_standard_output()
 {
+#if BRAY_WORKLOAD == 14
+    static std::mutex output_mutex;
+    const std::lock_guard lock{output_mutex};
+#endif
+
     std::cout.write("x", 1);
     std::cout.flush();
 
@@ -396,7 +406,7 @@ bool workload()
 
     return true;
 }
-#else
+#elif BRAY_WORKLOAD == 10
 class OutputTask
 {
 public:
@@ -485,6 +495,28 @@ bool workload()
     auto task = write_output_async();
 
     return task.run();
+}
+#else
+bool write_standard_output_repeatedly()
+{
+    for (std::size_t index = 0; index < 64; ++index)
+        if (!write_standard_output())
+            return false;
+
+    return true;
+}
+
+bool workload()
+{
+    bool first_result = false;
+    bool second_result = false;
+    std::thread first{[&first_result]() { first_result = write_standard_output_repeatedly(); }};
+    std::thread second{[&second_result]() { second_result = write_standard_output_repeatedly(); }};
+
+    first.join();
+    second.join();
+
+    return first_result && second_result;
 }
 #endif
 #elif BRAY_WORKLOAD == 4

@@ -555,6 +555,9 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
         | RuntimeAbiRole::SuspensionRegistration
         | RuntimeAbiRole::Wake
         | RuntimeAbiRole::JoinRegistration
+        | RuntimeAbiRole::TaskObservationCreation
+        | RuntimeAbiRole::TaskResolution
+        | RuntimeAbiRole::TaskDestruction
         | RuntimeAbiRole::TerminalPublication
         | RuntimeAbiRole::CompatibleLaneSelection
         | RuntimeAbiRole::MainThreadLaneStartup
@@ -1101,6 +1104,8 @@ mod tests {
                 RuntimeAbiRole::CurrentRunCancellationObservation,
                 RuntimeAbiRole::CurrentRunCancellationPropagation,
                 RuntimeAbiRole::JoinRegistration,
+                RuntimeAbiRole::TaskObservationCreation,
+                RuntimeAbiRole::TaskResolution,
                 RuntimeAbiRole::TerminalPublication,
                 RuntimeAbiRole::RuntimeEvent,
                 RuntimeAbiRole::CompatibleLaneSelection,
@@ -1117,6 +1122,7 @@ mod tests {
                 RuntimeAbiRole::PanicReportConstruction,
                 RuntimeAbiRole::PanicPropagation,
                 RuntimeAbiRole::AwaitedFrameComposition,
+                RuntimeAbiRole::TaskDestruction,
             ]
         );
 

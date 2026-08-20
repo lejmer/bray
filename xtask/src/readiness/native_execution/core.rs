@@ -21,6 +21,9 @@ const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-lin
 const ASYNC_UNIT_FIXTURE: &str = "xtask/fixtures/native-execution/async-unit.bray";
 const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray";
 const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
+const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
+const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
+const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
 const ATOMIC_FIXTURE: &str = "xtask/fixtures/native-execution/atomic-operations.bray";
@@ -408,31 +411,48 @@ fn audit_entry_result(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
 }
 
 fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    for (name, fixture, expected, stderr) in [
-        ("async unit", ASYNC_UNIT_FIXTURE, 0, None),
-        ("async i32", ASYNC_I32_FIXTURE, 42, None),
+    for (name, fixture, expected, stderr, uses_standard_library) in [
+        ("async unit", ASYNC_UNIT_FIXTURE, 0, None, false),
+        ("async i32", ASYNC_I32_FIXTURE, 42, None, false),
+        (
+            "independently started tasks",
+            ASYNC_TASKS_FIXTURE,
+            0,
+            None,
+            true,
+        ),
         (
             "async Result.Error",
             ASYNC_ERROR_FIXTURE,
             1,
             Some("[2a, 00, 00, 00]"),
+            false,
         ),
         (
             "synchronous panic",
             SYNC_PANIC_FIXTURE,
             1,
             Some("native readiness panic"),
+            false,
         ),
     ] {
-        let first =
-            BuiltFixture::build_command_line("bray-native-host-first-", target, |output| {
-                build_fixture(root, target, runtime, fixture, output)
-            })?;
+        let first = build_host_fixture(
+            root,
+            target,
+            runtime,
+            "bray-native-host-first-",
+            fixture,
+            uses_standard_library,
+        )?;
 
-        let second =
-            BuiltFixture::build_command_line("bray-native-host-second-", target, |output| {
-                build_fixture(root, target, runtime, fixture, output)
-            })?;
+        let second = build_host_fixture(
+            root,
+            target,
+            runtime,
+            "bray-native-host-second-",
+            fixture,
+            uses_standard_library,
+        )?;
 
         require_equal_files(first.executable(), second.executable(), name)?;
 
@@ -452,6 +472,31 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     }
 
     Ok(())
+}
+
+fn build_host_fixture(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    prefix: &str,
+    fixture: &str,
+    uses_standard_library: bool,
+) -> Result<BuiltFixture, String> {
+    if uses_standard_library {
+        BuiltFixture::build_standard_library(prefix, target, |output| {
+            build_standard_library_fixtures(
+                root,
+                target,
+                runtime,
+                output,
+                &[STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, fixture],
+            )
+        })
+    } else {
+        BuiltFixture::build_command_line(prefix, target, |output| {
+            build_fixture(root, target, runtime, fixture, output)
+        })
+    }
 }
 
 pub(super) fn native_output(prefix: &str) -> Result<tempfile::TempDir, String> {

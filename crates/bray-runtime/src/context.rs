@@ -199,8 +199,8 @@ mod tests {
     use bray_platform::RuntimeThreadScope;
     #[cfg(feature = "test-output")]
     use bray_platform::{
-        CapturedRunStream, RunOutputContext, RunOutputStream,
-        begin_current_run_output_operation, with_run_output_context,
+        CapturedRunStream, RunOutputContext, RunOutputStream, begin_current_run_output_operation,
+        with_run_output_context,
     };
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 

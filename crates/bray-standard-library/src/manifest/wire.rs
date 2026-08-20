@@ -12,7 +12,7 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 
-pub(super) const MANIFEST_FORMAT_REVISION: u32 = 4;
+pub(super) const MANIFEST_FORMAT_REVISION: u32 = 1;
 const DIGEST_ALGORITHM: &str = "blake3";
 
 #[derive(Serialize)]

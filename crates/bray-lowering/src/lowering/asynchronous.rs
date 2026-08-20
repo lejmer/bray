@@ -137,6 +137,7 @@ impl Lowerer<'_> {
             }
             Some(kind @ (AsyncTaskOperationKind::Join | AsyncTaskOperationKind::Cancel)) => {
                 let task = call_receiver(&call, expression)?;
+                let variants = self.run_result_representation()?;
 
                 let BoundCallResult::LazyFuture(result) = call.result() else {
                     return Err(LoweringError::InvalidTaskOperation(expression));
@@ -147,6 +148,12 @@ impl Lowerer<'_> {
                     initializer: MirFrameInitializer::TaskObservation {
                         task,
                         result,
+                        variants: bray_ir::MirRunResultVariants::new(
+                            variants.completed_variant,
+                            variants.panicked_variant,
+                            variants.cancelled_variant,
+                        ),
+                        runtime: self.runtime_reference(RuntimeAbiRole::TaskObservationCreation),
                         request_cancellation: kind == AsyncTaskOperationKind::Cancel,
                     },
                 })

@@ -416,7 +416,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    pub(super) fn call_void_intrinsic(&mut self, name: &str) -> Result<(), CodegenFailure> {
+    pub(in crate::translation::unit) fn call_void_intrinsic(
+        &mut self,
+        name: &str,
+    ) -> Result<(), CodegenFailure> {
         let function = match self.module.get_function(name) {
             Some(function) => function,
             None => self.module.add_function(

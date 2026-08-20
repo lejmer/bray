@@ -119,7 +119,6 @@ impl RunOutputDestination {
 
         output.snapshot()
     }
-
 }
 
 #[derive(Debug)]
@@ -433,11 +432,10 @@ mod tests {
 
         with_run_output_context(output, || {
             let panic = std::panic::catch_unwind(|| {
-                let _operation = super::begin_current_run_output_operation(
-                    RunOutputStream::StandardOutput,
-                )
-                .unwrap_or_else(|error| panic!("operation must begin: {error:?}"))
-                .unwrap_or_else(|| panic!("discarded output must be redirected"));
+                let _operation =
+                    super::begin_current_run_output_operation(RunOutputStream::StandardOutput)
+                        .unwrap_or_else(|error| panic!("operation must begin: {error:?}"))
+                        .unwrap_or_else(|| panic!("discarded output must be redirected"));
 
                 assert!(matches!(
                     super::begin_current_run_output_operation(RunOutputStream::StandardOutput),
@@ -449,11 +447,10 @@ mod tests {
 
             assert!(panic.is_err());
 
-            let operation = super::begin_current_run_output_operation(
-                RunOutputStream::StandardOutput,
-            )
-            .unwrap_or_else(|error| panic!("operation must begin after panic: {error:?}"))
-            .unwrap_or_else(|| panic!("discarded output must be redirected"));
+            let operation =
+                super::begin_current_run_output_operation(RunOutputStream::StandardOutput)
+                    .unwrap_or_else(|error| panic!("operation must begin after panic: {error:?}"))
+                    .unwrap_or_else(|| panic!("discarded output must be redirected"));
 
             drop(operation);
         });
@@ -470,11 +467,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("first output must be redirected"));
 
             with_run_output_context(second, || {
-                let second = super::begin_current_run_output_operation(
-                    RunOutputStream::StandardOutput,
-                )
-                .unwrap_or_else(|error| panic!("second operation must begin: {error:?}"))
-                .unwrap_or_else(|| panic!("second output must be redirected"));
+                let second =
+                    super::begin_current_run_output_operation(RunOutputStream::StandardOutput)
+                        .unwrap_or_else(|error| panic!("second operation must begin: {error:?}"))
+                        .unwrap_or_else(|| panic!("second output must be redirected"));
 
                 drop(second);
             });
