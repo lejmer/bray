@@ -2,7 +2,6 @@ use crate::decode::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
-/// Version 1 describes the combined unreleased executable-template format.
 pub(super) const FORMAT_VERSION: u32 = 1;
 
 pub(super) fn write_bool(encoder: &mut WireEncoder, value: bool) {
@@ -87,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn unreleased_executable_template_format_is_version_one() {
+    fn current_executable_template_format_is_version_one() {
         assert_eq!(FORMAT_VERSION, 1);
     }
 }

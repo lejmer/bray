@@ -1,6 +1,5 @@
 use super::model::WorkloadCategory;
 
-/// Revision 1 describes the combined unreleased performance corpus.
 pub(super) const CORPUS_REVISION: u32 = 1;
 pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
 pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;

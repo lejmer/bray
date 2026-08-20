@@ -15,7 +15,6 @@ use crate::{
 use super::codec::runtime_requirements_identity;
 
 /// Exact compiler template-schema revision implemented by this crate.
-/// Version 1 describes the combined unreleased template schema.
 pub const CURRENT_TEMPLATE_SCHEMA_REVISION: ImplementationTemplateSchemaRevision =
     ImplementationTemplateSchemaRevision::new(1);
 
@@ -449,7 +448,7 @@ mod tests {
     use super::CURRENT_TEMPLATE_SCHEMA_REVISION;
 
     #[test]
-    fn unreleased_implementation_template_schema_is_version_one() {
+    fn current_implementation_template_schema_is_version_one() {
         assert_eq!(CURRENT_TEMPLATE_SCHEMA_REVISION.raw(), 1);
     }
 }

@@ -1,7 +1,6 @@
 use super::runtime::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
-/// Version 1 describes the combined unreleased product-host ABI.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
 
 /// Stable runtime symbol controlling one compiler-generated product host.
