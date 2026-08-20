@@ -1,8 +1,8 @@
-use std::any::Any;
 use std::alloc::{Layout, alloc_zeroed, dealloc};
+use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use bray_runtime_abi::{
     NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
@@ -12,8 +12,7 @@ use bray_runtime_abi::{
 
 use super::state::{current_native_task, runtime_failure, with_runtime};
 
-const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] =
-    *b"bray.task.observation.frame.v1\0\0";
+const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame.v1\0\0";
 
 pub(super) type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
 
@@ -76,8 +75,7 @@ impl TaskObservation {
         transfer_outcome(outcome, destination, self.layout)
             .unwrap_or_else(|_| panic!("task observation result transfer failed"));
 
-        destroy_task(self.task)
-            .unwrap_or_else(|_| panic!("observed task destruction failed"));
+        destroy_task(self.task).unwrap_or_else(|_| panic!("observed task destruction failed"));
 
         self.consumed.store(true, Ordering::Release);
     }
@@ -329,7 +327,11 @@ pub(super) fn transfer_outcome(
     let (tag, payload) = if outcome.state() == NativeRunState::COMPLETED {
         (
             layout.completed_tag(),
-            Some((layout.completed_offset(), outcome.payload(), layout.completed_size())),
+            Some((
+                layout.completed_offset(),
+                outcome.payload(),
+                layout.completed_size(),
+            )),
         )
     } else if outcome.state() == NativeRunState::PANICKED {
         (

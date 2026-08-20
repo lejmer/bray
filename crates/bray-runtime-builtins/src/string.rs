@@ -173,9 +173,8 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use super::{
-        bray_runtime_string_equals, bray_runtime_string_from_utf8,
-        bray_runtime_string_scalar_at, bray_runtime_string_scalar_count,
-        bray_runtime_string_scalar_slice,
+        bray_runtime_string_equals, bray_runtime_string_from_utf8, bray_runtime_string_scalar_at,
+        bray_runtime_string_scalar_count, bray_runtime_string_scalar_slice,
     };
 
     #[test]

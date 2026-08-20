@@ -325,11 +325,7 @@ mod tests {
         let mut transferred = 9;
 
         assert_eq!(
-            bray_platform_standard_input_read(
-                destination.as_mut_ptr(),
-                1,
-                &raw mut transferred,
-            ),
+            bray_platform_standard_input_read(destination.as_mut_ptr(), 1, &raw mut transferred,),
             NativePlatformStatus::INVALID_INPUT
         );
 
@@ -427,11 +423,7 @@ mod tests {
             );
 
             assert_eq!(
-                bray_platform_standard_output_write(
-                    std::ptr::null(),
-                    1,
-                    &raw mut transferred,
-                ),
+                bray_platform_standard_output_write(std::ptr::null(), 1, &raw mut transferred,),
                 NativePlatformStatus::INVALID_INPUT
             );
 
@@ -469,11 +461,7 @@ mod tests {
             );
 
             assert_eq!(
-                bray_platform_standard_output_write(
-                    std::ptr::null(),
-                    0,
-                    &raw mut transferred,
-                ),
+                bray_platform_standard_output_write(std::ptr::null(), 0, &raw mut transferred,),
                 NativePlatformStatus::SUCCESS
             );
 

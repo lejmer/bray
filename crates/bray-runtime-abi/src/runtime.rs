@@ -70,8 +70,7 @@ pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation";
 pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation";
 
 /// Stable symbol observing one successful generated memory allocation.
-pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str =
-    "bray_runtime_memory_allocation_observation";
+pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_allocation_observation";
 
 /// Stable symbol observing one completed generated memory transfer.
 pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation";

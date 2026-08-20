@@ -11,8 +11,8 @@ mod presentation;
 mod ranking;
 mod report;
 mod retention;
-mod statistics;
 mod source;
+mod statistics;
 mod validation;
 
 #[cfg(test)]

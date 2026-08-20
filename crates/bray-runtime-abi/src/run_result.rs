@@ -107,17 +107,15 @@ impl NativeRunResultLayout {
                 self.tag_size,
                 [self.completed_tag, self.panicked_tag, self.cancelled_tag],
             )
-            && tags_are_distinct([
-                self.completed_tag,
-                self.panicked_tag,
-                self.cancelled_tag,
-            ])
+            && tags_are_distinct([self.completed_tag, self.panicked_tag, self.cancelled_tag])
             && self.tag_size <= self.size
             && self.completed_offset >= self.tag_size
             && self.completed_size <= self.size.saturating_sub(self.completed_offset)
             && self.completed_alignment.is_power_of_two()
             && self.completed_alignment <= self.alignment
-            && self.completed_offset.is_multiple_of(self.completed_alignment)
+            && self
+                .completed_offset
+                .is_multiple_of(self.completed_alignment)
             && self.panicked_offset >= self.tag_size
             && self.panicked_offset.is_multiple_of(align_of::<usize>())
             && size_of::<usize>() <= self.size.saturating_sub(self.panicked_offset)

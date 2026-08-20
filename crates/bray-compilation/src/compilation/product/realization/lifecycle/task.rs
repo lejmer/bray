@@ -78,12 +78,7 @@ impl Compilation {
             MirOperationKind::Finalize(place.clone()),
         )?;
 
-        self.push_lifecycle_operation(
-            builder,
-            block,
-            source,
-            MirOperationKind::Destroy(place),
-        )?;
+        self.push_lifecycle_operation(builder, block, source, MirOperationKind::Destroy(place))?;
 
         Ok(())
     }

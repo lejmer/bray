@@ -94,8 +94,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
         | Role::GeneratorCleanupBroadcast
         | Role::GeneratorDestruction
         | Role::FrameCreation
-        | Role::InactiveFrameMove
-        => None,
+        | Role::InactiveFrameMove => None,
         Role::TaskDestruction => Some(TASK_DESTRUCTION_SYMBOL),
     }
 }

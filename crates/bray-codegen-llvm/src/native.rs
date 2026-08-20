@@ -52,9 +52,7 @@ pub(crate) fn indirect_result_type<'context>(
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::RootTerminalObservation
-            | RuntimeAbiRole::JoinRegistration => {
-                Some(run_outcome_type(context, target).into())
-            }
+            | RuntimeAbiRole::JoinRegistration => Some(run_outcome_type(context, target).into()),
             RuntimeAbiRole::TaskAllocation => Some(task_allocation_type(context).into()),
             RuntimeAbiRole::TaskObservationCreation => Some(inactive_frame_type(context).into()),
             _ => None,

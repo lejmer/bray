@@ -826,8 +826,18 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("C++ fixture configuration must build: {error}"));
 
-        assert!(contended.arguments.iter().any(|argument| argument == "-pthread"));
-        assert!(!sequential.arguments.iter().any(|argument| argument == "-pthread"));
+        assert!(
+            contended
+                .arguments
+                .iter()
+                .any(|argument| argument == "-pthread")
+        );
+        assert!(
+            !sequential
+                .arguments
+                .iter()
+                .any(|argument| argument == "-pthread")
+        );
     }
 
     #[test]

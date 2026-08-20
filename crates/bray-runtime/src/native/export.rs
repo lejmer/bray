@@ -1200,8 +1200,7 @@ mod tests {
         let _thread = bray_platform::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        let outcome =
-            bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
+        let outcome = bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_eq!(outcome.payload(), 41);

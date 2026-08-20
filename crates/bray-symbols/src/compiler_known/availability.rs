@@ -152,12 +152,14 @@ impl AvailableCompilerKnownSymbols {
         let definition = NamedTypeSymbolId::try_from_any(symbol)?;
 
         let [parameter] = (match definition {
-            NamedTypeSymbolId::Struct(definition) => {
-                self.provider().symbol(definition)?.generic_type_parameters()
-            }
-            NamedTypeSymbolId::Union(definition) => {
-                self.provider().symbol(definition)?.generic_type_parameters()
-            }
+            NamedTypeSymbolId::Struct(definition) => self
+                .provider()
+                .symbol(definition)?
+                .generic_type_parameters(),
+            NamedTypeSymbolId::Union(definition) => self
+                .provider()
+                .symbol(definition)?
+                .generic_type_parameters(),
         }) else {
             return None;
         };
@@ -543,11 +545,7 @@ mod tests {
         );
 
         assert_eq!(
-            view.unary_representation_argument(
-                &values,
-                RepresentationRole::RunResult,
-                run_result,
-            ),
+            view.unary_representation_argument(&values, RepresentationRole::RunResult, run_result,),
             Some(completion)
         );
     }

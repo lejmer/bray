@@ -447,10 +447,9 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
             Effect::EstablishVisibility,
         ],
         RuntimeAbiRole::TaskObservationCreation => &[Effect::CreateFrame],
-        RuntimeAbiRole::TaskResolution => &[
-            Effect::AcquireTerminalState,
-            Effect::EstablishVisibility,
-        ],
+        RuntimeAbiRole::TaskResolution => {
+            &[Effect::AcquireTerminalState, Effect::EstablishVisibility]
+        }
         RuntimeAbiRole::TerminalPublication => {
             &[Effect::PublishTerminalState, Effect::EstablishVisibility]
         }

@@ -19,11 +19,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_alloca(allocation_type, "task.allocation"),
             )?;
 
-            llvm(self.builder.build_call(
-                function,
-                &[storage.into()],
-                "task.allocation.call",
-            ))?;
+            llvm(
+                self.builder
+                    .build_call(function, &[storage.into()], "task.allocation.call"),
+            )?;
 
             llvm(
                 self.builder
@@ -97,7 +96,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .i8_type()
             .const_int(u64::from(request_cancellation), false);
 
-        let callback_type = self.types.context().ptr_type(inkwell::AddressSpace::default());
+        let callback_type = self
+            .types
+            .context()
+            .ptr_type(inkwell::AddressSpace::default());
 
         let cancellation = self
             .helper_address(cancellation)?
@@ -130,11 +132,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_call(function, &arguments, "task.observation.create"),
             )?;
 
-            return llvm(self.builder.build_load(
-                frame_type,
-                storage,
-                "task.observation.value",
-            ));
+            return llvm(
+                self.builder
+                    .build_load(frame_type, storage, "task.observation.value"),
+            );
         }
 
         llvm(
@@ -175,7 +176,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.require_runtime_success(status, "task.resolve")?;
 
-        llvm(self.builder.build_load(result_type, storage, "task.result.value"))
+        llvm(
+            self.builder
+                .build_load(result_type, storage, "task.result.value"),
+        )
     }
 
     fn run_result_layout(
@@ -229,22 +233,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(|layout| layout.size())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let layout_type = crate::native::run_result_layout_type(
-            self.types.context(),
-            self.request.target(),
-        );
+        let layout_type =
+            crate::native::run_result_layout_type(self.types.context(), self.request.target());
 
-        let usize = crate::native::pointer_integer_type(
-            self.types.context(),
-            self.request.target(),
-        );
+        let usize =
+            crate::native::pointer_integer_type(self.types.context(), self.request.target());
 
         let usize_constant = |value| usize.const_int(value, false).into();
 
         let tag_constant = |value: &bray_symbols::IntegerConstant| {
             value
                 .to_u64()
-                .map(|value| self.types.context().i64_type().const_int(value, false).into())
+                .map(|value| {
+                    self.types
+                        .context()
+                        .i64_type()
+                        .const_int(value, false)
+                        .into()
+                })
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)
         };
 
@@ -261,10 +267,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             tag_constant(cancelled.tag())?,
         ]);
 
-        let storage = llvm(
-            self.builder
-                .build_alloca(layout_type, "task.result.layout"),
-        )?;
+        let storage = llvm(self.builder.build_alloca(layout_type, "task.result.layout"))?;
 
         llvm(self.builder.build_store(storage, value))?;
 

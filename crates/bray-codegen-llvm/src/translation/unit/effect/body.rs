@@ -505,10 +505,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let status = self
                     .invoke_single_operation_helper(
-                    operation_id,
-                    MirHelperReference::DestroyTerminalTask,
-                    &[task],
-                )?
+                        operation_id,
+                        MirHelperReference::DestroyTerminalTask,
+                        &[task],
+                    )?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 self.require_runtime_success(status, "task.destruction")?;
@@ -597,8 +597,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     },
                 )?;
 
-                let creation =
-                    next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
+                let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
 
                 let task = self.operand(task)?;
 
