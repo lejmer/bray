@@ -1,5 +1,7 @@
 module async_tasks;
 
+using std.task;
+
 async func complete()
 {
     return unit;
@@ -15,13 +17,21 @@ async func fail()
     panic("independent task panic");
 }
 
+async func await_cancellation()
+{
+    loop
+    {
+        await std.task.yield_now();
+    }
+}
+
 async func main()
 {
     let first: Task<unit> = complete().start();
     let second: Task<unit> = complete().start();
     let result_task: Task<Result<i32, i32>> = produce().start();
     let failed: Task<unit> = fail().start();
-    let cancelled: Task<unit> = complete().start();
+    let cancelled: Task<unit> = await_cancellation().start();
 
     try await first.join();
     try await second.join();
@@ -41,7 +51,7 @@ async func main()
 
     match await cancelled.cancel()
     {
-        case Completed(_) {}
+        case Completed(_) { assert(false); }
         case Panicked(_) { assert(false); }
         case Cancelled {}
     }
