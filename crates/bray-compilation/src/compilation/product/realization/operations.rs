@@ -3,15 +3,16 @@ use std::num::NonZeroU32;
 
 use bray_binder::BindingQueryContext;
 use bray_codegen::{
-    CodegenDebugLocation, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
-    CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping,
-    CodegenUnit, demanded_debug_sources,
+    CodegenCallSite, CodegenDebugLocation, CodegenHelperMapping, CodegenInstance,
+    CodegenOperationMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTarget, CodegenTypeMapping, CodegenUnit, demanded_callable_instance_for_call,
+    demanded_debug_sources,
 };
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
     MirHelperReference, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
-    MirUnitKey,
+    MirOperationId, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirUnitId, MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_source::LineIndex;
@@ -22,7 +23,9 @@ use bray_symbols::{
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
-use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
+use super::super::specialization::{
+    ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
+};
 use super::support::{
     codegen_source_file, dependency_symbol, direct_helper_symbol, helper_runtime_symbol,
     is_void_result, operation_result_type,
@@ -123,6 +126,7 @@ impl Compilation {
                     .map(|reference| {
                         self.codegen_helper(
                             instance,
+                            operation,
                             data.kind(),
                             operation_result_type(instance.mir(), data),
                             realization,
@@ -174,6 +178,7 @@ impl Compilation {
     pub(super) fn codegen_helper(
         &self,
         owner: &CodegenInstance,
+        operation_id: MirOperationId,
         operation: &MirOperationKind,
         operation_result_type: Option<TypeId>,
         owner_realization: &ConcreteCodegenInstance,
@@ -210,6 +215,7 @@ impl Compilation {
             let symbol = self.frame_creation_symbol(
                 owner,
                 owner_realization,
+                operation_id,
                 operation,
                 &reference,
                 target,
@@ -444,6 +450,7 @@ impl Compilation {
         &self,
         owner: &CodegenInstance,
         owner_realization: &ConcreteCodegenInstance,
+        operation_id: MirOperationId,
         operation: &MirOperationKind,
         reference: &MirHelperReference,
         target: &CodegenTarget,
@@ -458,13 +465,25 @@ impl Compilation {
 
         match initializer {
             MirFrameInitializer::Callable(call) => match call.target() {
-                MirCallTarget::Direct(callable) => {
-                    let dependency = self.concrete_codegen_callable_data(
-                        owner_realization,
-                        &callable.instance(),
-                        target,
-                        cancellation,
-                    )?;
+                MirCallTarget::Direct(_) => {
+                    let demand = demanded_callable_instance_for_call(
+                        CodegenCallSite::Operation(operation_id),
+                        call,
+                    )
+                    .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+
+                    let ConcreteCodegenCallee::Instance(dependency) = self
+                        .concrete_codegen_callee(
+                            owner_realization,
+                            &demand,
+                            target,
+                            cancellation,
+                        )?
+                    else {
+                        return Err(CodegenPreparationError::MissingHelperInstance(
+                            reference.clone(),
+                        ));
+                    };
 
                     dependency_symbol(owner, dependency.key(), reference)
                 }

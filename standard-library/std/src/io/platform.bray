@@ -98,6 +98,19 @@ internal struct StandardErrorLock
     }
 }
 
+internal struct UnlockedStandardOutput
+{
+    marker: bool;
+}
+
+internal func unlocked_standard_output() -> UnlockedStandardOutput
+{
+    return UnlockedStandardOutput
+    {
+        marker = true,
+    };
+}
+
 func standard_input() -> StandardInput
 {
     return StandardInput
@@ -468,5 +481,20 @@ impl StandardErrorAsyncWriter = StandardError(AsyncWriter)
         requires(blocking_execution())
     {
         return flush_standard_error();
+    }
+}
+
+internal impl UnlockedStandardOutputWriter = UnlockedStandardOutput(Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, IoError>
+        requires(blocking_execution())
+    {
+        return trusted write_standard_output_unlocked(source);
+    }
+
+    mut func flush() -> Result<unit, IoError>
+        requires(blocking_execution())
+    {
+        return trusted flush_standard_output_unlocked();
     }
 }

@@ -58,7 +58,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 14] = [
+pub(super) const WORKLOADS: [Workload; 16] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -573,6 +573,45 @@ func main()
         storage: None,
     },
     Workload {
+        id: "captured_output",
+        category: WorkloadCategory::Streaming,
+        scale: 4096,
+        units: "captured bytes",
+        batching: BatchingPolicy::SingleExecution,
+        source: super::source::CAPTURED_OUTPUT,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
+        platform_operations: &[],
+        retention: NO_RETENTION_CONTRACT,
+        storage: Some(StorageExpectation {
+            allocation_count: 1,
+            allocated_bytes: 4096,
+            copied_bytes: 4096,
+        }),
+    },
+    Workload {
+        id: "process_pipe_transfer",
+        category: WorkloadCategory::Process,
+        scale: 4096,
+        units: "pipe bytes",
+        batching: BatchingPolicy::SingleExecution,
+        source: super::source::PROCESS_PIPE_TRANSFER,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::AbsentPath(
+            "bray-performance-pipe-child-observations",
+        ),
+        platform_operations: &[
+            "platform.child.spawn",
+            "platform.child.wait",
+            "platform.process_pipe.write",
+            "platform.process_pipe.flush",
+            "platform.process_pipe.close",
+            "platform.path.remove_file",
+        ],
+        retention: NO_RETENTION_CONTRACT,
+        storage: None,
+    },
+    Workload {
         id: "filesystem_metadata",
         category: WorkloadCategory::Filesystem,
         scale: 256,
@@ -614,54 +653,7 @@ func main() -> Result<unit, std.io.IoError>
         scale: 4096,
         units: "bytes",
         batching: BatchingPolicy::SingleExecution,
-        source: r#"module file_output;
-
-using std.fs;
-using std.io;
-using std.path;
-
-func main() -> Result<unit, std.io.IoError>
-{
-    let path: std.path.Path = output_path();
-
-    match std.fs.remove_file(&path)
-    {
-        case Ok(_) {}
-        case Error(_) {}
-    }
-
-    let options: std.fs.OpenOptions = std.fs.OpenOptions(
-        access = std.fs.FileAccess.Write,
-        creation = std.fs.FileCreation.CreateNew,
-    );
-
-    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
-    let bytes: [u8; 4096] = [120; 4096];
-    let mut written: usize = 0;
-
-    while written < 4096
-    {
-        let remaining: &[u8] = &bytes[written.. 4096];
-
-        written += try file.write(remaining);
-    }
-
-    try file.flush();
-    try file.close();
-    try std.fs.remove_file(&path);
-
-    return Ok(unit);
-}
-
-func output_path() -> std.path.Path
-{
-    match std.path.Path.from_string(&"bray-performance-file-output")
-    {
-        case Ok(path) { return path; }
-        case Error(_) { panic("performance output path must be valid"); }
-    }
-}
-"#,
+        source: super::source::FILE_OUTPUT,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-file-output"),
         platform_operations: &[
@@ -697,7 +689,11 @@ func output_path() -> std.path.Path
                 "run_output_context",
             ],
         },
-        storage: None,
+        storage: Some(StorageExpectation {
+            allocation_count: 6,
+            allocated_bytes: 380,
+            copied_bytes: 60,
+        }),
     },
     Workload {
         id: "process_context",
@@ -852,6 +848,39 @@ mod tests {
                 "platform.standard_output.unlock",
             ]
         );
+    }
+
+    #[test]
+    fn file_output_exercises_large_buffer_bypass() {
+        let workload = workload("file_output");
+
+        assert!(
+            workload
+                .source
+                .contains("std.io.BufferedWriter<std.fs.File>")
+        );
+
+        assert!(workload.source.contains("capacity = 256"));
+        assert!(workload.source.contains("std.io.write_all<"));
+
+        let storage = workload.storage.expect("file output storage contract");
+
+        assert!(storage.allocated_bytes < workload.scale);
+        assert!(storage.copied_bytes < workload.scale);
+    }
+
+    #[test]
+    fn transfer_matrix_covers_capture_pipe_async_and_contention() {
+        for identity in [
+            "stream_output",
+            "captured_output",
+            "file_output",
+            "process_pipe_transfer",
+            "async_output",
+            "contended_output",
+        ] {
+            let _ = workload(identity);
+        }
     }
 
     fn workload(identity: &str) -> &super::Workload {

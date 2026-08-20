@@ -7,14 +7,20 @@ use std::fs::OpenOptions;
 #[cfg(any(
     peer_timing,
     peer_workload = "async_output",
+    peer_workload = "captured_output",
     peer_workload = "format_large_width",
     peer_workload = "format_numbers",
     peer_workload = "format_writer",
     peer_workload = "stream_output",
     peer_workload = "contended_output",
-    peer_workload = "file_output"
+    peer_workload = "file_output",
+    peer_workload = "process_pipe_transfer"
 ))]
 use std::io::Write as _;
+#[cfg(peer_workload = "process_pipe_transfer")]
+use std::io::Read as _;
+#[cfg(peer_workload = "process_pipe_transfer")]
+use std::process::{Command, Stdio};
 #[cfg(peer_workload = "async_output")]
 use std::sync::Arc;
 #[cfg(any(peer_timing, peer_workload = "monotonic_clock"))]
@@ -28,6 +34,17 @@ const CONTROLLED_DURATION_RECORD: u8 = 3;
 const OBSERVATION_PATH: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
 
 fn main() {
+    #[cfg(peer_workload = "process_pipe_transfer")]
+    if std::env::args_os().len() > 1 {
+        let mut bytes = [0_u8; 4_096];
+
+        std::io::stdin()
+            .read_exact(&mut bytes)
+            .unwrap_or_else(|error| panic!("pipe child must read: {error}"));
+
+        return;
+    }
+
     #[cfg(peer_timing)]
     let inner_iterations = inner_iterations();
 
@@ -431,6 +448,46 @@ fn workload() -> bool {
     drop(file);
 
     std::fs::remove_file(PATH).is_ok()
+}
+
+#[cfg(peer_workload = "captured_output")]
+fn workload() -> bool {
+    let mut output = Vec::with_capacity(4_096);
+    let bytes = [120_u8; 4_096];
+
+    output.write_all(&bytes).is_ok() && output.len() == bytes.len()
+}
+
+#[cfg(peer_workload = "process_pipe_transfer")]
+fn workload() -> bool {
+    let Ok(executable) = std::env::current_exe() else {
+        return false;
+    };
+
+    let Ok(mut child) = Command::new(executable)
+        .arg("pipe-child")
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+
+    let Some(mut input) = child.stdin.take() else {
+        return false;
+    };
+
+    let bytes = [120_u8; 4_096];
+
+    if input.write_all(&bytes).is_err() {
+        return false;
+    }
+
+    drop(input);
+
+    child.wait().is_ok_and(|status| status.success())
 }
 
 #[cfg(peer_workload = "process_context")]

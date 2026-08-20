@@ -2,7 +2,7 @@ module hello;
 
 using std.io;
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
-    return std.io.print(&"Hello world!");
+    std.io.print("Hello world!");
 }

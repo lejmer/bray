@@ -28,22 +28,7 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
     mut func write(pos source: &[u8]) -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
-        let length: usize = std.bytes.slice_length(source);
-        let mut written: usize = 0;
-
-        while written < length
-        {
-            let remaining: &[u8] = &source[written..length];
-            let result: Result<usize, std.io.IoError> = self.destination(std.io.Writer).write(remaining);
-
-            match consume advance_write_all(result = result, written = written, remaining = length - written)
-            {
-                case Ok(next) { written = next; }
-                case Error(error) { return Error(error); }
-            }
-        }
-
-        return Ok(unit);
+        return write_all<Destination>(&mut self.destination, source);
     }
 
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.io.IoError>
@@ -56,25 +41,17 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
         {
             let remaining_count: usize = count - written;
             let chunk_length: usize = smaller(remaining_count, 64);
-            let mut chunk_written: usize = 0;
 
-            while chunk_written < chunk_length
+            let result: Result<unit, std.io.IoError> = write_all<Destination>(
+                &mut self.destination,
+                &chunk[0..chunk_length]
+            );
+
+            match consume result
             {
-                let remaining: &[u8] = &chunk[chunk_written..chunk_length];
-                let result: Result<usize, std.io.IoError> = self.destination(std.io.Writer).write(remaining);
-
-                match consume advance_write_all(
-                    result = result,
-                    written = written + chunk_written,
-                    remaining = chunk_length - chunk_written,
-                )
-                {
-                    case Ok(next) { chunk_written = next - written; }
-                    case Error(error) { return Error(error); }
-                }
+                case Ok(_) { written += chunk_length; }
+                case Error(error) { return Error(prefixed_error(error, prefix = written)); }
             }
-
-            written += chunk_length;
         }
 
         return Ok(unit);

@@ -2,13 +2,204 @@ module bray.standard_library_tests.io_print;
 
 using std.bytes;
 using std.io;
+using std.io.IoErrorKindEquatable;
+using internal std.io.BufferedReaderSourceReader;
+using internal std.io.BufferedWriterSinkWriter;
 using internal std.io.StandardErrorWriter;
 using std.string;
 
-@test
-func standard_output_is_captured() -> Result<unit, std.io.IoError>
+struct CountingWriter
 {
-    return std.io.print(&"captured-standard-output");
+    mut calls: usize;
+    mut flushes: usize;
+    mut total: usize;
+    mut last_request: usize;
+    limit: usize;
+
+    construct(limit: usize) -> Self
+    {
+        return
+        {
+            calls = 0,
+            flushes = 0,
+            total = 0,
+            last_request = 0,
+            limit = limit,
+        };
+    }
+}
+
+impl CountingWriterIo = CountingWriter(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(source);
+        let accepted: usize = internal std.io.smaller(requested, self.limit);
+
+        self.calls += 1;
+        self.total += accepted;
+        self.last_request = requested;
+
+        return Ok(accepted);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        self.flushes += 1;
+
+        return Ok(unit);
+    }
+}
+
+struct FailingWriter
+{
+    mut calls: usize;
+}
+
+impl FailingWriterIo = FailingWriter(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        self.calls += 1;
+
+        if self.calls == 1
+        {
+            return Ok(2);
+        }
+
+        return Error(
+            std.io.IoError
+            {
+                kind = std.io.IoErrorKind.Exhausted,
+                platform_code = none,
+                transferred = 1,
+            }
+        );
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return Ok(unit);
+    }
+}
+
+struct CountingReader
+{
+    mut calls: usize;
+    mut remaining: usize;
+    mut last_request: usize;
+    limit: usize;
+
+    construct(remaining: usize, limit: usize) -> Self
+    {
+        return
+        {
+            calls = 0,
+            remaining = remaining,
+            last_request = 0,
+            limit = limit,
+        };
+    }
+}
+
+struct RecoveringWriter
+{
+    mut bytes: [u8; 8];
+    mut length: usize;
+    mut fail_drain: bool;
+    mut fail_flush: bool;
+}
+
+impl RecoveringWriterIo = RecoveringWriter(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(source);
+        let mut accepted: usize = requested;
+
+        if self.fail_drain
+        {
+            accepted = 2;
+        }
+
+        let mut index: usize = 0;
+
+        while index < accepted
+        {
+            self.bytes[self.length + index] = source[index];
+            index += 1;
+        }
+
+        self.length += accepted;
+
+        if self.fail_drain
+        {
+            self.fail_drain = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = accepted,
+                }
+            );
+        }
+
+        return Ok(accepted);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        if self.fail_flush
+        {
+            self.fail_flush = false;
+
+            return Error(
+                std.io.IoError
+                {
+                    kind = std.io.IoErrorKind.Exhausted,
+                    platform_code = none,
+                    transferred = 0,
+                }
+            );
+        }
+
+        return Ok(unit);
+    }
+}
+
+impl CountingReaderIo = CountingReader(std.io.Reader)
+{
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let requested: usize = std.bytes.slice_length(&destination);
+        let available: usize = internal std.io.smaller(self.remaining, self.limit);
+        let transferred: usize = internal std.io.smaller(requested, available);
+
+        self.calls += 1;
+        self.remaining -= transferred;
+        self.last_request = requested;
+
+        return Ok(transferred);
+    }
+}
+
+@test
+func standard_output_is_captured()
+{
+    let message: string = "captured-standard-output";
+
+    std.io.print(message);
+
+    let retained: string = message;
 }
 
 @test
@@ -22,4 +213,170 @@ func standard_error_is_captured() -> Result<unit, std.io.IoError>
     assert(written == std.bytes.slice_length(bytes));
 
     return error(std.io.Writer).flush();
+}
+
+@test
+func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoError>
+{
+    let source: [u8; 5] = [1, 2, 3, 4, 5];
+    let mut writer: CountingWriter = CountingWriter(limit = 2);
+
+    try std.io.write_all<CountingWriter>(&mut writer, &source[..]);
+
+    assert(writer.calls == 3);
+    assert(writer.total == 5);
+
+    let mut failing: FailingWriter =
+    {
+        calls = 0,
+    };
+
+    match std.io.write_all<FailingWriter>(&mut failing, &source[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            assert(error.kind == std.io.IoErrorKind.Exhausted);
+            assert(error.transferred == 3);
+        }
+    }
+
+    let mut exact: CountingReader = CountingReader(remaining = 5, limit = 2);
+    let mut destination: [u8; 5] = [0; 5];
+
+    try std.io.read_exact<CountingReader>(&mut exact, &mut destination[..]);
+    assert(exact.calls == 3);
+
+    let mut short: CountingReader = CountingReader(remaining = 2, limit = 2);
+
+    match std.io.read_exact<CountingReader>(&mut short, &mut destination[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            assert(error.kind == std.io.IoErrorKind.BrokenStream);
+            assert(error.transferred == 2);
+        }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<unit, std.io.IoError>
+{
+    let sink: CountingWriter = CountingWriter(limit = 16);
+
+    let mut writer: std.io.BufferedWriter<CountingWriter> = try std.io.BufferedWriter<CountingWriter>(
+        sink,
+        capacity = 4
+    );
+
+    let pair: [u8; 2] = [1, 2];
+    let single: [u8; 1] = [3];
+
+    let _: usize = try writer(std.io.Writer).write(&pair[..]);
+    let _: usize = try writer(std.io.Writer).write(&pair[..]);
+    let _: usize = try writer(std.io.Writer).write(&single[..]);
+
+    let completed_sink: CountingWriter = try writer.into_sink();
+
+    assert(completed_sink.calls == 2);
+    assert(completed_sink.flushes == 1);
+    assert(completed_sink.total == 5);
+
+    let large_sink: CountingWriter = CountingWriter(limit = 16);
+
+    let mut large_writer: std.io.BufferedWriter<CountingWriter> = try std.io.BufferedWriter<CountingWriter>(
+        large_sink,
+        capacity = 4
+    );
+
+    let large: [u8; 8] = [7; 8];
+
+    let written: usize = try large_writer(std.io.Writer).write(&large[..]);
+    let completed_large_sink: CountingWriter = try large_writer.into_sink();
+
+    assert(written == 8);
+    assert(completed_large_sink.calls == 1);
+    assert(completed_large_sink.last_request == 8);
+    assert(completed_large_sink.flushes == 1);
+
+    let direct_source: CountingReader = CountingReader(remaining = 8, limit = 8);
+
+    let mut direct_reader: std.io.BufferedReader<CountingReader> = try std.io.BufferedReader<CountingReader>(
+        direct_source,
+        capacity = 4
+    );
+
+    let mut direct_destination: [u8; 8] = [0; 8];
+
+    let direct_read: usize = try direct_reader(std.io.Reader).read(&mut direct_destination[..]);
+    let completed_direct_source: CountingReader = direct_reader.into_source();
+
+    assert(direct_read == 8);
+    assert(completed_direct_source.calls == 1);
+    assert(completed_direct_source.last_request == 8);
+
+    let buffered_source: CountingReader = CountingReader(remaining = 4, limit = 4);
+
+    let mut buffered_reader: std.io.BufferedReader<CountingReader> = try std.io.BufferedReader<CountingReader>(
+        buffered_source,
+        capacity = 4
+    );
+
+    let mut buffered_destination: [u8; 2] = [0; 2];
+
+    let buffered_read: usize = try buffered_reader(std.io.Reader).read(&mut buffered_destination[..]);
+    let completed_buffered_source: CountingReader = buffered_reader.into_source();
+
+    assert(buffered_read == 2);
+    assert(completed_buffered_source.calls == 1);
+    assert(completed_buffered_source.last_request == 4);
+
+    let recovering_sink: RecoveringWriter =
+    {
+        bytes = [0; 8],
+        length = 0,
+        fail_drain = true,
+        fail_flush = true,
+    };
+
+    let mut recovering: std.io.BufferedWriter<RecoveringWriter> = try std.io.BufferedWriter<RecoveringWriter>(
+        recovering_sink,
+        capacity = 4
+    );
+
+    let full: [u8; 4] = [1, 2, 3, 4];
+    let trailing: [u8; 1] = [5];
+
+    let _: usize = try recovering(std.io.Writer).write(&full[..]);
+
+    match recovering(std.io.Writer).write(&trailing[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 0); }
+    }
+
+    let retried: usize = try recovering(std.io.Writer).write(&trailing[..]);
+    assert(retried == 1);
+
+    match recovering(std.io.Writer).flush()
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.transferred == 1); }
+    }
+
+    try recovering(std.io.Writer).flush();
+
+    let recovered: RecoveringWriter = try recovering.into_sink();
+
+    assert(recovered.length == 5);
+    assert(recovered.bytes[0] == 1);
+    assert(recovered.bytes[1] == 2);
+    assert(recovered.bytes[2] == 3);
+    assert(recovered.bytes[3] == 4);
+    assert(recovered.bytes[4] == 5);
+
+    return Ok(unit);
 }

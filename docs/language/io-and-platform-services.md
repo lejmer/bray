@@ -46,6 +46,33 @@ A read can produce fewer bytes than the supplied destination can hold. Reading z
 means that the stream has reached its end. A write can accept fewer bytes than supplied, and callers or buffering
 wrappers continue until the requested sequence is committed or a typed failure is returned.
 
+The public I/O surface has three levels. `print` and `print_line` are the ordinary text-output operations. They accept a
+copyable `string` value, so literals and existing string bindings need no explicit borrow. Their `IoError` result can be
+ignored for routine output or handled when the program cares about output failure. `write_all`, `write_all_async`,
+`read_exact`, and `read_exact_async` expose complete byte-transfer failures and exact progress. The `Reader`, `Writer`,
+`AsyncReader`, and `AsyncWriter` operations expose individual partial transfers for buffering, streaming, and resource
+adapters.
+
+```bray
+std.io.print_line("ready");
+
+try std.io.print_line(message);
+```
+
+`write_all` and `write_all_async` commit a complete borrowed byte slice. `read_exact` and `read_exact_async` initialize a
+complete borrowed destination. They retry partial transfers and return an `IoError` whose `transferred` value is the
+exact completed prefix when a transfer fails. Reaching the end of a stream before `read_exact` fills its destination is
+a `BrokenStream` failure with that same exact progress. A stream result that claims more bytes than the offered range is
+an invalid transfer failure.
+
+Buffered readers and writers use one owned fixed-capacity staging area. Small writes coalesce until the staging area
+must be drained or the caller explicitly flushes. Draining staged bytes does not flush the underlying resource. A write
+at least as large as the staging capacity bypasses an empty staging area and transfers directly from the caller's
+borrowed slice. A read into a destination at least as large as the staging capacity bypasses an empty staging area and
+transfers directly into the caller's borrowed slice. These rules apply equally to synchronous and asynchronous forms.
+Bulk staging transfers use the standard memory copy operations, while direct transfers add no intermediate allocation
+or full-payload copy.
+
 Flush is an explicit operation. Successful flush means that bytes buffered by the Bray wrapper have been handed to the
 underlying stream according to that stream's contract. It does not promise physical persistence unless the specific
 resource operation also provides that guarantee.

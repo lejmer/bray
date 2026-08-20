@@ -18,8 +18,14 @@
 #endif
 
 #if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3 || BRAY_WORKLOAD == 7 || BRAY_WORKLOAD == 8 \
-    || BRAY_WORKLOAD == 12
+    || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 15
 #include <vector>
+#endif
+
+#if BRAY_WORKLOAD == 16
+#include <cstdio>
+#include <iostream>
+#include <string>
 #endif
 
 #if BRAY_WORKLOAD == 7
@@ -657,6 +663,46 @@ bool workload()
     retain_work(last);
     return true;
 }
+#elif BRAY_WORKLOAD == 15
+bool workload()
+{
+    std::vector<std::uint8_t> output;
+    output.reserve(4096);
+
+    std::uint8_t bytes[4096] = {};
+    output.insert(output.end(), bytes, bytes + 4096);
+
+    return output.size() == 4096;
+}
+#elif BRAY_WORKLOAD == 16
+char const* executable_path = nullptr;
+
+bool workload()
+{
+    std::string command = "\"";
+    command += executable_path;
+    command += "\" pipe-child";
+
+#if defined(_WIN32)
+    std::FILE* child = ::_popen(command.c_str(), "wb");
+#else
+    std::FILE* child = ::popen(command.c_str(), "w");
+#endif
+
+    if (child == nullptr)
+        return false;
+
+    std::uint8_t bytes[4096] = {};
+    const std::size_t written = std::fwrite(bytes, 1, sizeof(bytes), child);
+
+#if defined(_WIN32)
+    const int status = ::_pclose(child);
+#else
+    const int status = ::pclose(child);
+#endif
+
+    return written == sizeof(bytes) && status == 0;
+}
 #else
 #error "unsupported performance peer workload"
 #endif
@@ -689,8 +735,20 @@ void write_duration(std::chrono::nanoseconds duration)
 
 }
 
-int main()
+int main(int argc, char** argv)
 {
+#if BRAY_WORKLOAD == 16
+    if (argc > 1)
+    {
+        std::uint8_t bytes[4096] = {};
+        std::cin.read(reinterpret_cast<char*>(bytes), sizeof(bytes));
+
+        return std::cin.gcount() == sizeof(bytes) ? 0 : 1;
+    }
+
+    executable_path = argv[0];
+#endif
+
 #if defined(BRAY_PEER_TIMING)
     const auto started = std::chrono::steady_clock::now();
 #endif
