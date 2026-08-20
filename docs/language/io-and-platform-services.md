@@ -46,6 +46,19 @@ A read can produce fewer bytes than the supplied destination can hold. Reading z
 means that the stream has reached its end. A write can accept fewer bytes than supplied, and callers or buffering
 wrappers continue until the requested sequence is committed or a typed failure is returned.
 
+The public I/O surface has three levels. `print` and `print_line` are the ordinary text-output operations. They accept a
+copyable `string` value, so literals and existing string bindings need no explicit borrow. Their `IoError` result can be
+ignored for routine output or handled when the program cares about output failure. `write_all`, `write_all_async`,
+`read_exact`, and `read_exact_async` expose complete byte-transfer failures and exact progress. The `Reader`, `Writer`,
+`AsyncReader`, and `AsyncWriter` operations expose individual partial transfers for buffering, streaming, and resource
+adapters.
+
+```bray
+std.io.print_line("ready");
+
+try std.io.print_line(message);
+```
+
 `write_all` and `write_all_async` commit a complete borrowed byte slice. `read_exact` and `read_exact_async` initialize a
 complete borrowed destination. They retry partial transfers and return an `IoError` whose `transferred` value is the
 exact completed prefix when a transfer fails. Reaching the end of a stream before `read_exact` fills its destination is

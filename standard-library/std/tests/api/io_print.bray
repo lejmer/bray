@@ -193,9 +193,13 @@ impl CountingReaderIo = CountingReader(std.io.Reader)
 }
 
 @test
-func standard_output_is_captured() -> Result<unit, std.io.IoError>
+func standard_output_is_captured()
 {
-    return std.io.print(&"captured-standard-output");
+    let message: string = "captured-standard-output";
+
+    std.io.print(message);
+
+    let retained: string = message;
 }
 
 @test

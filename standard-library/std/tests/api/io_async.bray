@@ -156,9 +156,13 @@ impl AsyncRecoveringWriterIo = AsyncRecoveringWriter(std.io.AsyncWriter)
 }
 
 @test
-async func asynchronous_standard_output_is_captured() -> Result<unit, std.io.IoError>
+async func asynchronous_standard_output_is_captured()
 {
-    return await std.io.print_async(&"captured-async-output");
+    let message: string = "captured-async-output";
+
+    await std.io.print_async(message);
+
+    let retained: string = message;
 }
 
 @test

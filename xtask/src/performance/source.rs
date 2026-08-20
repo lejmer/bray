@@ -8,7 +8,7 @@ func main() -> Result<unit, std.io.IoError>
 
     while index < 1024
     {
-        try std.io.print(&"x");
+        try std.io.print("x");
         index += 1;
     }
 
@@ -26,7 +26,7 @@ async func main() -> Result<unit, std.io.IoError>
 
     while index < 128
     {
-        try await std.io.print_async(&"x");
+        try await std.io.print_async("x");
         index += 1;
     }
 
@@ -44,7 +44,7 @@ async func write_output() -> Result<unit, std.io.IoError>
 
     while index < 64
     {
-        try await std.io.print_async(&"x");
+        try await std.io.print_async("x");
         index += 1;
     }
 

@@ -18,12 +18,13 @@ internal func flush_after_write<Sink>(pos sink: &mut Sink, written: usize) -> Re
     return checked_flush_result(result = result, written = written);
 }
 
-func print(pos text: &string) -> Result<unit, IoError>
+/// Writes text to standard output, flushes the stream, and reports exact accepted progress on failure.
+func print(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
     let mut output: UnlockedStandardOutput = unlocked_standard_output();
-    let bytes: &[u8] = std.string.utf8(text);
+    let bytes: &[u8] = std.string.utf8(&text);
     let length: usize = internal std.memory.slice_length<u8>(bytes);
 
     try write_all(&mut output, bytes);
@@ -31,12 +32,13 @@ func print(pos text: &string) -> Result<unit, IoError>
     return flush_after_write(&mut output, written = length);
 }
 
-func print_line(pos text: &string) -> Result<unit, IoError>
+/// Writes text and a line ending to standard output, then flushes the stream.
+func print_line(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
     let mut output: UnlockedStandardOutput = unlocked_standard_output();
-    let bytes: &[u8] = std.string.utf8(text);
+    let bytes: &[u8] = std.string.utf8(&text);
     let length: usize = internal std.memory.slice_length<u8>(bytes);
 
     try write_all(&mut output, bytes);
@@ -51,13 +53,15 @@ func print_line(pos text: &string) -> Result<unit, IoError>
     }
 }
 
-async func print_async(pos text: &string) -> Result<unit, IoError>
+/// Performs `print` through an asynchronous callable.
+async func print_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return print(text);
 }
 
-async func print_line_async(pos text: &string) -> Result<unit, IoError>
+/// Performs `print_line` through an asynchronous callable.
+async func print_line_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return print_line(text);
