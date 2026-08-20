@@ -14,7 +14,7 @@ struct RunOutcome {
 }
 
 unsafe extern "C" {
-    safe fn bray_runtime_synchronous_root_execution_v1(
+    safe fn bray_runtime_synchronous_root_execution(
         callback: extern "C" fn(usize),
         destination: usize,
     ) -> RunOutcome;
@@ -25,7 +25,7 @@ extern "C" fn root(destination: usize) {
 }
 
 fn main() {
-    let outcome = bray_runtime_synchronous_root_execution_v1(root, 17);
+    let outcome = bray_runtime_synchronous_root_execution(root, 17);
 
     assert!(outcome.state == RunState::COMPLETED);
     assert_eq!(outcome.payload, 17);

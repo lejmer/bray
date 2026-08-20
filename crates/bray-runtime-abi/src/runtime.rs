@@ -1,89 +1,89 @@
 // rust-style: allow(module-too-large, reason = "native ABI symbols and wire records form one flat contract catalog")
 
 /// Stable symbol executing one compiler-generated root frame.
-pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
+pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution";
 
 /// Stable symbol executing one synchronous root behind a panic boundary.
-pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution_v1";
+pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution";
 
 /// Stable symbol executing one foreign callback behind a runtime boundary.
-pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution_v1";
+pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution";
 
 /// Stable symbol reading the current exact Bray thread-attachment identity.
-pub const THREAD_ATTACHMENT_IDENTITY_SYMBOL: &str = "bray_runtime_thread_attachment_identity_v1";
+pub const THREAD_ATTACHMENT_IDENTITY_SYMBOL: &str = "bray_runtime_thread_attachment_identity";
 
 /// Stable symbol registering cleanup owned by the current exact thread attachment.
 pub const THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL: &str =
-    "bray_runtime_thread_static_cleanup_registration_v1";
+    "bray_runtime_thread_static_cleanup_registration";
 
 /// Stable symbol requesting cancellation of the host-owned root run.
-pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request_v1";
+pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request";
 
 /// Stable symbol observing the host-owned root terminal record.
-pub const ROOT_TERMINAL_OBSERVATION_SYMBOL: &str = "bray_runtime_root_terminal_observation_v1";
+pub const ROOT_TERMINAL_OBSERVATION_SYMBOL: &str = "bray_runtime_root_terminal_observation";
 
 /// Stable symbol releasing runtime-owned root completion storage.
-pub const ROOT_COMPLETION_RESOLUTION_SYMBOL: &str = "bray_runtime_root_completion_resolution_v1";
+pub const ROOT_COMPLETION_RESOLUTION_SYMBOL: &str = "bray_runtime_root_completion_resolution";
 
 /// Stable symbol reporting and resolving one root panic payload.
-pub const PANIC_REPORTING_SYMBOL: &str = "bray_runtime_panic_reporting_v1";
+pub const PANIC_REPORTING_SYMBOL: &str = "bray_runtime_panic_reporting";
 
 /// Stable symbol constructing one runtime-owned panic report.
-pub const PANIC_REPORT_CONSTRUCTION_SYMBOL: &str = "bray_runtime_panic_report_construction_v1";
+pub const PANIC_REPORT_CONSTRUCTION_SYMBOL: &str = "bray_runtime_panic_report_construction";
 
 /// Stable symbol propagating one owned panic report to a native run boundary.
-pub const PANIC_PROPAGATION_SYMBOL: &str = "bray_runtime_panic_propagation_v1";
+pub const PANIC_PROPAGATION_SYMBOL: &str = "bray_runtime_panic_propagation";
 
 /// Stable symbol reporting one recoverable entrypoint failure.
-pub const ENTRY_FAILURE_REPORTING_SYMBOL: &str = "bray_runtime_entry_failure_reporting_v1";
+pub const ENTRY_FAILURE_REPORTING_SYMBOL: &str = "bray_runtime_entry_failure_reporting";
 
 /// Stable symbol selecting the catalog entry admitted by the test runner.
-pub const TEST_ENTRY_SELECTION_SYMBOL: &str = "bray_runtime_test_entry_selection_v1";
+pub const TEST_ENTRY_SELECTION_SYMBOL: &str = "bray_runtime_test_entry_selection";
 
 /// Stable symbol draining and reporting host-owned cleanup incidents.
-pub const CLEANUP_INCIDENT_REPORTING_SYMBOL: &str = "bray_runtime_cleanup_incident_reporting_v1";
+pub const CLEANUP_INCIDENT_REPORTING_SYMBOL: &str = "bray_runtime_cleanup_incident_reporting";
 
 /// Stable symbol initializing the distinguished main-thread runtime lane.
-pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str = "bray_runtime_main_thread_lane_startup_v1";
+pub const MAIN_THREAD_LANE_STARTUP_SYMBOL: &str = "bray_runtime_main_thread_lane_startup";
 
 /// Stable symbol driving one callback on the distinguished main-thread runtime lane.
-pub const MAIN_THREAD_LANE_DRIVE_SYMBOL: &str = "bray_runtime_main_thread_lane_drive_v1";
+pub const MAIN_THREAD_LANE_DRIVE_SYMBOL: &str = "bray_runtime_main_thread_lane_drive";
 
 /// Stable symbol observing cancellation for the current run.
 pub const CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL: &str =
-    "bray_runtime_current_run_cancellation_observation_v1";
+    "bray_runtime_current_run_cancellation_observation";
 
 /// Stable symbol transferring cancellation to the current run boundary.
 pub const CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL: &str =
-    "bray_runtime_current_run_cancellation_propagation_v1";
+    "bray_runtime_current_run_cancellation_propagation";
 
 /// Stable symbol shutting down the initialized runtime infrastructure.
-pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown_v1";
+pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown";
 
 /// Stable symbol allocating runtime-owned task storage.
-pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation_v1";
+pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation";
 
 /// Stable symbol allocating manually managed Bray storage.
-pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
+pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation";
 
 /// Stable symbol releasing manually managed Bray storage.
-pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
+pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation";
 
 /// Stable symbol observing one successful generated memory allocation.
 pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str =
-    "bray_runtime_memory_allocation_observation_v1";
+    "bray_runtime_memory_allocation_observation";
 
 /// Stable symbol observing one completed generated memory transfer.
-pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation_v1";
+pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation";
 
 /// Stable symbol starting one generated memory-observation session.
-pub const MEMORY_OBSERVATION_BEGIN_SYMBOL: &str = "bray_runtime_memory_observation_begin_v1";
+pub const MEMORY_OBSERVATION_BEGIN_SYMBOL: &str = "bray_runtime_memory_observation_begin";
 
 /// Stable symbol starting the measured Bray-controlled execution interval.
-pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str = "bray_runtime_performance_interval_begin_v1";
+pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str = "bray_runtime_performance_interval_begin";
 
 /// Stable symbol ending and recording the Bray-controlled execution interval.
-pub const PERFORMANCE_INTERVAL_END_SYMBOL: &str = "bray_runtime_performance_interval_end_v1";
+pub const PERFORMANCE_INTERVAL_END_SYMBOL: &str = "bray_runtime_performance_interval_end";
 
 /// Per-process file selected for opt-in performance observations.
 pub const PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
@@ -288,82 +288,82 @@ pub const PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL: &str = "bray_platform_dynamic_
 pub const PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL: &str = "bray_platform_dynamic_library_close";
 
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
-pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
+pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count";
 
 /// Stable symbol comparing UTF-8 text values for equality.
-pub const STRING_EQUALS_SYMBOL: &str = "bray_runtime_string_equals_v1";
+pub const STRING_EQUALS_SYMBOL: &str = "bray_runtime_string_equals";
 
 /// Stable symbol selecting one Unicode scalar by scalar index.
-pub const STRING_SCALAR_AT_SYMBOL: &str = "bray_runtime_string_scalar_at_v1";
+pub const STRING_SCALAR_AT_SYMBOL: &str = "bray_runtime_string_scalar_at";
 
 /// Stable symbol copying one scalar range into owned UTF-8 text.
-pub const STRING_SCALAR_SLICE_SYMBOL: &str = "bray_runtime_string_scalar_slice_v1";
+pub const STRING_SCALAR_SLICE_SYMBOL: &str = "bray_runtime_string_scalar_slice";
 
 /// Stable symbol validating and copying borrowed UTF-8 bytes.
-pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8_v1";
+pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8";
 
 /// Stable symbol returning a character's Unicode scalar value.
-pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value_v1";
+pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value";
 
 /// Stable symbol constructing a character from a Unicode scalar value.
-pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_from_scalar_value_v1";
+pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_from_scalar_value";
 
 /// Stable symbol returning a character's UTF-8 encoded length.
-pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length_v1";
+pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length";
 
 /// Stable symbol returning one byte from a character's UTF-8 encoding.
-pub const CHARACTER_UTF8_BYTE_SYMBOL: &str = "bray_runtime_character_utf8_byte_v1";
+pub const CHARACTER_UTF8_BYTE_SYMBOL: &str = "bray_runtime_character_utf8_byte";
 
 /// Stable symbol testing whether a character is alphabetic.
-pub const CHARACTER_IS_ALPHABETIC_SYMBOL: &str = "bray_runtime_character_is_alphabetic_v1";
+pub const CHARACTER_IS_ALPHABETIC_SYMBOL: &str = "bray_runtime_character_is_alphabetic";
 
 /// Stable symbol testing whether a character is numeric.
-pub const CHARACTER_IS_NUMERIC_SYMBOL: &str = "bray_runtime_character_is_numeric_v1";
+pub const CHARACTER_IS_NUMERIC_SYMBOL: &str = "bray_runtime_character_is_numeric";
 
 /// Stable symbol testing whether a character is whitespace.
-pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whitespace_v1";
+pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whitespace";
 
 /// Unicode data version required by the character-classification runtime ABI.
 pub const CHARACTER_UNICODE_DATA_VERSION: (u8, u8, u8) = (17, 0, 0);
 
 /// Stable symbol publishing an allocated task for execution.
-pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start_v1";
+pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start";
 
 /// Stable symbol transferring one inactive frame into the current task.
-pub const AWAITED_FRAME_COMPOSITION_SYMBOL: &str = "bray_runtime_awaited_frame_composition_v1";
+pub const AWAITED_FRAME_COMPOSITION_SYMBOL: &str = "bray_runtime_awaited_frame_composition";
 
 /// Stable symbol acquiring one completed directly awaited value.
-pub const FRAME_COMPLETION_MOVE_SYMBOL: &str = "bray_runtime_frame_completion_move_v1";
+pub const FRAME_COMPLETION_MOVE_SYMBOL: &str = "bray_runtime_frame_completion_move";
 
 /// Stable symbol constructing a suspended frame result.
-pub const SUSPENSION_REGISTRATION_SYMBOL: &str = "bray_runtime_suspension_registration_v1";
+pub const SUSPENSION_REGISTRATION_SYMBOL: &str = "bray_runtime_suspension_registration";
 
 /// Stable symbol waking one suspended task state.
-pub const WAKE_SYMBOL: &str = "bray_runtime_wake_v1";
+pub const WAKE_SYMBOL: &str = "bray_runtime_wake";
 
 /// Stable symbol requesting cancellation of one task.
-pub const TASK_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_task_cancellation_request_v1";
+pub const TASK_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_task_cancellation_request";
 
 /// Stable symbol registering an observer for one task terminal state.
-pub const JOIN_REGISTRATION_SYMBOL: &str = "bray_runtime_join_registration_v1";
+pub const JOIN_REGISTRATION_SYMBOL: &str = "bray_runtime_join_registration";
 
 /// Stable symbol creating one lazy task-observation frame.
-pub const TASK_OBSERVATION_CREATION_SYMBOL: &str = "bray_runtime_task_observation_creation_v1";
+pub const TASK_OBSERVATION_CREATION_SYMBOL: &str = "bray_runtime_task_observation_creation";
 
 /// Stable symbol resolving one task to a terminal run outcome.
-pub const TASK_RESOLUTION_SYMBOL: &str = "bray_runtime_task_resolution_v1";
+pub const TASK_RESOLUTION_SYMBOL: &str = "bray_runtime_task_resolution";
 
 /// Stable symbol consuming one resolved terminal task record.
-pub const TASK_DESTRUCTION_SYMBOL: &str = "bray_runtime_task_destruction_v1";
+pub const TASK_DESTRUCTION_SYMBOL: &str = "bray_runtime_task_destruction";
 
 /// Stable symbol constructing a terminal frame result.
-pub const TERMINAL_PUBLICATION_SYMBOL: &str = "bray_runtime_terminal_publication_v1";
+pub const TERMINAL_PUBLICATION_SYMBOL: &str = "bray_runtime_terminal_publication";
 
 /// Stable symbol entering one runtime callback root.
-pub const RUNTIME_EVENT_SYMBOL: &str = "bray_runtime_event_v1";
+pub const RUNTIME_EVENT_SYMBOL: &str = "bray_runtime_event";
 
 /// Stable symbol selecting the lane for one task state.
-pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str = "bray_runtime_compatible_lane_selection_v1";
+pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str = "bray_runtime_compatible_lane_selection";
 
 /// Status returned by native runtime operations.
 #[repr(transparent)]

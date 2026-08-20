@@ -122,7 +122,7 @@
     },
     {
       "name": "source run cancellation in MIR",
-      "production": "bray_runtime_root_cancellation_request_v1",
+      "production": "bray_runtime_root_cancellation_request",
       "test": "host_cancellation_wakes_a_suspended_root_into_cancellation_entry"
     }
   ]

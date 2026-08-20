@@ -12,13 +12,13 @@ const _: () = assert!(
 struct NativeCharacterInvariantFailure;
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_scalar_value_v1(value: u32) -> u32 {
+    pub extern "C" fn bray_runtime_character_scalar_value(value: u32) -> u32 {
         value
     }
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_from_scalar_value_v1(
+    pub extern "C" fn bray_runtime_character_from_scalar_value(
         value: u32,
         scalar: *mut u32,
     ) -> u8 {
@@ -39,13 +39,13 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_utf8_length_v1(value: u32) -> usize {
+    pub extern "C" fn bray_runtime_character_utf8_length(value: u32) -> usize {
         native_character(value).len_utf8()
     }
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_utf8_byte_v1(value: u32, index: usize) -> u8 {
+    pub extern "C" fn bray_runtime_character_utf8_byte(value: u32, index: usize) -> u8 {
         let mut bytes = [0; 4];
         let encoded = native_character(value).encode_utf8(&mut bytes);
 
@@ -54,19 +54,19 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_is_alphabetic_v1(value: u32) -> u8 {
+    pub extern "C" fn bray_runtime_character_is_alphabetic(value: u32) -> u8 {
         u8::from(native_character(value).is_alphabetic())
     }
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_is_numeric_v1(value: u32) -> u8 {
+    pub extern "C" fn bray_runtime_character_is_numeric(value: u32) -> u8 {
         u8::from(native_character(value).is_numeric())
     }
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_character_is_whitespace_v1(value: u32) -> u8 {
+    pub extern "C" fn bray_runtime_character_is_whitespace(value: u32) -> u8 {
         u8::from(native_character(value).is_whitespace())
     }
 }
@@ -80,10 +80,10 @@ mod tests {
     use bray_runtime_abi::CHARACTER_UNICODE_DATA_VERSION;
 
     use super::{
-        bray_runtime_character_from_scalar_value_v1, bray_runtime_character_is_alphabetic_v1,
-        bray_runtime_character_is_numeric_v1, bray_runtime_character_is_whitespace_v1,
-        bray_runtime_character_scalar_value_v1, bray_runtime_character_utf8_byte_v1,
-        bray_runtime_character_utf8_length_v1,
+        bray_runtime_character_from_scalar_value, bray_runtime_character_is_alphabetic,
+        bray_runtime_character_is_numeric, bray_runtime_character_is_whitespace,
+        bray_runtime_character_scalar_value, bray_runtime_character_utf8_byte,
+        bray_runtime_character_utf8_length,
     };
 
     #[test]
@@ -92,31 +92,31 @@ mod tests {
 
         let character = u32::from('٣');
 
-        assert_eq!(bray_runtime_character_scalar_value_v1(character), character);
-        assert_eq!(bray_runtime_character_utf8_length_v1(character), 2);
-        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 0), 0xd9);
-        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 1), 0xa3);
-        assert_eq!(bray_runtime_character_utf8_byte_v1(character, 2), 0);
-        assert_eq!(bray_runtime_character_is_alphabetic_v1(character), 0);
-        assert_eq!(bray_runtime_character_is_numeric_v1(character), 1);
-        assert_eq!(bray_runtime_character_is_whitespace_v1(character), 0);
+        assert_eq!(bray_runtime_character_scalar_value(character), character);
+        assert_eq!(bray_runtime_character_utf8_length(character), 2);
+        assert_eq!(bray_runtime_character_utf8_byte(character, 0), 0xd9);
+        assert_eq!(bray_runtime_character_utf8_byte(character, 1), 0xa3);
+        assert_eq!(bray_runtime_character_utf8_byte(character, 2), 0);
+        assert_eq!(bray_runtime_character_is_alphabetic(character), 0);
+        assert_eq!(bray_runtime_character_is_numeric(character), 1);
+        assert_eq!(bray_runtime_character_is_whitespace(character), 0);
 
         assert_eq!(
-            bray_runtime_character_is_whitespace_v1(u32::from('\u{2003}')),
+            bray_runtime_character_is_whitespace(u32::from('\u{2003}')),
             1
         );
 
         let mut scalar = 0;
 
         assert_eq!(
-            bray_runtime_character_from_scalar_value_v1(character, &raw mut scalar),
+            bray_runtime_character_from_scalar_value(character, &raw mut scalar),
             1
         );
 
         assert_eq!(scalar, character);
 
         assert_eq!(
-            bray_runtime_character_from_scalar_value_v1(0x11_0000, &raw mut scalar),
+            bray_runtime_character_from_scalar_value(0x11_0000, &raw mut scalar),
             0
         );
     }

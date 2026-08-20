@@ -20,25 +20,25 @@ struct ObservationState {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_memory_observation_begin_v1() {
+    pub extern "C-unwind" fn bray_runtime_memory_observation_begin() {
         drop(state());
     }
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_memory_allocation_observation_v1(bytes: usize) {
+    pub extern "C-unwind" fn bray_runtime_memory_allocation_observation(bytes: usize) {
         record(ALLOCATION_RECORD, as_u64(bytes));
     }
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_memory_copy_observation_v1(bytes: usize) {
+    pub extern "C-unwind" fn bray_runtime_memory_copy_observation(bytes: usize) {
         record(COPY_RECORD, as_u64(bytes));
     }
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_performance_interval_begin_v1() {
+    pub extern "C-unwind" fn bray_runtime_performance_interval_begin() {
         let mut state = state();
 
         if state.interval_started.replace(Instant::now()).is_some() {
@@ -48,7 +48,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_performance_interval_end_v1() {
+    pub extern "C-unwind" fn bray_runtime_performance_interval_end() {
         let ended = Instant::now();
         let mut state = state();
         let started = state

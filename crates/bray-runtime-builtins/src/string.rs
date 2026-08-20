@@ -8,7 +8,7 @@ use crate::allocation::NativeMemoryAllocationFailure;
 struct NativeStringSliceBoundsFailure;
 
 native_export! {
-    pub extern "C" fn bray_runtime_string_scalar_count_v1(
+    pub extern "C" fn bray_runtime_string_scalar_count(
         data: *const u8,
         length: usize,
     ) -> usize {
@@ -17,7 +17,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_string_equals_v1(
+    pub extern "C" fn bray_runtime_string_equals(
         left_data: *const u8,
         left_length: usize,
         right_data: *const u8,
@@ -31,7 +31,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_string_scalar_at_v1(
+    pub extern "C" fn bray_runtime_string_scalar_at(
         data: *const u8,
         length: usize,
         index: usize,
@@ -54,7 +54,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_string_scalar_slice_v1(
+    pub extern "C-unwind" fn bray_runtime_string_scalar_slice(
         data: *const u8,
         length: usize,
         start: usize,
@@ -85,7 +85,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_string_from_utf8_v1(
+    pub extern "C-unwind" fn bray_runtime_string_from_utf8(
         data: *const u8,
         length: usize,
         result_data: *mut *const u8,
@@ -173,9 +173,9 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use super::{
-        bray_runtime_string_equals_v1, bray_runtime_string_from_utf8_v1,
-        bray_runtime_string_scalar_at_v1, bray_runtime_string_scalar_count_v1,
-        bray_runtime_string_scalar_slice_v1,
+        bray_runtime_string_equals, bray_runtime_string_from_utf8,
+        bray_runtime_string_scalar_at, bray_runtime_string_scalar_count,
+        bray_runtime_string_scalar_slice,
     };
 
     #[test]
@@ -183,31 +183,31 @@ mod tests {
         let text = "Aé🙂";
 
         assert_eq!(
-            bray_runtime_string_scalar_count_v1(text.as_ptr(), text.len()),
+            bray_runtime_string_scalar_count(text.as_ptr(), text.len()),
             3
         );
 
         assert_eq!(
-            bray_runtime_string_equals_v1(text.as_ptr(), text.len(), "Aé🙂".as_ptr(), "Aé🙂".len()),
+            bray_runtime_string_equals(text.as_ptr(), text.len(), "Aé🙂".as_ptr(), "Aé🙂".len()),
             1
         );
 
         assert_eq!(
-            bray_runtime_string_equals_v1(text.as_ptr(), text.len(), b"other".as_ptr(), 5),
+            bray_runtime_string_equals(text.as_ptr(), text.len(), b"other".as_ptr(), 5),
             0
         );
 
         let mut scalar = 0;
 
         assert_eq!(
-            bray_runtime_string_scalar_at_v1(text.as_ptr(), text.len(), 1, &raw mut scalar),
+            bray_runtime_string_scalar_at(text.as_ptr(), text.len(), 1, &raw mut scalar),
             1
         );
 
         assert_eq!(scalar, u32::from('é'));
 
         assert_eq!(
-            bray_runtime_string_scalar_at_v1(text.as_ptr(), text.len(), 3, &raw mut scalar),
+            bray_runtime_string_scalar_at(text.as_ptr(), text.len(), 3, &raw mut scalar),
             0
         );
     }
@@ -219,7 +219,7 @@ mod tests {
         let mut length = 0;
         let mut owner = ptr::null_mut();
 
-        bray_runtime_string_scalar_slice_v1(
+        bray_runtime_string_scalar_slice(
             text.as_ptr(),
             text.len(),
             1,
@@ -245,7 +245,7 @@ mod tests {
                 let mut length = 0;
                 let mut owner = ptr::null_mut();
 
-                bray_runtime_string_scalar_slice_v1(
+                bray_runtime_string_scalar_slice(
                     text.as_ptr(),
                     text.len(),
                     3,
@@ -267,7 +267,7 @@ mod tests {
         let mut owner = ptr::null_mut();
 
         assert_eq!(
-            bray_runtime_string_from_utf8_v1(
+            bray_runtime_string_from_utf8(
                 valid.as_ptr(),
                 valid.len(),
                 &raw mut data,
@@ -293,7 +293,7 @@ mod tests {
         let mut owner = ptr::null_mut();
 
         assert_eq!(
-            bray_runtime_string_from_utf8_v1(
+            bray_runtime_string_from_utf8(
                 invalid.as_ptr(),
                 invalid.len(),
                 &raw mut data,
