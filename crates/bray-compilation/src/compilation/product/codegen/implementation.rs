@@ -1932,10 +1932,26 @@ mod tests {
 
     #[test]
     fn independently_started_tasks_emit_native_units() {
-        let (backend, compilation) = codegen_compilation_for_product(
-            include_str!("../../../../../../xtask/fixtures/native-execution/async_tasks.bray"),
-            ProductKind::Executable,
+        let source = concat!(
+            "module async_tasks;\n",
+            "\n",
+            "async func complete()\n",
+            "{\n",
+            "    return unit;\n",
+            "}\n",
+            "\n",
+            "async func main()\n",
+            "{\n",
+            "    let first: Task<unit> = complete().start();\n",
+            "    let second: Task<unit> = complete().start();\n",
+            "\n",
+            "    try await first.join();\n",
+            "    try await second.join();\n",
+            "}\n",
         );
+
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Executable);
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
