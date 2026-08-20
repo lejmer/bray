@@ -199,8 +199,8 @@ mod tests {
     use bray_platform::RuntimeThreadScope;
     #[cfg(feature = "test-output")]
     use bray_platform::{
-        CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context,
-        write_current_run_output,
+        CapturedRunStream, RunOutputContext, RunOutputStream,
+        begin_current_run_output_operation, with_run_output_context,
     };
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
@@ -326,10 +326,11 @@ mod tests {
         );
 
         with_task_execution_context(context, || {
-            assert_eq!(
-                write_current_run_output(RunOutputStream::StandardOutput, b"child output"),
-                Some(12)
-            );
+            let operation = begin_current_run_output_operation(RunOutputStream::StandardOutput)
+                .unwrap_or_else(|error| panic!("child operation must begin: {error:?}"))
+                .unwrap_or_else(|| panic!("child output must be redirected"));
+
+            assert_eq!(operation.write(b"child output"), 12);
         });
 
         assert_eq!(

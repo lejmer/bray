@@ -23,6 +23,10 @@ pub enum PlatformServiceRole {
     ContextEnvironmentKeyEquals,
     /// Reads bytes from standard input.
     StandardInputRead,
+    /// Acquires product-wide standard-input serialization.
+    StandardInputLock,
+    /// Releases product-wide standard-input serialization.
+    StandardInputUnlock,
     /// Writes bytes to standard output.
     StandardOutputWrite,
     /// Flushes standard output.
@@ -140,6 +144,8 @@ impl PlatformServiceRole {
             Self::ContextEnvironmentEntry => 0x0007,
             Self::ContextEnvironmentKeyEquals => 0x0008,
             Self::StandardInputRead => 0x0101,
+            Self::StandardInputLock => 0x0102,
+            Self::StandardInputUnlock => 0x0103,
             Self::StandardOutputWrite => 0x0111,
             Self::StandardOutputFlush => 0x0112,
             Self::StandardOutputLock => 0x0113,
@@ -206,6 +212,8 @@ impl PlatformServiceRole {
             Self::ContextEnvironmentEntry => "platform.context.environment_entry",
             Self::ContextEnvironmentKeyEquals => "platform.context.environment_key_equals",
             Self::StandardInputRead => "platform.standard_input.read",
+            Self::StandardInputLock => "platform.standard_input.lock",
+            Self::StandardInputUnlock => "platform.standard_input.unlock",
             Self::StandardOutputWrite => "platform.standard_output.write",
             Self::StandardOutputFlush => "platform.standard_output.flush",
             Self::StandardOutputLock => "platform.standard_output.lock",
@@ -272,6 +280,8 @@ impl PlatformServiceRole {
             "platform.context.environment_entry" => Some(Self::ContextEnvironmentEntry),
             "platform.context.environment_key_equals" => Some(Self::ContextEnvironmentKeyEquals),
             "platform.standard_input.read" => Some(Self::StandardInputRead),
+            "platform.standard_input.lock" => Some(Self::StandardInputLock),
+            "platform.standard_input.unlock" => Some(Self::StandardInputUnlock),
             "platform.standard_output.write" => Some(Self::StandardOutputWrite),
             "platform.standard_output.flush" => Some(Self::StandardOutputFlush),
             "platform.standard_output.lock" => Some(Self::StandardOutputLock),
@@ -447,7 +457,9 @@ impl PlatformServiceRole {
             Self::StandardInputRead | Self::StandardOutputWrite | Self::StandardErrorWrite => {
                 STANDARD_STREAM_TRANSFER
             }
-            Self::StandardOutputFlush
+            Self::StandardInputLock
+            | Self::StandardInputUnlock
+            | Self::StandardOutputFlush
             | Self::StandardOutputLock
             | Self::StandardOutputUnlock
             | Self::StandardErrorFlush
@@ -633,6 +645,7 @@ mod tests {
     #[test]
     fn platform_roles_have_stable_names_ids_and_shapes() {
         let role = PlatformServiceRole::StandardOutputWrite;
+        let input_lock = PlatformServiceRole::StandardInputLock;
 
         assert_eq!(role.id(), 0x0111);
         assert_eq!(role.as_str(), "platform.standard_output.write");
@@ -648,6 +661,17 @@ mod tests {
         );
 
         assert_eq!(role.signature().result(), PlatformAbiType::Status);
+
+        assert_eq!(input_lock.id(), 0x0102);
+        assert_eq!(input_lock.as_str(), "platform.standard_input.lock");
+
+        assert_eq!(
+            PlatformServiceRole::from_name(input_lock.as_str()),
+            Some(input_lock)
+        );
+
+        assert!(input_lock.signature().parameters().is_empty());
+        assert_eq!(input_lock.signature().result(), PlatformAbiType::Status);
     }
 
     #[test]

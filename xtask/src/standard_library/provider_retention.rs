@@ -37,7 +37,7 @@ pub(super) fn audit(
 
     fs::create_dir(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let print_map = link_fixture(
+    let print = link_fixture(
         root,
         &output,
         &standard_stream_include,
@@ -47,13 +47,31 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &print_map,
+        &print.map,
         &[STANDARD_OUTPUT_MEMBER],
         &[STANDARD_INPUT_MEMBER, STANDARD_ERROR_MEMBER],
         "print-only",
     )?;
 
-    let civil_map = link_fixture(
+    require_atomic_standard_output(&print.standard_output)?;
+
+    let input = link_fixture(
+        root,
+        &output,
+        &standard_stream_include,
+        &standard_stream,
+        target,
+        "provider-retention-input",
+    )?;
+
+    require_members(
+        &input.map,
+        &[STANDARD_INPUT_MEMBER],
+        &[STANDARD_OUTPUT_MEMBER, STANDARD_ERROR_MEMBER],
+        "input-only",
+    )?;
+
+    let civil = link_fixture(
         root,
         &output,
         &temporal_include,
@@ -63,13 +81,13 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &civil_map,
+        &civil.map,
         &[CIVIL_MEMBER],
         &[TEXT_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER],
         "civil-date",
     )?;
 
-    let text_map = link_fixture(
+    let text = link_fixture(
         root,
         &output,
         &temporal_include,
@@ -79,13 +97,13 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &text_map,
+        &text.map,
         &[TEXT_MEMBER],
         &[CIVIL_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER],
         "parse-format",
     )?;
 
-    let timezone_map = link_fixture(
+    let timezone = link_fixture(
         root,
         &output,
         &temporal_include,
@@ -95,7 +113,7 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &timezone_map,
+        &timezone.map,
         &[TIMEZONE_MEMBER, DATABASE_MEMBER],
         &[CIVIL_MEMBER, TEXT_MEMBER],
         "named-timezone",
@@ -105,6 +123,11 @@ pub(super) fn audit(
 struct ProviderArchive {
     path: PathBuf,
     native_links: Vec<NativeLinkRequirement>,
+}
+
+struct ProviderFixtureOutput {
+    map: String,
+    standard_output: Vec<u8>,
 }
 
 fn platform_archive(
@@ -162,7 +185,7 @@ fn link_fixture(
     provider: &ProviderArchive,
     target: NativeTarget,
     name: &str,
-) -> Result<String, BuildError> {
+) -> Result<ProviderFixtureOutput, BuildError> {
     let source = root.join("xtask/fixtures").join(format!("{name}.cpp"));
     let executable = output.join(crate::native_toolchain::executable_name(name));
     let map = output.join(format!("{name}.map"));
@@ -186,6 +209,10 @@ fn link_fixture(
         .arg("-o")
         .arg(&executable);
 
+    if target.object_format() != ObjectFormat::Coff {
+        command.arg("-pthread");
+    }
+
     append_native_links(&mut command, target.object_format(), &provider.native_links)?;
     configure_link_map(&mut command, target.object_format(), &map)?;
 
@@ -196,10 +223,32 @@ fn link_fixture(
 
     execution.current_dir(output);
 
-    crate::command::require_success(execution, "executing native provider retention fixture")
+    let execution = crate::command::require_success(
+        execution,
+        "executing native provider retention fixture",
+    )
         .map_err(|error| BuildError::conformance("native provider retention", error))?;
 
-    fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))
+    let map = fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))?;
+
+    Ok(ProviderFixtureOutput {
+        map,
+        standard_output: execution.stdout,
+    })
+}
+
+fn require_atomic_standard_output(output: &[u8]) -> Result<(), BuildError> {
+    let first = [vec![b'a'; 64], vec![b'b'; 64]].concat();
+    let second = [vec![b'b'; 64], vec![b'a'; 64]].concat();
+
+    if output == first || output == second {
+        return Ok(());
+    }
+
+    Err(BuildError::conformance(
+        "native provider retention",
+        "concurrent standard-output operations interleaved",
+    ))
 }
 
 fn append_native_links(

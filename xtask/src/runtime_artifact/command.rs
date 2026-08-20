@@ -734,6 +734,8 @@ impl RuntimeArchiveKind {
         match self {
             Self::TestHost => &[
                 PlatformServiceRole::StandardInputRead,
+                PlatformServiceRole::StandardInputLock,
+                PlatformServiceRole::StandardInputUnlock,
                 PlatformServiceRole::StandardOutputWrite,
                 PlatformServiceRole::StandardOutputFlush,
                 PlatformServiceRole::StandardOutputLock,
@@ -1050,6 +1052,8 @@ mod tests {
                 test_host.platform_services(),
                 &[
                     PlatformServiceRole::StandardInputRead,
+                    PlatformServiceRole::StandardInputLock,
+                    PlatformServiceRole::StandardInputUnlock,
                     PlatformServiceRole::StandardOutputWrite,
                     PlatformServiceRole::StandardOutputFlush,
                     PlatformServiceRole::StandardOutputLock,

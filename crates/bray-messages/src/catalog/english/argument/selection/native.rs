@@ -128,6 +128,8 @@ fn format_english_platform_service_role(
         0x0007 => "startup environment entry service",
         0x0008 => "environment key comparison service",
         0x0101 => "standard input read operation",
+        0x0102 => "standard input lock operation",
+        0x0103 => "standard input unlock operation",
         0x0111 => "standard output write operation",
         0x0112 => "standard output flush operation",
         0x0113 => "standard output lock operation",

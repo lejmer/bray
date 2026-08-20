@@ -172,9 +172,10 @@ successful cleanup.
 
 ## Capture
 
-Every invocation receives distinct stdout and stderr capture sinks. Child tasks and standard-library thread or process
-helpers that inherit the test root context inherit those sinks. Concurrent tests can therefore write without cross-test
-leakage.
+Every invocation receives distinct stdout and stderr capture sinks. A captured standard-stream operation uses the same
+single guard boundary as inherited output, while the capture sink owns its storage synchronization independently.
+Child tasks and standard-library thread or process helpers that inherit the test root context inherit those sinks.
+Concurrent tests can therefore write without cross-test leakage.
 
 Capture is bounded per stream and per invocation. Exceeding a bound preserves the retained prefix, records the number of
 discarded bytes when known, and marks the stream as truncated. Capture limits do not change the test outcome.

@@ -126,6 +126,12 @@ pub const PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL: &str =
 /// Stable symbol reading from standard input.
 pub const PLATFORM_STANDARD_INPUT_READ_SYMBOL: &str = "bray_platform_standard_input_read";
 
+/// Stable symbol acquiring standard-input serialization.
+pub const PLATFORM_STANDARD_INPUT_LOCK_SYMBOL: &str = "bray_platform_standard_input_lock";
+
+/// Stable symbol releasing standard-input serialization.
+pub const PLATFORM_STANDARD_INPUT_UNLOCK_SYMBOL: &str = "bray_platform_standard_input_unlock";
+
 /// Stable symbol writing to standard output.
 pub const PLATFORM_STANDARD_OUTPUT_WRITE_SYMBOL: &str = "bray_platform_standard_output_write";
 
