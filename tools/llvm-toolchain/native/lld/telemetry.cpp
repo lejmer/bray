@@ -104,9 +104,9 @@ std::optional<std::uint32_t> read_u32(llvm::StringRef bytes, std::size_t& offset
     std::uint32_t value = 0;
 
     for (unsigned shift = 0; shift < 32; shift += 8)
-        value |= static_cast<std::uint32_t>(
-            static_cast<unsigned char>(bytes[offset++])
-        ) << shift;
+    {
+        value |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset++])) << shift;
+    }
 
     return value;
 }
@@ -119,9 +119,9 @@ std::optional<std::uint64_t> read_u64(llvm::StringRef bytes, std::size_t& offset
     std::uint64_t value = 0;
 
     for (unsigned shift = 0; shift < 64; shift += 8)
-        value |= static_cast<std::uint64_t>(
-            static_cast<unsigned char>(bytes[offset++])
-        ) << shift;
+    {
+        value |= static_cast<std::uint64_t>(static_cast<unsigned char>(bytes[offset++])) << shift;
+    }
 
     return value;
 }
@@ -136,6 +136,7 @@ llvm::SmallVector<char, 64> encode_cache_state(const CachedState& state)
     append_u64(bytes, state.eliminated_functions);
     append_u64(bytes, state.eliminated_data);
     append_u64(bytes, state.eliminated_bytes);
+
     bytes.append(toolchain_identity.begin(), toolchain_identity.end());
     bytes.append(cache_magic.begin(), cache_magic.end());
 
@@ -147,9 +148,10 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
 )
 {
     constexpr std::size_t payload_size = sizeof(std::uint32_t) + 5 * sizeof(std::uint64_t);
-    constexpr std::size_t trailer_size = payload_size
-        + toolchain_identity.size()
-        + cache_magic.size();
+    constexpr std::size_t trailer_size =
+        payload_size +
+        toolchain_identity.size() +
+        cache_magic.size();
 
     if (bytes.size() < trailer_size)
         return std::nullopt;
@@ -159,11 +161,11 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
     if (trailer.take_back(cache_magic.size()) != cache_magic)
         return std::nullopt;
 
-    if (trailer.slice(payload_size, payload_size + toolchain_identity.size())
-        != toolchain_identity)
+    if (trailer.slice(payload_size, payload_size + toolchain_identity.size()) != toolchain_identity)
         return std::nullopt;
 
     std::size_t offset = 0;
+
     const std::optional<std::uint32_t> found_format = read_u32(trailer, offset);
     const std::optional<std::uint64_t> imported_functions = read_u64(trailer, offset);
     const std::optional<std::uint64_t> imported_data = read_u64(trailer, offset);
@@ -171,8 +173,14 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
     const std::optional<std::uint64_t> eliminated_data = read_u64(trailer, offset);
     const std::optional<std::uint64_t> eliminated_bytes = read_u64(trailer, offset);
 
-    if (found_format != format || !imported_functions || !imported_data
-        || !eliminated_functions || !eliminated_data || !eliminated_bytes)
+    if (
+        found_format != format ||
+        !imported_functions ||
+        !imported_data ||
+        !eliminated_functions ||
+        !eliminated_data ||
+        !eliminated_bytes
+    )
         return std::nullopt;
 
     return std::pair{
@@ -198,7 +206,8 @@ llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> definitions(
         if (value.isDeclaration())
             continue;
 
-        const DefinitionKind kind = value.getValueType()->isFunctionTy()
+        const DefinitionKind kind =
+            value.getValueType()->isFunctionTy()
             ? DefinitionKind::Function
             : DefinitionKind::Data;
 
@@ -376,6 +385,7 @@ public:
         std::lock_guard lock(mutex);
 
         ++totals.cache_hits;
+
         totals.imported_functions += state.imported_functions;
         totals.imported_data += state.imported_data;
         totals.eliminated_functions += state.eliminated_functions;
@@ -402,10 +412,10 @@ public:
         const std::uint64_t active = active_workers.fetch_add(1) + 1;
         std::uint64_t observed = peak_workers.load();
 
-        while (observed < active
-            && !peak_workers.compare_exchange_weak(observed, active))
-        {
-        }
+        while (
+            observed < active &&
+            !peak_workers.compare_exchange_weak(observed, active)
+        ) {}
     }
 
     void release_worker()
@@ -471,10 +481,7 @@ public:
     }
 
 private:
-    Telemetry()
-        : report_path(llvm::sys::Process::GetEnv(report_environment))
-    {
-    }
+    Telemetry() : report_path(llvm::sys::Process::GetEnv(report_environment)) {}
 
     void add_to_totals(const ModuleState& state)
     {
@@ -511,8 +518,7 @@ public:
           module_name(std::move(module_name)),
           task(task),
           telemetry(telemetry)
-    {
-    }
+    {}
 
     llvm::Error commit() override
     {
@@ -535,6 +541,7 @@ public:
         const llvm::StringRef object_bytes = (*object)->getBuffer();
         const CachedState state = telemetry.cached_state(task);
         const llvm::SmallVector<char, 64> trailer = encode_cache_state(state);
+
         llvm::raw_fd_ostream append(
             temporary.FD,
             false,
@@ -554,9 +561,10 @@ public:
         if (llvm::Error error = temporary.keep(ObjectPathName))
         {
             const std::error_code code = llvm::errorToErrorCode(std::move(error));
-            const bool concurrent_entry = llvm::sys::fs::exists(ObjectPathName)
-                && (code == std::errc::file_exists
-                    || code == std::errc::permission_denied);
+            const bool concurrent_entry =
+                llvm::sys::fs::exists(ObjectPathName) && (
+                    code == std::errc::file_exists || code == std::errc::permission_denied
+                );
 
             if (!concurrent_entry)
             {
@@ -654,6 +662,7 @@ llvm::Expected<llvm::FileCache> telemetry_cache(
                     module_name,
                     llvm::MemoryBuffer::getMemBufferCopy(decoded->first, entry_path)
                 );
+
                 telemetry.record_cache_hit(decoded->second);
 
                 return llvm::AddStreamFn{};
@@ -661,8 +670,10 @@ llvm::Expected<llvm::FileCache> telemetry_cache(
 
             const std::error_code removal = llvm::sys::fs::remove(entry_path);
 
-            if (removal && removal != std::errc::no_such_file_or_directory
-                && removal != std::errc::permission_denied)
+            if (
+                removal &&
+                removal != std::errc::no_such_file_or_directory &&
+                removal != std::errc::permission_denied)
             {
                 return llvm::createStringError(
                     removal,
@@ -670,26 +681,25 @@ llvm::Expected<llvm::FileCache> telemetry_cache(
                 );
             }
         }
-        else if (entry.getError() != std::errc::no_such_file_or_directory
-            && entry.getError() != std::errc::permission_denied)
+        else if (
+            entry.getError() != std::errc::no_such_file_or_directory &&
+            entry.getError() != std::errc::permission_denied
+        )
         {
             return llvm::createStringError(entry.getError(), "cannot read ThinLTO cache entry");
         }
 
         telemetry.record_cache_miss();
 
-        return [directory,
-                entry_path = entry_path.str().str(),
-                add_buffer,
-                &telemetry](unsigned task, const llvm::Twine& module_name)
-            -> llvm::Expected<std::unique_ptr<llvm::CachedFileStream>> {
-            if (std::error_code error = llvm::sys::fs::create_directories(
-                    directory,
-                    true
-                ))
-            {
+        return [
+            directory,
+            entry_path = entry_path.str().str(),
+            add_buffer,
+            &telemetry
+        ](unsigned task, const llvm::Twine& module_name) -> llvm::Expected<std::unique_ptr<llvm::CachedFileStream>>
+        {
+            if (std::error_code error = llvm::sys::fs::create_directories(directory, true))
                 return llvm::createStringError(error, "cannot create ThinLTO cache directory");
-            }
 
             llvm::SmallString<160> temporary_model;
             llvm::sys::path::append(temporary_model, directory, "Thin-%%%%%%.tmp.o");
