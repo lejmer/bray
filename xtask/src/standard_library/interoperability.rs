@@ -564,7 +564,7 @@ mod tests {
             mode: CompilationProfileMode::Summary,
             context: CompilationProfileContext {
                 package: "package".to_owned(),
-                product: None,
+                product: "product".to_owned(),
                 target: "target".to_owned(),
             },
             trace_event_limit: None,

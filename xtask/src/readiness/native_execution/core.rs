@@ -75,8 +75,7 @@ impl BuiltFixture {
 
         let generation_reference = output
             .path()
-            .join(".bray/products")
-            .join(package)
+            .join(".bray")
             .join(PRODUCT_NAME)
             .join("published-generation.json");
 

@@ -418,7 +418,7 @@ fn run_workload(
             options.target,
             observation_runtime,
             &storage_output,
-            bray_compilation::BuildConfiguration::ObservedRelease,
+            BuildConfiguration::ObservedRelease,
             workload.id,
         )?;
 
@@ -518,7 +518,7 @@ fn prepare_controlled_artifacts(
         target,
         observation_runtime,
         &initial_output,
-        bray_compilation::BuildConfiguration::TimedRelease {
+        BuildConfiguration::TimedRelease {
             inner_iterations: seed_inner_iterations,
         },
         workload.id,
@@ -578,7 +578,7 @@ fn prepare_controlled_artifacts(
         target,
         observation_runtime,
         &output.join("timing"),
-        bray_compilation::BuildConfiguration::TimedRelease { inner_iterations },
+        BuildConfiguration::TimedRelease { inner_iterations },
         workload.id,
     )?;
 
@@ -633,7 +633,7 @@ fn emit_observed_executable(
     target: bray_target::NativeTarget,
     runtime: &Path,
     output: &Path,
-    configuration: bray_compilation::BuildConfiguration,
+    configuration: BuildConfiguration,
     workload: &str,
 ) -> Result<(PathBuf, PathBuf), String> {
     fs::create_dir_all(output)
@@ -806,7 +806,7 @@ mod tests {
         crate::json::write_pretty(&comparison_path, &comparison)
             .unwrap_or_else(|error| panic!("comparison JSON must write: {error}"));
 
-        super::super::super::report::write_comparison(
+        super::report::write_comparison(
             &baseline_output.join("comparison.html"),
             &comparison,
         )

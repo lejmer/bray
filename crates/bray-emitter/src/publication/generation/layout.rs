@@ -3,17 +3,14 @@ use std::path::{Path, PathBuf};
 use bray_symbols::ProductIdentity;
 
 pub(super) const METADATA_DIRECTORY: &str = ".bray";
-pub(super) const PRODUCTS_DIRECTORY: &str = "products";
 pub(super) const STAGING_DIRECTORY: &str = "staging";
 
 pub(super) fn product_store_relative(
     public_directory: &Path,
     product: &ProductIdentity,
 ) -> PathBuf {
-    Path::new(METADATA_DIRECTORY)
-        .join(PRODUCTS_DIRECTORY)
-        .join(public_directory)
-        .join(product.package().as_str())
+    public_directory
+        .join(METADATA_DIRECTORY)
         .join(product.name())
 }
 
@@ -43,12 +40,12 @@ mod tests {
 
         assert_eq!(
             product_store_relative(Path::new("native/debug/example.package"), &product),
-            Path::new(".bray/products/native/debug/example.package/example.package/application")
+            Path::new("native/debug/example.package/.bray/application")
         );
 
         assert_eq!(
             product_store(Path::new("build"), Path::new(""), &product),
-            Path::new("build/.bray/products/example.package/application")
+            Path::new("build/.bray/application")
         );
     }
 }

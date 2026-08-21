@@ -127,17 +127,38 @@ impl CompletedStagedFile {
 
         match replacement {
             FileReplacementMode::RequireAbsent => promote_exclusive(path, destination),
-            FileReplacementMode::ReplaceExisting => {
-                path.persist(destination).map_err(promotion_error)
-            }
+            FileReplacementMode::ReplaceExisting => promote_replacing(path, destination),
         }
     }
 }
 
 fn promote_exclusive(path: TempPath, destination: &Path) -> io::Result<()> {
-    let result = renamore::rename_exclusive(&path, destination);
+    let result = crate::atomic_rename_exclusive(&path, destination);
 
     drop(path);
+
+    result
+}
+
+fn promote_replacing(path: TempPath, destination: &Path) -> io::Result<()> {
+    let mut pending = Some(path);
+
+    let result = crate::retry_permission_denied(|| {
+        let Some(path) = pending.take() else {
+            return Err(io::Error::from(io::ErrorKind::NotFound));
+        };
+
+        match path.persist(destination) {
+            Ok(()) => Ok(()),
+            Err(PathPersistError { error, path }) => {
+                pending = Some(path);
+
+                Err(error)
+            }
+        }
+    });
+
+    drop(pending);
 
     result
 }
@@ -165,14 +186,6 @@ fn replacement_permissions(
     }
 
     Ok(None)
-}
-
-fn promotion_error(error: PathPersistError) -> io::Error {
-    let PathPersistError { error, path } = error;
-
-    drop(path);
-
-    error
 }
 
 #[cfg(test)]

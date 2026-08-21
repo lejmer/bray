@@ -1381,7 +1381,7 @@ mod tests {
         assert!(
             !directory
                 .path()
-                .join(".bray/products/example.package/application/published-generation.json")
+                .join(".bray/application/published-generation.json")
                 .exists()
         );
     }
@@ -1419,7 +1419,7 @@ mod tests {
         assert!(
             !directory
                 .path()
-                .join(".bray/products/example.package/application/published-generation.json")
+                .join(".bray/application/published-generation.json")
                 .exists()
         );
     }
@@ -2491,7 +2491,7 @@ mod tests {
     }
 
     fn test_generation_store(root: &Path) -> PathBuf {
-        root.join(".bray/products/example.package/application")
+        root.join(".bray/application")
     }
 
     struct CapturingResolver {

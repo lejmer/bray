@@ -11,7 +11,7 @@ use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
 use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
-use super::layout::{METADATA_DIRECTORY, STAGING_DIRECTORY, product_store_relative};
+use super::layout::{STAGING_DIRECTORY, product_store_relative};
 use super::lock::ProductPublicationLock;
 use super::manifest::{
     GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
@@ -218,19 +218,15 @@ fn create_layout(
 
     create_managed_path(root, relative_public_directory, planned)?;
 
-    let staging = create_managed_path(
-        root,
-        Path::new(METADATA_DIRECTORY)
-            .join(STAGING_DIRECTORY)
-            .as_path(),
-        planned,
-    )?;
-
     let metadata = create_managed_path(
         root,
         &product_store_relative(relative_public_directory, planned.id().product()),
         planned,
     )?;
+
+    let staging = metadata.join(STAGING_DIRECTORY);
+
+    create_managed_directory(&metadata, &staging, planned)?;
 
     let generations = metadata.join(GENERATIONS_DIRECTORY);
 

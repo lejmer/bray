@@ -34,6 +34,7 @@ pub(crate) fn run_build_command(
     let artifacts = required_artifacts(product_kind, native_target, &configuration);
     let export_interface = artifacts.contains(&TargetOutputKind::PackageInterface);
     let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
+    let build = native_build_configuration(configuration.build(), linked);
 
     let requires_codegen = artifacts
         .iter()
@@ -110,7 +111,7 @@ pub(crate) fn run_build_command(
     let native = if requires_generation {
         match compilation.native_product_plan(
             product.clone(),
-            configuration.build(),
+            build,
             runtime,
             configuration.required_capabilities().iter().copied(),
             linker.as_ref(),
@@ -280,6 +281,18 @@ const fn is_linked(artifact: TargetOutputKind) -> bool {
             | TargetOutputKind::SharedLibrary
             | TargetOutputKind::LinkedCompanion
     )
+}
+
+const fn native_build_configuration(
+    selected: bray_compilation::BuildConfiguration,
+    linked: bool,
+) -> bray_compilation::BuildConfiguration {
+    match (selected, linked) {
+        (bray_compilation::BuildConfiguration::Release, false) => {
+            bray_compilation::BuildConfiguration::ObjectRelease
+        }
+        _ => selected,
+    }
 }
 
 fn target_outputs(
@@ -582,6 +595,64 @@ mod tests {
             ),
             Err(bray_emitter::PublishedGenerationReadError::ArtifactUnavailable)
         );
+
+        std::fs::remove_dir_all(&output)
+            .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
+    }
+
+    #[test]
+    fn release_relocatable_object_build_uses_standalone_native_optimization() {
+        let source = TemporaryFile::write(
+            "library.bray",
+            concat!(
+                "module app;\n",
+                "\n",
+                "func answer() -> i32\n",
+                "{\n",
+                "    return 42;\n",
+                "}\n",
+            )
+            .as_bytes(),
+        );
+
+        let output = source
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("temporary source must have a parent"))
+            .join("out");
+
+        std::fs::create_dir(&output)
+            .unwrap_or_else(|error| panic!("build output directory must be created: {error:?}"));
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("build"),
+            OsString::from("--release"),
+            OsString::from("--artifact"),
+            OsString::from("relocatable-object"),
+            OsString::from("--output"),
+            output.as_os_str().to_os_string(),
+            source.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(
+            result.exit_code(),
+            ExitCode::SUCCESS,
+            "{:#?}",
+            result.diagnostics()
+        );
+
+        assert!(result.diagnostics().is_empty());
+
+        let object = bray_emitter::resolve_published_artifact(
+            &output,
+            &command_product("library"),
+            ArtifactKind::RelocatableObject,
+            0,
+        )
+        .unwrap_or_else(|error| panic!("published object must resolve: {error:?}"));
+
+        assert!(object.is_file());
 
         std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
