@@ -1,7 +1,7 @@
 use crate::fact::CompilationFactKey;
 use bray_profile::{
-    CompilationProfileCategory, CompilationProfileMode, CompilationProfileOutcome,
-    CompilationProfileSubjectKind, CompilationProfileUnit,
+    CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileMode,
+    CompilationProfileOutcome, CompilationProfileSubjectKind, CompilationProfileUnit,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,12 +151,23 @@ pub(crate) enum ProfileMetricKind {
     OptimizationInputBytes,
     OptimizationWorkers,
     OptimizationPreservationRoots,
+    OptimizationImportedFunctions,
+    OptimizationImportedData,
+    OptimizationEliminatedFunctions,
+    OptimizationEliminatedData,
+    OptimizationEliminatedBytes,
+    OptimizationCacheHits,
+    OptimizationCacheMisses,
+    OptimizationCacheWrites,
+    OptimizationReusedPartitions,
+    OptimizationPeakResidentBytes,
+    OptimizationActiveWorkers,
     EmittedArtifacts,
     EmittedBytes,
 }
 
 impl ProfileMetricKind {
-    pub(crate) const COUNT: usize = 22;
+    pub(crate) const COUNT: usize = 33;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -205,8 +216,70 @@ impl ProfileMetricKind {
                 "compiler.optimization.preservation_roots",
                 CompilationProfileUnit::Count,
             ),
+            Self::OptimizationImportedFunctions => (
+                "compiler.optimization.imported_functions",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationImportedData => (
+                "compiler.optimization.imported_data",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationEliminatedFunctions => (
+                "compiler.optimization.eliminated_functions",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationEliminatedData => (
+                "compiler.optimization.eliminated_data",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationEliminatedBytes => (
+                "compiler.optimization.eliminated_bytes",
+                CompilationProfileUnit::Bytes,
+            ),
+            Self::OptimizationCacheHits => (
+                "compiler.optimization.cache_hits",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationCacheMisses => (
+                "compiler.optimization.cache_misses",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationCacheWrites => (
+                "compiler.optimization.cache_writes",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationReusedPartitions => (
+                "compiler.optimization.reused_partitions",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationPeakResidentBytes => (
+                "compiler.optimization.peak_resident_bytes",
+                CompilationProfileUnit::Bytes,
+            ),
+            Self::OptimizationActiveWorkers => (
+                "compiler.optimization.active_workers",
+                CompilationProfileUnit::Count,
+            ),
             Self::EmittedArtifacts => ("compiler.emitted.artifacts", CompilationProfileUnit::Count),
             Self::EmittedBytes => ("compiler.emitted.bytes", CompilationProfileUnit::Bytes),
+        }
+    }
+
+    pub(crate) const fn aggregation(self) -> CompilationProfileAggregation {
+        match self {
+            Self::OptimizationPeakResidentBytes | Self::OptimizationActiveWorkers => {
+                CompilationProfileAggregation::Maximum
+            }
+            _ => CompilationProfileAggregation::Sum,
+        }
+    }
+
+    pub(crate) fn merge(self, current: u64, observed: u64) -> u64 {
+        match self {
+            Self::OptimizationPeakResidentBytes | Self::OptimizationActiveWorkers => {
+                current.max(observed)
+            }
+            _ => current.saturating_add(observed),
         }
     }
 
@@ -232,6 +305,17 @@ impl ProfileMetricKind {
             Self::OptimizationInputBytes => 2_019,
             Self::OptimizationWorkers => 2_020,
             Self::OptimizationPreservationRoots => 2_021,
+            Self::OptimizationImportedFunctions => 2_022,
+            Self::OptimizationImportedData => 2_023,
+            Self::OptimizationEliminatedFunctions => 2_024,
+            Self::OptimizationEliminatedData => 2_025,
+            Self::OptimizationEliminatedBytes => 2_026,
+            Self::OptimizationCacheHits => 2_027,
+            Self::OptimizationCacheMisses => 2_028,
+            Self::OptimizationCacheWrites => 2_029,
+            Self::OptimizationReusedPartitions => 2_030,
+            Self::OptimizationPeakResidentBytes => 2_031,
+            Self::OptimizationActiveWorkers => 2_032,
             Self::EmittedArtifacts => 2_014,
             Self::EmittedBytes => 2_015,
         }
@@ -259,7 +343,18 @@ impl ProfileMetricKind {
             | Self::OptimizationModules
             | Self::OptimizationInputBytes
             | Self::OptimizationWorkers
-            | Self::OptimizationPreservationRoots => &[Product],
+            | Self::OptimizationPreservationRoots
+            | Self::OptimizationImportedFunctions
+            | Self::OptimizationImportedData
+            | Self::OptimizationEliminatedFunctions
+            | Self::OptimizationEliminatedData
+            | Self::OptimizationEliminatedBytes
+            | Self::OptimizationCacheHits
+            | Self::OptimizationCacheMisses
+            | Self::OptimizationCacheWrites
+            | Self::OptimizationReusedPartitions
+            | Self::OptimizationPeakResidentBytes
+            | Self::OptimizationActiveWorkers => &[Product],
             Self::EmittedArtifacts | Self::EmittedBytes => &[Product, Artifact],
         }
     }
@@ -286,6 +381,17 @@ impl ProfileMetricKind {
             Self::OptimizationInputBytes,
             Self::OptimizationWorkers,
             Self::OptimizationPreservationRoots,
+            Self::OptimizationImportedFunctions,
+            Self::OptimizationImportedData,
+            Self::OptimizationEliminatedFunctions,
+            Self::OptimizationEliminatedData,
+            Self::OptimizationEliminatedBytes,
+            Self::OptimizationCacheHits,
+            Self::OptimizationCacheMisses,
+            Self::OptimizationCacheWrites,
+            Self::OptimizationReusedPartitions,
+            Self::OptimizationPeakResidentBytes,
+            Self::OptimizationActiveWorkers,
             Self::EmittedArtifacts,
             Self::EmittedBytes,
         ]
@@ -521,7 +627,8 @@ mod tests {
             ProfileMetricKind::all().map(ProfileMetricKind::id),
             [
                 2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009, 2_010, 2_011,
-                2_012, 2_013, 2_016, 2_017, 2_018, 2_019, 2_020, 2_021, 2_014, 2_015,
+                2_012, 2_013, 2_016, 2_017, 2_018, 2_019, 2_020, 2_021, 2_022, 2_023, 2_024, 2_025,
+                2_026, 2_027, 2_028, 2_029, 2_030, 2_031, 2_032, 2_014, 2_015,
             ]
         );
 

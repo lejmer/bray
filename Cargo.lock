@@ -239,6 +239,8 @@ dependencies = [
  "bray-target",
  "bray-testing",
  "inkwell",
+ "serde",
+ "serde_json",
  "target-lexicon",
 ]
 
@@ -390,6 +392,8 @@ dependencies = [
  "bray-symbols",
  "bray-target",
  "bray-testing",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

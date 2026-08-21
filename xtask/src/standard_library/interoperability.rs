@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{
-    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, SelectedTarget,
+    Compilation, CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
+    CompilationProfileReport, CompilationRequest, DependencyInterfaceInput, SelectedTarget,
     WorkerBudget,
 };
 use bray_diagnostics::DiagnosticKind;
@@ -22,7 +22,6 @@ use bray_symbols::{
 };
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_tooling::{llvm_tool_path, load_llvm_compilation};
-use sha2::{Digest as _, Sha256};
 
 use super::command::BuildError;
 
@@ -45,27 +44,55 @@ pub(super) fn audit(
 
     let fixture = build_native_fixture(root, &output, target)?;
 
-    let executable = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
-    let first_cache = optimization_cache_snapshot(&output, target)?;
+    let first = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
+    let first_hits = profile_metric(&first.profile, "compiler.optimization.cache_hits");
+    let first_misses = profile_metric(&first.profile, "compiler.optimization.cache_misses");
+    let first_writes = profile_metric(&first.profile, "compiler.optimization.cache_writes");
 
-    if first_cache.is_empty() {
+    let first_peak_memory = profile_metric(
+        &first.profile,
+        "compiler.optimization.peak_resident_bytes",
+    );
+
+    let first_active_workers =
+        profile_metric(&first.profile, "compiler.optimization.active_workers");
+
+    if first_hits != 0
+        || first_misses == 0
+        || first_writes == 0
+        || first_writes > first_misses
+        || first_peak_memory == 0
+        || first_active_workers == 0
+    {
         return Err(BuildError::conformance(
             "foreign interoperability",
-            "native optimization produced no reusable cache partitions",
+            "the initial native link did not report optimization work, cache publication, and resource use",
         ));
     }
 
     let repeated = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
-    let second_cache = optimization_cache_snapshot(&output, target)?;
+    let repeated_hits = profile_metric(&repeated.profile, "compiler.optimization.cache_hits");
+    let repeated_misses = profile_metric(&repeated.profile, "compiler.optimization.cache_misses");
+    let repeated_writes = profile_metric(&repeated.profile, "compiler.optimization.cache_writes");
 
-    if repeated != executable || second_cache != first_cache {
+    let repeated_reuse = profile_metric(
+        &repeated.profile,
+        "compiler.optimization.reused_partitions",
+    );
+
+    if repeated.executable != first.executable
+        || repeated_hits == 0
+        || repeated_reuse != repeated_hits
+        || repeated_misses != 0
+        || repeated_writes != 0
+    {
         return Err(BuildError::conformance(
             "foreign interoperability",
-            "an unchanged native product did not reuse the same optimization partitions",
+            "the repeated native link did not report reuse of every optimized partition",
         ));
     }
 
-    let mut command = Command::new(&executable);
+    let mut command = Command::new(&first.executable);
 
     command.current_dir(&output);
 
@@ -74,61 +101,17 @@ pub(super) fn audit(
         .map_err(|error| BuildError::conformance("foreign interoperability", error))
 }
 
-fn optimization_cache_snapshot(
-    output: &Path,
-    target: NativeTarget,
-) -> Result<BTreeMap<PathBuf, [u8; 32]>, BuildError> {
-    let state_root = output.parent().ok_or_else(|| {
-        BuildError::conformance(
-            "foreign interoperability",
-            "native output has no compiler state root",
-        )
-    })?;
-
-    let root = bray_tooling::thin_lto_cache_root(state_root, target);
-    let mut pending = vec![root.clone()];
-    let mut snapshot = BTreeMap::new();
-
-    while let Some(directory) = pending.pop() {
-        let mut entries = fs::read_dir(&directory)
-            .map_err(|error| BuildError::read(&directory, error))?
-            .map(|entry| entry.map_err(|error| BuildError::read(&directory, error)))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        entries.sort_by_key(fs::DirEntry::file_name);
-
-        for entry in entries {
-            let path = entry.path();
-
-            let file_type = entry
-                .file_type()
-                .map_err(|error| BuildError::read(&path, error))?;
-
-            if file_type.is_dir() {
-                pending.push(path);
-                continue;
-            }
-
-            if !file_type.is_file() {
-                continue;
-            }
-
-            let relative = path
-                .strip_prefix(&root)
-                .map_err(|_| {
-                    BuildError::conformance(
-                        "foreign interoperability",
-                        "optimization cache entry escaped its root",
-                    )
-                })?
-                .to_path_buf();
-
-            let bytes = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
-            snapshot.insert(relative, Sha256::digest(bytes).into());
-        }
-    }
-
-    Ok(snapshot)
+fn profile_metric(report: &CompilationProfileReport, name: &str) -> u64 {
+    report
+        .metrics
+        .iter()
+        .find_map(|metric| {
+            report
+                .metric_descriptor(metric.id)
+                .filter(|descriptor| descriptor.name == name)
+                .map(|_| metric.value)
+        })
+        .unwrap_or(0)
 }
 
 fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
@@ -355,7 +338,7 @@ fn emit_fixture(
     runtime: &Path,
     target: NativeTarget,
     fixture: &NativeFixture,
-) -> Result<PathBuf, BuildError> {
+) -> Result<EmittedFixture, BuildError> {
     let source_path = root.join("xtask/fixtures/foreign-interoperability.bray");
     let target_handle_audit = target_handle_audit(target);
 
@@ -395,7 +378,10 @@ fn emit_fixture(
     );
 
     let request = CompilationRequest::with_options(package, vec![source], options)
-        .with_standard_library_root(standard_library);
+        .with_standard_library_root(standard_library)
+        .with_profile(CompilationProfileConfiguration::new(
+            CompilationProfileMode::Summary,
+        ));
 
     let compilation = load_llvm_compilation(request).map_err(|error| {
         BuildError::conformance(
@@ -425,18 +411,36 @@ fn emit_fixture(
             )
         })?;
 
+    let native_output = output.join("native");
+
+    fs::create_dir_all(&native_output)
+        .map_err(|error| BuildError::write(&native_output, error))?;
+
     crate::native_product::emit_executable(
         &compilation,
         product.clone(),
         target,
         runtime,
-        output,
+        &native_output,
         [search_path],
         None,
     )
     .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 
-    super::artifact::resolve_executable(output, &product, "foreign interoperability")
+    let executable =
+        super::artifact::resolve_executable(&native_output, &product, "foreign interoperability")?;
+
+    let profile = compilation.profile_report().ok_or_else(|| {
+        BuildError::conformance(
+            "foreign interoperability",
+            "the native compiler did not publish its requested profile",
+        )
+    })?;
+
+    Ok(EmittedFixture {
+        executable,
+        profile,
+    })
 }
 
 fn compilation_error(operation: &str, error: impl std::fmt::Debug) -> BuildError {
@@ -535,42 +539,72 @@ struct NativeFixture {
     shared: PathBuf,
 }
 
+struct EmittedFixture {
+    executable: PathBuf,
+    profile: CompilationProfileReport,
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
+    use bray_compilation::{
+        CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileContext,
+        CompilationProfileDescriptorCatalog, CompilationProfileMetric,
+        CompilationProfileMetricDescriptor, CompilationProfileMode, CompilationProfileReport,
+        CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    };
     use bray_target::NativeTarget;
 
     #[test]
-    fn optimization_cache_snapshots_include_recursive_partition_content() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test directory must be available: {error}"));
+    fn profile_metric_resolves_values_through_the_descriptor_catalog() {
+        let report = CompilationProfileReport {
+            schema_revision: 1,
+            mode: CompilationProfileMode::Summary,
+            context: CompilationProfileContext {
+                package: "package".to_owned(),
+                product: None,
+                target: "target".to_owned(),
+            },
+            trace_event_limit: None,
+            elapsed_nanoseconds: 0,
+            time: CompilationProfileTimeBreakdown {
+                active_work_nanoseconds: 0,
+                same_thread_self_nanoseconds: 0,
+                scheduler_queue_nanoseconds: 0,
+                dependency_wait_nanoseconds: 0,
+                external_work_nanoseconds: 0,
+            },
+            descriptors: CompilationProfileDescriptorCatalog {
+                operations: Vec::new(),
+                queries: Vec::new(),
+                metrics: vec![CompilationProfileMetricDescriptor {
+                    id: 1,
+                    name: "compiler.optimization.cache_hits".to_owned(),
+                    category: CompilationProfileCategory::Measurement,
+                    unit: CompilationProfileUnit::Count,
+                    aggregation: CompilationProfileAggregation::Sum,
+                    allowed_subjects: vec![CompilationProfileSubjectKind::Product],
+                }],
+            },
+            operations: Vec::new(),
+            queries: Vec::new(),
+            metrics: vec![CompilationProfileMetric { id: 1, value: 3 }],
+            runtime_artifacts: Vec::new(),
+            events: Vec::new(),
+            dropped_events: 0,
+        };
 
-        let output = directory.path().join("product");
-        let target = NativeTarget::X86_64WindowsMsvc;
-        let cache = bray_tooling::thin_lto_cache_root(directory.path(), target);
-        let nested = cache.join("partitions");
+        assert_eq!(
+            super::profile_metric(&report, "compiler.optimization.cache_hits"),
+            3
+        );
 
-        fs::create_dir_all(&nested)
-            .unwrap_or_else(|error| panic!("test cache must be writable: {error}"));
-
-        fs::write(nested.join("first"), b"first")
-            .unwrap_or_else(|error| panic!("test cache entry must be writable: {error}"));
-
-        let first = super::optimization_cache_snapshot(&output, target)
-            .unwrap_or_else(|error| panic!("test cache must be readable: {error}"));
-
-        fs::write(nested.join("first"), b"second")
-            .unwrap_or_else(|error| panic!("test cache entry must be replaceable: {error}"));
-
-        let second = super::optimization_cache_snapshot(&output, target)
-            .unwrap_or_else(|error| panic!("test cache must be readable: {error}"));
-
-        assert_eq!(first.len(), 1);
-        assert_eq!(second.len(), 1);
-        assert_ne!(first, second);
+        assert_eq!(
+            super::profile_metric(&report, "compiler.optimization.cache_misses"),
+            0
+        );
     }
 
     #[test]

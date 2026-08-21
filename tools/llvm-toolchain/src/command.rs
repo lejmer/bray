@@ -4,11 +4,12 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output};
+use std::process::{Command, ExitCode};
 
 use bray_base::{lowercase_hex, sha256_file};
 use serde::{Deserialize, Serialize};
 
+use crate::process::output_detail;
 use crate::workspace;
 
 const USAGE: &str = "usage: cargo llvm <fetch | validate [--root <directory>] | host>";
@@ -43,11 +44,12 @@ fn fetch() -> Result<(), ToolchainError> {
     let manifest = manifest()?;
     let host = rustc_host()?;
     let package = manifest.package(&host)?;
-    let root = toolchain_directory()?;
+    let workspace_root = workspace::root().map_err(ToolchainError::Workspace)?;
+    let root = workspace_root.join("target").join(TOOLCHAIN_DIRECTORY);
     let active = root.join(ACTIVE_DIRECTORY);
 
     if validate_root(&active, &manifest.version)
-        .and_then(|()| validate_marker(&active, &manifest.version, package))
+        .and_then(|()| validate_marker(&active, &manifest.version, package, &manifest.source))
         .is_ok()
     {
         println!("{}", active.display());
@@ -60,8 +62,34 @@ fn fetch() -> Result<(), ToolchainError> {
 
     let archive = root.join(DOWNLOAD_DIRECTORY).join(&package.archive);
 
-    acquire_archive(package, &archive)?;
-    install_archive(&root, &active, &archive, &manifest.version, package)?;
+    let source_archive = root
+        .join(DOWNLOAD_DIRECTORY)
+        .join(&manifest.source.archive);
+
+    acquire_archive(
+        &package.url,
+        package.size,
+        &package.sha256,
+        &archive,
+    )?;
+
+    acquire_archive(
+        &manifest.source.url,
+        manifest.source.size,
+        &manifest.source.sha256,
+        &source_archive,
+    )?;
+
+    install_archive(
+        &root,
+        &active,
+        &archive,
+        &source_archive,
+        &manifest.version,
+        package,
+        &manifest.source,
+        &workspace_root.join("tools/llvm-toolchain/native/lld"),
+    )?;
 
     println!("{}", active.display());
 
@@ -160,8 +188,13 @@ fn rustc_host() -> Result<String, ToolchainError> {
         .ok_or(ToolchainError::MissingRustcHost)
 }
 
-fn acquire_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), ToolchainError> {
-    if archive.is_file() && verify_archive(package, archive).is_ok() {
+fn acquire_archive(
+    url: &str,
+    size: u64,
+    sha256: &str,
+    archive: &Path,
+) -> Result<(), ToolchainError> {
+    if archive.is_file() && verify_archive(size, sha256, archive).is_ok() {
         return Ok(());
     }
 
@@ -190,7 +223,7 @@ fn acquire_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), Too
             "--output",
         ])
         .arg(&partial)
-        .arg(&package.url)
+        .arg(url)
         .output()
         .map_err(|error| ToolchainError::ProcessStart {
             program: "curl",
@@ -204,18 +237,18 @@ fn acquire_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), Too
         });
     }
 
-    verify_archive(package, &partial)?;
+    verify_archive(size, sha256, &partial)?;
 
     fs::rename(&partial, archive).map_err(|error| ToolchainError::rename(&partial, archive, error))
 }
 
-fn verify_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), ToolchainError> {
+fn verify_archive(size: u64, sha256: &str, archive: &Path) -> Result<(), ToolchainError> {
     let metadata =
         fs::metadata(archive).map_err(|error| ToolchainError::io("read", archive, error))?;
 
-    if metadata.len() != package.size {
+    if metadata.len() != size {
         return Err(ToolchainError::ArchiveSize {
-            expected: package.size,
+            expected: size,
             actual: metadata.len(),
         });
     }
@@ -224,9 +257,9 @@ fn verify_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), Tool
         &sha256_file(archive).map_err(|error| ToolchainError::io("read", archive, error))?,
     );
 
-    if actual != package.sha256 {
+    if actual != sha256 {
         return Err(ToolchainError::ArchiveDigest {
-            expected: package.sha256.clone(),
+            expected: sha256.to_owned(),
             actual,
         });
     }
@@ -238,8 +271,11 @@ fn install_archive(
     root: &Path,
     active: &Path,
     archive: &Path,
+    source_archive: &Path,
     version: &str,
     package: &ToolchainPackage,
+    source: &ToolchainSource,
+    native_sources: &Path,
 ) -> Result<(), ToolchainError> {
     let staging = root.join(format!("active-{}.partial", std::process::id()));
     let backup = root.join("active.previous");
@@ -248,7 +284,15 @@ fn install_archive(
 
     fs::create_dir_all(&staging).map_err(|error| ToolchainError::io("create", &staging, error))?;
 
-    if let Err(error) = prepare_staging(&staging, archive, version, package) {
+    if let Err(error) = prepare_staging(
+        &staging,
+        archive,
+        source_archive,
+        version,
+        package,
+        source,
+        native_sources,
+    ) {
         return cleanup_after_failure(root, &staging, error);
     }
 
@@ -289,8 +333,11 @@ fn install_archive(
 fn prepare_staging(
     staging: &Path,
     archive: &Path,
+    source_archive: &Path,
     version: &str,
     package: &ToolchainPackage,
+    source: &ToolchainSource,
+    native_sources: &Path,
 ) -> Result<(), ToolchainError> {
     let output = Command::new("tar")
         .arg("-xJf")
@@ -313,7 +360,18 @@ fn prepare_staging(
 
     validate_root(staging, version)?;
 
-    write_marker(staging, version, package)
+    let identity = crate::instrumentation::identity(version, &source.sha256);
+
+    crate::instrumentation::install(
+        staging,
+        source_archive,
+        version,
+        &identity,
+        native_sources,
+    )
+    .map_err(ToolchainError::Instrumentation)?;
+
+    write_marker(staging, version, package, source)
 }
 
 fn cleanup_after_failure(
@@ -386,28 +444,20 @@ fn process_stdout(command: &mut Command, program: &'static str) -> Result<String
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn output_detail(output: &Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = stderr.trim();
-
-    if detail.is_empty() {
-        stdout.trim().to_owned()
-    } else {
-        detail.to_owned()
-    }
-}
-
 fn write_marker(
     root: &Path,
     version: &str,
     package: &ToolchainPackage,
+    source: &ToolchainSource,
 ) -> Result<(), ToolchainError> {
     let marker = ToolchainMarker {
         version: version.to_owned(),
+        identity: crate::instrumentation::identity(version, &source.sha256),
         host: package.host.clone(),
         archive: package.archive.clone(),
         sha256: package.sha256.clone(),
+        source_sha256: source.sha256.clone(),
+        instrumentation_digest: crate::instrumentation::digest(),
     };
 
     let bytes = serde_json::to_vec_pretty(&marker).map_err(ToolchainError::Marker)?;
@@ -420,6 +470,7 @@ fn validate_marker(
     root: &Path,
     version: &str,
     package: &ToolchainPackage,
+    source: &ToolchainSource,
 ) -> Result<(), ToolchainError> {
     let path = root.join(MARKER_FILE);
     let bytes = fs::read(&path).map_err(|error| ToolchainError::io("read", &path, error))?;
@@ -427,9 +478,12 @@ fn validate_marker(
     let marker: ToolchainMarker = serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
 
     if marker.version != version
+        || marker.identity != crate::instrumentation::identity(version, &source.sha256)
         || marker.host != package.host
         || marker.archive != package.archive
         || marker.sha256 != package.sha256
+        || marker.source_sha256 != source.sha256
+        || marker.instrumentation_digest != crate::instrumentation::digest()
     {
         return Err(ToolchainError::MarkerMismatch);
     }
@@ -466,6 +520,7 @@ fn parse_rustc_host(output: &str) -> Option<String> {
 #[derive(Deserialize)]
 struct ToolchainManifest {
     version: String,
+    source: ToolchainSource,
     hosts: Vec<ToolchainPackage>,
 }
 
@@ -475,27 +530,30 @@ impl ToolchainManifest {
             return Err(ToolchainError::InvalidManifest);
         }
 
+        validate_archive(
+            &self.source.archive,
+            &self.source.url,
+            self.source.size,
+            &self.source.sha256,
+            &self.version,
+        )?;
+
         let mut hosts = BTreeSet::new();
 
         for package in &self.hosts {
-            let unsafe_archive = package.archive == "."
-                || package.archive == ".."
-                || package.archive.contains('/')
-                || package.archive.contains('\\');
-
             if package.host.is_empty()
-                || package.archive.is_empty()
-                || unsafe_archive
-                || package.url.is_empty()
-                || package.size == 0
-                || package.sha256.len() != 64
-                || !package.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
-                || !package.archive.contains(&self.version)
-                || !package.url.contains(&self.version)
                 || !hosts.insert(&package.host)
             {
                 return Err(ToolchainError::InvalidManifest);
             }
+
+            validate_archive(
+                &package.archive,
+                &package.url,
+                package.size,
+                &package.sha256,
+                &self.version,
+            )?;
         }
 
         Ok(())
@@ -507,6 +565,41 @@ impl ToolchainManifest {
             .find(|package| package.host == host)
             .ok_or_else(|| ToolchainError::UnsupportedHost(host.to_owned()))
     }
+}
+
+fn validate_archive(
+    archive: &str,
+    url: &str,
+    size: u64,
+    sha256: &str,
+    version: &str,
+) -> Result<(), ToolchainError> {
+    let unsafe_archive = archive == "."
+        || archive == ".."
+        || archive.contains('/')
+        || archive.contains('\\');
+
+    if archive.is_empty()
+        || unsafe_archive
+        || url.is_empty()
+        || size == 0
+        || sha256.len() != 64
+        || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !archive.contains(version)
+        || !url.contains(version)
+    {
+        return Err(ToolchainError::InvalidManifest);
+    }
+
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ToolchainSource {
+    archive: String,
+    url: String,
+    size: u64,
+    sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -521,9 +614,12 @@ struct ToolchainPackage {
 #[derive(Deserialize, Serialize)]
 struct ToolchainMarker {
     version: String,
+    identity: String,
     host: String,
     archive: String,
     sha256: String,
+    source_sha256: String,
+    instrumentation_digest: String,
 }
 
 #[derive(Debug)]
@@ -578,6 +674,7 @@ enum ToolchainError {
         publication: Box<ToolchainError>,
         rollback: Box<ToolchainError>,
     },
+    Instrumentation(crate::instrumentation::InstrumentationError),
 }
 
 impl ToolchainError {
@@ -609,7 +706,9 @@ impl fmt::Display for ToolchainError {
             Self::Manifest(error) => write!(formatter, "invalid LLVM manifest JSON: {error}"),
             Self::Marker(error) => write!(formatter, "invalid LLVM marker JSON: {error}"),
             Self::MarkerMismatch => {
-                formatter.write_str("active LLVM toolchain does not match its pinned package")
+                formatter.write_str(
+                    "active LLVM toolchain does not match the pinned package and linker instrumentation contract",
+                )
             }
             Self::InvalidManifest => formatter.write_str("LLVM manifest is incomplete or invalid"),
             Self::UnsupportedHost(host) => {
@@ -687,6 +786,7 @@ impl fmt::Display for ToolchainError {
                 formatter,
                 "LLVM publication failed ({publication}) and rollback failed ({rollback})"
             ),
+            Self::Instrumentation(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -800,12 +900,22 @@ mod tests {
             panic!("temporary directory must be available");
         };
 
-        if let Err(error) = write_marker(directory.path(), "0.0.0", package) {
+        if let Err(error) = write_marker(
+            directory.path(),
+            "0.0.0",
+            package,
+            &manifest.source,
+        ) {
             panic!("test marker must be written: {error}");
         }
 
         assert!(matches!(
-            validate_marker(directory.path(), &manifest.version, package),
+            validate_marker(
+                directory.path(),
+                &manifest.version,
+                package,
+                &manifest.source,
+            ),
             Err(ToolchainError::MarkerMismatch)
         ));
     }

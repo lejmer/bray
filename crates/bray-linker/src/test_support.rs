@@ -1,6 +1,7 @@
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactId};
@@ -23,6 +24,8 @@ pub(crate) struct RecordingExternalToolHost {
     output: Option<PathBuf>,
     failure: Option<ExternalToolFailure>,
     tool_output: Option<ExternalToolOutput>,
+    optimization_report: Option<Arc<[u8]>>,
+    incomplete_optimization_report: Option<Arc<[u8]>>,
 }
 
 impl RecordingExternalToolHost {
@@ -32,6 +35,33 @@ impl RecordingExternalToolHost {
             output: Some(output.to_path_buf()),
             failure: None,
             tool_output: None,
+            optimization_report: None,
+            incomplete_optimization_report: None,
+        }
+    }
+
+    pub(crate) fn writing_with_optimization_report(output: &Path, report: &[u8]) -> Self {
+        Self {
+            invocations: Mutex::new(Vec::new()),
+            output: Some(output.to_path_buf()),
+            failure: None,
+            tool_output: None,
+            optimization_report: Some(Arc::from(report)),
+            incomplete_optimization_report: None,
+        }
+    }
+
+    pub(crate) fn writing_with_incomplete_optimization_report(
+        output: &Path,
+        report: &[u8],
+    ) -> Self {
+        Self {
+            invocations: Mutex::new(Vec::new()),
+            output: Some(output.to_path_buf()),
+            failure: None,
+            tool_output: None,
+            optimization_report: None,
+            incomplete_optimization_report: Some(Arc::from(report)),
         }
     }
 
@@ -41,6 +71,8 @@ impl RecordingExternalToolHost {
             output: None,
             failure: Some(failure),
             tool_output: None,
+            optimization_report: None,
+            incomplete_optimization_report: None,
         }
     }
 
@@ -50,6 +82,8 @@ impl RecordingExternalToolHost {
             output: None,
             failure: None,
             tool_output: Some(tool_output),
+            optimization_report: None,
+            incomplete_optimization_report: None,
         }
     }
 
@@ -86,6 +120,23 @@ impl ExternalToolHost for RecordingExternalToolHost {
                 .unwrap_or_else(|error| panic!("test output must be written: {error:?}"));
         }
 
+        if let Some(report) = &self.optimization_report {
+            let path = optimization_report_path(invocation);
+
+            std::fs::write(path, report)
+                .unwrap_or_else(|error| panic!("test optimization report must be written: {error}"));
+        }
+
+        if let Some(report) = &self.incomplete_optimization_report {
+            let path = crate::optimization::partial_report_path(Path::new(
+                optimization_report_path(invocation),
+            ));
+
+            std::fs::write(path, report).unwrap_or_else(|error| {
+                panic!("incomplete test optimization report must be written: {error}")
+            });
+        }
+
         if let Some(output) = &self.tool_output {
             // Test tool results are cloned so the recording host can be reused.
             return Ok(output.clone());
@@ -93,6 +144,16 @@ impl ExternalToolHost for RecordingExternalToolHost {
 
         Ok(ExternalToolOutput::new(true, Some(0), [], []))
     }
+}
+
+fn optimization_report_path(invocation: &ExternalToolInvocation) -> &std::ffi::OsStr {
+    invocation
+        .environment()
+        .iter()
+        .find_map(|(name, value)| {
+            (name == crate::optimization::REPORT_ENVIRONMENT).then_some(value.as_os_str())
+        })
+        .unwrap_or_else(|| panic!("optimization report destination must be configured"))
 }
 
 pub(crate) struct TestOutput {

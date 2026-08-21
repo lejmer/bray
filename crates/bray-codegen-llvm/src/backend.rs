@@ -30,6 +30,7 @@ use crate::translation::{TranslationError, translate_instances};
 const BACKEND_NAME: &str = "llvm";
 const BACKEND_REVISION: &str = "1";
 const LLVM_REVISION: &str = env!("BRAY_LLVM_REVISION");
+const LLVM_TOOLCHAIN_IDENTITY: &str = env!("BRAY_LLVM_TOOLCHAIN_IDENTITY");
 const LLVM_TARGETS: &str = env!("BRAY_LLVM_TARGETS");
 
 /// LLVM implementation of Bray's coarse code generation contract.
@@ -50,6 +51,11 @@ impl LlvmCodeGenerator {
     /// Returns the exact LLVM revision used by this backend.
     pub const fn llvm_revision() -> &'static str {
         LLVM_REVISION
+    }
+
+    /// Returns the exact pinned linker and instrumentation identity.
+    pub const fn llvm_toolchain_identity() -> &'static str {
+        LLVM_TOOLCHAIN_IDENTITY
     }
 
     /// Creates the LLVM backend with its stable identity and declared capabilities.

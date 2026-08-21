@@ -189,22 +189,22 @@ impl Compilation {
 
         if configuration.uses_thin_lto() {
             if let Some(profile) = self.state.fact_runtime.profile() {
-                profile.add_metric(
+                profile.record_metric(
                     crate::profile::ProfileMetricKind::OptimizationModules,
                     standard_library.optimization_modules,
                 );
 
-                profile.add_metric(
+                profile.record_metric(
                     crate::profile::ProfileMetricKind::OptimizationInputBytes,
                     standard_library.optimization_bytes,
                 );
 
-                profile.add_metric(
+                profile.record_metric(
                     crate::profile::ProfileMetricKind::OptimizationWorkers,
                     u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
                 );
 
-                profile.add_metric(
+                profile.record_metric(
                     crate::profile::ProfileMetricKind::OptimizationPreservationRoots,
                     u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
                 );

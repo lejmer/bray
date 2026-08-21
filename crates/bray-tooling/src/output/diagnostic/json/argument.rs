@@ -73,6 +73,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     ExternalToolFailureKind(&'static str),
     ExternalToolExit(DiagnosticExternalToolExitJson),
     LinkRequirement(DiagnosticLinkRequirementJson),
+    LinkOptimizationReportProblem(&'static str),
     DocumentParseKind(&'static str),
     StandardLibraryManifestProblem(&'static str),
     DependencySubjectKind(&'static str),
@@ -231,6 +232,9 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::LinkRequirement(requirement) => {
                 Self::LinkRequirement(DiagnosticLinkRequirementJson::from_requirement(requirement))
+            }
+            DiagnosticArgValue::LinkOptimizationReportProblem(problem) => {
+                Self::LinkOptimizationReportProblem((*problem).as_str())
             }
             DiagnosticArgValue::DocumentParseKind(kind) => {
                 Self::DocumentParseKind((*kind).as_str())

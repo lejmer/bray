@@ -86,6 +86,8 @@ pub enum CompilationProfileCategory {
 pub enum CompilationProfileAggregation {
     /// Add every observed value.
     Sum,
+    /// Retain the greatest observed value.
+    Maximum,
     /// Retain both the sum and maximum duration.
     SumAndMaximum,
 }
@@ -298,7 +300,7 @@ pub struct CompilationProfileTimeBreakdown {
     pub external_work_nanoseconds: u64,
 }
 
-/// Immutable versioned profile from one compiler invocation.
+/// Immutable profile from one compiler invocation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileReport {
     /// Profile schema revision.

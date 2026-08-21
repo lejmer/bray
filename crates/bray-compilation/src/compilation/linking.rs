@@ -81,7 +81,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<LinkOutcome, FactQueryError> {
         if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::LinkInputs,
                 u64::try_from(plan.inputs().len()).unwrap_or(u64::MAX),
             );
@@ -101,12 +101,74 @@ impl Compilation {
 
             let outcome = linker.link(plan, cancellation);
 
+            if let Some(profile) = profile
+                && let Some(report) = outcome.optimization()
+            {
+                record_optimization_report(profile, report);
+            }
+
             if let Some(span) = span {
                 span.finish(link_profile_outcome(outcome.status()));
             }
 
             Ok(outcome)
         })
+    }
+}
+
+fn record_optimization_report(
+    profile: &crate::profile::ProfileSession,
+    report: &bray_linker::LinkOptimizationReport,
+) {
+    use crate::profile::ProfileMetricKind;
+
+    for (metric, value) in [
+        (
+            ProfileMetricKind::OptimizationImportedFunctions,
+            report.imported_functions(),
+        ),
+        (
+            ProfileMetricKind::OptimizationImportedData,
+            report.imported_data(),
+        ),
+        (
+            ProfileMetricKind::OptimizationEliminatedFunctions,
+            report.eliminated_functions(),
+        ),
+        (
+            ProfileMetricKind::OptimizationEliminatedData,
+            report.eliminated_data(),
+        ),
+        (
+            ProfileMetricKind::OptimizationEliminatedBytes,
+            report.eliminated_bytes(),
+        ),
+        (
+            ProfileMetricKind::OptimizationCacheHits,
+            report.cache_hits(),
+        ),
+        (
+            ProfileMetricKind::OptimizationCacheMisses,
+            report.cache_misses(),
+        ),
+        (
+            ProfileMetricKind::OptimizationCacheWrites,
+            report.cache_writes(),
+        ),
+        (
+            ProfileMetricKind::OptimizationReusedPartitions,
+            report.reused_partitions(),
+        ),
+        (
+            ProfileMetricKind::OptimizationPeakResidentBytes,
+            report.peak_resident_bytes(),
+        ),
+        (
+            ProfileMetricKind::OptimizationActiveWorkers,
+            report.active_workers(),
+        ),
+    ] {
+        profile.record_metric(metric, value);
     }
 }
 

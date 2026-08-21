@@ -337,7 +337,7 @@ impl Compilation {
         ));
 
         if let Some(profile) = fact_runtime.profile() {
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::SourceUnits,
                 u64::try_from(source_count).unwrap_or(u64::MAX),
             );
@@ -346,7 +346,7 @@ impl Compilation {
                 total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
             });
 
-            profile.add_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
+            profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
         }
 
         if let Some(span) = load_span {
@@ -550,7 +550,7 @@ impl Compilation {
                         bray_syntax::SyntaxWalkControl::Continue
                     });
 
-                    profile.add_metric(crate::profile::ProfileMetricKind::SyntaxTokens, tokens);
+                    profile.record_metric(crate::profile::ProfileMetricKind::SyntaxTokens, tokens);
                 }
 
                 result
@@ -629,7 +629,7 @@ impl Compilation {
                 let result = merge_declaration_chunks(chunks.iter());
 
                 if let Some(profile) = self.state.fact_runtime.profile() {
-                    profile.add_metric(
+                    profile.record_metric(
                         crate::profile::ProfileMetricKind::Declarations,
                         u64::try_from(result.table().declarations().len()).unwrap_or(u64::MAX),
                     );

@@ -1,5 +1,34 @@
 use super::super::source::format_english_quoted_text;
-use bray_diagnostics::DiagnosticLinkRequirement;
+use bray_diagnostics::{DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement};
+
+pub(crate) const fn format_english_link_optimization_report_problem(
+    problem: DiagnosticLinkOptimizationReportProblem,
+) -> &'static str {
+    match problem {
+        DiagnosticLinkOptimizationReportProblem::Missing => "the report was not produced",
+        DiagnosticLinkOptimizationReportProblem::Inaccessible => {
+            "the report could not be read or removed"
+        }
+        DiagnosticLinkOptimizationReportProblem::Malformed => {
+            "its JSON or required fields are malformed"
+        }
+        DiagnosticLinkOptimizationReportProblem::UnsupportedFormat => {
+            "its format number is unsupported"
+        }
+        DiagnosticLinkOptimizationReportProblem::ToolchainMismatch => {
+            "its LLVM toolchain revision differs from the selected linker"
+        }
+        DiagnosticLinkOptimizationReportProblem::DriverMismatch => {
+            "its LLD driver flavor differs from the selected linker"
+        }
+        DiagnosticLinkOptimizationReportProblem::InconsistentCacheOutcomes => {
+            "its cache outcome counters contradict each other"
+        }
+        DiagnosticLinkOptimizationReportProblem::MissingResourceMeasurement => {
+            "its peak resident memory measurement is absent"
+        }
+    }
+}
 
 pub(crate) fn format_english_link_requirement(requirement: &DiagnosticLinkRequirement) -> String {
     use DiagnosticLinkRequirement as Requirement;
