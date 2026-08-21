@@ -13,7 +13,8 @@ pub use model::target_artifacts_for_test;
 pub use model::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
-    StandardLibraryManifestError, StandardLibraryTargetArtifacts,
+    StandardLibraryManifestError, StandardLibraryOptimizationMetadataProblem,
+    StandardLibraryTargetArtifacts,
     standard_library_target_artifact_directory,
 };
 pub use optimization::{

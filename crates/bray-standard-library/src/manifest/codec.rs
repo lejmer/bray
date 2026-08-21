@@ -13,7 +13,8 @@ use crate::{
 use super::model::{
     StandardLibraryArtifact, StandardLibraryArtifactDigest, StandardLibraryArtifactKind,
     StandardLibraryBundleDigest, StandardLibraryBundleManifest, StandardLibraryManifestError,
-    StandardLibraryTargetArtifacts,
+    StandardLibraryOptimizationMetadataProblem, StandardLibraryTargetArtifacts,
+    invalid_optimization_metadata,
 };
 use super::optimization::{
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
@@ -25,6 +26,8 @@ use super::wire::{
     MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedOptimizationWire,
     OwnedPublishedWire, decode_digest, encode_published, runtime_abi,
 };
+
+use StandardLibraryOptimizationMetadataProblem as MetadataProblem;
 
 /// Encodes a manifest using its canonical compact UTF-8 JSON representation.
 pub fn encode_standard_library_manifest(
@@ -131,13 +134,19 @@ fn decode_optimization(
     wire: OwnedOptimizationWire,
 ) -> Result<StandardLibraryOptimizationMetadata, StandardLibraryManifestError> {
     if wire.semantics != "thin_lto" {
-        return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+        return Err(invalid_optimization_metadata(
+            MetadataProblem::UnsupportedSemantics,
+        ));
     }
 
     let producer_kind = match wire.producer.kind.as_str() {
         "bray" => StandardLibraryOptimizationProducerKind::Bray,
         "pinned_native" => StandardLibraryOptimizationProducerKind::PinnedNative,
-        _ => return Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+        _ => {
+            return Err(invalid_optimization_metadata(
+                MetadataProblem::UnsupportedProducerKind,
+            ));
+        }
     };
 
     let producer = StandardLibraryOptimizationProducer::try_new(
@@ -162,14 +171,16 @@ fn decode_optimization(
     )?;
 
     let module_count = NonZeroU32::new(wire.module_count)
-        .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+        .ok_or(invalid_optimization_metadata(MetadataProblem::ZeroModuleCount))?;
 
     let preservation_roots = wire
         .preservation_roots
         .into_iter()
         .map(|name| {
             BinarySymbolName::try_new(name)
-                .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)
+                .ok_or(invalid_optimization_metadata(
+                    MetadataProblem::InvalidPreservationRoot,
+                ))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -182,7 +193,9 @@ fn decode_optimization(
             }
             "global_destructors" => Ok(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors),
             "exit_registration" => Ok(StandardLibraryOptimizationLifecycleRoot::ExitRegistration),
-            _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+            _ => Err(invalid_optimization_metadata(
+                MetadataProblem::UnsupportedLifecycleRoot,
+            )),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -191,7 +204,9 @@ fn decode_optimization(
         .into_iter()
         .map(|role| {
             PlatformServiceRole::from_name(&role)
-                .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)
+                .ok_or(invalid_optimization_metadata(
+                    MetadataProblem::UnknownPlatformService,
+                ))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -225,7 +240,9 @@ fn decode_relocation_model(value: &str) -> Result<RelocationModel, StandardLibra
         "static" => Ok(RelocationModel::Static),
         "position_independent" => Ok(RelocationModel::PositionIndependent),
         "dynamic_no_pic" => Ok(RelocationModel::DynamicNoPic),
-        _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+        _ => Err(invalid_optimization_metadata(
+            MetadataProblem::UnsupportedRelocationModel,
+        )),
     }
 }
 
@@ -237,7 +254,9 @@ fn decode_code_model(value: &str) -> Result<CodeModel, StandardLibraryManifestEr
         "medium" => Ok(CodeModel::Medium),
         "large" => Ok(CodeModel::Large),
         "kernel" => Ok(CodeModel::Kernel),
-        _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+        _ => Err(invalid_optimization_metadata(
+            MetadataProblem::UnsupportedCodeModel,
+        )),
     }
 }
 
@@ -268,6 +287,7 @@ mod tests {
         StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
         StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
         StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
+        StandardLibraryOptimizationMetadataProblem,
         StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
         StandardLibraryTargetArtifacts,
     };
@@ -308,7 +328,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata(
+                StandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact,
+            ))
         );
     }
 
@@ -331,7 +353,9 @@ mod tests {
 
         assert_eq!(
             without_optimization,
-            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata(
+                StandardLibraryOptimizationMetadataProblem::MissingBrayPartition,
+            ))
         );
 
         let native_only = StandardLibraryTargetArtifacts::try_new(
@@ -351,7 +375,9 @@ mod tests {
 
         assert_eq!(
             native_only,
-            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata(
+                StandardLibraryOptimizationMetadataProblem::MissingBrayPartition,
+            ))
         );
     }
 
