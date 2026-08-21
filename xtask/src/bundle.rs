@@ -3,12 +3,8 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use bray_target::{NativeTarget, TargetIdentity};
-
-const PUBLICATION_RENAME_RETRIES: usize = if cfg!(windows) { 100 } else { 0 };
-const PUBLICATION_RENAME_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Debug)]
 pub(crate) struct NativeBuildOptions {
@@ -264,28 +260,7 @@ impl fmt::Display for DirectoryPublicationError {
 }
 
 pub(crate) fn rename_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
-    retry_permission_denied(
-        || fs::rename(source, destination),
-        PUBLICATION_RENAME_RETRIES,
-        PUBLICATION_RENAME_INTERVAL,
-    )
-}
-
-fn retry_permission_denied<T>(
-    mut operation: impl FnMut() -> std::io::Result<T>,
-    retries: usize,
-    interval: Duration,
-) -> std::io::Result<T> {
-    for retry in 0..=retries {
-        match operation() {
-            Err(error) if error.kind() == ErrorKind::PermissionDenied && retry < retries => {
-                std::thread::sleep(interval);
-            }
-            result => return result,
-        }
-    }
-
-    operation()
+    bray_base::retry_permission_denied(|| fs::rename(source, destination))
 }
 
 struct PublicationLock {
@@ -335,16 +310,11 @@ fn required_value(
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io::ErrorKind;
     use std::path::PathBuf;
-    use std::time::Duration;
 
     use bray_target::NativeTarget;
 
-    use super::{
-        DirectoryPublication, NativeBuildOptionsBuilder, NativeBuildOptionsError,
-        retry_permission_denied,
-    };
+    use super::{DirectoryPublication, NativeBuildOptionsBuilder, NativeBuildOptionsError};
 
     #[test]
     fn native_build_options_require_an_output() {
@@ -430,28 +400,5 @@ mod tests {
                 .unwrap_or_else(|error| panic!("published artifact must be readable: {error}")),
             b"current"
         );
-    }
-
-    #[test]
-    fn directory_publication_retries_short_lived_permission_denials() {
-        let mut attempts = 0_u8;
-
-        let value = retry_permission_denied(
-            || {
-                attempts = attempts.saturating_add(1);
-
-                if attempts < 3 {
-                    return Err(std::io::Error::from(ErrorKind::PermissionDenied));
-                }
-
-                Ok(17_u8)
-            },
-            4,
-            Duration::ZERO,
-        )
-        .unwrap_or_else(|error| panic!("transient permission denial must be retried: {error}"));
-
-        assert_eq!(value, 17);
-        assert_eq!(attempts, 3);
     }
 }

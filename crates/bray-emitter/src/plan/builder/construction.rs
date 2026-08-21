@@ -236,11 +236,10 @@ impl<'planner> PlanBuilder<'planner> {
             RequestedArtifactDestination::FilesystemDirectory(destination) => {
                 let stem = output_stem(self.request.product().name(), unit_ordinal);
                 let name = self.output_name(id.kind(), &stem)?;
-
-                let artifact = ManagedArtifactPath::try_new(format!("artifacts/{name}"))
-                    .ok_or(EmissionPlanningError::InvalidGeneratedFileName(id.kind()))?;
-
                 let published = destination.directory().join(&name);
+
+                let artifact = ManagedArtifactPath::try_new(name)
+                    .ok_or(EmissionPlanningError::InvalidGeneratedFileName(id.kind()))?;
 
                 OutputSink::ManagedFilesystem {
                     // The plan owns managed and public paths independently of the request.
@@ -644,7 +643,7 @@ mod tests {
             artifact.destination(),
             &PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
                 root: "out".into(),
-                artifact: ManagedArtifactPath::try_new("artifacts/application.brayi")
+                artifact: ManagedArtifactPath::try_new("application.brayi")
                     .unwrap_or_else(|| panic!("test managed artifact path must be valid")),
                 published: "out/application.brayi".into(),
             })
@@ -1011,7 +1010,7 @@ mod tests {
             Err(EmissionPlanningError::OutputCollision(
                 OutputSink::ManagedFilesystem {
                     root: "out".into(),
-                    artifact: ManagedArtifactPath::try_new("artifacts/application.out")
+                    artifact: ManagedArtifactPath::try_new("application.out")
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
                     published: "out/application.out".into(),
                 }
@@ -1115,7 +1114,7 @@ mod tests {
             Err(EmissionPlanningError::OutputCollision(
                 OutputSink::ManagedFilesystem {
                     root: "out".into(),
-                    artifact: ManagedArtifactPath::try_new("artifacts/application.OUT")
+                    artifact: ManagedArtifactPath::try_new("application.OUT")
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
                     published: "out/application.OUT".into(),
                 }

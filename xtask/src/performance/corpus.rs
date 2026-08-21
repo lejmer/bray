@@ -517,10 +517,8 @@ func main()
                 "bray_platform_process_pipe_flush",
                 "bray_platform_process_pipe_close",
             ],
-            required_provenance: &["bray_platform_standard_streams", "-output.o"],
+            required_provenance: &["bray_platform_standard_streams"],
             forbidden_provenance: &[
-                "-input.o",
-                "-error.o",
                 "bray_platform_core",
                 "bray_platform_filesystem",
                 "bray_platform_process",

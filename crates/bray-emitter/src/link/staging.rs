@@ -36,7 +36,7 @@ impl LinkStaging {
             return Err(LinkStagingError::Cancelled);
         }
 
-        let managed_staging = managed_staging_directory(plan)?;
+        let managed_metadata = managed_metadata_directory(plan)?;
         let contributions = contributions_by_id(contributions)?;
 
         let transaction_owner = plan
@@ -45,7 +45,7 @@ impl LinkStaging {
             .ok_or(LinkStagingError::MissingArtifacts)?;
 
         let transaction =
-            transaction_directory(plan, transaction_owner, managed_staging.as_deref())?;
+            transaction_directory(plan, transaction_owner, managed_metadata.as_deref())?;
 
         let mut inputs = Vec::new();
 
@@ -333,7 +333,7 @@ fn reserve_output(
 fn transaction_directory(
     plan: &EmissionPlan,
     owner: &PlannedArtifact,
-    managed_staging: Option<&Path>,
+    managed_metadata: Option<&Path>,
 ) -> Result<TempDir, LinkStagingError> {
     let mut builder = Builder::new();
 
@@ -358,8 +358,8 @@ fn transaction_directory(
         )
     });
 
-    let directory = if let Some(managed_staging) = managed_staging {
-        builder.tempdir_in(managed_staging)
+    let directory = if let Some(managed_metadata) = managed_metadata {
+        builder.tempdir_in(managed_metadata)
     } else if let Some(filesystem_parent) = filesystem_parent {
         builder.tempdir_in(filesystem_parent)
     } else {
@@ -398,7 +398,7 @@ fn transaction_output_name(artifact: &ArtifactId, suffix: OsString) -> OsString 
     name
 }
 
-fn managed_staging_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, LinkStagingError> {
+fn managed_metadata_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, LinkStagingError> {
     let Some((root, artifact)) = plan.published_artifacts().find_map(|artifact| {
         let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) =
             artifact.destination()
@@ -412,12 +412,10 @@ fn managed_staging_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, Lin
     };
 
     let metadata = root.join(".bray");
-    let staging = metadata.join("staging");
 
     create_private_directory(root, &metadata, artifact)?;
-    create_private_directory(&metadata, &staging, artifact)?;
 
-    Ok(Some(staging))
+    Ok(Some(metadata))
 }
 
 fn create_private_directory(
@@ -637,9 +635,9 @@ mod tests {
             .parent()
             .unwrap_or_else(|| panic!("staged output must have a private directory"));
 
-        let private_staging = directory.path().join(".bray/staging");
+        let private_metadata = directory.path().join(".bray");
 
-        assert_eq!(output_directory.parent(), Some(private_staging.as_path()));
+        assert_eq!(output_directory.parent(), Some(private_metadata.as_path()));
         assert_eq!(input_path.parent(), Some(output_directory));
 
         let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
@@ -732,7 +730,7 @@ mod tests {
         ));
 
         assert_eq!(
-            std::fs::read_dir(directory.path().join(".bray/staging"))
+            std::fs::read_dir(directory.path().join(".bray"))
                 .unwrap_or_else(|error| panic!("test output directory must be readable: {error:?}"))
                 .count(),
             0

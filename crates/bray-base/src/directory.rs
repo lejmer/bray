@@ -3,10 +3,40 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
+use std::time::Duration;
+
+const PERMISSION_RETRIES: usize = if cfg!(windows) { 100 } else { 0 };
+const PERMISSION_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Atomically renames one file or directory without replacing an existing destination.
 pub fn atomic_rename_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
-    renamore::rename_exclusive(source, destination)
+    retry_permission_denied(|| renamore::rename_exclusive(source, destination))
+}
+
+/// Retries a filesystem operation when the host temporarily denies access.
+pub fn retry_permission_denied<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    retry_permission_denied_with_policy(
+        &mut operation,
+        PERMISSION_RETRIES,
+        PERMISSION_RETRY_INTERVAL,
+    )
+}
+
+fn retry_permission_denied_with_policy<T>(
+    operation: &mut impl FnMut() -> io::Result<T>,
+    retries: usize,
+    interval: Duration,
+) -> io::Result<T> {
+    for _ in 0..retries {
+        match operation() {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                std::thread::sleep(interval);
+            }
+            result => return result,
+        }
+    }
+
+    operation()
 }
 
 /// Returns whether the filesystem can atomically rename without replacement.
@@ -46,7 +76,13 @@ pub fn sync_directory(_: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{atomic_rename_exclusive, atomic_rename_exclusive_is_supported, sync_directory};
+    use std::io::ErrorKind;
+    use std::time::Duration;
+
+    use super::{
+        atomic_rename_exclusive, atomic_rename_exclusive_is_supported,
+        retry_permission_denied_with_policy, sync_directory,
+    };
 
     #[test]
     fn directories_support_durable_exclusive_publication() {
@@ -73,5 +109,28 @@ mod tests {
 
         assert!(!source.exists());
         assert!(destination.is_dir());
+    }
+
+    #[test]
+    fn filesystem_operations_retry_short_lived_permission_denials() {
+        let mut attempts = 0_u8;
+
+        let value = retry_permission_denied_with_policy(
+            &mut || {
+                attempts = attempts.saturating_add(1);
+
+                if attempts < 3 {
+                    return Err(std::io::Error::from(ErrorKind::PermissionDenied));
+                }
+
+                Ok(17_u8)
+            },
+            4,
+            Duration::ZERO,
+        )
+        .unwrap_or_else(|error| panic!("transient permission denial must be retried: {error}"));
+
+        assert_eq!(value, 17);
+        assert_eq!(attempts, 3);
     }
 }

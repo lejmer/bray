@@ -3,24 +3,19 @@ use std::path::{Path, PathBuf};
 
 use bray_base::sync_directory;
 
+use super::locator::GenerationLocator;
 use super::manifest::GenerationManifest;
 use super::transaction::{GENERATION_MANIFEST, ManagedLayout};
-use crate::ProductGenerationIdentity;
 use crate::publication::diagnostic::{PublicationError, PublicationErrorKind};
 use crate::publication::operation::{ArtifactPublicationFailure, artifact_failure, planned_error};
 
 pub(super) fn generation_public_paths(
     root: &Path,
     layout: &ManagedLayout,
-    identity: ProductGenerationIdentity,
+    locator: GenerationLocator,
     planned: &crate::PlannedArtifact,
 ) -> Result<BTreeSet<PathBuf>, ArtifactPublicationFailure> {
-    let bytes = std::fs::read(
-        layout
-            .generations
-            .join(identity.to_hex())
-            .join(GENERATION_MANIFEST),
-    )
+    let bytes = std::fs::read(layout.metadata.join(locator.to_hex()).join(GENERATION_MANIFEST))
     .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
 
     let manifest = serde_json::from_slice::<GenerationManifest>(&bytes)
@@ -59,11 +54,11 @@ pub(super) fn stale_public_paths(
 
 pub(super) fn retain_recent_generations(
     layout: &ManagedLayout,
-    current: ProductGenerationIdentity,
-    preceding: Option<ProductGenerationIdentity>,
+    current: GenerationLocator,
+    preceding: Option<GenerationLocator>,
     planned: &crate::PlannedArtifact,
 ) -> Result<(), PublicationError> {
-    let entries = std::fs::read_dir(&layout.generations)
+    let entries = std::fs::read_dir(&layout.metadata)
         .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
 
     let mut obsolete = Vec::new();
@@ -84,13 +79,11 @@ pub(super) fn retain_recent_generations(
             continue;
         };
 
-        let Some(identity) =
-            bray_base::decode_lowercase_hex::<32>(&name).map(ProductGenerationIdentity::new)
-        else {
+        let Some(locator) = GenerationLocator::try_from_hex(&name) else {
             continue;
         };
 
-        if identity != current && Some(identity) != preceding {
+        if locator != current && Some(locator) != preceding {
             obsolete.push(entry.path());
         }
     }
@@ -102,6 +95,6 @@ pub(super) fn retain_recent_generations(
             .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
     }
 
-    sync_directory(&layout.generations)
+    sync_directory(&layout.metadata)
         .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))
 }

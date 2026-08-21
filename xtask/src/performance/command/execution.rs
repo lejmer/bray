@@ -202,11 +202,19 @@ fn optimization_artifacts(
 
             let fallback = optimization.fallback().path();
 
-            let selected_by_workloads = workloads
+            let mut selected_by_workloads = workloads
                 .iter()
-                .filter(|workload| workload_selects_fallback(workload, fallback))
+                .filter(|workload| {
+                    workload_selects_optimization(
+                        workload,
+                        optimization.partition(),
+                        fallback,
+                    )
+                })
                 .map(|workload| workload.id.clone())
-                .collect();
+                .collect::<Vec<_>>();
+
+            selected_by_workloads.sort();
 
             Ok(OptimizationArtifactReport {
                 partition: optimization.partition().to_owned(),
@@ -219,7 +227,11 @@ fn optimization_artifacts(
         .collect()
 }
 
-fn workload_selects_fallback(workload: &WorkloadReport, fallback: &str) -> bool {
+fn workload_selects_optimization(
+    workload: &WorkloadReport,
+    partition: &str,
+    fallback: &str,
+) -> bool {
     workload.artifacts.iter().any(|artifact| {
         artifact
             .dependencies
@@ -227,6 +239,18 @@ fn workload_selects_fallback(workload: &WorkloadReport, fallback: &str) -> bool 
             .entries
             .iter()
             .any(|archive| archive_matches_fallback(archive, fallback))
+            || artifact
+                .dependencies
+                .static_inputs
+                .entries
+                .iter()
+                .any(|input| {
+                    input.artifact.contains(partition)
+                        || input
+                            .member
+                            .as_deref()
+                            .is_some_and(|member| member.contains(partition))
+                })
     })
 }
 
@@ -418,7 +442,7 @@ fn run_workload(
             options.target,
             observation_runtime,
             &storage_output,
-            bray_compilation::BuildConfiguration::ObservedRelease,
+            BuildConfiguration::ObservedRelease,
             workload.id,
         )?;
 
@@ -518,7 +542,7 @@ fn prepare_controlled_artifacts(
         target,
         observation_runtime,
         &initial_output,
-        bray_compilation::BuildConfiguration::TimedRelease {
+        BuildConfiguration::TimedRelease {
             inner_iterations: seed_inner_iterations,
         },
         workload.id,
@@ -578,7 +602,7 @@ fn prepare_controlled_artifacts(
         target,
         observation_runtime,
         &output.join("timing"),
-        bray_compilation::BuildConfiguration::TimedRelease { inner_iterations },
+        BuildConfiguration::TimedRelease { inner_iterations },
         workload.id,
     )?;
 
@@ -633,7 +657,7 @@ fn emit_observed_executable(
     target: bray_target::NativeTarget,
     runtime: &Path,
     output: &Path,
-    configuration: bray_compilation::BuildConfiguration,
+    configuration: BuildConfiguration,
     workload: &str,
 ) -> Result<(PathBuf, PathBuf), String> {
     fs::create_dir_all(output)
@@ -806,7 +830,7 @@ mod tests {
         crate::json::write_pretty(&comparison_path, &comparison)
             .unwrap_or_else(|error| panic!("comparison JSON must write: {error}"));
 
-        super::super::super::report::write_comparison(
+        super::report::write_comparison(
             &baseline_output.join("comparison.html"),
             &comparison,
         )
