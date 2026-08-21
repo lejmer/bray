@@ -431,22 +431,43 @@ fn select_optimization_artifacts(
     backend: &bray_codegen::BackendIdentity,
 ) -> Result<Vec<bray_standard_library::ResolvedStandardLibraryArtifact>, NativeProductPlanningError>
 {
+    let metadata = artifacts
+        .iter()
+        .map(bray_standard_library::ResolvedStandardLibraryArtifact::metadata)
+        .collect::<Vec<_>>();
+
+    select_optimization_artifact_indices(&metadata, compatibility, runtime_abi, backend)
+        .map(|indices| {
+            indices
+                .into_iter()
+                .map(|index| artifacts[index].clone())
+                .collect()
+        })
+}
+
+fn select_optimization_artifact_indices(
+    artifacts: &[&bray_standard_library::StandardLibraryArtifact],
+    compatibility: &bray_codegen::BackendBitcodeTargetContract,
+    runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+    backend: &bray_codegen::BackendIdentity,
+) -> Result<Vec<usize>, NativeProductPlanningError> {
     let compatible_optimization = artifacts
         .iter()
-        .filter_map(|artifact| {
+        .enumerate()
+        .filter_map(|(index, artifact)| {
             optimization_artifact_is_compatible(
-                artifact.metadata(),
+                artifact,
                 compatibility,
                 runtime_abi,
                 backend,
             )
-            .then_some(artifact)
+            .then_some(index)
         })
         .collect::<Vec<_>>();
 
     let fully_optimized_fallbacks = compatible_optimization
         .iter()
-        .filter_map(|artifact| artifact.metadata().optimization())
+        .filter_map(|index| artifacts[*index].optimization())
         .filter(|metadata| optimization_fully_replaces_fallback(metadata, artifacts))
         .map(|metadata| (metadata.fallback().path(), metadata.fallback().digest()))
         .collect::<BTreeSet<_>>();
@@ -454,18 +475,17 @@ fn select_optimization_artifacts(
     let selected = compatible_optimization
         .iter()
         .copied()
-        .chain(artifacts.iter().filter(|artifact| {
-            artifact.metadata().kind()
+        .chain(artifacts.iter().enumerate().filter_map(|(index, artifact)| {
+            (artifact.kind()
                 == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
                 && !fully_optimized_fallbacks
-                    .contains(&(artifact.metadata().path(), artifact.metadata().digest()))
+                    .contains(&(artifact.path(), artifact.digest())))
+            .then_some(index)
         }))
-        .cloned()
         .collect::<Vec<_>>();
 
-    if !selected.iter().any(|artifact| {
-        artifact
-            .metadata()
+    if !selected.iter().any(|index| {
+        artifacts[*index]
             .optimization()
             .is_some_and(|metadata| metadata.partition() == "std")
     }) {
@@ -481,12 +501,12 @@ fn select_optimization_artifacts(
 
 fn optimization_fully_replaces_fallback(
     optimization: &bray_standard_library::StandardLibraryOptimizationMetadata,
-    artifacts: &[bray_standard_library::ResolvedStandardLibraryArtifact],
+    artifacts: &[&bray_standard_library::StandardLibraryArtifact],
 ) -> bool {
     artifacts.iter().any(|artifact| {
-        artifact.metadata().path() == optimization.fallback().path()
-            && artifact.metadata().digest() == optimization.fallback().digest()
-            && optimization_covers_fallback(optimization, artifact.metadata())
+        artifact.path() == optimization.fallback().path()
+            && artifact.digest() == optimization.fallback().digest()
+            && optimization_covers_fallback(optimization, artifact)
     })
 }
 
@@ -594,7 +614,7 @@ mod tests {
 
     use super::{
         optimization_artifact_is_compatible, optimization_covers_fallback,
-        standard_library_artifact_provenance,
+        select_optimization_artifact_indices, standard_library_artifact_provenance,
     };
 
     #[test]
@@ -668,12 +688,50 @@ mod tests {
 
         assert!(!optimization_covers_fallback(&optimization, &fallback));
 
-        let complete = optimization.with_platform_services([
+        let complete = optimization.clone().with_platform_services([
             PlatformServiceRole::ContextNativeTextWidth,
             PlatformServiceRole::TimeDateValidate,
         ]);
 
         assert!(optimization_covers_fallback(&complete, &fallback));
+
+        let standard_library = optimization_artifact(
+            &contract,
+            RuntimeAbiVersion::new(1, 0),
+            &backend,
+        );
+
+        let provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "targets/test/libprovider_optimization.a",
+            b"optimization",
+        )
+        .map(|artifact| artifact.with_optimization(optimization))
+        .unwrap_or_else(|error| panic!("test optimization artifact must be valid: {error:?}"));
+
+        let artifacts = [&fallback, &standard_library, &provider];
+
+        let selected = select_optimization_artifact_indices(
+            &artifacts,
+            &contract,
+            RuntimeAbiVersion::new(1, 0),
+            &backend,
+        )
+        .unwrap_or_else(|error| panic!("test optimization selection must be valid: {error:?}"));
+
+        let selected_paths = selected
+            .into_iter()
+            .map(|index| artifacts[index].path())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected_paths,
+            [
+                standard_library.path(),
+                provider.path(),
+                fallback.path(),
+            ]
+        );
     }
 
     #[test]
