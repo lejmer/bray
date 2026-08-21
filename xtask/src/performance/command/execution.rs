@@ -202,11 +202,19 @@ fn optimization_artifacts(
 
             let fallback = optimization.fallback().path();
 
-            let selected_by_workloads = workloads
+            let mut selected_by_workloads = workloads
                 .iter()
-                .filter(|workload| workload_selects_fallback(workload, fallback))
+                .filter(|workload| {
+                    workload_selects_optimization(
+                        workload,
+                        optimization.partition(),
+                        fallback,
+                    )
+                })
                 .map(|workload| workload.id.clone())
-                .collect();
+                .collect::<Vec<_>>();
+
+            selected_by_workloads.sort();
 
             Ok(OptimizationArtifactReport {
                 partition: optimization.partition().to_owned(),
@@ -219,7 +227,11 @@ fn optimization_artifacts(
         .collect()
 }
 
-fn workload_selects_fallback(workload: &WorkloadReport, fallback: &str) -> bool {
+fn workload_selects_optimization(
+    workload: &WorkloadReport,
+    partition: &str,
+    fallback: &str,
+) -> bool {
     workload.artifacts.iter().any(|artifact| {
         artifact
             .dependencies
@@ -227,6 +239,18 @@ fn workload_selects_fallback(workload: &WorkloadReport, fallback: &str) -> bool 
             .entries
             .iter()
             .any(|archive| archive_matches_fallback(archive, fallback))
+            || artifact
+                .dependencies
+                .static_inputs
+                .entries
+                .iter()
+                .any(|input| {
+                    input.artifact.contains(partition)
+                        || input
+                            .member
+                            .as_deref()
+                            .is_some_and(|member| member.contains(partition))
+                })
     })
 }
 

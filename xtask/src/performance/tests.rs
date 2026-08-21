@@ -205,7 +205,8 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
 fn retention_provenance_ignores_unselected_archive_load_records() {
     let map = "LOAD libbray_platform_process.a\n\
         libbray_platform_filesystem.a(hash-filesystem.o)\n\
-        0000 _run_output_context";
+        0000 _run_output_context bray_platform_core:kernel32.dll\n\
+        0001 bray_platform_standard_output_write output.lto.bray_platform_standard_streams_optimization.libmodule_0002.obj";
 
     assert!(!contains_retained_provenance(map, "bray_platform_process"));
 
@@ -214,7 +215,24 @@ fn retention_provenance_ignores_unselected_archive_load_records() {
         "bray_platform_filesystem"
     ));
 
-    assert!(contains_retained_provenance(map, "run_output_context"));
+    assert!(contains_retained_provenance(
+        map,
+        "bray_platform_standard_streams"
+    ));
+
+    let inputs = retained_inputs_for_test(map);
+
+    assert!(
+        !inputs
+            .iter()
+            .any(|input| input.artifact.contains("bray_platform_process"))
+    );
+
+    assert!(
+        !inputs
+            .iter()
+            .any(|input| input.artifact.contains("bray_platform_core"))
+    );
 }
 
 #[test]

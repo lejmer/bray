@@ -158,7 +158,7 @@ fn parse_needed_libraries(report: &str) -> Vec<String> {
 fn parse_retained_inputs(map: &str) -> Vec<RetainedInput> {
     let mut inputs = BTreeSet::new();
 
-    for token in map.split_whitespace() {
+    for token in retained_map_tokens(map) {
         let token = token.trim_matches(|character: char| matches!(character, ',' | ';' | '"'));
 
         if let Some((artifact, member)) = archive_member(token) {
@@ -171,7 +171,7 @@ fn parse_retained_inputs(map: &str) -> Vec<RetainedInput> {
                 artifact: artifact.to_owned(),
                 member: Some(member.to_owned()),
             });
-        } else if is_native_input(token) {
+        } else if is_standalone_native_input(token) {
             inputs.insert(RetainedInput {
                 artifact: token.to_owned(),
                 member: None,
@@ -185,18 +185,19 @@ fn parse_retained_inputs(map: &str) -> Vec<RetainedInput> {
 pub(super) fn contains_retained_provenance(map: &str, expected: &str) -> bool {
     let expected = expected.to_ascii_lowercase();
 
-    map.split_whitespace().any(|token| {
-        let token = token.trim_matches(|character: char| matches!(character, ',' | ';' | '"'));
-
-        if let Some((artifact, member)) =
-            archive_member(token).or_else(|| microsoft_archive_member(token))
-        {
-            return artifact.to_ascii_lowercase().contains(&expected)
-                || member.to_ascii_lowercase().contains(&expected);
-        }
-
-        !is_native_input(token) && token.to_ascii_lowercase().contains(&expected)
+    parse_retained_inputs(map).iter().any(|input| {
+        input.artifact.to_ascii_lowercase().contains(&expected)
+            || input
+                .member
+                .as_deref()
+                .is_some_and(|member| member.to_ascii_lowercase().contains(&expected))
     })
+}
+
+fn retained_map_tokens(map: &str) -> impl Iterator<Item = &str> {
+    map.lines()
+        .filter(|line| !line.trim_start().starts_with("LOAD "))
+        .flat_map(str::split_whitespace)
 }
 
 fn microsoft_archive_member(token: &str) -> Option<(&str, &str)> {
@@ -226,6 +227,18 @@ fn is_native_input(value: &str) -> bool {
         || [".o", ".obj", ".so", ".dylib", ".dll"]
             .iter()
             .any(|suffix| value.to_ascii_lowercase().ends_with(suffix))
+}
+
+fn is_standalone_native_input(value: &str) -> bool {
+    let colon = value.find(':');
+
+    let has_windows_drive = colon == Some(1)
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic());
+
+    is_native_input(value) && (colon.is_none() || has_windows_drive)
 }
 
 fn is_archive(value: &str) -> bool {
