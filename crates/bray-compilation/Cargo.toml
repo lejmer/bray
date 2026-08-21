@@ -38,6 +38,7 @@ bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-codegen-llvm = { path = "../bray-codegen-llvm" }
 bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
+bray-standard-library = { path = "../bray-standard-library", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 serde_json = "1"
 tempfile = "3"

@@ -76,8 +76,61 @@ impl NativeProductPlan {
         &self.static_instances
     }
 
+    /// Returns public definitions and lifecycle records preserved during product optimization.
+    pub fn preservation_roots(
+        &self,
+    ) -> impl Iterator<Item = &bray_runtime_interface::BinarySymbolName> {
+        let definitions = self
+            .mappings
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .filter(|symbol| is_preservation_root(symbol.linkage()))
+            .map(bray_codegen::CodegenSymbolMapping::name);
+
+        let lifecycle = self.product_host.iter().flat_map(|host| {
+            [host.descriptor_symbol(), host.control_symbol()]
+                .into_iter()
+                .chain(
+                    host.statics()
+                        .iter()
+                        .map(bray_codegen::CodegenProductHostStatic::host_symbol),
+                )
+        });
+
+        definitions.chain(lifecycle)
+    }
+
     /// Returns the compiler-generated loaded-product host contract.
     pub const fn product_host(&self) -> Option<&bray_codegen::CodegenProductHostMapping> {
         self.product_host.as_ref()
+    }
+}
+
+const fn is_preservation_root(linkage: bray_codegen::CodegenLinkage) -> bool {
+    matches!(
+        linkage,
+        bray_codegen::CodegenLinkage::External
+            | bray_codegen::CodegenLinkage::Weak
+            | bray_codegen::CodegenLinkage::Export
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::CodegenLinkage;
+
+    use super::is_preservation_root;
+
+    #[test]
+    fn preservation_roots_include_only_public_definitions() {
+        assert!(is_preservation_root(CodegenLinkage::External));
+        assert!(is_preservation_root(CodegenLinkage::Weak));
+        assert!(is_preservation_root(CodegenLinkage::Export));
+
+        assert!(!is_preservation_root(CodegenLinkage::Private));
+        assert!(!is_preservation_root(CodegenLinkage::Internal));
+        assert!(!is_preservation_root(CodegenLinkage::LinkOnce));
+        assert!(!is_preservation_root(CodegenLinkage::Common));
+        assert!(!is_preservation_root(CodegenLinkage::Import));
     }
 }

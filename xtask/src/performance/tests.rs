@@ -19,9 +19,10 @@ use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, CompilationBuildReport,
     CompilationComparability, CompilationEvidenceReport, CompilationIncomparability,
     CompilationKind, CompilationLanguage, CompilationReuseEvidence, LibraryReuse,
-    LinkerInvocationReport, LinkerMapReport, Observation, PeerBatching, PeerLanguage, PeerReport,
-    PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION, ToolInvocationReport,
-    WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
+    LinkerInvocationReport, LinkerMapReport, Observation, OptimizationArtifactReport,
+    PeerBatching, PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage,
+    SCHEMA_REVISION, ToolInvocationReport, WorkloadBatching, WorkloadCategory,
+    WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -276,6 +277,7 @@ fn compilation_reuse_excludes_application_owned_objects() {
             bytes: 1,
             sections: bounded(Vec::new()),
             dependencies: ArtifactDependencies {
+                static_archives: bounded(vec!["std.lib".to_owned()]),
                 static_inputs: bounded(vec![
                     super::model::RetainedInput {
                         artifact: "application.o".to_owned(),
@@ -857,6 +859,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                     bytes: 15,
                 }]),
                 dependencies: ArtifactDependencies {
+                    static_archives: bounded(vec!["peer-runtime.lib".to_owned()]),
                     static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
                     dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
                 },
@@ -996,6 +999,13 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         },
         library_compilation,
         application_compilation,
+        optimization_artifacts: vec![OptimizationArtifactReport {
+            partition: "std".to_owned(),
+            path: "targets/x86_64-pc-windows-msvc/1.0/std_optimization.lib".to_owned(),
+            bytes: 2048,
+            fallback: "targets/x86_64-pc-windows-msvc/1.0/std.lib".to_owned(),
+            selected_by_workloads: vec!["small_output".to_owned()],
+        }],
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),
             peer_contract: "start and complete an empty program once".to_owned(),
@@ -1023,6 +1033,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                     bytes: 20,
                 }]),
                 dependencies: ArtifactDependencies {
+                    static_archives: bounded(vec!["runtime.lib".to_owned()]),
                     static_inputs: bounded(vec![retained("runtime.lib", "startup.o")]),
                     dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
                 },

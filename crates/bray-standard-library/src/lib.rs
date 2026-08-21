@@ -16,9 +16,16 @@ pub use identity::{
 pub use manifest::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
-    StandardLibraryManifestError, StandardLibraryTargetArtifacts, decode_standard_library_manifest,
-    encode_standard_library_manifest, standard_library_target_artifact_directory,
+    StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
+    StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
+    StandardLibraryOptimizationSemantics, StandardLibraryTargetArtifacts,
+    decode_standard_library_manifest, encode_standard_library_manifest,
+    standard_library_target_artifact_directory,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use manifest::target_artifacts_for_test;
 pub use resolver::{
     ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,
 };

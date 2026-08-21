@@ -15,8 +15,9 @@ use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
-    StandardLibraryBundleManifest, StandardLibraryLoadError, StandardLibraryResolver,
-    StandardLibraryRoot,
+    StandardLibraryArtifactKind, StandardLibraryBundleManifest, StandardLibraryLoadError,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationProducerKind,
+    StandardLibraryResolver, StandardLibraryRoot,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
@@ -27,7 +28,16 @@ pub(super) fn verify(scratch: &Path) -> Result<(), BuildError> {
     let first = scratch.join("first");
     let second = scratch.join("second");
     let source = scratch.join("source");
+    let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
+    let target = NativeTarget::current().ok_or_else(|| {
+        BuildError::conformance(
+            "production-build",
+            "the compiler host has no supported native target",
+        )
+    })?;
+
+    super::optimization::verify_relocated_native_modules(&root, scratch, target)?;
     write_synthetic_project(&source)?;
     build(&source, &first)?;
     build(&source, &second)?;
@@ -41,6 +51,7 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     let resolver = resolver(bundle)?;
 
     verify_package_interfaces(&resolver, &manifest)?;
+    verify_optimization_artifacts(&resolver, &manifest)?;
     verify_configured_root(bundle)?;
     verify_target_selection(&resolver, &manifest)?;
     verify_missing_artifact_diagnostic(bundle, &scratch.join("missing-artifact"))?;
@@ -89,8 +100,79 @@ fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {
 
     write_file(
         &root.join("std").join("src").join("std.bray"),
-        "module std;\n",
+        "module std;\n\nfunc identity(value: i32) -> i32\n{\n    return value;\n}\n",
     )
+}
+
+fn verify_optimization_artifacts(
+    resolver: &StandardLibraryResolver,
+    manifest: &StandardLibraryBundleManifest,
+) -> Result<(), BuildError> {
+    for target in manifest.targets() {
+        let artifacts = resolver
+            .target_artifacts(target.target(), target.runtime_abi())
+            .map_err(|error| BuildError::conformance("optimization-artifact", format!("{error:?}")))?;
+
+        let optimization_artifacts = artifacts
+            .iter()
+            .filter(|artifact| {
+                artifact.metadata().kind() == StandardLibraryArtifactKind::OptimizationArchive
+            })
+            .collect::<Vec<_>>();
+
+        if optimization_artifacts.is_empty() {
+            return Err(BuildError::conformance(
+                "optimization-artifact",
+                format!(
+                    "{} has no optimization archive",
+                    target.target().as_str()
+                ),
+            ));
+        }
+
+        if optimization_artifacts
+            .iter()
+            .any(|artifact| !artifact.bytes().starts_with(b"!<arch>\n"))
+        {
+            return Err(BuildError::conformance(
+                "optimization-artifact",
+                format!(
+                    "{} has an invalid optimization archive",
+                    target.target().as_str()
+                ),
+            ));
+        }
+
+        for artifact in optimization_artifacts {
+            let optimization = artifact.metadata().optimization().ok_or_else(|| {
+                BuildError::conformance(
+                    "optimization-artifact",
+                    "optimization archive has no selection metadata",
+                )
+            })?;
+
+            if optimization.producer().kind()
+                == StandardLibraryOptimizationProducerKind::PinnedNative
+                && !optimization.dependencies().is_empty()
+                && [
+                    StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
+                    StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
+                ]
+                .iter()
+                .any(|root| !optimization.lifecycle_roots().contains(root))
+            {
+                return Err(BuildError::conformance(
+                    "optimization-artifact",
+                    format!(
+                        "{} has incomplete lifecycle roots",
+                        optimization.partition()
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<(), BuildError> {

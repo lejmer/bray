@@ -41,6 +41,25 @@ pub(crate) fn build_no_std_rust_static_library(
     build_rust_static_library_with_options(root, target, package, profile, features, true)
 }
 
+pub(crate) fn build_thin_lto_rust_static_library(
+    root: &Path,
+    target: NativeTarget,
+    package: &str,
+    profile: &str,
+    features: &[&str],
+    abort_on_panic: bool,
+) -> Result<RustStaticLibrary, BuildError> {
+    build_rust_static_library_with_configuration(
+        root,
+        target,
+        package,
+        profile,
+        features,
+        abort_on_panic,
+        NativeCompilation::ThinLto,
+    )
+}
+
 fn build_rust_static_library_with_options(
     root: &Path,
     target: NativeTarget,
@@ -49,7 +68,44 @@ fn build_rust_static_library_with_options(
     features: &[&str],
     abort_on_panic: bool,
 ) -> Result<RustStaticLibrary, BuildError> {
-    let target_directory = crate::workspace::cargo_target(root);
+    build_rust_static_library_with_configuration(
+        root,
+        target,
+        package,
+        profile,
+        features,
+        abort_on_panic,
+        NativeCompilation::Object,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum NativeCompilation {
+    Object,
+    ThinLto,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct NativeTools {
+    compiler: &'static str,
+    cpp_compiler: &'static str,
+    archiver: &'static str,
+}
+
+fn build_rust_static_library_with_configuration(
+    root: &Path,
+    target: NativeTarget,
+    package: &str,
+    profile: &str,
+    features: &[&str],
+    abort_on_panic: bool,
+    native_compilation: NativeCompilation,
+) -> Result<RustStaticLibrary, BuildError> {
+    let target_directory = match native_compilation {
+        NativeCompilation::Object => crate::workspace::cargo_target(root),
+        NativeCompilation::ThinLto => crate::workspace::cargo_target(root).join("thin-lto-native"),
+    };
+
     let mut command = Command::new("cargo");
 
     command.current_dir(root).args([
@@ -79,12 +135,24 @@ fn build_rust_static_library_with_options(
     }
 
     command.args(["--print", "native-static-libs"]);
-    configure_cross_c_toolchain(&mut command, root, target);
+    configure_c_toolchain(&mut command, root, target, native_compilation);
 
     let output = command.output().map_err(BuildError::Cargo)?;
 
     if !output.status.success() {
-        return Err(BuildError::BuildFailed(package.to_owned()));
+        let standard_output = String::from_utf8_lossy(&output.stdout);
+        let standard_error = String::from_utf8_lossy(&output.stderr);
+
+        let detail = [standard_output.trim(), standard_error.trim()]
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        return Err(BuildError::BuildFailed {
+            package: package.to_owned(),
+            detail,
+        });
     }
 
     let native_links = native_link_requirements(&output)?;
@@ -118,24 +186,94 @@ fn rust_static_library_file_name(target: NativeTarget, package: &str) -> String 
     name
 }
 
-fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: NativeTarget) {
-    if !cfg!(windows) || target != NativeTarget::X86_64LinuxGnu {
+fn configure_c_toolchain(
+    command: &mut Command,
+    root: &Path,
+    target: NativeTarget,
+    compilation: NativeCompilation,
+) {
+    if matches!(compilation, NativeCompilation::ThinLto) {
+        let tools = native_tools(target);
+        let flags = thin_lto_flags(root);
+
+        command
+            .env(
+                target_environment("CC", target),
+                bray_llvm_toolchain::tool_path(root, tools.compiler),
+            )
+            .env(
+                target_environment("CXX", target),
+                bray_llvm_toolchain::tool_path(root, tools.cpp_compiler),
+            )
+            .env(
+                target_environment("AR", target),
+                bray_llvm_toolchain::tool_path(root, tools.archiver),
+            )
+            .env(target_environment("CFLAGS", target), &flags)
+            .env(target_environment("CXXFLAGS", target), flags);
+
         return;
     }
 
-    command
-        .env(
-            "CC_x86_64_unknown_linux_gnu",
-            bray_llvm_toolchain::tool_path(root, "clang"),
-        )
-        .env(
-            "CXX_x86_64_unknown_linux_gnu",
-            bray_llvm_toolchain::tool_path(root, "clang++"),
-        )
-        .env(
-            "AR_x86_64_unknown_linux_gnu",
-            bray_llvm_toolchain::tool_path(root, "llvm-ar"),
-        );
+    if cfg!(windows) && target == NativeTarget::X86_64LinuxGnu {
+        command
+            .env(
+                "CC_x86_64_unknown_linux_gnu",
+                bray_llvm_toolchain::tool_path(root, "clang"),
+            )
+            .env(
+                "CXX_x86_64_unknown_linux_gnu",
+                bray_llvm_toolchain::tool_path(root, "clang++"),
+            )
+            .env(
+                "AR_x86_64_unknown_linux_gnu",
+                bray_llvm_toolchain::tool_path(root, "llvm-ar"),
+            );
+    }
+}
+
+fn thin_lto_flags(root: &Path) -> String {
+    thin_lto_arguments(root)
+        .into_iter()
+        .map(|argument| {
+            if argument.contains(' ') {
+                format!("\"{argument}\"")
+            } else {
+                argument
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn thin_lto_arguments(root: &Path) -> [String; 3] {
+    let root = crate::path::slash_separated(root);
+
+    [
+        "-flto=thin".to_owned(),
+        format!("-ffile-prefix-map={root}=."),
+        "-fdebug-compilation-dir=.".to_owned(),
+    ]
+}
+
+fn native_tools(target: NativeTarget) -> NativeTools {
+    if target.object_format() == bray_target::ObjectFormat::Coff {
+        NativeTools {
+            compiler: "clang-cl",
+            cpp_compiler: "clang-cl",
+            archiver: "llvm-lib",
+        }
+    } else {
+        NativeTools {
+            compiler: "clang",
+            cpp_compiler: "clang++",
+            archiver: "llvm-ar",
+        }
+    }
+}
+
+fn target_environment(prefix: &str, target: NativeTarget) -> String {
+    format!("{prefix}_{}", target.as_str().replace('-', "_"))
 }
 
 fn native_link_requirements(output: &Output) -> Result<Vec<NativeLinkRequirement>, BuildError> {
@@ -189,7 +327,10 @@ fn profile_directory(profile: &str) -> &str {
 #[derive(Debug)]
 pub(crate) enum BuildError {
     Cargo(std::io::Error),
-    BuildFailed(String),
+    BuildFailed {
+        package: String,
+        detail: String,
+    },
     MissingArchive(PathBuf),
     MissingNativeLinks,
     InvalidNativeLink,
@@ -199,8 +340,14 @@ impl fmt::Display for BuildError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
-            Self::BuildFailed(package) => {
-                write!(formatter, "native archive build failed for {package}")
+            Self::BuildFailed { package, detail } => {
+                write!(formatter, "native archive build failed for {package}")?;
+
+                if !detail.is_empty() {
+                    write!(formatter, "\n{detail}")?;
+                }
+
+                Ok(())
             }
             Self::MissingArchive(path) => {
                 write!(
@@ -223,7 +370,48 @@ impl fmt::Display for BuildError {
 mod tests {
     use bray_symbols::NativeLinkKind;
 
-    use super::{parse_native_link_arguments, rust_static_library_file_name};
+    use super::{
+        NativeTools, native_tools, parse_native_link_arguments, rust_static_library_file_name,
+        thin_lto_flags,
+    };
+
+    #[test]
+    fn optimization_native_tools_follow_the_target_object_format() {
+        assert_eq!(
+            native_tools(bray_target::NativeTarget::X86_64WindowsMsvc),
+            NativeTools {
+                compiler: "clang-cl",
+                cpp_compiler: "clang-cl",
+                archiver: "llvm-lib",
+            }
+        );
+
+        assert_eq!(
+            native_tools(bray_target::NativeTarget::X86_64LinuxGnu),
+            NativeTools {
+                compiler: "clang",
+                cpp_compiler: "clang++",
+                archiver: "llvm-ar",
+            }
+        );
+
+        assert_eq!(
+            native_tools(bray_target::NativeTarget::Aarch64MacOs),
+            NativeTools {
+                compiler: "clang",
+                cpp_compiler: "clang++",
+                archiver: "llvm-ar",
+            }
+        );
+    }
+
+    #[test]
+    fn optimization_native_flags_remove_checkout_identity() {
+        assert_eq!(
+            thin_lto_flags(std::path::Path::new("C:\\work space\\bray")),
+            "-flto=thin \"-ffile-prefix-map=C:/work space/bray=.\" -fdebug-compilation-dir=."
+        );
+    }
 
     #[test]
     fn rust_static_library_names_follow_cargo_target_conventions() {

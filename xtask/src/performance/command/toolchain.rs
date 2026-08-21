@@ -29,14 +29,19 @@ pub(super) struct PreparedToolchain {
     runtime: PathBuf,
     observation_runtime: PathBuf,
     toolchain: PathBuf,
+    standard_library: PathBuf,
 }
 
 impl PreparedToolchain {
     fn from_root(root: PathBuf) -> Self {
+        let toolchain = root.join("toolchain");
+        let standard_library = toolchain.join("lib/bray/standard-library");
+
         Self {
             runtime: root.join("runtime").join("bray-runtime.brayrt"),
             observation_runtime: root.join("observation-runtime").join("bray-runtime.brayrt"),
-            toolchain: root.join("toolchain"),
+            toolchain,
+            standard_library,
         }
     }
 
@@ -50,6 +55,10 @@ impl PreparedToolchain {
 
     pub(super) fn toolchain(&self) -> &Path {
         &self.toolchain
+    }
+
+    pub(super) fn standard_library(&self) -> &Path {
+        &self.standard_library
     }
 }
 
@@ -120,11 +129,8 @@ fn cache_is_complete(cache: &Path) -> bool {
         cache
             .join("observation-runtime")
             .join("bray-runtime.brayrt"),
-        cache
-            .join("toolchain")
-            .join("lib")
-            .join("bray")
-            .join("standard-library")
+        PreparedToolchain::from_root(cache.to_path_buf())
+            .standard_library()
             .join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME),
     ]
     .into_iter()

@@ -38,12 +38,15 @@ pub(super) fn inspect(
     }
 
     let inspection = String::from_utf8_lossy(&output.stdout);
-    let linker_map = map.map(inspect_map).transpose()?;
 
-    let static_inputs = linker_map
-        .as_ref()
-        .map(|inspection| inspection.retained_inputs.clone())
-        .unwrap_or_else(empty_list);
+    let (linker_map, static_archives, static_inputs) = match map.map(inspect_map).transpose()? {
+        Some(inspection) => (
+            Some(inspection.report),
+            inspection.retained_archives,
+            inspection.retained_inputs,
+        ),
+        None => (None, empty_list(), empty_list()),
+    };
 
     Ok(ArtifactReport {
         kind,
@@ -51,18 +54,20 @@ pub(super) fn inspect(
         bytes: metadata.len(),
         sections: bounded(parse_sections(&inspection), MAX_SECTION_COUNT),
         dependencies: ArtifactDependencies {
+            static_archives,
             static_inputs,
             dynamic_libraries: bounded(
                 parse_needed_libraries(&inspection),
                 MAX_DYNAMIC_LIBRARY_COUNT,
             ),
         },
-        linker_map: linker_map.map(|inspection| inspection.report),
+        linker_map,
     })
 }
 
 struct InspectedLinkerMap {
     report: LinkerMapReport,
+    retained_archives: BoundedList<String>,
     retained_inputs: BoundedList<RetainedInput>,
 }
 
@@ -72,6 +77,10 @@ fn inspect_map(path: &Path) -> Result<InspectedLinkerMap, String> {
 
     let text = String::from_utf8_lossy(&bytes);
 
+    let retained_inputs = parse_retained_inputs(&text);
+
+    let retained_archives = retained_archives(&retained_inputs);
+
     Ok(InspectedLinkerMap {
         report: LinkerMapReport {
             bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
@@ -79,8 +88,19 @@ fn inspect_map(path: &Path) -> Result<InspectedLinkerMap, String> {
                 format!("could not hash linker map {}: {error}", path.display())
             })?),
         },
-        retained_inputs: bounded(parse_retained_inputs(&text), MAX_RETAINED_INPUT_COUNT),
+        retained_archives: bounded(retained_archives, MAX_RETAINED_INPUT_COUNT),
+        retained_inputs: bounded(retained_inputs, MAX_RETAINED_INPUT_COUNT),
     })
+}
+
+fn retained_archives(inputs: &[RetainedInput]) -> Vec<String> {
+    inputs
+        .iter()
+        .filter(|input| input.member.is_some() || is_archive(&input.artifact))
+        .map(|input| input.artifact.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn parse_sections(report: &str) -> Vec<SectionSize> {
@@ -251,5 +271,25 @@ fn empty_list<T>() -> BoundedList<T> {
     BoundedList {
         entries: Vec::new(),
         omitted_count: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_retained_inputs, retained_archives};
+
+    #[test]
+    fn retained_archive_inventory_is_unique_and_sorted() {
+        let inputs = parse_retained_inputs(
+            "std.lib:first.obj bray_platform_standard_streams:output.obj std.lib:second.obj",
+        );
+
+        assert_eq!(
+            retained_archives(&inputs),
+            [
+                "bray_platform_standard_streams".to_owned(),
+                "std.lib".to_owned()
+            ]
+        );
     }
 }

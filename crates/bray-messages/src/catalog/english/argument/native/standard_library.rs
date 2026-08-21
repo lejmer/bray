@@ -38,6 +38,12 @@ pub(crate) const fn format_english_standard_library_manifest_problem(
         DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService => {
             "native operation appears in multiple support libraries"
         }
+        DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata => {
+            "invalid native optimization metadata"
+        }
+        DiagnosticStandardLibraryManifestProblem::InvalidOptimizationFallback => {
+            "native optimization fallback does not match the packaged artifact"
+        }
         DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch => "bundle digest mismatch",
         DiagnosticStandardLibraryManifestProblem::LengthExceeded => {
             "value exceeds the manifest size limit"
