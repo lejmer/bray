@@ -47,6 +47,7 @@ fn gnu_compiler_arguments(
         plan.policy().optimization(),
         LinkTimeOptimizationPolicy::ThinLto { .. }
     ) {
+        arguments.push("-fuse-ld=lld".into());
         arguments.push("-flto=thin".into());
     }
 
@@ -160,6 +161,7 @@ fn apple_compiler_arguments(
         plan.policy().optimization(),
         LinkTimeOptimizationPolicy::ThinLto { .. }
     ) {
+        arguments.push("-fuse-ld=lld".into());
         arguments.push("-flto=thin".into());
     }
 
@@ -967,6 +969,11 @@ mod tests {
 
             assert!(
                 compiler.contains(&OsString::from("-flto=thin")),
+                "{family:?}"
+            );
+
+            assert!(
+                compiler.contains(&OsString::from("-fuse-ld=lld")),
                 "{family:?}"
             );
 

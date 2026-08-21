@@ -451,18 +451,15 @@ fn select_optimization_artifacts(
         .map(|metadata| (metadata.fallback().path(), metadata.fallback().digest()))
         .collect::<BTreeSet<_>>();
 
-    let selected = artifacts
+    let selected = compatible_optimization
         .iter()
-        .filter(|artifact| {
-            if compatible_optimization.contains(artifact) {
-                return true;
-            }
-
+        .copied()
+        .chain(artifacts.iter().filter(|artifact| {
             artifact.metadata().kind()
                 == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
                 && !fully_optimized_fallbacks
                     .contains(&(artifact.metadata().path(), artifact.metadata().digest()))
-        })
+        }))
         .cloned()
         .collect::<Vec<_>>();
 
