@@ -14,7 +14,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::debug_info::DISubprogram;
 use inkwell::module::Module;
-use inkwell::types::StructType;
+use inkwell::types::{BasicType, StructType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -149,6 +149,14 @@ pub(super) struct PerformanceLoop<'context> {
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn allocate_temporary(
+        &self,
+        ty: impl BasicType<'context>,
+        name: &str,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        crate::translation::allocate_temporary(self.types.context(), &self.builder, ty, name)
+    }
+
     pub(super) fn type_mapping(
         &self,
         ty: bray_symbols::TypeId,

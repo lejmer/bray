@@ -96,10 +96,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 };
 
-                let storage = llvm(
-                    self.builder
-                        .build_alloca(self.types.map(ty)?, "entry.result"),
-                )?;
+                let ty = self.types.map(ty)?;
+                let storage = self.allocate_temporary(ty, "entry.result")?;
 
                 llvm(self.builder.build_store(storage, result))?;
 
@@ -274,10 +272,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         completed: inkwell::values::IntValue<'context>,
         result_type: inkwell::types::BasicTypeEnum<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let fallback = llvm(
-            self.builder
-                .build_alloca(result_type, "root.completion.fallback"),
-        )?;
+        let fallback = self.allocate_temporary(result_type, "root.completion.fallback")?;
 
         llvm(self.builder.build_store(fallback, result_type.const_zero()))?;
 

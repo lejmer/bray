@@ -107,9 +107,12 @@ pub(crate) fn invoke_function<'context>(
             .map(|call| call.try_as_basic_value().basic());
     };
 
-    let storage = builder
-        .build_alloca(result, &format!("{name}.result"))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+    let storage = crate::translation::allocate_temporary(
+        context,
+        builder,
+        result,
+        &format!("{name}.result"),
+    )?;
 
     let arguments = std::iter::once(storage.into())
         .chain(arguments.iter().copied())

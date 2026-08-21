@@ -165,7 +165,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         tag: bray_symbols::TypeId,
         variants: &[bray_codegen::CodegenUnionVariantLayout],
     ) -> Result<(), CodegenFailure> {
-        let storage = llvm(self.builder.build_alloca(value.get_type(), "copy.union"))?;
+        let storage = self.allocate_temporary(value.get_type(), "copy.union")?;
 
         llvm(self.builder.build_store(storage, value))?;
 
@@ -610,7 +610,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let llvm_type = self.types.map(ty)?;
-        let storage = llvm(self.builder.build_alloca(llvm_type, "constant.union"))?;
+        let storage = self.allocate_temporary(llvm_type, "constant.union")?;
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 

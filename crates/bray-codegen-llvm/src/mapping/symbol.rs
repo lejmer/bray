@@ -97,7 +97,10 @@ fn apply_linkage(
 
     function.set_linkage(linkage);
 
-    if mapping.linkage() == CodegenLinkage::Internal {
+    if matches!(
+        mapping.linkage(),
+        CodegenLinkage::Internal | CodegenLinkage::LinkOnce
+    ) {
         function
             .as_global_value()
             .set_visibility(GlobalVisibility::Hidden);
@@ -478,6 +481,11 @@ mod tests {
         );
 
         assert_eq!(function.get_linkage(), Linkage::WeakODR);
+
+        assert_eq!(
+            function.as_global_value().get_visibility(),
+            inkwell::GlobalVisibility::Hidden
+        );
     }
 
     #[test]
