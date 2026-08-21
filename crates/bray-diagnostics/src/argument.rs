@@ -30,8 +30,8 @@ pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,
 };
 pub use linking::{
-    DiagnosticLinkInputKind, DiagnosticLinkRequirement, DiagnosticLinkRequirementKind,
-    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
+    DiagnosticLinkInputKind, DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
+    DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
 };
 pub use model::DiagnosticArg;
 pub use protocol::{DiagnosticArgName, DiagnosticArgValue};

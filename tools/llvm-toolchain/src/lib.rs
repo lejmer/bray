@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod command;
+mod instrumentation;
 mod workspace;
 
 pub use command::{run, tool_path};

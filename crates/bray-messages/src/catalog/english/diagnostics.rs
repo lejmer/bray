@@ -241,6 +241,10 @@ const LINKER_OUTPUT_INVALID: &[MessageTemplatePart] = &[
 const LINKER_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "the native linker could not acquire an external-process slot",
 )];
+const LINKER_OPTIMIZATION_REPORT_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the native linker optimization report is invalid because "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkOptimizationReportProblem),
+];
 
 const SOURCE_TOO_MANY_INPUTS: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("cannot load "),
@@ -2666,6 +2670,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::LinkerOutputMissing => MessageTemplate::new(LINKER_OUTPUT_MISSING),
         DiagnosticKind::LinkerOutputInvalid => MessageTemplate::new(LINKER_OUTPUT_INVALID),
         DiagnosticKind::LinkerResourceExhausted => MessageTemplate::new(LINKER_RESOURCE_EXHAUSTED),
+        DiagnosticKind::LinkerOptimizationReportInvalid => {
+            MessageTemplate::new(LINKER_OPTIMIZATION_REPORT_INVALID)
+        }
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision
         | DiagnosticKind::InterfaceUnsupportedLanguageRevision

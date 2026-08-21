@@ -38,7 +38,8 @@ pub use argument::{
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
     DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticLinkOptimizationReportProblem, DiagnosticStandardLibraryManifestProblem,
+    DiagnosticStandardLibraryOptimizationMetadataProblem,
     DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;

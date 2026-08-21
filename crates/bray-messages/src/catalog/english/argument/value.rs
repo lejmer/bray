@@ -18,7 +18,8 @@ use super::native::{
     format_english_dependency_requirement, format_english_dependency_subject,
     format_english_document_parse_kind, format_english_external_tool_exit,
     format_english_external_tool_failure, format_english_external_tool_operation,
-    format_english_link_requirement, format_english_linker_driver_identity,
+    format_english_link_optimization_report_problem, format_english_link_requirement,
+    format_english_linker_driver_identity,
     format_english_native_product_failure, format_english_runtime_artifact_problem,
     format_english_standard_library_manifest_problem, format_english_unsupported_emission_reason,
 };
@@ -169,6 +170,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::ExternalToolExit(exit) => format_english_external_tool_exit(exit),
         DiagnosticArgValue::LinkRequirement(requirement) => {
             format_english_link_requirement(requirement)
+        }
+        DiagnosticArgValue::LinkOptimizationReportProblem(problem) => {
+            format_english_link_optimization_report_problem(*problem).to_owned()
         }
         DiagnosticArgValue::DocumentParseKind(kind) => {
             format_english_document_parse_kind(*kind).to_owned()

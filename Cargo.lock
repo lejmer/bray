@@ -390,6 +390,8 @@ dependencies = [
  "bray-symbols",
  "bray-target",
  "bray-testing",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

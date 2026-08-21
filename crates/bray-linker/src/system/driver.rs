@@ -8,6 +8,7 @@ use super::{SystemLinkerConfiguration, SystemLinkerFamily};
 use crate::capability::system_driver_capabilities;
 use crate::command::system_arguments_for;
 use crate::outcome::failed_outcome;
+use crate::optimization::OptimizationReportRequest;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkerDriver, LinkerDriverCapabilities,
@@ -110,25 +111,110 @@ impl LinkerDriver for SystemLinkerDriver {
             ));
         }
 
-        let invocation = match invocation(&self.configuration, plan, arguments) {
+        let optimization = if matches!(
+            plan.policy().optimization(),
+            crate::LinkTimeOptimizationPolicy::ThinLto { .. }
+        ) {
+            let Some(output) = plan.primary_output() else {
+                return failed_outcome(plan, LinkFailure::DriverIncompatible);
+            };
+
+            let request = OptimizationReportRequest::new(
+                output.destination().path(),
+                current_directory,
+                self.capabilities.identity().toolchain_revision(),
+                plan.target().object_format().as_str(),
+            );
+
+            if let Err(problem) = request.prepare() {
+                return failed_outcome(plan, LinkFailure::OptimizationReport(problem));
+            }
+
+            Some(request)
+        } else {
+            None
+        };
+
+        let additional_environment: Vec<_> = optimization
+            .as_ref()
+            .map(OptimizationReportRequest::environment)
+            .into_iter()
+            .collect();
+
+        let invocation = match invocation(
+            &self.configuration,
+            plan,
+            arguments,
+            &additional_environment,
+        ) {
             Ok(invocation) => invocation,
-            Err(error) => return outcome_from_invocation_error(plan, error),
+            Err(error) => {
+                if let Some(request) = &optimization {
+                    request.abandon();
+                }
+
+                return outcome_from_invocation_error(plan, error);
+            }
         };
 
         let output = match self.host.run(&invocation, cancellation) {
             Ok(output) => output,
-            Err(error) => return LinkOutcome::from_external_tool_failure(plan, error),
+            Err(error) => {
+                if let Some(request) = &optimization {
+                    request.abandon();
+                }
+
+                return LinkOutcome::from_external_tool_failure(plan, error);
+            }
         };
 
         if cancellation.is_cancelled() {
+            if let Some(request) = &optimization {
+                request.abandon();
+            }
+
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
         if !output.success() {
+            if output.exit_code() == Some(86)
+                && let Some(request) = &optimization
+            {
+                let problem = request
+                    .read()
+                    .err()
+                    .unwrap_or(crate::LinkOptimizationReportProblem::Missing);
+
+                request.abandon();
+
+                return failed_outcome(plan, LinkFailure::OptimizationReport(problem));
+            }
+
+            if let Some(request) = &optimization {
+                request.abandon();
+            }
+
             return failed_outcome(plan, LinkFailure::ToolExit(output));
         }
 
-        complete_linked_outputs(plan)
+        let report = match &optimization {
+            Some(request) => match request.read() {
+                Ok(report) => Some(report),
+                Err(problem) => {
+                    request.abandon();
+
+                    return failed_outcome(plan, LinkFailure::OptimizationReport(problem));
+                }
+            },
+            None => None,
+        };
+
+        let outcome = complete_linked_outputs(plan);
+
+        match report {
+            Some(report) => outcome.with_optimization_report(report),
+            None => outcome,
+        }
     }
 }
 
@@ -193,6 +279,7 @@ fn outcome_from_invocation_error(
 mod tests {
     use std::ffi::{OsStr, OsString};
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use bray_diagnostics::DiagnosticKind;
@@ -325,6 +412,311 @@ mod tests {
             SystemLinkerFamily::WslGnuCompiler,
         ] {
             assert!(thin_lto_cache_arguments(family, root, None).is_empty());
+        }
+    }
+
+    #[test]
+    fn thin_lto_links_publish_and_validate_exact_optimization_outcomes() {
+        let input = TemporaryFile::write("main.bc", b"bitcode");
+        let output = TestOutput::new("application.stage");
+
+        let report = br#"{
+            "format": 1,
+            "toolchain": "toolchain-1",
+            "driver": "coff",
+            "imported_functions": 7,
+            "imported_data": 3,
+            "eliminated_functions": 4,
+            "eliminated_data": 2,
+            "eliminated_bytes": 128,
+            "cache_hits": 5,
+            "cache_misses": 2,
+            "cache_writes": 2,
+            "reused_partitions": 5,
+            "peak_resident_bytes": 8192,
+            "active_workers": 2
+        }"#;
+
+        let host = Arc::new(RecordingExternalToolHost::writing_with_optimization_report(
+            output.path(),
+            report,
+        ));
+
+        let identity = driver_identity(LinkerDriverKind::System);
+        let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
+
+        let plan = executable_plan_with_optimization(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::PlatformCompilerDriver,
+            crate::LinkTimeOptimizationPolicy::ThinLto {
+                jobs: std::num::NonZeroUsize::MIN,
+            },
+        );
+
+        let configuration = configuration(SystemLinkerFamily::MicrosoftCompiler, [])
+            .try_with_thin_lto_cache("cache")
+            .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
+
+        let driver = SystemLinkerDriver::try_new(
+            identity,
+            configuration,
+            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
+        )
+        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+
+        let outcome = driver.link(&plan, &|| false);
+
+        let optimization = outcome
+            .optimization()
+            .unwrap_or_else(|| panic!("successful ThinLTO link must publish its report"));
+
+        assert_eq!(optimization.imported_functions(), 7);
+        assert_eq!(optimization.eliminated_bytes(), 128);
+        assert_eq!(optimization.cache_hits(), 5);
+        assert_eq!(optimization.active_workers(), 2);
+
+        let invocation = host.only_invocation();
+
+        let report_path = invocation
+            .environment()
+            .iter()
+            .find_map(|(name, value)| {
+                (name == crate::optimization::REPORT_ENVIRONMENT).then_some(value)
+            })
+            .unwrap_or_else(|| panic!("ThinLTO invocation must name its report destination"));
+
+        assert!(!Path::new(report_path).exists());
+    }
+
+    #[test]
+    fn malformed_thin_lto_reports_fail_with_the_exact_contract_problem() {
+        let input = TemporaryFile::write("main.bc", b"bitcode");
+        let output = TestOutput::new("application.stage");
+
+        let host = Arc::new(RecordingExternalToolHost::writing_with_optimization_report(
+            output.path(),
+            b"{}",
+        ));
+
+        let identity = driver_identity(LinkerDriverKind::System);
+        let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
+
+        let plan = executable_plan_with_optimization(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::PlatformCompilerDriver,
+            crate::LinkTimeOptimizationPolicy::ThinLto {
+                jobs: std::num::NonZeroUsize::MIN,
+            },
+        );
+
+        let configuration = configuration(SystemLinkerFamily::MicrosoftCompiler, [])
+            .try_with_thin_lto_cache("cache")
+            .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
+
+        let driver = SystemLinkerDriver::try_new(
+            identity,
+            configuration,
+            host as Arc<dyn ExternalToolHost>,
+        )
+        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+
+        let outcome = driver.link(&plan, &|| false);
+
+        assert!(matches!(
+            outcome.status(),
+            LinkStatus::Failed(LinkFailure::OptimizationReport(
+                crate::LinkOptimizationReportProblem::Malformed
+            ))
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            outcome.diagnostics(),
+            DiagnosticKind::LinkerOptimizationReportInvalid,
+        );
+    }
+
+    #[test]
+    fn missing_thin_lto_reports_fail_with_the_exact_contract_problem() {
+        let input = TemporaryFile::write("main.bc", b"bitcode");
+        let output = TestOutput::new("application.stage");
+        let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
+        let identity = driver_identity(LinkerDriverKind::System);
+        let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
+
+        let plan = executable_plan_with_optimization(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::PlatformCompilerDriver,
+            crate::LinkTimeOptimizationPolicy::ThinLto {
+                jobs: std::num::NonZeroUsize::MIN,
+            },
+        );
+
+        let configuration = configuration(SystemLinkerFamily::MicrosoftCompiler, [])
+            .try_with_thin_lto_cache("cache")
+            .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
+
+        let driver = SystemLinkerDriver::try_new(
+            identity,
+            configuration,
+            host as Arc<dyn ExternalToolHost>,
+        )
+        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+
+        assert!(matches!(
+            driver.link(&plan, &|| false).status(),
+            LinkStatus::Failed(LinkFailure::OptimizationReport(
+                crate::LinkOptimizationReportProblem::Missing
+            ))
+        ));
+    }
+
+    #[test]
+    fn cancellation_removes_incomplete_thin_lto_reports() {
+        let input = TemporaryFile::write("main.bc", b"bitcode");
+        let output = TestOutput::new("application.stage");
+
+        let host = Arc::new(
+            RecordingExternalToolHost::writing_with_incomplete_optimization_report(
+                output.path(),
+                b"partial",
+            ),
+        );
+
+        let identity = driver_identity(LinkerDriverKind::System);
+        let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
+
+        let plan = executable_plan_with_optimization(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::PlatformCompilerDriver,
+            crate::LinkTimeOptimizationPolicy::ThinLto {
+                jobs: std::num::NonZeroUsize::MIN,
+            },
+        );
+
+        let configuration = configuration(SystemLinkerFamily::MicrosoftCompiler, [])
+            .try_with_thin_lto_cache("cache")
+            .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
+
+        let driver = SystemLinkerDriver::try_new(
+            identity,
+            configuration,
+            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
+        )
+        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+
+        let checks = AtomicUsize::new(0);
+        let cancellation = || checks.fetch_add(1, Ordering::SeqCst) > 0;
+
+        assert_eq!(driver.link(&plan, &cancellation).status(), &LinkStatus::Cancelled);
+
+        let invocation = host.only_invocation();
+
+        let report_path = invocation
+            .environment()
+            .iter()
+            .find_map(|(name, value)| {
+                (name == crate::optimization::REPORT_ENVIRONMENT).then_some(value)
+            })
+            .unwrap_or_else(|| panic!("ThinLTO invocation must name its report destination"));
+
+        let partial = crate::optimization::partial_report_path(Path::new(report_path));
+
+        assert!(!partial.exists());
+    }
+
+    #[test]
+    fn thin_lto_report_identity_covers_every_supported_lld_flavor() {
+        for (family, architecture, format, expected_driver) in [
+            (
+                SystemLinkerFamily::GnuCompiler,
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+                "elf",
+            ),
+            (
+                SystemLinkerFamily::MicrosoftCompiler,
+                TargetArchitecture::X86_64,
+                ObjectFormat::Coff,
+                "coff",
+            ),
+            (
+                SystemLinkerFamily::AppleCompiler,
+                TargetArchitecture::Aarch64,
+                ObjectFormat::MachO,
+                "macho",
+            ),
+        ] {
+            let input = TemporaryFile::write("main.bc", b"bitcode");
+            let output = TestOutput::new("application.stage");
+
+            let report = format!(
+                r#"{{
+                    "format": 1,
+                    "toolchain": "toolchain-1",
+                    "driver": "{expected_driver}",
+                    "imported_functions": 0,
+                    "imported_data": 0,
+                    "eliminated_functions": 0,
+                    "eliminated_data": 0,
+                    "eliminated_bytes": 0,
+                    "cache_hits": 0,
+                    "cache_misses": 1,
+                    "cache_writes": 1,
+                    "reused_partitions": 0,
+                    "peak_resident_bytes": 4096,
+                    "active_workers": 1
+                }}"#,
+            );
+
+            let host = Arc::new(RecordingExternalToolHost::writing_with_optimization_report(
+                output.path(),
+                report.as_bytes(),
+            ));
+
+            let identity = driver_identity(LinkerDriverKind::System);
+            let target = target(architecture, format);
+
+            let plan = executable_plan_with_optimization(
+                &identity,
+                target,
+                input.path(),
+                output.path(),
+                crate::LinkStartupMode::PlatformCompilerDriver,
+                crate::LinkTimeOptimizationPolicy::ThinLto {
+                    jobs: std::num::NonZeroUsize::MIN,
+                },
+            );
+
+            let configuration = configuration(family, [])
+                .try_with_thin_lto_cache("cache")
+                .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
+
+            let driver = SystemLinkerDriver::try_new(
+                identity,
+                configuration,
+                host as Arc<dyn ExternalToolHost>,
+            )
+            .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+
+            let outcome = driver.link(&plan, &|| false);
+
+            let optimization = outcome
+                .optimization()
+                .unwrap_or_else(|| panic!("{expected_driver} must publish ThinLTO telemetry"));
+
+            assert_eq!(optimization.driver(), expected_driver);
         }
     }
 
@@ -661,6 +1053,24 @@ mod tests {
         output_path: &Path,
         startup_mode: crate::LinkStartupMode,
     ) -> LinkPlan {
+        executable_plan_with_optimization(
+            driver,
+            target,
+            input_path,
+            output_path,
+            startup_mode,
+            crate::LinkTimeOptimizationPolicy::None,
+        )
+    }
+
+    fn executable_plan_with_optimization(
+        driver: &LinkerDriverIdentity,
+        target: LinkTarget,
+        input_path: &Path,
+        output_path: &Path,
+        startup_mode: crate::LinkStartupMode,
+        optimization: crate::LinkTimeOptimizationPolicy,
+    ) -> LinkPlan {
         let host =
             bray_testing::test_executable_host_contract_for(product(), target.identity().clone());
 
@@ -675,7 +1085,8 @@ mod tests {
                 crate::SectionGarbageCollectionPolicy::Preserve,
                 crate::DebugLinkPolicy::None,
                 None,
-            ),
+            )
+            .with_optimization(optimization),
         );
 
         if startup_mode == crate::LinkStartupMode::ExplicitInputs {

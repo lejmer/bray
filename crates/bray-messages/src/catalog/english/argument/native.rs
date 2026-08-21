@@ -19,7 +19,9 @@ pub(super) use external::{
     format_english_external_tool_exit, format_english_external_tool_failure,
     format_english_external_tool_operation,
 };
-pub(super) use linking::format_english_link_requirement;
+pub(super) use linking::{
+    format_english_link_optimization_report_problem, format_english_link_requirement,
+};
 pub(super) use standard_library::format_english_standard_library_manifest_problem;
 pub(super) use toolchain::{
     format_english_linker_driver_identity, format_english_unsupported_emission_reason,

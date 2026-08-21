@@ -10,7 +10,8 @@ use super::{
     DiagnosticDependencySubjectKind, DiagnosticDocumentParseKind,
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
-    DiagnosticLinkRequirement, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
+    DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
+    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
     DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
     DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind,
@@ -190,6 +191,8 @@ pub enum DiagnosticArgName {
     ExternalToolExit,
     /// Exact native link requirement rejected by the selected driver.
     LinkRequirement,
+    /// Exact native optimization report contract problem.
+    LinkOptimizationReportProblem,
     /// Stable syntax or schema failure while decoding a structured document.
     DocumentParseKind,
     /// Exact standard library manifest contract violation.
@@ -369,6 +372,7 @@ impl DiagnosticArgName {
             Self::ExternalToolFailureKind => "external_tool_failure_kind",
             Self::ExternalToolExit => "external_tool_exit",
             Self::LinkRequirement => "link_requirement",
+            Self::LinkOptimizationReportProblem => "link_optimization_report_problem",
             Self::DocumentParseKind => "document_parse_kind",
             Self::StandardLibraryManifestProblem => "standard_library_manifest_problem",
             Self::DependencySubjectKind => "dependency_subject_kind",
@@ -520,6 +524,8 @@ pub enum DiagnosticArgValue {
     ExternalToolExit(crate::DiagnosticExternalToolExit),
     /// Exact native link requirement rejected by the selected driver.
     LinkRequirement(DiagnosticLinkRequirement),
+    /// Exact native optimization report contract problem.
+    LinkOptimizationReportProblem(DiagnosticLinkOptimizationReportProblem),
     /// Structured document parse category.
     DocumentParseKind(DiagnosticDocumentParseKind),
     /// Exact standard library manifest contract violation.

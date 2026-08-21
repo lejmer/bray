@@ -601,6 +601,8 @@ define_diagnostic_kinds! {
     LinkerOutputInvalid,
     /// The native linker could not acquire its required process resources.
     LinkerResourceExhausted,
+    /// The pinned linker optimization report violated its typed contract.
+    LinkerOptimizationReportInvalid,
 }
 
 impl DiagnosticKind {
@@ -902,6 +904,7 @@ impl DiagnosticKind {
             Self::LinkerExternalToolContractFailed => 9124,
             Self::LinkerExternalToolExitedUnsuccessfully => 9125,
             Self::LinkerUnsupportedOptimization => 9126,
+            Self::LinkerOptimizationReportInvalid => 9127,
         };
 
         DiagnosticCode::new(raw)
@@ -1325,6 +1328,7 @@ impl DiagnosticKind {
             Self::LinkerExternalToolExitedUnsuccessfully => {
                 "linker_external_tool_exited_unsuccessfully"
             }
+            Self::LinkerOptimizationReportInvalid => "linker_optimization_report_invalid",
         }
     }
 }

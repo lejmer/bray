@@ -240,8 +240,10 @@ pub fn native_linker(
         NonZeroUsize::MIN,
     )));
 
+    let llvm_revision = bray_codegen_llvm::LlvmCodeGenerator::llvm_revision();
+
     let archive_identity =
-        LinkerDriverIdentity::try_new(LinkerDriverKind::Archiver, "llvm-ar", "1", "22")
+        LinkerDriverIdentity::try_new(LinkerDriverKind::Archiver, "llvm-ar", "1", llvm_revision)
             .ok_or(NativeLinkerBuildError::ArchiveIdentity)?;
 
     let archive = LlvmArchiveDriver::try_new(
@@ -260,7 +262,7 @@ pub fn native_linker(
             LinkerDriverKind::System,
             system_linker_name(family),
             "1",
-            "1",
+            llvm_revision,
         )
         .ok_or(NativeLinkerBuildError::SystemIdentity)?;
 

@@ -10,6 +10,7 @@ mod execution;
 mod external_tool;
 mod input;
 mod lld;
+mod optimization;
 mod outcome;
 mod output;
 mod plan;
@@ -44,6 +45,7 @@ pub use input::{
     LinkInputSource, LinkInputSpec,
 };
 pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
+pub use optimization::{LinkOptimizationReport, LinkOptimizationReportProblem};
 pub use outcome::{
     LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSet,
     LinkedArtifactSetBuildError, link_failure_diagnostics,

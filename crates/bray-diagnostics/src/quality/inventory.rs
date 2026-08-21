@@ -192,7 +192,8 @@ impl DiagnosticKind {
             FilePath, ImplementationOverloadProblem, InputIndex, InterfaceLimit,
             InterfaceRecordIndex, InterfaceSection, InterfaceSemanticProblem,
             InterfaceSymbolGraphProblem, InterfaceSymbolIdentity, IoErrorKind, LayoutProblem,
-            LinkRequirement, LinkerDriverIdentity, MaximumAlignment, MaximumCount, MemoryOperation,
+            LinkOptimizationReportProblem, LinkRequirement, LinkerDriverIdentity,
+            MaximumAlignment, MaximumCount, MemoryOperation,
             NativeLinkDirectiveProblem, NativeProductFailureKind, NativeSymbolDirectiveProblem,
             PatternCoverage, PatternUnreachability, PlatformServiceSignatureProblem,
             ProjectCommandFailure, ProjectDependencyCycleMember, ProjectManifestField, ProjectPath,
@@ -1360,6 +1361,15 @@ impl DiagnosticKind {
                     link_plan_defect_components!(&[]),
                 )
             }
+            Self::LinkerOptimizationReportInvalid => Self::quality_artifact(
+                &[
+                    LinkOptimizationReportProblem,
+                    TargetTriple,
+                    ActualProductIdentity,
+                    LinkerDriverIdentity,
+                ],
+                link_plan_components!(&[LinkOptimizationReportProblem]),
+            ),
             Self::LinkerResponseFileFailed => Self::quality_artifact(
                 &[
                     ExternalToolOperation,

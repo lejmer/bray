@@ -16,6 +16,7 @@ pub(super) fn invocation(
     configuration: &SystemLinkerConfiguration,
     plan: &LinkPlan,
     arguments: Vec<OsString>,
+    additional_environment: &[(OsString, OsString)],
 ) -> Result<ExternalToolInvocation, SystemLinkerInvocationBuildError> {
     let current_directory = configuration.invocation_directory(plan);
 
@@ -33,7 +34,11 @@ pub(super) fn invocation(
     };
 
     // Each process request owns its configuration so the immutable driver can serve concurrent links.
-    let environment = configuration.environment().iter().cloned();
+    let environment = configuration
+        .environment()
+        .iter()
+        .chain(additional_environment)
+        .cloned();
 
     let current_directory = current_directory.map(std::path::Path::to_path_buf);
 
@@ -126,7 +131,12 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test configuration must be valid: {error:?}"));
 
-        let invocation = invocation(&configuration, &plan, vec![OsString::from("main.o")])
+        let invocation = invocation(
+            &configuration,
+            &plan,
+            vec![OsString::from("main.o")],
+            &[],
+        )
             .unwrap_or_else(|error| panic!("test invocation must be valid: {error:?}"));
 
         assert_eq!(
