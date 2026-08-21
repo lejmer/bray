@@ -41,7 +41,10 @@ pub use semantic::{
     DiagnosticType, DiagnosticTypeArgument,
 };
 pub use source::{DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticVisibility};
-pub use standard_library::DiagnosticStandardLibraryManifestProblem;
+pub use standard_library::{
+    DiagnosticStandardLibraryManifestProblem,
+    DiagnosticStandardLibraryOptimizationMetadataProblem,
+};
 pub use target::DiagnosticTargetRepresentation;
 
 #[cfg(test)]

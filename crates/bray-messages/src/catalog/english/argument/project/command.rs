@@ -29,6 +29,7 @@ const fn format_english_project_operation(
         Operation::ProductOutputDirectory => "resolve the product output directory",
         Operation::InterfaceCachePath => "construct the interface cache path",
         Operation::InterfaceCacheDirectory => "create the interface cache directory",
+        Operation::ThinLtoCacheDirectory => "create the native optimization cache directory",
         Operation::CompilerProcess => "run the compiler",
         Operation::CompilerProfileOutputDirectory => "create the profile output directory",
         Operation::CompilerProfileReportOutput => "write the compiler profile report",

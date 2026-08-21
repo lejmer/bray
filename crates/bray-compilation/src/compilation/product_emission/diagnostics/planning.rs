@@ -295,6 +295,9 @@ fn backend_request_failure_diagnostic(
         BackendArtifactRequestBuildError::UnexpectedAssemblySyntax => {
             DiagnosticEmissionPlanningFailure::BackendRequestUnexpectedAssemblySyntax
         }
+        BackendArtifactRequestBuildError::UnexpectedBitcodeSemantics => {
+            DiagnosticEmissionPlanningFailure::BackendRequestUnexpectedBitcodeSemantics
+        }
     };
 
     emission_failure_diagnostic(planning_failure(failure), product, target)

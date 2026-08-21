@@ -292,9 +292,7 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
     }
 }
 
-fn optimization_wire(
-    optimization: &StandardLibraryOptimizationMetadata,
-) -> OptimizationWire<'_> {
+fn optimization_wire(optimization: &StandardLibraryOptimizationMetadata) -> OptimizationWire<'_> {
     let producer = optimization.producer();
     let compatibility = optimization.compatibility();
     let runtime_abi = compatibility.runtime_abi();
@@ -396,9 +394,7 @@ fn digest_wire(bytes: [u8; 32]) -> DigestWire {
     }
 }
 
-const fn optimization_producer_kind(
-    kind: StandardLibraryOptimizationProducerKind,
-) -> &'static str {
+const fn optimization_producer_kind(kind: StandardLibraryOptimizationProducerKind) -> &'static str {
     match kind {
         StandardLibraryOptimizationProducerKind::Bray => "bray",
         StandardLibraryOptimizationProducerKind::PinnedNative => "pinned_native",

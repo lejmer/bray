@@ -31,7 +31,7 @@ pub enum DiagnosticStandardLibraryManifestProblem {
     InvalidNativeLink,
     InvalidPlatformServices,
     DuplicatePlatformService,
-    InvalidOptimizationMetadata,
+    InvalidOptimizationMetadata(DiagnosticStandardLibraryOptimizationMetadataProblem),
     InvalidOptimizationFallback,
     BundleDigestMismatch,
     LengthExceeded,
@@ -57,10 +57,95 @@ impl DiagnosticStandardLibraryManifestProblem {
             Self::InvalidNativeLink => "invalid_native_link",
             Self::InvalidPlatformServices => "invalid_platform_services",
             Self::DuplicatePlatformService => "duplicate_platform_service",
-            Self::InvalidOptimizationMetadata => "invalid_optimization_metadata",
+            Self::InvalidOptimizationMetadata(problem) => problem.as_str(),
             Self::InvalidOptimizationFallback => "invalid_optimization_fallback",
             Self::BundleDigestMismatch => "bundle_digest_mismatch",
             Self::LengthExceeded => "length_exceeded",
+        }
+    }
+}
+
+/// Locale-neutral native optimization metadata contract violation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticStandardLibraryOptimizationMetadataProblem {
+    MissingForArchive,
+    AttachedToUnsupportedArtifact,
+    UnsupportedSemantics,
+    UnsupportedProducerKind,
+    MissingProducerImplementation,
+    MissingProducerImplementationRevision,
+    MissingToolchain,
+    MissingToolchainRevision,
+    MissingTargetTriple,
+    MissingDataLayout,
+    UnsupportedRelocationModel,
+    UnsupportedCodeModel,
+    NonCanonicalFallbackPath,
+    ZeroModuleCount,
+    InvalidPreservationRoot,
+    UnsupportedLifecycleRoot,
+    UnknownPlatformService,
+    NonCanonicalDependencyPath,
+    InvalidPartition,
+    DuplicatePartition,
+    RuntimeAbiMismatch,
+    TargetMismatch,
+    CompatibilityMismatch,
+    ToolchainMismatch,
+    MissingDependencyArtifact,
+    MissingBrayPartition,
+}
+
+impl DiagnosticStandardLibraryOptimizationMetadataProblem {
+    /// Returns the stable machine key for this contract violation.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingForArchive => "optimization_metadata_missing_for_archive",
+            Self::AttachedToUnsupportedArtifact => {
+                "optimization_metadata_attached_to_unsupported_artifact"
+            }
+            Self::UnsupportedSemantics => "optimization_metadata_unsupported_semantics",
+            Self::UnsupportedProducerKind => "optimization_metadata_unsupported_producer_kind",
+            Self::MissingProducerImplementation => {
+                "optimization_metadata_missing_producer_implementation"
+            }
+            Self::MissingProducerImplementationRevision => {
+                "optimization_metadata_missing_producer_implementation_revision"
+            }
+            Self::MissingToolchain => "optimization_metadata_missing_toolchain",
+            Self::MissingToolchainRevision => {
+                "optimization_metadata_missing_toolchain_revision"
+            }
+            Self::MissingTargetTriple => "optimization_metadata_missing_target_triple",
+            Self::MissingDataLayout => "optimization_metadata_missing_data_layout",
+            Self::UnsupportedRelocationModel => {
+                "optimization_metadata_unsupported_relocation_model"
+            }
+            Self::UnsupportedCodeModel => "optimization_metadata_unsupported_code_model",
+            Self::NonCanonicalFallbackPath => {
+                "optimization_metadata_non_canonical_fallback_path"
+            }
+            Self::ZeroModuleCount => "optimization_metadata_zero_module_count",
+            Self::InvalidPreservationRoot => {
+                "optimization_metadata_invalid_preservation_root"
+            }
+            Self::UnsupportedLifecycleRoot => {
+                "optimization_metadata_unsupported_lifecycle_root"
+            }
+            Self::UnknownPlatformService => "optimization_metadata_unknown_platform_service",
+            Self::NonCanonicalDependencyPath => {
+                "optimization_metadata_non_canonical_dependency_path"
+            }
+            Self::InvalidPartition => "optimization_metadata_invalid_partition",
+            Self::DuplicatePartition => "optimization_metadata_duplicate_partition",
+            Self::RuntimeAbiMismatch => "optimization_metadata_runtime_abi_mismatch",
+            Self::TargetMismatch => "optimization_metadata_target_mismatch",
+            Self::CompatibilityMismatch => "optimization_metadata_compatibility_mismatch",
+            Self::ToolchainMismatch => "optimization_metadata_toolchain_mismatch",
+            Self::MissingDependencyArtifact => {
+                "optimization_metadata_missing_dependency_artifact"
+            }
+            Self::MissingBrayPartition => "optimization_metadata_missing_bray_partition",
         }
     }
 }

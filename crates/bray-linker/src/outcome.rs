@@ -291,6 +291,9 @@ fn diagnostic_link_requirement(
         UnsupportedLinkRequirement::Symbol(value) => diagnostic_symbol_requirement(*value),
         UnsupportedLinkRequirement::Startup(value) => diagnostic_startup_requirement(*value),
         UnsupportedLinkRequirement::Runtime(value) => diagnostic_runtime_requirement(*value),
+        UnsupportedLinkRequirement::Optimization(crate::LinkTimeOptimizationKind::ThinLto) => {
+            DiagnosticLinkRequirement::OptimizationThinLto
+        }
     }
 }
 
@@ -462,6 +465,9 @@ const fn unsupported_requirement_diagnostic(
         UnsupportedLinkRequirement::Symbol(_) => DiagnosticKind::LinkerUnsupportedSymbol,
         UnsupportedLinkRequirement::Startup(_) => DiagnosticKind::LinkerUnsupportedStartup,
         UnsupportedLinkRequirement::Runtime(_) => DiagnosticKind::LinkerUnsupportedRuntime,
+        UnsupportedLinkRequirement::Optimization(_) => {
+            DiagnosticKind::LinkerUnsupportedOptimization
+        }
     }
 }
 

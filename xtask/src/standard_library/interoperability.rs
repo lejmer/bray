@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,6 +22,7 @@ use bray_symbols::{
 };
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_tooling::{llvm_tool_path, load_llvm_compilation};
+use sha2::{Digest as _, Sha256};
 
 use super::command::BuildError;
 
@@ -44,6 +46,24 @@ pub(super) fn audit(
     let fixture = build_native_fixture(root, &output, target)?;
 
     let executable = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
+    let first_cache = optimization_cache_snapshot(&output, target)?;
+
+    if first_cache.is_empty() {
+        return Err(BuildError::conformance(
+            "foreign interoperability",
+            "native optimization produced no reusable cache partitions",
+        ));
+    }
+
+    let repeated = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
+    let second_cache = optimization_cache_snapshot(&output, target)?;
+
+    if repeated != executable || second_cache != first_cache {
+        return Err(BuildError::conformance(
+            "foreign interoperability",
+            "an unchanged native product did not reuse the same optimization partitions",
+        ));
+    }
 
     let mut command = Command::new(&executable);
 
@@ -52,6 +72,63 @@ pub(super) fn audit(
     crate::command::require_success(command, "executing foreign interoperability fixture")
         .map(|_| ())
         .map_err(|error| BuildError::conformance("foreign interoperability", error))
+}
+
+fn optimization_cache_snapshot(
+    output: &Path,
+    target: NativeTarget,
+) -> Result<BTreeMap<PathBuf, [u8; 32]>, BuildError> {
+    let state_root = output.parent().ok_or_else(|| {
+        BuildError::conformance(
+            "foreign interoperability",
+            "native output has no compiler state root",
+        )
+    })?;
+
+    let root = bray_tooling::thin_lto_cache_root(state_root, target);
+    let mut pending = vec![root.clone()];
+    let mut snapshot = BTreeMap::new();
+
+    while let Some(directory) = pending.pop() {
+        let mut entries = fs::read_dir(&directory)
+            .map_err(|error| BuildError::read(&directory, error))?
+            .map(|entry| entry.map_err(|error| BuildError::read(&directory, error)))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        entries.sort_by_key(fs::DirEntry::file_name);
+
+        for entry in entries {
+            let path = entry.path();
+
+            let file_type = entry
+                .file_type()
+                .map_err(|error| BuildError::read(&path, error))?;
+
+            if file_type.is_dir() {
+                pending.push(path);
+                continue;
+            }
+
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(&root)
+                .map_err(|_| {
+                    BuildError::conformance(
+                        "foreign interoperability",
+                        "optimization cache entry escaped its root",
+                    )
+                })?
+                .to_path_buf();
+
+            let bytes = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
+            snapshot.insert(relative, Sha256::digest(bytes).into());
+        }
+    }
+
+    Ok(snapshot)
 }
 
 fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
@@ -460,10 +537,41 @@ struct NativeFixture {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
     use bray_target::NativeTarget;
+
+    #[test]
+    fn optimization_cache_snapshots_include_recursive_partition_content() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test directory must be available: {error}"));
+
+        let output = directory.path().join("product");
+        let target = NativeTarget::X86_64WindowsMsvc;
+        let cache = bray_tooling::thin_lto_cache_root(directory.path(), target);
+        let nested = cache.join("partitions");
+
+        fs::create_dir_all(&nested)
+            .unwrap_or_else(|error| panic!("test cache must be writable: {error}"));
+
+        fs::write(nested.join("first"), b"first")
+            .unwrap_or_else(|error| panic!("test cache entry must be writable: {error}"));
+
+        let first = super::optimization_cache_snapshot(&output, target)
+            .unwrap_or_else(|error| panic!("test cache must be readable: {error}"));
+
+        fs::write(nested.join("first"), b"second")
+            .unwrap_or_else(|error| panic!("test cache entry must be replaceable: {error}"));
+
+        let second = super::optimization_cache_snapshot(&output, target)
+            .unwrap_or_else(|error| panic!("test cache must be readable: {error}"));
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert_ne!(first, second);
+    }
 
     #[test]
     fn target_audits_run_concurrently_and_report_failures_in_target_order() {

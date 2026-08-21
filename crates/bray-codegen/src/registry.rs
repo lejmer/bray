@@ -5,8 +5,9 @@ use std::sync::Arc;
 use bray_diagnostics::DiagnosticBag;
 
 use crate::{
-    BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities, BackendIdentity,
-    CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
+    BackendArtifactKind, BackendArtifactRequirement, BackendBitcodeTargetContract,
+    BackendCapabilities, BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome,
+    CodegenRequest, CodegenTarget,
 };
 
 /// Immutable code generators available to one compiler composition.
@@ -49,6 +50,17 @@ impl CodegenConfiguration {
             .generator(&self.selected)
             .map(CodeGenerator::capabilities)
             .unwrap_or_else(|| panic!("selected code generator must remain registered"))
+    }
+
+    /// Returns the selected backend's exact cross-artifact bitcode target contract.
+    pub fn selected_bitcode_target_contract(
+        &self,
+        target: &CodegenTarget,
+    ) -> Result<Option<BackendBitcodeTargetContract>, CodegenFailure> {
+        self.generators
+            .generator(&self.selected)
+            .unwrap_or_else(|| panic!("selected code generator must remain registered"))
+            .bitcode_target_contract(target)
     }
 
     /// Validates and executes one request through the selected backend.
@@ -222,6 +234,18 @@ fn validate_capabilities(
     });
 
     if requires_assembly && !capabilities.supports_assembly_syntax_kind(syntax) {
+        return Err(CodegenFailure::InvalidConfiguration);
+    }
+
+    let bitcode_semantics = request.artifacts().serialization().bitcode_semantics();
+
+    let requests_bitcode = request
+        .artifacts()
+        .entries()
+        .iter()
+        .any(|entry| entry.id().kind() == BackendArtifactKind::BackendBitcode);
+
+    if requests_bitcode && !capabilities.supports_bitcode_semantics(bitcode_semantics) {
         return Err(CodegenFailure::InvalidConfiguration);
     }
 

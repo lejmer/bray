@@ -80,30 +80,36 @@ impl NativeProductPlan {
     pub fn preservation_roots(
         &self,
     ) -> impl Iterator<Item = &bray_runtime_interface::BinarySymbolName> {
-        let definitions = self
-            .mappings
-            .iter()
-            .flat_map(bray_codegen::CodegenMappings::symbols)
-            .filter(|symbol| is_preservation_root(symbol.linkage()))
-            .map(bray_codegen::CodegenSymbolMapping::name);
-
-        let lifecycle = self.product_host.iter().flat_map(|host| {
-            [host.descriptor_symbol(), host.control_symbol()]
-                .into_iter()
-                .chain(
-                    host.statics()
-                        .iter()
-                        .map(bray_codegen::CodegenProductHostStatic::host_symbol),
-                )
-        });
-
-        definitions.chain(lifecycle)
+        product_preservation_roots(&self.mappings, self.product_host.as_ref())
     }
 
     /// Returns the compiler-generated loaded-product host contract.
     pub const fn product_host(&self) -> Option<&bray_codegen::CodegenProductHostMapping> {
         self.product_host.as_ref()
     }
+}
+
+pub(super) fn product_preservation_roots<'plan>(
+    mappings: &'plan [CodegenMappings],
+    product_host: Option<&'plan bray_codegen::CodegenProductHostMapping>,
+) -> impl Iterator<Item = &'plan bray_runtime_interface::BinarySymbolName> {
+    let definitions = mappings
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::symbols)
+        .filter(|symbol| is_preservation_root(symbol.linkage()))
+        .map(bray_codegen::CodegenSymbolMapping::name);
+
+    let lifecycle = product_host.into_iter().flat_map(|host| {
+        [host.descriptor_symbol(), host.control_symbol()]
+            .into_iter()
+            .chain(
+                host.statics()
+                    .iter()
+                    .map(bray_codegen::CodegenProductHostStatic::host_symbol),
+            )
+    });
+
+    definitions.chain(lifecycle)
 }
 
 const fn is_preservation_root(linkage: bray_codegen::CodegenLinkage) -> bool {

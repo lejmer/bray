@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 /// Dead-code removal policy selected for one native link operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DeadStripPolicy {
@@ -27,6 +29,45 @@ pub enum DebugLinkPolicy {
     Companion,
 }
 
+/// Cross-artifact optimization selected for one native link operation.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LinkTimeOptimizationPolicy {
+    /// Link already formed native objects without cross-artifact optimization.
+    #[default]
+    None,
+    /// Run LLVM ThinLTO with the bounded parallelism selected by the compiler.
+    ThinLto {
+        /// Maximum number of parallel ThinLTO backend jobs.
+        jobs: NonZeroUsize,
+    },
+}
+
+impl LinkTimeOptimizationPolicy {
+    /// Returns the stable capability category for this policy.
+    pub const fn capability(self) -> Option<LinkTimeOptimizationKind> {
+        match self {
+            Self::None => None,
+            Self::ThinLto { .. } => Some(LinkTimeOptimizationKind::ThinLto),
+        }
+    }
+
+    /// Returns the selected backend-job bound when ThinLTO is enabled.
+    pub const fn jobs(self) -> Option<NonZeroUsize> {
+        match self {
+            Self::None => None,
+            Self::ThinLto { jobs } => Some(jobs),
+        }
+    }
+}
+
+/// Cross-artifact optimization category declared by linker capabilities.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LinkTimeOptimizationKind {
+    /// LLVM ThinLTO over summary-bearing bitcode partitions.
+    #[default]
+    ThinLto,
+}
+
 /// Target subsystem selected before linker-driver translation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum LinkSubsystem {
@@ -49,6 +90,7 @@ pub struct LinkPolicy {
     section_garbage_collection: SectionGarbageCollectionPolicy,
     debug: DebugLinkPolicy,
     subsystem: Option<LinkSubsystem>,
+    optimization: LinkTimeOptimizationPolicy,
 }
 
 impl LinkPolicy {
@@ -64,7 +106,15 @@ impl LinkPolicy {
             section_garbage_collection,
             debug,
             subsystem,
+            optimization: LinkTimeOptimizationPolicy::None,
         }
+    }
+
+    /// Returns this link policy with cross-artifact optimization selected.
+    pub const fn with_optimization(mut self, optimization: LinkTimeOptimizationPolicy) -> Self {
+        self.optimization = optimization;
+
+        self
     }
 
     /// Returns the selected dead-code removal policy.
@@ -85,5 +135,10 @@ impl LinkPolicy {
     /// Returns the selected target subsystem when one is required.
     pub const fn subsystem(self) -> Option<LinkSubsystem> {
         self.subsystem
+    }
+
+    /// Returns the selected cross-artifact optimization policy.
+    pub const fn optimization(self) -> LinkTimeOptimizationPolicy {
+        self.optimization
     }
 }

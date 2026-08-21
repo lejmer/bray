@@ -27,6 +27,7 @@ compiler = [
     "dep:bray-codegen",
     "dep:bray-codegen-llvm",
     "dep:bray-linker",
+    "dep:tempfile",
 ]
 
 [dependencies]
@@ -56,6 +57,7 @@ clap = { version = "4", default-features = false, features = ["color", "std"] }
 # Inspection and diagnostic reports use explicit local serialization DTOs.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

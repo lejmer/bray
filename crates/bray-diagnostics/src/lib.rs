@@ -38,8 +38,8 @@ pub use argument::{
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
     DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticTargetRepresentation, DiagnosticType,
-    DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{

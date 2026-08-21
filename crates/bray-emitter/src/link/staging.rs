@@ -373,11 +373,17 @@ fn transaction_directory(
 }
 
 fn transaction_input_name(artifact: &ArtifactId) -> String {
-    format!(
+    let mut name = format!(
         "input-{}-{}",
         artifact.kind().machine_key(),
         artifact.ordinal()
-    )
+    );
+
+    if artifact.kind() == ArtifactKind::BackendBitcode {
+        name.push_str(".bc");
+    }
+
+    name
 }
 
 fn transaction_output_name(artifact: &ArtifactId, suffix: OsString) -> OsString {
@@ -674,6 +680,29 @@ mod tests {
     }
 
     #[test]
+    fn link_staging_marks_bitcode_for_compiler_driver_classification() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+
+        let plan = linked_plan_with_linkable(
+            directory.path().to_owned(),
+            LinkableArtifactKind::BackendBitcode,
+        );
+
+        let staging = LinkStaging::prepare(
+            &plan,
+            [staged_contribution(&plan, b"bitcode bytes")],
+            &never_cancelled,
+        )
+        .unwrap_or_else(|error| panic!("bitcode link staging must complete: {error:?}"));
+
+        assert_eq!(
+            staging.inputs()[0].path().extension(),
+            Some(std::ffi::OsStr::new("bc"))
+        );
+    }
+
+    #[test]
     fn cancelled_link_staging_creates_no_transaction() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
@@ -711,6 +740,13 @@ mod tests {
     }
 
     fn linked_plan(destination: std::path::PathBuf) -> crate::EmissionPlan {
+        linked_plan_with_linkable(destination, LinkableArtifactKind::RelocatableObject)
+    }
+
+    fn linked_plan_with_linkable(
+        destination: std::path::PathBuf,
+        linkable: LinkableArtifactKind,
+    ) -> crate::EmissionPlan {
         let backend = EmissionBackend::try_new(
             backend_identity(),
             backend_capabilities(),
@@ -718,7 +754,7 @@ mod tests {
             BackendEmissionPolicy::new(
                 DebugInformationMode::None,
                 DebugInformationOutputMode::Omit,
-                Some(LinkableArtifactKind::RelocatableObject),
+                Some(linkable),
                 BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
             ),
         )

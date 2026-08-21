@@ -492,9 +492,10 @@ mod tests {
     use std::path::Path;
 
     use bray_codegen::{
-        AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities,
-        BackendOutputCapabilities, BackendSerializationOptions, DebugInformationMode,
-        DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
+        AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement,
+        BackendBitcodeSemantics, BackendCapabilities, BackendOutputCapabilities,
+        BackendSerializationOptions, DebugInformationMode, DebugInformationOutputMode,
+        LinkableArtifactKind, LinkableArtifactRequirement,
     };
     use bray_target::TargetOutputKind;
 
@@ -1157,6 +1158,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn summarized_link_inputs_satisfy_the_bitcode_serialization_policy() {
+        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault)
+            .with_bitcode_semantics(BackendBitcodeSemantics::ThinLto);
+
+        let policy = BackendEmissionPolicy::new(
+            DebugInformationMode::None,
+            DebugInformationOutputMode::Omit,
+            Some(LinkableArtifactKind::BackendBitcode),
+            serialization,
+        );
+
+        let planner = planner(backend_capabilities(), [codegen_unit_key(1)], policy);
+
+        let request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::Executable,
+                ArtifactRequirement::Required,
+            )],
+        );
+
+        let plan = planner
+            .plan(request)
+            .unwrap_or_else(|error| panic!("summarized link input must plan: {error:?}"));
+
+        assert_eq!(
+            plan.backend_requests()[0].linkable_artifact(),
+            Some(LinkableArtifactRequirement::new(
+                LinkableArtifactKind::BackendBitcode,
+                BackendArtifactRequirement::Required,
+            ))
+        );
+    }
+
     fn planner(
         capabilities: BackendCapabilities,
         units: impl IntoIterator<Item = bray_codegen::CodegenUnitKey>,
@@ -1198,6 +1235,7 @@ mod tests {
                 complete.outputs().debug_information().iter().copied(),
                 complete.outputs().debug_output().iter().copied(),
                 complete.outputs().assembly_syntax().iter().copied(),
+                complete.outputs().bitcode_semantics().iter().copied(),
             ),
             complete.reproducibility(),
         )

@@ -8,8 +8,11 @@ use bray_target::{CodeModel, RelocationModel, TargetIdentity};
 
 use super::{
     StandardLibraryArtifact, StandardLibraryArtifactDigest, StandardLibraryArtifactKind,
-    StandardLibraryManifestError,
+    StandardLibraryManifestError, StandardLibraryOptimizationMetadataProblem,
 };
+use super::model::invalid_optimization_metadata as invalid_metadata;
+
+use StandardLibraryOptimizationMetadataProblem as MetadataProblem;
 
 /// Source category accepted for cross-artifact native optimization.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -40,16 +43,18 @@ impl StandardLibraryOptimizationProducer {
         toolchain_revision: impl Into<Arc<str>>,
     ) -> Result<Self, StandardLibraryManifestError> {
         let implementation = NonEmptySharedStr::try_new(implementation)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::MissingProducerImplementation))?;
 
         let implementation_revision = NonEmptySharedStr::try_new(implementation_revision)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(
+                MetadataProblem::MissingProducerImplementationRevision,
+            ))?;
 
         let toolchain = NonEmptySharedStr::try_new(toolchain)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::MissingToolchain))?;
 
         let toolchain_revision = NonEmptySharedStr::try_new(toolchain_revision)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::MissingToolchainRevision))?;
 
         Ok(Self {
             kind,
@@ -106,10 +111,10 @@ impl StandardLibraryOptimizationCompatibility {
         runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, StandardLibraryManifestError> {
         let triple = NonEmptySharedStr::try_new(triple)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::MissingTargetTriple))?;
 
         let data_layout = NonEmptySharedStr::try_new(data_layout)
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::MissingDataLayout))?;
 
         Ok(Self {
             triple,
@@ -169,7 +174,9 @@ impl StandardLibraryOptimizationDependency {
         let path = path.into();
 
         if !is_canonical_relative_path(&path) {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_metadata(
+                MetadataProblem::NonCanonicalDependencyPath,
+            ));
         }
 
         Ok(Self { path, digest })
@@ -195,7 +202,7 @@ impl StandardLibraryOptimizationFallback {
         let path = path.into();
 
         if !is_canonical_relative_path(&path) {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_metadata(MetadataProblem::NonCanonicalFallbackPath));
         }
 
         Ok(Self { path, digest })
@@ -255,7 +262,7 @@ impl StandardLibraryOptimizationMetadata {
     ) -> Result<Self, StandardLibraryManifestError> {
         let partition = NonEmptySharedStr::try_new(partition)
             .filter(|partition| is_partition_identity(partition.as_str()))
-            .ok_or(StandardLibraryManifestError::InvalidOptimizationMetadata)?;
+            .ok_or(invalid_metadata(MetadataProblem::InvalidPartition))?;
 
         Ok(Self {
             partition,
@@ -386,7 +393,7 @@ pub(super) fn validate_target(
         .filter(|artifact| artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
     {
         let Some(optimization) = artifact.optimization() else {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_metadata(MetadataProblem::MissingForArchive));
         };
 
         let artifact_compatibility = optimization.compatibility();
@@ -396,17 +403,30 @@ pub(super) fn validate_target(
             optimization.producer().toolchain_revision(),
         );
 
-        if !partitions.insert(optimization.partition())
-            || optimization.compatibility().runtime_abi() != runtime_abi
-            || optimization.compatibility().triple() != target.as_str()
-            || compatibility
-                .as_ref()
-                .is_some_and(|expected| *expected != artifact_compatibility)
-            || toolchain
-                .as_ref()
-                .is_some_and(|expected| *expected != artifact_toolchain)
+        if !partitions.insert(optimization.partition()) {
+            return Err(invalid_metadata(MetadataProblem::DuplicatePartition));
+        }
+
+        if optimization.compatibility().runtime_abi() != runtime_abi {
+            return Err(invalid_metadata(MetadataProblem::RuntimeAbiMismatch));
+        }
+
+        if optimization.compatibility().triple() != target.as_str() {
+            return Err(invalid_metadata(MetadataProblem::TargetMismatch));
+        }
+
+        if compatibility
+            .as_ref()
+            .is_some_and(|expected| *expected != artifact_compatibility)
         {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_metadata(MetadataProblem::CompatibilityMismatch));
+        }
+
+        if toolchain
+            .as_ref()
+            .is_some_and(|expected| *expected != artifact_toolchain)
+        {
+            return Err(invalid_metadata(MetadataProblem::ToolchainMismatch));
         }
 
         compatibility.get_or_insert(artifact_compatibility);
@@ -455,12 +475,12 @@ pub(super) fn validate_target(
                     && candidate.digest() == dependency.digest()
             })
         }) {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_metadata(MetadataProblem::MissingDependencyArtifact));
         }
     }
 
     if !has_bray_partition {
-        return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+        return Err(invalid_metadata(MetadataProblem::MissingBrayPartition));
     }
 
     Ok(())
@@ -478,7 +498,10 @@ mod tests {
         StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
         StandardLibraryOptimizationProducerKind,
     };
-    use crate::StandardLibraryArtifactDigest;
+    use crate::{
+        StandardLibraryArtifactDigest, StandardLibraryManifestError,
+        StandardLibraryOptimizationMetadataProblem,
+    };
 
     #[test]
     fn optimization_metadata_requires_complete_compatibility_identities() {
@@ -517,15 +540,17 @@ mod tests {
             .is_ok()
         );
 
-        assert!(
+        assert_eq!(
             StandardLibraryOptimizationMetadata::try_new(
                 "Invalid Partition",
                 producer,
                 compatibility,
                 fallback,
                 NonZeroU32::MIN,
-            )
-            .is_err()
+            ),
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata(
+                StandardLibraryOptimizationMetadataProblem::InvalidPartition,
+            ))
         );
     }
 }

@@ -44,6 +44,11 @@ impl WorkerBudget {
     pub const fn get(self) -> usize {
         self.workers.get()
     }
+
+    /// Returns the positive worker count without discarding its invariant.
+    pub const fn nonzero(self) -> NonZeroUsize {
+        self.workers
+    }
 }
 
 impl Default for WorkerBudget {

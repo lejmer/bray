@@ -217,6 +217,7 @@ pub(super) fn format_english_native_linker_build_failure(
             "system-linker invocation ({})",
             format_english_invocation_build_failure(cause)
         ),
+        Failure::SystemThinLtoCacheRootEmpty => "system-linker ThinLTO cache root".to_owned(),
         Failure::SystemDriverKindMismatch => "system-linker category".to_owned(),
         Failure::SystemCapabilities(cause) => format!(
             "system-linker capability ({})",

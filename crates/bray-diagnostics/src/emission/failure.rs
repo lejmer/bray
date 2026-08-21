@@ -99,6 +99,8 @@ pub enum DiagnosticEmissionPlanningFailure {
     BackendRequestMissingRequiredDebugCompanion,
     BackendRequestUnexpectedDebugCompanion,
     BackendRequestUnexpectedAssemblySyntax,
+    /// Specialized bitcode semantics were selected without a bitcode contribution.
+    BackendRequestUnexpectedBitcodeSemantics,
     InconsistentPlan,
 }
 
@@ -396,6 +398,9 @@ impl DiagnosticEmissionPlanningFailure {
             }
             Self::BackendRequestUnexpectedAssemblySyntax => {
                 "backend_request_unexpected_assembly_syntax"
+            }
+            Self::BackendRequestUnexpectedBitcodeSemantics => {
+                "backend_request_unexpected_bitcode_semantics"
             }
             Self::InconsistentPlan => "inconsistent_plan",
         }

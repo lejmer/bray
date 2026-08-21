@@ -4,11 +4,9 @@ use std::{env, ffi::OsString, num::NonZeroUsize, sync::Arc};
 
 #[cfg(feature = "compiler")]
 use bray_codegen::{
-    BackendSelectionError, CodeGenerator, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
-    CodegenConfiguration, CodegenFailure, codegen_failure_diagnostic,
+    BackendSelectionError, CodeGeneratorRegistryBuildError, CodegenFailure,
+    codegen_failure_diagnostic,
 };
-#[cfg(feature = "compiler")]
-use bray_codegen_llvm::LlvmCodeGenerator;
 use bray_compilation::{
     Compilation, CompilationLoadError, CompilationRequest, PackageInterfaceExportRequest,
     SelectedTarget,
@@ -40,34 +38,20 @@ use bray_target::TargetIdentity;
 #[cfg(feature = "compiler")]
 use bray_target::{NativeTarget, ObjectFormat};
 
+#[cfg(feature = "compiler")]
+use crate::toolchain::{LlvmToolPathError, llvm_tool_path};
+
 /// Loads a compilation without a code-generation backend.
 pub fn load_compilation(request: CompilationRequest) -> Result<Compilation, CompilationLoadError> {
     Compilation::load(request)
-}
-
-/// Loads a compilation configured with the LLVM code-generation backend.
-#[cfg(feature = "compiler")]
-pub fn load_llvm_compilation(
-    request: CompilationRequest,
-) -> Result<Compilation, LlvmCompilationLoadError> {
-    let generator =
-        LlvmCodeGenerator::try_new().map_err(LlvmCompilationLoadError::BackendInitialization)?;
-
-    let identity = generator.identity().clone();
-
-    let registry = CodeGeneratorRegistry::try_new([Arc::new(generator) as Arc<dyn CodeGenerator>])
-        .map_err(LlvmCompilationLoadError::Registry)?;
-
-    let codegen = CodegenConfiguration::try_new(registry, identity)
-        .map_err(LlvmCompilationLoadError::BackendSelection)?;
-
-    Compilation::load_with_codegen(request, codegen).map_err(LlvmCompilationLoadError::Compilation)
 }
 
 /// Exact failure while constructing an LLVM-backed compilation.
 #[cfg(feature = "compiler")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LlvmCompilationLoadError {
+    /// A required compiler-owned LLVM tool could not be resolved.
+    Tool(LlvmToolPathError),
     /// The LLVM backend could not initialize in the current process.
     BackendInitialization(CodegenFailure),
     /// The backend registry rejected the LLVM backend identity.
@@ -82,6 +66,7 @@ pub enum LlvmCompilationLoadError {
 impl std::fmt::Display for LlvmCompilationLoadError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Tool(error) => write!(formatter, "LLVM optimizer is unavailable: {error:?}"),
             Self::BackendInitialization(failure) => {
                 write!(formatter, "LLVM backend initialization failed: {failure:?}")
             }
@@ -115,6 +100,36 @@ impl LlvmCompilationLoadError {
     /// Converts this construction failure into a locale-neutral terminal diagnostic.
     pub fn diagnostic(self, target: &str) -> Diagnostic {
         match self {
+            Self::Tool(error) => match error {
+                LlvmToolPathError::CurrentExecutable { error, .. } => {
+                    project_command_diagnostic(DiagnosticProjectCommandFailure::CurrentExecutable {
+                        operation: DiagnosticProjectOperation::ToolchainExecutable,
+                        error: DiagnosticIoErrorKind::from(error),
+                    })
+                }
+                LlvmToolPathError::Unavailable { tool, configured } => {
+                    unsupported_emission_diagnostic(
+                        target,
+                        DiagnosticUnsupportedEmissionReason::ToolUnavailable { tool, configured },
+                    )
+                }
+                LlvmToolPathError::CandidateInspection { tool, path, error } => {
+                    unsupported_emission_diagnostic(
+                        target,
+                        DiagnosticUnsupportedEmissionReason::ToolInspectionFailed {
+                            tool,
+                            path,
+                            error: DiagnosticIoErrorKind::from(error),
+                        },
+                    )
+                }
+                LlvmToolPathError::InvalidCandidate { tool, path } => {
+                    unsupported_emission_diagnostic(
+                        target,
+                        DiagnosticUnsupportedEmissionReason::InvalidToolFile { tool, path },
+                    )
+                }
+            },
             Self::BackendInitialization(failure) => {
                 codegen_initialization_diagnostic(failure, target)
             }
@@ -216,6 +231,7 @@ pub fn project_interface_path(
 pub fn native_linker(
     target: NativeTarget,
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
+    compiler_state_root: &Path,
 ) -> Result<Linker, NativeLinkerBuildError> {
     let archive =
         llvm_tool_path(DiagnosticLlvmToolRole::Archiver).map_err(NativeLinkerBuildError::Tool)?;
@@ -264,6 +280,14 @@ pub fn native_linker(
             configuration = configuration.with_map_output(output);
         }
 
+        if family != SystemLinkerFamily::WslGnuCompiler {
+            let cache_root = prepare_thin_lto_cache_root(compiler_state_root, target)?;
+
+            configuration = configuration
+                .try_with_thin_lto_cache(cache_root)
+                .map_err(NativeLinkerBuildError::SystemConfiguration)?;
+        }
+
         let system = SystemLinkerDriver::try_new(
             system_identity,
             configuration,
@@ -297,6 +321,13 @@ pub enum NativeLinkerBuildError {
     SystemDriver(SystemLinkerDriverBuildError),
     /// The complete compiler-host driver registry is invalid.
     Linker(LinkerBuildError),
+    /// The persistent ThinLTO cache directory could not be created.
+    ThinLtoCacheDirectory {
+        /// Exact cache directory selected for this target and LLVM revision.
+        path: PathBuf,
+        /// Stable host I/O failure category.
+        error: DiagnosticIoErrorKind,
+    },
     /// A required host environment variable is absent.
     MissingEnvironment(DiagnosticHostEnvironmentVariable),
 }
@@ -338,6 +369,13 @@ impl NativeLinkerBuildError {
                 target,
                 DiagnosticUnsupportedEmissionReason::MissingHostEnvironment(variable),
             ),
+            Self::ThinLtoCacheDirectory { path, error } => {
+                project_command_diagnostic(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::ThinLtoCacheDirectory,
+                    path,
+                    error,
+                })
+            }
             Self::ArchiveIdentity => native_linker_defect_diagnostic(
                 target,
                 DiagnosticNativeLinkerBuildFailure::ArchiveIdentity,
@@ -410,6 +448,9 @@ const fn system_configuration_build_failure(
         }
         SystemLinkerConfigurationBuildError::Invocation(error) => {
             DiagnosticNativeLinkerBuildFailure::SystemInvocation(invocation_build_failure(error))
+        }
+        SystemLinkerConfigurationBuildError::ThinLtoCacheRootEmpty => {
+            DiagnosticNativeLinkerBuildFailure::SystemThinLtoCacheRootEmpty
         }
     }
 }
@@ -492,6 +533,36 @@ fn project_command_diagnostic(failure: DiagnosticProjectCommandFailure) -> Diagn
     failure.diagnostic(DiagnosticId::new(0))
 }
 
+/// Returns the persistent cache root for one exact native ThinLTO toolchain contract.
+#[cfg(feature = "compiler")]
+pub fn thin_lto_cache_root(compiler_state_root: &Path, target: NativeTarget) -> PathBuf {
+    compiler_state_root
+        .join("cache")
+        .join("thin_lto")
+        .join(target.as_str())
+        .join(format!(
+            "llvm-{}",
+            bray_codegen_llvm::LlvmCodeGenerator::llvm_revision()
+        ))
+}
+
+#[cfg(feature = "compiler")]
+fn prepare_thin_lto_cache_root(
+    compiler_state_root: &Path,
+    target: NativeTarget,
+) -> Result<PathBuf, NativeLinkerBuildError> {
+    let path = thin_lto_cache_root(compiler_state_root, target);
+
+    std::fs::create_dir_all(&path).map_err(|error| {
+        NativeLinkerBuildError::ThinLtoCacheDirectory {
+            path: path.clone(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        }
+    })?;
+
+    Ok(path)
+}
+
 #[cfg(feature = "compiler")]
 fn system_linker_configuration(
     target: NativeTarget,
@@ -525,7 +596,8 @@ fn system_linker_configuration(
         }
         ObjectFormat::Elf if cfg!(target_os = "linux") => Ok(Some((
             SystemLinkerFamily::GnuCompiler,
-            PathBuf::from("/usr/bin/cc"),
+            llvm_tool_path(DiagnosticLlvmToolRole::CompilerDriver)
+                .map_err(NativeLinkerBuildError::Tool)?,
             Vec::new(),
         ))),
         ObjectFormat::Coff if cfg!(windows) => Ok(Some((
@@ -545,7 +617,8 @@ fn system_linker_configuration(
         ))),
         ObjectFormat::MachO if cfg!(target_os = "macos") => Ok(Some((
             SystemLinkerFamily::AppleCompiler,
-            PathBuf::from("/usr/bin/clang"),
+            llvm_tool_path(DiagnosticLlvmToolRole::CompilerDriver)
+                .map_err(NativeLinkerBuildError::Tool)?,
             selected_environment(&["HOME", "PATH", "SDKROOT", "DEVELOPER_DIR", "TMPDIR"]),
         ))),
         ObjectFormat::Coff
@@ -577,170 +650,6 @@ const fn system_linker_name(family: SystemLinkerFamily) -> &'static str {
     }
 }
 
-#[cfg(feature = "compiler")]
-/// Locates one executable in the configured or bundled LLVM toolchain.
-pub fn llvm_tool_path(tool: DiagnosticLlvmToolRole) -> Result<PathBuf, LlvmToolPathError> {
-    let name = tool.executable_name();
-
-    let executable_name = if cfg!(windows) {
-        format!("{name}.exe")
-    } else {
-        name.to_owned()
-    };
-
-    let configured = env::var_os(bray_codegen_llvm::LLVM_PREFIX_ENVIRONMENT_VARIABLE)
-        .map(PathBuf::from)
-        .or_else(|| bray_codegen_llvm::COMPILED_LLVM_PREFIX.map(PathBuf::from))
-        .map(|prefix| prefix.join("bin").join(&executable_name));
-
-    if let Some(path) = configured.as_deref() {
-        if probe_tool_candidate(tool, path)? {
-            return Ok(path.to_path_buf());
-        }
-    }
-
-    let executable = env::current_exe().map_err(|error| LlvmToolPathError::CurrentExecutable {
-        tool,
-        error: error.kind(),
-    })?;
-
-    executable
-        .ancestors()
-        .map(|ancestor| {
-            ancestor
-                .join("toolchains")
-                .join("llvm")
-                .join("active")
-                .join("bin")
-                .join(&executable_name)
-        })
-        .find_map(|path| match probe_tool_candidate(tool, &path) {
-            Ok(true) => Some(Ok(path)),
-            Ok(false) => None,
-            Err(error) => Some(Err(error)),
-        })
-        .unwrap_or_else(|| Err(LlvmToolPathError::Unavailable { tool, configured }))
-}
-
-/// Exact failure while resolving one executable from the LLVM installation.
-#[cfg(feature = "compiler")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LlvmToolPathError {
-    /// The host could not resolve the running executable used to locate bundled tools.
-    CurrentExecutable {
-        /// Exact requested LLVM tool role.
-        tool: DiagnosticLlvmToolRole,
-        /// Stable host I/O failure category.
-        error: std::io::ErrorKind,
-    },
-    /// Neither the configured installation nor the bundled installation contains the tool.
-    Unavailable {
-        /// Exact requested LLVM tool role.
-        tool: DiagnosticLlvmToolRole,
-        /// Configured candidate path when an LLVM prefix was selected.
-        configured: Option<PathBuf>,
-    },
-    /// The host could not inspect a concrete candidate path.
-    CandidateInspection {
-        /// Exact requested LLVM tool role.
-        tool: DiagnosticLlvmToolRole,
-        /// Exact candidate path inspected by the compiler.
-        path: PathBuf,
-        /// Stable host I/O failure category.
-        error: std::io::ErrorKind,
-    },
-    /// A concrete candidate is not a regular executable file.
-    InvalidCandidate {
-        /// Exact requested LLVM tool role.
-        tool: DiagnosticLlvmToolRole,
-        /// Exact candidate path that violated the tool contract.
-        path: PathBuf,
-    },
-}
-
-#[cfg(feature = "compiler")]
-fn probe_tool_candidate(
-    tool: DiagnosticLlvmToolRole,
-    path: &Path,
-) -> Result<bool, LlvmToolPathError> {
-    let metadata = match std::fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(LlvmToolPathError::CandidateInspection {
-                tool,
-                path: path.to_path_buf(),
-                error: error.kind(),
-            });
-        }
-    };
-
-    if !metadata.is_file() || !host_file_is_executable(&metadata) {
-        return Err(LlvmToolPathError::InvalidCandidate {
-            tool,
-            path: path.to_path_buf(),
-        });
-    }
-
-    Ok(true)
-}
-
-#[cfg(all(feature = "compiler", unix))]
-fn host_file_is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(all(feature = "compiler", not(unix)))]
-const fn host_file_is_executable(_metadata: &std::fs::Metadata) -> bool {
-    true
-}
-
-#[cfg(feature = "compiler")]
-impl std::fmt::Display for LlvmToolPathError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::CurrentExecutable { tool, error } => write!(
-                formatter,
-                "could not locate the bundled {} from the current executable: {error}",
-                tool.executable_name()
-            ),
-            Self::Unavailable { tool, configured } => {
-                if let Some(path) = configured {
-                    write!(
-                        formatter,
-                        "{} is absent at {} and from the bundled toolchain",
-                        tool.executable_name(),
-                        path.display()
-                    )
-                } else {
-                    write!(
-                        formatter,
-                        "{} is absent from the bundled toolchain",
-                        tool.executable_name()
-                    )
-                }
-            }
-            Self::CandidateInspection { tool, path, error } => write!(
-                formatter,
-                "could not inspect {} candidate {}: {error}",
-                tool.executable_name(),
-                path.display()
-            ),
-            Self::InvalidCandidate { tool, path } => write!(
-                formatter,
-                "{} candidate {} is not a regular executable file",
-                tool.executable_name(),
-                path.display()
-            ),
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-impl std::error::Error for LlvmToolPathError {}
-
 #[cfg(all(test, feature = "compiler"))]
 mod tests {
     use std::path::PathBuf;
@@ -751,7 +660,34 @@ mod tests {
     use bray_messages::DiagnosticRenderer;
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::{LlvmToolPathError, NativeLinkerBuildError};
+    use super::{
+        LlvmToolPathError, NativeLinkerBuildError, prepare_thin_lto_cache_root, thin_lto_cache_root,
+    };
+
+    #[test]
+    fn thin_lto_cache_roots_are_created_before_linker_invocation() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test directory must be available: {error}"));
+
+        let target = bray_target::NativeTarget::X86_64WindowsMsvc;
+
+        let path = prepare_thin_lto_cache_root(directory.path(), target)
+            .unwrap_or_else(|error| panic!("test cache root must be creatable: {error:?}"));
+
+        assert_eq!(path, thin_lto_cache_root(directory.path(), target));
+        assert!(path.is_dir());
+
+        let blocked = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("blocked test directory must be available: {error}"));
+
+        std::fs::write(blocked.path().join("cache"), b"file")
+            .unwrap_or_else(|error| panic!("cache parent fixture must be writable: {error}"));
+
+        assert!(matches!(
+            prepare_thin_lto_cache_root(blocked.path(), target),
+            Err(NativeLinkerBuildError::ThinLtoCacheDirectory { .. })
+        ));
+    }
 
     #[test]
     fn native_tool_availability_failures_preserve_each_exact_reason() {

@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn driver_preserves_input_order_and_requests_deterministic_indexed_archives() {
         let first = TemporaryFile::write("first object.o", b"first");
-        let second = TemporaryFile::write("second.o", b"second");
+        let second = TemporaryFile::write("second.bc", b"second");
         let output = TestOutput::new("library.stage");
 
         let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
@@ -218,7 +218,7 @@ mod tests {
             &identity,
             target(TargetArchitecture::X86_64, ObjectFormat::Elf),
             [
-                (second.path(), LinkInputKind::RelocatableObject),
+                (second.path(), LinkInputKind::Bitcode),
                 (first.path(), LinkInputKind::RelocatableObject),
             ],
             output.path(),
@@ -330,8 +330,8 @@ mod tests {
     }
 
     #[test]
-    fn driver_rejects_unsupported_targets_and_non_object_inputs() {
-        let input = TemporaryFile::write("input.bc", b"bitcode");
+    fn driver_rejects_unsupported_targets_and_non_archive_member_inputs() {
+        let input = TemporaryFile::write("input.a", b"archive");
         let output = TestOutput::new("library.stage");
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::Archiver);
@@ -362,17 +362,17 @@ mod tests {
             ))
         );
 
-        let bitcode_plan = archive_plan(
+        let nested_archive_plan = archive_plan(
             &identity,
             target(TargetArchitecture::X86_64, ObjectFormat::Elf),
-            [(input.path(), LinkInputKind::Bitcode)],
+            [(input.path(), LinkInputKind::Archive)],
             output.path(),
         );
 
         assert_eq!(
-            driver.link(&bitcode_plan, &|| false).status(),
+            driver.link(&nested_archive_plan, &|| false).status(),
             &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
-                crate::UnsupportedLinkRequirement::Input(LinkInputKind::Bitcode)
+                crate::UnsupportedLinkRequirement::Input(LinkInputKind::Archive)
             ))
         );
 

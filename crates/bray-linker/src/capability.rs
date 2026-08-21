@@ -5,8 +5,8 @@ use bray_target::{ObjectFormat, TargetArchitecture, TargetIdentity};
 
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkPlan,
-    LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind, LinkerDriverIdentity,
-    LinkerTargetIdentity, SectionGarbageCollectionPolicy,
+    LinkSearchPathKind, LinkSubsystem, LinkTimeOptimizationKind, LinkedArtifactKind,
+    LinkedProductKind, LinkerDriverIdentity, LinkerTargetIdentity, SectionGarbageCollectionPolicy,
 };
 
 use crate::archive::ArchiveFormat;
@@ -42,6 +42,8 @@ pub enum LinkPlanCapability {
     Startup(LinkStartupMode),
     /// One runtime-contract ownership mode.
     Runtime(LinkRuntimeMode),
+    /// One cross-artifact optimization category.
+    Optimization(LinkTimeOptimizationKind),
 }
 
 /// Symbol control represented directly by the common link plan.
@@ -249,7 +251,7 @@ impl LinkerDriverCapabilities {
         family: SystemLinkerFamily,
         target: LinkerTargetIdentity,
     ) -> Result<Self, LinkerDriverCapabilitiesBuildError> {
-        system_driver_capabilities(identity, family, target)
+        system_driver_capabilities(identity, family, target, false)
     }
 
     /// Declares the complete capability record of the deterministic LLVM archiver.
@@ -383,6 +385,14 @@ impl LinkerDriverCapabilities {
             UnsupportedLinkRequirement::LinkModel(plan.target().link_model()),
         )?;
 
+        if let Some(optimization) = plan.policy().optimization().capability() {
+            require(
+                target,
+                LinkPlanCapability::Optimization(optimization),
+                UnsupportedLinkRequirement::Optimization(optimization),
+            )?;
+        }
+
         require(
             target,
             LinkPlanCapability::DeadStrip(plan.policy().dead_strip()),
@@ -465,6 +475,7 @@ pub(crate) fn system_driver_capabilities(
     identity: LinkerDriverIdentity,
     family: SystemLinkerFamily,
     target: LinkerTargetIdentity,
+    accepts_thin_lto: bool,
 ) -> Result<LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError> {
     if identity.kind() != LinkerDriverKind::System {
         return Err(LinkerDriverCapabilitiesBuildError::DriverKindMismatch);
@@ -496,7 +507,12 @@ pub(crate) fn system_driver_capabilities(
         identity,
         [LinkerTargetCapabilities::for_target(
             target,
-            linked_plan_capabilities(family.flavor().object_format(), startup, false),
+            linked_plan_capabilities(
+                family.flavor().object_format(),
+                startup,
+                accepts_thin_lto,
+                accepts_thin_lto,
+            ),
         )],
         LinkerOperationalCapabilities::new(
             response_files,
@@ -517,6 +533,7 @@ pub(crate) fn archive_driver_capabilities(
     let requirements = [
         LinkPlanCapability::Product(LinkedProductKind::StaticLibrary),
         LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+        LinkPlanCapability::Input(LinkInputKind::Bitcode),
         LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
         LinkPlanCapability::Output(LinkedArtifactKind::StaticLibrary),
         LinkPlanCapability::LinkModel(LinkModel::Default),
@@ -557,7 +574,7 @@ fn linked_target_capabilities(
             LinkerTargetCapabilities::new(
                 architecture,
                 object_format,
-                linked_plan_capabilities(object_format, startup, accepts_bitcode),
+                linked_plan_capabilities(object_format, startup, accepts_bitcode, false),
             )
         })
 }
@@ -566,6 +583,7 @@ fn linked_plan_capabilities(
     object_format: ObjectFormat,
     startup: LinkStartupMode,
     accepts_bitcode: bool,
+    accepts_thin_lto: bool,
 ) -> Vec<LinkPlanCapability> {
     let mut capabilities = vec![
         LinkPlanCapability::Product(LinkedProductKind::Executable),
@@ -599,6 +617,12 @@ fn linked_plan_capabilities(
 
     if accepts_bitcode {
         capabilities.push(LinkPlanCapability::Input(LinkInputKind::Bitcode));
+    }
+
+    if accepts_thin_lto {
+        capabilities.push(LinkPlanCapability::Optimization(
+            LinkTimeOptimizationKind::ThinLto,
+        ));
     }
 
     match object_format {
@@ -692,6 +716,8 @@ pub enum UnsupportedLinkRequirement {
     Startup(LinkStartupMode),
     /// The runtime-contract ownership mode is unsupported.
     Runtime(LinkRuntimeMode),
+    /// The selected cross-artifact optimization category is unsupported.
+    Optimization(LinkTimeOptimizationKind),
 }
 
 fn require(

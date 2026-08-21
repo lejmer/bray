@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use bray_codegen::{
     CodegenFailure, CodegenTarget, OptimizationLevel as BrayOptimizationLevel, TargetScalarKind,
@@ -93,6 +94,16 @@ impl LlvmTargetMachine {
 
     pub(crate) fn target_data(&self) -> inkwell::targets::TargetData {
         self.machine.get_target_data()
+    }
+
+    pub(crate) fn data_layout(&self) -> Result<Arc<str>, CodegenFailure> {
+        self.machine
+            .get_target_data()
+            .get_data_layout()
+            .as_str()
+            .to_str()
+            .map(Arc::from)
+            .map_err(|_| CodegenFailure::BackendLibrary)
     }
 
     pub(crate) fn run_passes(

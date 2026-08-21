@@ -9,7 +9,7 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use super::wire::encode_payload;
-use super::StandardLibraryOptimizationMetadata;
+use super::{StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducerKind};
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -201,10 +201,7 @@ impl StandardLibraryArtifact {
     }
 
     /// Returns this archive with its cross-artifact optimization contract.
-    pub fn with_optimization(
-        mut self,
-        optimization: StandardLibraryOptimizationMetadata,
-    ) -> Self {
+    pub fn with_optimization(mut self, optimization: StandardLibraryOptimizationMetadata) -> Self {
         self.optimization = Some(optimization);
 
         self
@@ -305,17 +302,34 @@ impl StandardLibraryTargetArtifacts {
         }
 
         if artifacts.iter().any(|artifact| {
-            artifact.kind() != StandardLibraryArtifactKind::PlatformServiceLibrary
-                && !artifact.native_links().is_empty()
+            let accepts_native_links = artifact.kind()
+                == StandardLibraryArtifactKind::PlatformServiceLibrary
+                || artifact.optimization().is_some_and(|optimization| {
+                    optimization.producer().kind()
+                        == StandardLibraryOptimizationProducerKind::PinnedNative
+                });
+
+            !accepts_native_links && !artifact.native_links().is_empty()
         }) {
             return Err(StandardLibraryManifestError::InvalidNativeLink);
         }
 
         if artifacts.iter().any(|artifact| {
-            (artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
-                != artifact.optimization().is_some()
+            artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive
+                && artifact.optimization().is_none()
         }) {
-            return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
+            return Err(invalid_optimization_metadata(
+                StandardLibraryOptimizationMetadataProblem::MissingForArchive,
+            ));
+        }
+
+        if artifacts.iter().any(|artifact| {
+            artifact.kind() != StandardLibraryArtifactKind::OptimizationArchive
+                && artifact.optimization().is_some()
+        }) {
+            return Err(invalid_optimization_metadata(
+                StandardLibraryOptimizationMetadataProblem::AttachedToUnsupportedArtifact,
+            ));
         }
 
         let mut platform_services = BTreeSet::new();
@@ -518,8 +532,8 @@ pub enum StandardLibraryManifestError {
     InvalidPlatformServices,
     /// A platform-service role is implemented by more than one provider archive.
     DuplicatePlatformService,
-    /// Optimization metadata is missing, incomplete, or attached to another artifact kind.
-    InvalidOptimizationMetadata,
+    /// Optimization metadata violates its semantic or wire contract.
+    InvalidOptimizationMetadata(StandardLibraryOptimizationMetadataProblem),
     /// An optimization artifact does not name its exact compatible object-only fallback.
     InvalidOptimizationFallback,
     /// The published bundle digest does not match the canonical payload.
@@ -528,10 +542,72 @@ pub enum StandardLibraryManifestError {
     LengthExceeded,
 }
 
+/// Exact contract violation within native optimization metadata.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum StandardLibraryOptimizationMetadataProblem {
+    /// An optimization archive has no optimization contract.
+    MissingForArchive,
+    /// An artifact other than an optimization archive carries an optimization contract.
+    AttachedToUnsupportedArtifact,
+    /// The optimization semantics are not supported.
+    UnsupportedSemantics,
+    /// The producer category is not supported.
+    UnsupportedProducerKind,
+    /// The producer implementation identity is empty.
+    MissingProducerImplementation,
+    /// The producer implementation revision is empty.
+    MissingProducerImplementationRevision,
+    /// The producer toolchain identity is empty.
+    MissingToolchain,
+    /// The producer toolchain revision is empty.
+    MissingToolchainRevision,
+    /// The target triple is empty.
+    MissingTargetTriple,
+    /// The LLVM data layout is empty.
+    MissingDataLayout,
+    /// The relocation model is not supported.
+    UnsupportedRelocationModel,
+    /// The code model is not supported.
+    UnsupportedCodeModel,
+    /// The fallback path is not canonical and relative.
+    NonCanonicalFallbackPath,
+    /// The archive declares no LLVM modules.
+    ZeroModuleCount,
+    /// A preservation root is not a valid native symbol.
+    InvalidPreservationRoot,
+    /// A lifecycle root is not supported.
+    UnsupportedLifecycleRoot,
+    /// A platform-service role is unknown.
+    UnknownPlatformService,
+    /// A dependency path is not canonical and relative.
+    NonCanonicalDependencyPath,
+    /// The partition identity is empty or malformed.
+    InvalidPartition,
+    /// A partition identity appears more than once in the target inventory.
+    DuplicatePartition,
+    /// The optimization contract names a different runtime ABI.
+    RuntimeAbiMismatch,
+    /// The optimization contract names a different target.
+    TargetMismatch,
+    /// Optimization archives for one target use incompatible target settings.
+    CompatibilityMismatch,
+    /// Optimization archives for one target use different toolchains.
+    ToolchainMismatch,
+    /// A dependency reference does not resolve to packaged metadata.
+    MissingDependencyArtifact,
+    /// The target inventory has no Bray standard library partition.
+    MissingBrayPartition,
+}
+
+pub(super) const fn invalid_optimization_metadata(
+    problem: StandardLibraryOptimizationMetadataProblem,
+) -> StandardLibraryManifestError {
+    StandardLibraryManifestError::InvalidOptimizationMetadata(problem)
+}
+
 /// Stable optimization bytes shared by standard-library consumer tests.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) const TEST_OPTIMIZATION_ARTIFACT_BYTES: &[u8] =
-    b"test standard library optimization";
+pub(crate) const TEST_OPTIMIZATION_ARTIFACT_BYTES: &[u8] = b"test standard library optimization";
 
 /// Completes a minimal target artifact set for tests of standard-library consumers.
 #[cfg(any(test, feature = "test-support"))]
@@ -583,10 +659,8 @@ pub fn target_artifacts_for_test(
         runtime_abi,
     )?;
 
-    let fallback = super::StandardLibraryOptimizationFallback::try_new(
-        fallback.path(),
-        fallback.digest(),
-    )?;
+    let fallback =
+        super::StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())?;
 
     let optimization = super::StandardLibraryOptimizationMetadata::try_new(
         "std",

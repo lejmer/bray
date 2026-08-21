@@ -53,5 +53,6 @@ pub(crate) fn format_english_link_requirement(requirement: &DiagnosticLinkRequir
         Requirement::StartupExplicitInputs => "explicit startup inputs".to_owned(),
         Requirement::StartupPlatformCompilerDriver => "platform compiler-driver startup".to_owned(),
         Requirement::RuntimeExplicitInput => "explicit runtime input".to_owned(),
+        Requirement::OptimizationThinLto => "LLVM ThinLTO".to_owned(),
     }
 }

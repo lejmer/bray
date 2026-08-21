@@ -18,6 +18,8 @@ use crate::fact::FactQueryError;
 pub enum NativeProductPlanningError {
     /// The compilation has no selected code generation backend.
     CodegenUnavailable,
+    /// The selected backend could not form its native bitcode target contract.
+    BitcodeTargetContract(bray_codegen::CodegenFailure),
     /// The selected product has no executable code root.
     MissingProductRoot,
     /// The checked executable entry result is inconsistent with product semantics.
@@ -64,6 +66,7 @@ impl NativeProductPlanningError {
         matches!(
             self,
             Self::CodegenUnavailable
+                | Self::BitcodeTargetContract(_)
                 | Self::MissingRuntime
                 | Self::Codegen(super::super::super::CodegenPreparationError::UnsupportedType(_))
         )
@@ -129,6 +132,7 @@ fn native_product_failure_kind(
 
     Some(match error {
         NativeProductPlanningError::CodegenUnavailable => Kind::CodegenBackendNotSelected,
+        NativeProductPlanningError::BitcodeTargetContract(_) => Kind::CodegenBackendUnavailable,
         NativeProductPlanningError::MissingProductRoot => Kind::MissingProductRoot,
         NativeProductPlanningError::InvalidEntryResult => Kind::InvalidEntryResult,
         NativeProductPlanningError::MissingRuntime => Kind::MissingRuntime,

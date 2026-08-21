@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 
-use crate::{BackendCapabilities, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenTarget};
+use crate::{
+    BackendBitcodeTargetContract, BackendCapabilities, CodegenFailure, CodegenOutcome,
+    CodegenRequest, CodegenTarget,
+};
 
 /// Stable compiler-facing identity of one backend implementation and compatible toolchain.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -54,6 +57,14 @@ pub trait CodeGenerator: Send + Sync {
 
     /// Validates the complete target contract against backend-specific machine support.
     fn validate_target(&self, target: &CodegenTarget) -> Result<(), CodegenFailure>;
+
+    /// Returns the exact contract for combining this backend's serialized bitcode.
+    fn bitcode_target_contract(
+        &self,
+        _target: &CodegenTarget,
+    ) -> Result<Option<BackendBitcodeTargetContract>, CodegenFailure> {
+        Ok(None)
+    }
 
     /// Generates every requested artifact for one validated codegen unit.
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome;

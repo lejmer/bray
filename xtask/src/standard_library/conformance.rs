@@ -111,7 +111,9 @@ fn verify_optimization_artifacts(
     for target in manifest.targets() {
         let artifacts = resolver
             .target_artifacts(target.target(), target.runtime_abi())
-            .map_err(|error| BuildError::conformance("optimization-artifact", format!("{error:?}")))?;
+            .map_err(|error| {
+                BuildError::conformance("optimization-artifact", format!("{error:?}"))
+            })?;
 
         let optimization_artifacts = artifacts
             .iter()
@@ -123,10 +125,7 @@ fn verify_optimization_artifacts(
         if optimization_artifacts.is_empty() {
             return Err(BuildError::conformance(
                 "optimization-artifact",
-                format!(
-                    "{} has no optimization archive",
-                    target.target().as_str()
-                ),
+                format!("{} has no optimization archive", target.target().as_str()),
             ));
         }
 

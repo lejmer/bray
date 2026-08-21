@@ -83,6 +83,8 @@ pub enum DiagnosticProjectOperation {
     ProductOutputDirectory,
     InterfaceCachePath,
     InterfaceCacheDirectory,
+    /// Creation of the persistent native ThinLTO cache directory.
+    ThinLtoCacheDirectory,
     CompilerProcess,
     CompilerProfileOutputDirectory,
     /// Publication of a compiler profile report to its selected output path.
@@ -484,6 +486,7 @@ impl DiagnosticProjectOperation {
             Self::ProductOutputDirectory => "product_output_directory",
             Self::InterfaceCachePath => "interface_cache_path",
             Self::InterfaceCacheDirectory => "interface_cache_directory",
+            Self::ThinLtoCacheDirectory => "thin_lto_cache_directory",
             Self::CompilerProcess => "compiler_process",
             Self::CompilerProfileOutputDirectory => "compiler_profile_output_directory",
             Self::CompilerProfileReportOutput => "compiler_profile_report_output",
@@ -579,6 +582,8 @@ pub enum DiagnosticNativeLinkerBuildFailure {
     SystemProgramPathNotExplicit,
     /// The system-linker invocation template is invalid.
     SystemInvocation(DiagnosticInvocationBuildFailure),
+    /// The system-linker ThinLTO cache root is empty.
+    SystemThinLtoCacheRootEmpty,
     /// The system-linker driver identity selects the wrong category.
     SystemDriverKindMismatch,
     /// The system-linker driver's capability record is invalid.

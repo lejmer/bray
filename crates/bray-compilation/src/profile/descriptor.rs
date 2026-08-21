@@ -147,12 +147,16 @@ pub(crate) enum ProfileMetricKind {
     LinkInputs,
     RuntimeComponents,
     RuntimeArchiveBytes,
+    OptimizationModules,
+    OptimizationInputBytes,
+    OptimizationWorkers,
+    OptimizationPreservationRoots,
     EmittedArtifacts,
     EmittedBytes,
 }
 
 impl ProfileMetricKind {
-    pub(crate) const COUNT: usize = 18;
+    pub(crate) const COUNT: usize = 22;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -185,6 +189,22 @@ impl ProfileMetricKind {
                 "compiler.runtime.archive_bytes",
                 CompilationProfileUnit::Bytes,
             ),
+            Self::OptimizationModules => (
+                "compiler.optimization.modules",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationInputBytes => (
+                "compiler.optimization.input_bytes",
+                CompilationProfileUnit::Bytes,
+            ),
+            Self::OptimizationWorkers => (
+                "compiler.optimization.workers",
+                CompilationProfileUnit::Count,
+            ),
+            Self::OptimizationPreservationRoots => (
+                "compiler.optimization.preservation_roots",
+                CompilationProfileUnit::Count,
+            ),
             Self::EmittedArtifacts => ("compiler.emitted.artifacts", CompilationProfileUnit::Count),
             Self::EmittedBytes => ("compiler.emitted.bytes", CompilationProfileUnit::Bytes),
         }
@@ -208,6 +228,10 @@ impl ProfileMetricKind {
             Self::LinkInputs => 2_013,
             Self::RuntimeComponents => 2_016,
             Self::RuntimeArchiveBytes => 2_017,
+            Self::OptimizationModules => 2_018,
+            Self::OptimizationInputBytes => 2_019,
+            Self::OptimizationWorkers => 2_020,
+            Self::OptimizationPreservationRoots => 2_021,
             Self::EmittedArtifacts => 2_014,
             Self::EmittedBytes => 2_015,
         }
@@ -231,7 +255,11 @@ impl ProfileMetricKind {
             | Self::InterfaceBytes
             | Self::LinkInputs
             | Self::RuntimeComponents
-            | Self::RuntimeArchiveBytes => &[Product],
+            | Self::RuntimeArchiveBytes
+            | Self::OptimizationModules
+            | Self::OptimizationInputBytes
+            | Self::OptimizationWorkers
+            | Self::OptimizationPreservationRoots => &[Product],
             Self::EmittedArtifacts | Self::EmittedBytes => &[Product, Artifact],
         }
     }
@@ -254,6 +282,10 @@ impl ProfileMetricKind {
             Self::LinkInputs,
             Self::RuntimeComponents,
             Self::RuntimeArchiveBytes,
+            Self::OptimizationModules,
+            Self::OptimizationInputBytes,
+            Self::OptimizationWorkers,
+            Self::OptimizationPreservationRoots,
             Self::EmittedArtifacts,
             Self::EmittedBytes,
         ]
@@ -489,7 +521,7 @@ mod tests {
             ProfileMetricKind::all().map(ProfileMetricKind::id),
             [
                 2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009, 2_010, 2_011,
-                2_012, 2_013, 2_016, 2_017, 2_014, 2_015,
+                2_012, 2_013, 2_016, 2_017, 2_018, 2_019, 2_020, 2_021, 2_014, 2_015,
             ]
         );
 

@@ -205,6 +205,35 @@ impl ProfileSession {
         *current = current.saturating_add(value);
     }
 
+    pub(crate) fn record_optimization_inputs(
+        &self,
+        requests: &[bray_codegen::BackendArtifactRequest],
+        contributions: &bray_emitter::BackendContributionSet,
+    ) {
+        if !requests.iter().any(|request| {
+            request.serialization().bitcode_semantics()
+                == bray_codegen::BackendBitcodeSemantics::ThinLto
+        }) {
+            return;
+        }
+
+        let (modules, bytes) = contributions
+            .contributions()
+            .iter()
+            .filter(|contribution| {
+                contribution.id().kind() == bray_emitter::ArtifactKind::BackendBitcode
+            })
+            .fold((0_u64, 0_u64), |(modules, bytes), contribution| {
+                (
+                    modules.saturating_add(1),
+                    bytes.saturating_add(contribution.content().byte_len()),
+                )
+            });
+
+        self.add_metric(ProfileMetricKind::OptimizationModules, modules);
+        self.add_metric(ProfileMetricKind::OptimizationInputBytes, bytes);
+    }
+
     pub(crate) fn add_runtime_artifact(&self, identity: &str, bytes: u64) {
         let mut artifacts = self
             .runtime_artifacts

@@ -43,7 +43,9 @@ pub(crate) fn emit_executable_with_configuration(
 ) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
 
-    let linker = native_linker(target, map_output).map_err(|error| {
+    let compiler_state_root = output.parent().unwrap_or(output);
+
+    let linker = native_linker(target, map_output, compiler_state_root).map_err(|error| {
         format!(
             "native linker is unavailable for {}: {error:?}",
             target.as_str()

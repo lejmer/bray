@@ -143,21 +143,19 @@ impl StandardLibraryResolver {
         selected
             .artifacts()
             .iter()
-            .filter(|artifact| {
-                match artifact.kind() {
-                    crate::StandardLibraryArtifactKind::RelocatableObject
-                    | crate::StandardLibraryArtifactKind::StaticLibrary
-                    | crate::StandardLibraryArtifactKind::SharedLibrary => true,
-                    crate::StandardLibraryArtifactKind::PlatformServiceLibrary => artifact
-                        .platform_services()
-                        .iter()
-                        .any(|role| platform_services.contains(role)),
-                    crate::StandardLibraryArtifactKind::PackageInterface
-                    | crate::StandardLibraryArtifactKind::PackageImplementation
-                    | crate::StandardLibraryArtifactKind::DependencyMetadata
-                    | crate::StandardLibraryArtifactKind::OptimizationArchive
-                    | crate::StandardLibraryArtifactKind::RuntimeArtifact => false,
-                }
+            .filter(|artifact| match artifact.kind() {
+                crate::StandardLibraryArtifactKind::RelocatableObject
+                | crate::StandardLibraryArtifactKind::StaticLibrary
+                | crate::StandardLibraryArtifactKind::SharedLibrary => true,
+                crate::StandardLibraryArtifactKind::PlatformServiceLibrary => artifact
+                    .platform_services()
+                    .iter()
+                    .any(|role| platform_services.contains(role)),
+                crate::StandardLibraryArtifactKind::PackageInterface
+                | crate::StandardLibraryArtifactKind::PackageImplementation
+                | crate::StandardLibraryArtifactKind::DependencyMetadata
+                | crate::StandardLibraryArtifactKind::OptimizationArchive
+                | crate::StandardLibraryArtifactKind::RuntimeArtifact => false,
             })
             .map(|artifact| self.resolve(artifact))
             .collect::<Result<Vec<_>, _>>()
@@ -324,6 +322,11 @@ pub enum StandardLibraryLoadError {
         expected: RuntimeAbiVersion,
         /// ABI recorded by the bundle.
         actual: RuntimeAbiVersion,
+    },
+    /// The bundle has no optimization archive compatible with the selected compiler contract.
+    OptimizationUnavailable {
+        /// Exact selected target identity.
+        target: TargetIdentity,
     },
     /// Resolver cache coordination failed.
     Infrastructure,
@@ -627,7 +630,7 @@ mod tests {
                 optimization,
                 crate::manifest::TEST_OPTIMIZATION_ARTIFACT_BYTES,
             )
-                .unwrap_or_else(|error| panic!("optimization must be written: {error}"));
+            .unwrap_or_else(|error| panic!("optimization must be written: {error}"));
 
             let bytes = encode_standard_library_manifest(&self.manifest)
                 .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));

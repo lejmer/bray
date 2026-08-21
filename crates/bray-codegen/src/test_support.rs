@@ -94,6 +94,50 @@ impl CodegenRequestFixture {
 
         self
     }
+
+    /// Returns the fixture with one required and one optional summarized bitcode contribution.
+    pub fn with_thin_lto_bitcode(mut self) -> Self {
+        self.required_artifact = BackendArtifactId::new(
+            self.unit.key().clone(),
+            BackendArtifactKind::BackendBitcode,
+            0,
+        );
+
+        self.optional_artifact = BackendArtifactId::new(
+            self.unit.key().clone(),
+            BackendArtifactKind::BackendBitcode,
+            1,
+        );
+
+        let entries = [
+            BackendArtifactRequestEntry::new(
+                self.required_artifact.clone(),
+                BackendArtifactRequirement::Required,
+            ),
+            BackendArtifactRequestEntry::new(
+                self.optional_artifact.clone(),
+                BackendArtifactRequirement::Optional,
+            ),
+        ];
+
+        let serialization =
+            BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault)
+                .with_bitcode_semantics(crate::BackendBitcodeSemantics::ThinLto);
+
+        self.artifacts = BackendArtifactRequest::try_new(
+            self.unit.key().clone(),
+            entries,
+            DebugInformationOutputMode::Omit,
+            Some(LinkableArtifactRequirement::new(
+                LinkableArtifactKind::BackendBitcode,
+                BackendArtifactRequirement::Required,
+            )),
+            serialization,
+        )
+        .unwrap_or_else(|error| panic!("test bitcode request must be valid: {error:?}"));
+
+        self
+    }
 }
 
 /// Creates a complete validated code generation request fixture.
@@ -440,6 +484,10 @@ pub fn codegen_backend_capabilities() -> BackendCapabilities {
                 crate::AssemblySyntaxKind::TargetDefault,
                 crate::AssemblySyntaxKind::Intel,
                 crate::AssemblySyntaxKind::Att,
+            ],
+            [
+                crate::BackendBitcodeSemantics::Plain,
+                crate::BackendBitcodeSemantics::ThinLto,
             ],
         ),
         ReproducibilityLevel::ByteForByte,

@@ -43,6 +43,8 @@ define_diagnostic_kinds! {
     StandardLibraryTargetUnavailable,
     /// A configured standard library target requires another runtime ABI.
     StandardLibraryRuntimeAbiMismatch,
+    /// A configured bundle has no optimization artifacts compatible with the compiler.
+    StandardLibraryOptimizationUnavailable,
     /// A compilation request selects one logical source more than once.
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
@@ -575,6 +577,8 @@ define_diagnostic_kinds! {
     LinkerUnsupportedStartup,
     /// The selected linker does not support the runtime ownership mode.
     LinkerUnsupportedRuntime,
+    /// The selected linker does not support the cross-artifact optimization policy.
+    LinkerUnsupportedOptimization,
     /// No configured native linker can execute the selected link plan.
     LinkerDriverUnavailable,
     /// The selected native linker is incompatible with the validated link plan.
@@ -631,6 +635,7 @@ impl DiagnosticKind {
             Self::StandardLibraryArtifactDigestMismatch => 1112,
             Self::StandardLibraryTargetUnavailable => 1113,
             Self::StandardLibraryRuntimeAbiMismatch => 1114,
+            Self::StandardLibraryOptimizationUnavailable => 1127,
             Self::ProjectManifestReadFailed => 1201,
             Self::ProjectManifestParseFailed => 1202,
             Self::ProjectManifestUnsupportedFormat => 1220,
@@ -896,6 +901,7 @@ impl DiagnosticKind {
             Self::LinkerExternalToolIoFailed => 9123,
             Self::LinkerExternalToolContractFailed => 9124,
             Self::LinkerExternalToolExitedUnsuccessfully => 9125,
+            Self::LinkerUnsupportedOptimization => 9126,
         };
 
         DiagnosticCode::new(raw)
@@ -926,6 +932,9 @@ impl DiagnosticKind {
             }
             Self::StandardLibraryTargetUnavailable => "standard_library_target_unavailable",
             Self::StandardLibraryRuntimeAbiMismatch => "standard_library_runtime_abi_mismatch",
+            Self::StandardLibraryOptimizationUnavailable => {
+                "standard_library_optimization_unavailable"
+            }
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
@@ -1302,6 +1311,7 @@ impl DiagnosticKind {
             Self::LinkerUnsupportedSymbol => "linker_unsupported_symbol",
             Self::LinkerUnsupportedStartup => "linker_unsupported_startup",
             Self::LinkerUnsupportedRuntime => "linker_unsupported_runtime",
+            Self::LinkerUnsupportedOptimization => "linker_unsupported_optimization",
             Self::LinkerDriverUnavailable => "linker_driver_unavailable",
             Self::LinkerDriverIncompatible => "linker_driver_incompatible",
             Self::LinkerInputMissing => "linker_input_missing",

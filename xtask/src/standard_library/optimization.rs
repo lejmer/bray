@@ -8,10 +8,9 @@ use std::process::Command;
 use bray_codegen::{BackendIdentity, CodegenTarget};
 use bray_runtime_interface::{BinarySymbolName, PlatformServiceRole, RuntimeAbiVersion};
 use bray_standard_library::{
-    StandardLibraryArtifact, StandardLibraryArtifactKind,
-    StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
-    StandardLibraryOptimizationFallback, StandardLibraryOptimizationLifecycleRoot,
-    StandardLibraryOptimizationMetadata,
+    StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryOptimizationCompatibility,
+    StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
     StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
 };
 use bray_target::{NativeTarget, ObjectFormat, TargetOutputKind, TargetOutputName};
@@ -94,14 +93,10 @@ impl<'publication> OptimizationPublication<'publication> {
         )
         .map_err(manifest_error)?;
 
-        self.publish(
-            partition,
-            services,
-            dependencies,
-            fallback,
-            built,
-            producer,
-        )
+        let native_links = fallback.native_links().iter().cloned().collect::<Vec<_>>();
+
+        self.publish(partition, services, dependencies, fallback, built, producer)
+            .map(|artifact| artifact.with_native_links(native_links))
     }
 
     fn publish(
@@ -119,11 +114,9 @@ impl<'publication> OptimizationPublication<'publication> {
 
         super::command::write_bundle_artifact(self.bundle, &path, &built.bytes)?;
 
-        let fallback = StandardLibraryOptimizationFallback::try_new(
-            fallback.path(),
-            fallback.digest(),
-        )
-        .map_err(manifest_error)?;
+        let fallback =
+            StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())
+                .map_err(manifest_error)?;
 
         let dependencies = dependencies
             .iter()
@@ -165,10 +158,7 @@ impl<'publication> OptimizationPublication<'publication> {
         if optimization.triple != self.triple || optimization.data_layout != self.data_layout {
             return Err(BuildError::NativeArchive(format!(
                 "optimization target {} with data layout {} differs from Bray target {} with data layout {}",
-                optimization.triple,
-                optimization.data_layout,
-                self.triple,
-                self.data_layout,
+                optimization.triple, optimization.data_layout, self.triple, self.data_layout,
             )));
         }
 
@@ -193,10 +183,7 @@ impl<'publication> OptimizationPublication<'publication> {
     }
 }
 
-fn optimization_archive_name(
-    target: NativeTarget,
-    partition: &str,
-) -> Result<String, BuildError> {
+fn optimization_archive_name(target: NativeTarget, partition: &str) -> Result<String, BuildError> {
     TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
         .file_name(&format!("{partition}_optimization"))
         .ok_or(BuildError::InvalidIdentity)
@@ -257,7 +244,9 @@ fn build_archive(
     let module_count = u32::try_from(modules.len())
         .ok()
         .and_then(NonZeroU32::new)
-        .ok_or_else(|| BuildError::NativeArchive("optimization module count is invalid".to_owned()))?;
+        .ok_or_else(|| {
+            BuildError::NativeArchive("optimization module count is invalid".to_owned())
+        })?;
 
     let mut summarized = Vec::with_capacity(modules.len());
     let mut contract = None;
@@ -357,8 +346,8 @@ fn canonicalize_module(
         "LLVM could not canonicalize an optimization module",
     )?;
 
-    let llvm_ir_text = fs::read_to_string(&llvm_ir)
-        .map_err(|error| BuildError::read(&llvm_ir, error))?;
+    let llvm_ir_text =
+        fs::read_to_string(&llvm_ir).map_err(|error| BuildError::read(&llvm_ir, error))?;
 
     let llvm_ir_text = remap_checkout_path(&llvm_ir_text, checkout_root);
 
@@ -388,11 +377,16 @@ fn remap_checkout_path(llvm_ir: &str, root: &Path) -> String {
     let escaped = native.replace('\\', "\\\\");
     let llvm_escaped = native.replace('\\', "\\5C");
 
-    [escaped.as_str(), llvm_escaped.as_str(), slash.as_str(), native.as_ref()]
-        .into_iter()
-        .fold(llvm_ir.to_owned(), |normalized, spelling| {
-            normalized.replace(spelling, ".")
-        })
+    [
+        escaped.as_str(),
+        llvm_escaped.as_str(),
+        slash.as_str(),
+        native.as_ref(),
+    ]
+    .into_iter()
+    .fold(llvm_ir.to_owned(), |normalized, spelling| {
+        normalized.replace(spelling, ".")
+    })
 }
 
 fn contains_checkout_path(llvm_ir: &str, root: &Path) -> bool {
@@ -422,8 +416,8 @@ fn inspect_module_contract(
     disassemble.arg(module).arg("-o").arg(&destination);
     require_success(disassemble, "LLVM could not inspect an optimization module")?;
 
-    let file = fs::File::open(&destination)
-        .map_err(|error| BuildError::read(&destination, error))?;
+    let file =
+        fs::File::open(&destination).map_err(|error| BuildError::read(&destination, error))?;
 
     let mut triple = None;
     let mut data_layout = None;
@@ -440,7 +434,9 @@ fn inspect_module_contract(
     triple
         .zip(data_layout)
         .map(|contract| (contract, lifecycle_roots))
-        .ok_or_else(|| BuildError::NativeArchive("optimization module target is incomplete".to_owned()))
+        .ok_or_else(|| {
+            BuildError::NativeArchive("optimization module target is incomplete".to_owned())
+        })
 }
 
 fn lifecycle_roots_for_line(
@@ -467,7 +463,12 @@ fn lifecycle_roots_for_line(
 }
 
 fn quoted_assignment(line: &str, name: &str) -> Option<String> {
-    let value = line.strip_prefix(name)?.trim_start().strip_prefix('=')?.trim();
+    let value = line
+        .strip_prefix(name)?
+        .trim_start()
+        .strip_prefix('=')?
+        .trim();
+
     let value = value.strip_prefix('"')?.strip_suffix('"')?;
 
     (!value.is_empty()).then(|| value.to_owned())
@@ -488,7 +489,11 @@ fn create_archive(root: &Path, archive: &Path, modules: &[PathBuf]) -> Result<()
         .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 
     if !output.status.success()
-        || output.stdout.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).count()
+        || output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .count()
             != modules.len()
     {
         return Err(BuildError::NativeArchive(
@@ -514,8 +519,9 @@ fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildErr
         ));
     }
 
-    let members = String::from_utf8(output.stdout)
-        .map_err(|_| BuildError::NativeArchive("native archive inventory is not UTF-8".to_owned()))?;
+    let members = String::from_utf8(output.stdout).map_err(|_| {
+        BuildError::NativeArchive("native archive inventory is not UTF-8".to_owned())
+    })?;
 
     let mut bitcode = Vec::new();
 
@@ -575,8 +581,9 @@ fn native_exports(
         ));
     }
 
-    let symbols = String::from_utf8(output.stdout)
-        .map_err(|_| BuildError::NativeArchive("native symbol inventory is not UTF-8".to_owned()))?;
+    let symbols = String::from_utf8(output.stdout).map_err(|_| {
+        BuildError::NativeArchive("native symbol inventory is not UTF-8".to_owned())
+    })?;
 
     Ok(symbols
         .lines()
@@ -677,11 +684,17 @@ mod tests {
     #[test]
     fn module_contract_assignments_require_quoted_values() {
         assert_eq!(
-            quoted_assignment("target triple = \"x86_64-pc-windows-msvc\"", "target triple"),
+            quoted_assignment(
+                "target triple = \"x86_64-pc-windows-msvc\"",
+                "target triple"
+            ),
             Some("x86_64-pc-windows-msvc".to_owned())
         );
 
-        assert_eq!(quoted_assignment("target triple = empty", "target triple"), None);
+        assert_eq!(
+            quoted_assignment("target triple = empty", "target triple"),
+            None
+        );
     }
 
     #[test]

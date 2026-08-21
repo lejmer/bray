@@ -10,8 +10,8 @@ use bray_codegen::{
 };
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirHelperReference, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirOperationId, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirHelperReference, MirOperand, MirOperationId, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
     MirUnitId, MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
@@ -470,7 +470,9 @@ impl Compilation {
                         CodegenCallSite::Operation(operation_id),
                         call,
                     )
-                    .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+                    .ok_or_else(|| {
+                        CodegenPreparationError::MissingHelperInstance(reference.clone())
+                    })?;
 
                     let ConcreteCodegenCallee::Instance(dependency) = self
                         .concrete_codegen_callee(

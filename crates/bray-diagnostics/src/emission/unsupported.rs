@@ -11,6 +11,8 @@ pub enum DiagnosticLlvmToolRole {
     Linker,
     /// LLVM archive writer and reader.
     Archiver,
+    /// LLVM optimizer used to form summary-bearing bitcode.
+    Optimizer,
     /// LLVM symbol-table inspector.
     SymbolInspector,
     /// LLVM object-file inspector.
@@ -24,6 +26,7 @@ impl DiagnosticLlvmToolRole {
             Self::CompilerDriver => "compiler_driver",
             Self::Linker => "linker",
             Self::Archiver => "archiver",
+            Self::Optimizer => "optimizer",
             Self::SymbolInspector => "symbol_inspector",
             Self::ObjectInspector => "object_inspector",
         }
@@ -35,6 +38,7 @@ impl DiagnosticLlvmToolRole {
             Self::CompilerDriver => "clang",
             Self::Linker => "ld.lld",
             Self::Archiver => "llvm-ar",
+            Self::Optimizer => "opt",
             Self::SymbolInspector => "llvm-nm",
             Self::ObjectInspector => "llvm-readobj",
         }

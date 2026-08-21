@@ -7,8 +7,8 @@ use bray_symbols::ProductKind;
 use bray_target::{CodeModel, RelocationModel, TargetMachineProperties};
 
 use crate::{
-    AssemblySyntaxKind, BackendArtifactKind, CodegenTarget, DebugInformationMode,
-    DebugInformationOutputMode, OptimizationLevel, SizePreference,
+    AssemblySyntaxKind, BackendArtifactKind, BackendBitcodeSemantics, CodegenTarget,
+    DebugInformationMode, DebugInformationOutputMode, OptimizationLevel, SizePreference,
 };
 
 /// Stable revision of one backend's complete capability declaration.
@@ -214,6 +214,7 @@ pub struct BackendOutputCapabilities {
     debug_information: Arc<[DebugInformationMode]>,
     debug_output: Arc<[DebugInformationOutputMode]>,
     assembly_syntax: Arc<[AssemblySyntaxKind]>,
+    bitcode_semantics: Arc<[BackendBitcodeSemantics]>,
 }
 
 impl BackendOutputCapabilities {
@@ -223,12 +224,14 @@ impl BackendOutputCapabilities {
         debug_information: impl IntoIterator<Item = DebugInformationMode>,
         debug_output: impl IntoIterator<Item = DebugInformationOutputMode>,
         assembly_syntax: impl IntoIterator<Item = AssemblySyntaxKind>,
+        bitcode_semantics: impl IntoIterator<Item = BackendBitcodeSemantics>,
     ) -> Self {
         Self {
             artifacts: sorted_unique_shared_slice(artifacts),
             debug_information: sorted_unique_shared_slice(debug_information),
             debug_output: sorted_unique_shared_slice(debug_output),
             assembly_syntax: sorted_unique_shared_slice(assembly_syntax),
+            bitcode_semantics: sorted_unique_shared_slice(bitcode_semantics),
         }
     }
 
@@ -250,6 +253,11 @@ impl BackendOutputCapabilities {
     /// Returns supported assembly syntax kinds.
     pub fn assembly_syntax(&self) -> &[AssemblySyntaxKind] {
         &self.assembly_syntax
+    }
+
+    /// Returns supported serialized backend-bitcode contracts.
+    pub fn bitcode_semantics(&self) -> &[BackendBitcodeSemantics] {
+        &self.bitcode_semantics
     }
 }
 
@@ -352,6 +360,14 @@ impl BackendCapabilities {
         self.outputs.assembly_syntax.binary_search(&syntax).is_ok()
     }
 
+    /// Returns whether the selected serialized backend-bitcode contract is supported.
+    pub fn supports_bitcode_semantics(&self, semantics: BackendBitcodeSemantics) -> bool {
+        self.outputs
+            .bitcode_semantics
+            .binary_search(&semantics)
+            .is_ok()
+    }
+
     pub(crate) fn supports_product(&self, product: ProductKind) -> bool {
         self.product_kinds.binary_search(&product).is_ok()
     }
@@ -383,8 +399,8 @@ mod tests {
         BackendTargetConfiguration, ReproducibilityLevel,
     };
     use crate::{
-        AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode, DebugInformationOutputMode,
-        OptimizationLevel, SizePreference,
+        AssemblySyntaxKind, BackendArtifactKind, BackendBitcodeSemantics, DebugInformationMode,
+        DebugInformationOutputMode, OptimizationLevel, SizePreference,
     };
 
     #[test]
@@ -419,6 +435,7 @@ mod tests {
                 [DebugInformationMode::None],
                 [DebugInformationOutputMode::Omit],
                 [AssemblySyntaxKind::TargetDefault],
+                [BackendBitcodeSemantics::Plain],
             ),
             ReproducibilityLevel::ByteForByte,
         );
