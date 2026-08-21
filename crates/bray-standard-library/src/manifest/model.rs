@@ -9,7 +9,7 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use super::wire::encode_payload;
-use super::StandardLibraryOptimizationMetadata;
+use super::{StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducerKind};
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -201,10 +201,7 @@ impl StandardLibraryArtifact {
     }
 
     /// Returns this archive with its cross-artifact optimization contract.
-    pub fn with_optimization(
-        mut self,
-        optimization: StandardLibraryOptimizationMetadata,
-    ) -> Self {
+    pub fn with_optimization(mut self, optimization: StandardLibraryOptimizationMetadata) -> Self {
         self.optimization = Some(optimization);
 
         self
@@ -305,8 +302,14 @@ impl StandardLibraryTargetArtifacts {
         }
 
         if artifacts.iter().any(|artifact| {
-            artifact.kind() != StandardLibraryArtifactKind::PlatformServiceLibrary
-                && !artifact.native_links().is_empty()
+            let accepts_native_links = artifact.kind()
+                == StandardLibraryArtifactKind::PlatformServiceLibrary
+                || artifact.optimization().is_some_and(|optimization| {
+                    optimization.producer().kind()
+                        == StandardLibraryOptimizationProducerKind::PinnedNative
+                });
+
+            !accepts_native_links && !artifact.native_links().is_empty()
         }) {
             return Err(StandardLibraryManifestError::InvalidNativeLink);
         }
@@ -530,8 +533,7 @@ pub enum StandardLibraryManifestError {
 
 /// Stable optimization bytes shared by standard-library consumer tests.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) const TEST_OPTIMIZATION_ARTIFACT_BYTES: &[u8] =
-    b"test standard library optimization";
+pub(crate) const TEST_OPTIMIZATION_ARTIFACT_BYTES: &[u8] = b"test standard library optimization";
 
 /// Completes a minimal target artifact set for tests of standard-library consumers.
 #[cfg(any(test, feature = "test-support"))]
@@ -583,10 +585,8 @@ pub fn target_artifacts_for_test(
         runtime_abi,
     )?;
 
-    let fallback = super::StandardLibraryOptimizationFallback::try_new(
-        fallback.path(),
-        fallback.digest(),
-    )?;
+    let fallback =
+        super::StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())?;
 
     let optimization = super::StandardLibraryOptimizationMetadata::try_new(
         "std",

@@ -44,7 +44,14 @@ impl Drop for TemporaryFile {
 
 /// Returns an uncreated process-local unique path beneath the host temporary directory.
 pub fn unique_temporary_directory() -> PathBuf {
-    let sequence = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+    loop {
+        let sequence = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
 
-    std::env::temp_dir().join(format!("bray-test-{}-{sequence}", std::process::id()))
+        let candidate =
+            std::env::temp_dir().join(format!("bray-test-{}-{sequence}", std::process::id()));
+
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
 }

@@ -37,6 +37,8 @@ pub enum BuildConfiguration {
     Development,
     /// Favor generated-code performance and omit debug information.
     Release,
+    /// Favor generated-code performance while retaining independently linked native objects.
+    ObjectRelease,
     /// Preserve release behavior while observing generated memory work.
     ObservedRelease,
     /// Preserve release behavior while observing the generated root interval.
@@ -68,7 +70,7 @@ impl BuildConfiguration {
                 bray_codegen::ReproducibilityLevel::ByteForByte,
                 RuntimeObservationMode::None,
             ),
-            Self::Release => CodegenOptions::new(
+            Self::Release | Self::ObjectRelease => CodegenOptions::new(
                 OptimizationLevel::Full,
                 SizePreference::None,
                 DebugInformationMode::None,
@@ -95,6 +97,13 @@ impl BuildConfiguration {
     pub(super) const fn preserves_unused_link_content(self) -> bool {
         matches!(self, Self::Development)
     }
+
+    pub(super) const fn uses_thin_lto(self) -> bool {
+        matches!(
+            self,
+            Self::Release | Self::ObservedRelease | Self::TimedRelease { .. }
+        )
+    }
 }
 
 #[cfg(test)]
@@ -107,6 +116,7 @@ mod tests {
     fn configurations_select_distinct_codegen_policy() {
         let development = BuildConfiguration::Development.codegen_options();
         let release = BuildConfiguration::Release.codegen_options();
+        let object_release = BuildConfiguration::ObjectRelease.codegen_options();
         let observed = BuildConfiguration::ObservedRelease.codegen_options();
 
         let timed = BuildConfiguration::TimedRelease {
@@ -123,6 +133,10 @@ mod tests {
 
         assert_eq!(release.optimization(), OptimizationLevel::Full);
         assert_eq!(release.debug_information(), DebugInformationMode::None);
+        assert_eq!(object_release, release);
+
+        assert!(BuildConfiguration::Release.uses_thin_lto());
+        assert!(!BuildConfiguration::ObjectRelease.uses_thin_lto());
 
         assert_eq!(
             observed.runtime_observations(),

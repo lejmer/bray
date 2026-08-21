@@ -314,7 +314,8 @@ impl DiagnosticKind {
                 &[FilePath, ExpectedArtifactDigest, ActualArtifactDigest],
                 interface_components!(&[FilePath, ExpectedArtifactDigest, ActualArtifactDigest]),
             ),
-            Self::StandardLibraryTargetUnavailable => {
+            Self::StandardLibraryTargetUnavailable
+            | Self::StandardLibraryOptimizationUnavailable => {
                 Self::quality_artifact(&[TargetTriple], interface_components!(&[TargetTriple]))
             }
             Self::StandardLibraryRuntimeAbiMismatch => Self::quality_artifact(
@@ -1322,7 +1323,8 @@ impl DiagnosticKind {
             | Self::LinkerUnsupportedSubsystem
             | Self::LinkerUnsupportedSymbol
             | Self::LinkerUnsupportedStartup
-            | Self::LinkerUnsupportedRuntime => {
+            | Self::LinkerUnsupportedRuntime
+            | Self::LinkerUnsupportedOptimization => {
                 Self::quality_artifact(&[LinkRequirement], primary_components!(&[LinkRequirement]))
             }
             Self::LinkerInputMissing => Self::quality_artifact(

@@ -7,8 +7,8 @@ use crate::LldFlavor;
 use crate::SystemLinkerFamily;
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputMode, LinkInputSource, LinkModel,
-    LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind,
-    PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
+    LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkTimeOptimizationPolicy, LinkedArtifactKind,
+    LinkedProductKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
 };
 
 pub(super) fn system_arguments_for(
@@ -42,6 +42,13 @@ fn gnu_compiler_arguments(
     }
 
     arguments.push("-pthread".into());
+
+    if matches!(
+        plan.policy().optimization(),
+        LinkTimeOptimizationPolicy::ThinLto { .. }
+    ) {
+        arguments.push("-flto=thin".into());
+    }
 
     for argument in raw {
         let Some(argument) = argument.to_str() else {
@@ -94,6 +101,13 @@ fn microsoft_compiler_arguments(
     arguments.push(format!("--target={}", plan.target().triple()).into());
     arguments.push("-fuse-ld=lld".into());
 
+    if matches!(
+        plan.policy().optimization(),
+        LinkTimeOptimizationPolicy::ThinLto { .. }
+    ) {
+        arguments.push("-flto=thin".into());
+    }
+
     for argument in raw {
         let Some(text) = argument.to_str() else {
             return Err(LldPlanError::NonUnicodeArgument);
@@ -142,6 +156,13 @@ fn apple_compiler_arguments(
     let mut arguments = Vec::with_capacity(raw.len());
     let mut raw = raw.into_iter();
 
+    if matches!(
+        plan.policy().optimization(),
+        LinkTimeOptimizationPolicy::ThinLto { .. }
+    ) {
+        arguments.push("-flto=thin".into());
+    }
+
     while let Some(argument) = raw.next() {
         let Some(text) = argument.to_str() else {
             return Err(LldPlanError::NonUnicodeArgument);
@@ -153,6 +174,9 @@ fn apple_compiler_arguments(
             }
             "-dylib" => arguments.push("-dynamiclib".into()),
             "-no_uuid" | "-dead_strip" => {
+                arguments.push(OsString::from(format!("-Wl,{text}")));
+            }
+            text if text.starts_with("--thinlto-") => {
                 arguments.push(OsString::from(format!("-Wl,{text}")));
             }
             "-exported_symbol" | "-u" | "-force_load" => {
@@ -386,6 +410,14 @@ fn push_policy_arguments(
         }
     }
 
+    if let LinkTimeOptimizationPolicy::ThinLto { jobs } = policy.optimization() {
+        arguments.push(match flavor {
+            LldFlavor::Elf => format!("--thinlto-jobs={jobs}").into(),
+            LldFlavor::Coff => format!("/opt:lldltojobs={jobs}").into(),
+            LldFlavor::MachO => format!("--thinlto-jobs={jobs}").into(),
+        });
+    }
+
     Ok(())
 }
 
@@ -608,6 +640,7 @@ enum SymbolArgument {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+    use std::num::NonZeroUsize;
 
     use bray_runtime_interface::{BinarySymbolName, RuntimeArtifactId};
     use bray_target::{
@@ -619,8 +652,9 @@ mod tests {
     use crate::{
         DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
         LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath,
-        LinkSearchPathKind, LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement,
-        LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
+        LinkSearchPathKind, LinkTarget, LinkTimeOptimizationPolicy, LinkedArtifactKind,
+        LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind,
+        SystemLinkerFamily,
     };
 
     #[test]
@@ -882,6 +916,68 @@ mod tests {
     }
 
     #[test]
+    fn thin_lto_uses_each_linker_backend_job_contract() {
+        let jobs =
+            NonZeroUsize::new(3).unwrap_or_else(|| panic!("test worker budget must be nonzero"));
+
+        let cases = [
+            (
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+                LldFlavor::Elf,
+                SystemLinkerFamily::GnuCompiler,
+                "--thinlto-jobs=3",
+                "-Wl,--thinlto-jobs=3",
+            ),
+            (
+                TargetArchitecture::X86_64,
+                ObjectFormat::Coff,
+                LldFlavor::Coff,
+                SystemLinkerFamily::MicrosoftCompiler,
+                "/opt:lldltojobs=3",
+                "/opt:lldltojobs=3",
+            ),
+            (
+                TargetArchitecture::Aarch64,
+                ObjectFormat::MachO,
+                LldFlavor::MachO,
+                SystemLinkerFamily::AppleCompiler,
+                "--thinlto-jobs=3",
+                "-Wl,--thinlto-jobs=3",
+            ),
+        ];
+
+        for (architecture, format, flavor, family, raw_job, compiler_job) in cases {
+            let plan = executable_plan_with_startup(
+                architecture,
+                format,
+                "application",
+                "main.bc",
+                crate::LinkStartupMode::PlatformCompilerDriver,
+                LinkTimeOptimizationPolicy::ThinLto { jobs },
+            );
+
+            let raw = arguments_for(&plan, flavor)
+                .unwrap_or_else(|error| panic!("ThinLTO plan must be valid: {error:?}"));
+
+            assert!(raw.contains(&OsString::from(raw_job)), "{family:?}");
+
+            let compiler = system_arguments_for(&plan, family, None)
+                .unwrap_or_else(|error| panic!("ThinLTO compiler plan must be valid: {error:?}"));
+
+            assert!(
+                compiler.contains(&OsString::from("-flto=thin")),
+                "{family:?}"
+            );
+
+            assert!(
+                compiler.contains(&OsString::from(compiler_job)),
+                "{family:?}"
+            );
+        }
+    }
+
+    #[test]
     fn native_link_plans_cover_every_supported_platform_and_architecture() {
         for native in NativeTarget::ALL {
             let plan = native_executable_plan(native);
@@ -914,6 +1010,7 @@ mod tests {
             "application",
             "main.o",
             crate::LinkStartupMode::ExplicitInputs,
+            LinkTimeOptimizationPolicy::None,
         );
 
         let mut builder = LinkPlanBuilder::new(
@@ -1037,6 +1134,7 @@ mod tests {
             output,
             input,
             crate::LinkStartupMode::PlatformCompilerDriver,
+            LinkTimeOptimizationPolicy::None,
         )
     }
 
@@ -1046,6 +1144,7 @@ mod tests {
         output: &str,
         input: &str,
         startup_mode: crate::LinkStartupMode,
+        optimization: LinkTimeOptimizationPolicy,
     ) -> LinkPlan {
         let identity = TargetIdentity::try_new("test-target")
             .unwrap_or_else(|| panic!("test target identity must be valid"));
@@ -1075,7 +1174,8 @@ mod tests {
                 crate::SectionGarbageCollectionPolicy::Preserve,
                 crate::DebugLinkPolicy::None,
                 None,
-            ),
+            )
+            .with_optimization(optimization),
         );
 
         if startup_mode == crate::LinkStartupMode::ExplicitInputs {

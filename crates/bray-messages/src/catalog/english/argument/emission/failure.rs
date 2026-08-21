@@ -191,6 +191,9 @@ fn format_english_emission_planning_failure(
         Failure::BackendRequestUnexpectedAssemblySyntax => {
             "the native-code request selects assembly syntax without assembly output".to_owned()
         }
+        Failure::BackendRequestUnexpectedBitcodeSemantics => {
+            "the native-code request selects ThinLTO semantics without bitcode output".to_owned()
+        }
         Failure::InconsistentPlan => {
             "the derived artifacts do not match the complete output request".to_owned()
         }

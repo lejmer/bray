@@ -156,10 +156,21 @@ pub enum AssemblySyntaxKind {
     Att,
 }
 
+/// Native optimization contract carried by serialized backend bitcode.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BackendBitcodeSemantics {
+    /// Preserve backend bitcode without a cross-artifact import summary.
+    #[default]
+    Plain,
+    /// Include the module summary required for LLVM ThinLTO planning.
+    ThinLto,
+}
+
 /// Validated output-affecting serialization policy shared with a backend.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BackendSerializationOptions {
     assembly_syntax_kind: AssemblySyntaxKind,
+    bitcode_semantics: BackendBitcodeSemantics,
 }
 
 impl BackendSerializationOptions {
@@ -167,12 +178,28 @@ impl BackendSerializationOptions {
     pub const fn new(assembly_syntax_kind: AssemblySyntaxKind) -> Self {
         Self {
             assembly_syntax_kind,
+            bitcode_semantics: BackendBitcodeSemantics::Plain,
         }
+    }
+
+    /// Returns this policy with the selected backend-bitcode contract.
+    pub const fn with_bitcode_semantics(
+        mut self,
+        bitcode_semantics: BackendBitcodeSemantics,
+    ) -> Self {
+        self.bitcode_semantics = bitcode_semantics;
+
+        self
     }
 
     /// Returns the requested assembly syntax.
     pub const fn assembly_syntax_kind(self) -> AssemblySyntaxKind {
         self.assembly_syntax_kind
+    }
+
+    /// Returns the requested backend-bitcode contract.
+    pub const fn bitcode_semantics(self) -> BackendBitcodeSemantics {
+        self.bitcode_semantics
     }
 }
 
@@ -300,6 +327,8 @@ pub enum BackendArtifactRequestBuildError {
     UnexpectedDebugCompanion,
     /// A non-default assembly syntax was selected without an assembly contribution.
     UnexpectedAssemblySyntax,
+    /// Specialized bitcode semantics were selected without a backend-bitcode contribution.
+    UnexpectedBitcodeSemantics,
 }
 
 fn validate_linkable_requirement(
@@ -365,6 +394,12 @@ fn validate_serialization_options(
         return Err(BackendArtifactRequestBuildError::UnexpectedAssemblySyntax);
     }
 
+    if options.bitcode_semantics() != BackendBitcodeSemantics::Plain
+        && !has_kind(entries, BackendArtifactKind::BackendBitcode)
+    {
+        return Err(BackendArtifactRequestBuildError::UnexpectedBitcodeSemantics);
+    }
+
     Ok(())
 }
 
@@ -377,8 +412,8 @@ mod tests {
     use super::{
         AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-        BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
-        LinkableArtifactRequirement,
+        BackendBitcodeSemantics, BackendSerializationOptions, DebugInformationOutputMode,
+        LinkableArtifactKind, LinkableArtifactRequirement,
     };
     use crate::test_support::codegen_unit_key;
 
@@ -418,6 +453,26 @@ mod tests {
                 serialization(),
             ),
             Err(BackendArtifactRequestBuildError::UnexpectedDebugCompanion)
+        );
+    }
+
+    #[test]
+    fn specialized_bitcode_semantics_require_bitcode_output() {
+        let unit = codegen_unit_key(1);
+        let object = entry(unit.clone(), BackendArtifactKind::RelocatableObject, 0);
+
+        assert_eq!(
+            BackendArtifactRequest::try_new(
+                unit,
+                [object],
+                DebugInformationOutputMode::Omit,
+                Some(LinkableArtifactRequirement::new(
+                    LinkableArtifactKind::RelocatableObject,
+                    BackendArtifactRequirement::Required,
+                )),
+                serialization().with_bitcode_semantics(BackendBitcodeSemantics::ThinLto),
+            ),
+            Err(BackendArtifactRequestBuildError::UnexpectedBitcodeSemantics)
         );
     }
 

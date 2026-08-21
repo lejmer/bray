@@ -32,7 +32,8 @@ use bray_syntax::SyntaxKind;
 
 use super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson, write_json_diagnostics};
 use crate::output::diagnostic::test_support::file_source_store;
-use crate::product::{LlvmToolPathError, NativeLinkerBuildError};
+use crate::product::NativeLinkerBuildError;
+use crate::toolchain::LlvmToolPathError;
 
 const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json.rs",

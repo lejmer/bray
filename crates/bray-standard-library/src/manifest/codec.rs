@@ -18,8 +18,8 @@ use super::model::{
 use super::optimization::{
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
     StandardLibraryOptimizationFallback, StandardLibraryOptimizationLifecycleRoot,
-    StandardLibraryOptimizationMetadata,
-    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
+    StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
+    StandardLibraryOptimizationProducerKind,
 };
 use super::wire::{
     MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedOptimizationWire,
@@ -116,10 +116,7 @@ fn decode_artifact(
         .map(decode_native_link)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let optimization = wire
-        .optimization
-        .map(decode_optimization)
-        .transpose()?;
+    let optimization = wire.optimization.map(decode_optimization).transpose()?;
 
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
         .map(|artifact| artifact.with_platform_services(platform_services))
@@ -180,7 +177,9 @@ fn decode_optimization(
         .lifecycle_roots
         .into_iter()
         .map(|root| match root.as_str() {
-            "global_constructors" => Ok(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors),
+            "global_constructors" => {
+                Ok(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors)
+            }
             "global_destructors" => Ok(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors),
             "exit_registration" => Ok(StandardLibraryOptimizationLifecycleRoot::ExitRegistration),
             _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
@@ -220,9 +219,7 @@ fn decode_optimization(
     .map(|metadata| metadata.with_dependencies(dependencies))
 }
 
-fn decode_relocation_model(
-    value: &str,
-) -> Result<RelocationModel, StandardLibraryManifestError> {
+fn decode_relocation_model(value: &str) -> Result<RelocationModel, StandardLibraryManifestError> {
     match value {
         "default" => Ok(RelocationModel::Default),
         "static" => Ok(RelocationModel::Static),
@@ -435,6 +432,51 @@ mod tests {
 
         assert_eq!(error, StandardLibraryManifestError::InvalidPlatformServices);
 
+        let optimization_native_link = NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("c")
+                .unwrap_or_else(|| panic!("native library name must be valid")),
+            NativeLinkKind::System,
+        );
+
+        let optimization_artifacts = target.artifacts().iter().cloned().map(|artifact| {
+            if artifact.optimization().is_some_and(|optimization| {
+                optimization.producer().kind()
+                    == StandardLibraryOptimizationProducerKind::PinnedNative
+            }) {
+                artifact.with_native_links([optimization_native_link.clone()])
+            } else {
+                artifact
+            }
+        });
+
+        assert!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                optimization_artifacts,
+            )
+            .is_ok()
+        );
+
+        let bray_optimization_native_link = target.artifacts().iter().cloned().map(|artifact| {
+            if artifact.optimization().is_some_and(|optimization| {
+                optimization.producer().kind() == StandardLibraryOptimizationProducerKind::Bray
+            }) {
+                artifact.with_native_links([optimization_native_link.clone()])
+            } else {
+                artifact
+            }
+        });
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                bray_optimization_native_link,
+            ),
+            Err(StandardLibraryManifestError::InvalidNativeLink)
+        );
+
         let ordinary_native_link = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::StaticLibrary,
             "targets/x86_64-unknown-linux-gnu/1.0/libinvalid-native-link.a",
@@ -525,11 +567,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("optimization compatibility must be valid: {error:?}"));
 
-        let fallback = StandardLibraryOptimizationFallback::try_new(
-            archive.path(),
-            archive.digest(),
-        )
-        .unwrap_or_else(|error| panic!("optimization fallback must be valid: {error:?}"));
+        let fallback =
+            StandardLibraryOptimizationFallback::try_new(archive.path(), archive.digest())
+                .unwrap_or_else(|error| panic!("optimization fallback must be valid: {error:?}"));
 
         let optimization = StandardLibraryOptimizationMetadata::try_new(
             "std",
@@ -557,11 +597,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("provider producer must be valid: {error:?}"));
 
-        let provider_fallback = StandardLibraryOptimizationFallback::try_new(
-            provider.path(),
-            provider.digest(),
-        )
-        .unwrap_or_else(|error| panic!("provider fallback must be valid: {error:?}"));
+        let provider_fallback =
+            StandardLibraryOptimizationFallback::try_new(provider.path(), provider.digest())
+                .unwrap_or_else(|error| panic!("provider fallback must be valid: {error:?}"));
 
         let provider_optimization = StandardLibraryOptimizationMetadata::try_new(
             "platform-core",
@@ -570,9 +608,7 @@ mod tests {
             provider_fallback,
             NonZeroU32::MIN,
         )
-        .map(|metadata| {
-            metadata.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
-        })
+        .map(|metadata| metadata.with_platform_services([PlatformServiceRole::ClockMonotonicNow]))
         .map(|metadata| {
             metadata.with_lifecycle_roots([
                 StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
@@ -580,15 +616,11 @@ mod tests {
             ])
         })
         .map(|metadata| {
-            metadata.with_dependencies([
-                StandardLibraryOptimizationDependency::try_new(
-                    dependency.path(),
-                    dependency.digest(),
-                )
-                .unwrap_or_else(|error| {
-                    panic!("optimization dependency must be valid: {error:?}")
-                }),
-            ])
+            metadata.with_dependencies([StandardLibraryOptimizationDependency::try_new(
+                dependency.path(),
+                dependency.digest(),
+            )
+            .unwrap_or_else(|error| panic!("optimization dependency must be valid: {error:?}"))])
         })
         .unwrap_or_else(|error| panic!("provider optimization metadata must be valid: {error:?}"));
 

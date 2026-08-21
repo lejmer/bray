@@ -6,6 +6,7 @@ mod artifact;
 mod backend;
 mod capability;
 mod mapping;
+mod optimization;
 mod options;
 mod outcome;
 mod registry;
@@ -18,13 +19,14 @@ mod unit;
 pub mod test_support;
 
 pub use artifact::{
-    ArtifactContent, ArtifactContentBuildError, ArtifactContentSource, ArtifactDigest,
-    ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError, ArtifactSpoolOperation,
-    ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactId,
-    BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestBuildError,
-    BackendArtifactRequestEntry, BackendArtifactRequirement, BackendArtifactSet,
-    BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
-    LinkableArtifactKind, LinkableArtifactRequirement,
+    ArtifactContent, ArtifactContentBuildError, ArtifactContentReader, ArtifactContentSource,
+    ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
+    ArtifactSpoolOperation, ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution,
+    BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
+    BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
+    BackendArtifactSet, BackendArtifactSetBuildError, BackendBitcodeSemantics,
+    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
+    LinkableArtifactRequirement,
 };
 pub use backend::{BackendIdentity, CodeGenerator};
 pub use capability::{
@@ -42,12 +44,14 @@ pub use mapping::{
     CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenStaticWitness, CodegenSymbolKey,
     CodegenSymbolMapping, CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind,
     CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute, ConstantDemands,
-    DemandedCallableInstance, IntrinsicCall, child_constants,
-    demanded_callable_instance_for_call, demanded_callable_instances,
-    demanded_callable_instances_for_mir, demanded_callable_references,
+    DemandedCallableInstance, IntrinsicCall, child_constants, demanded_callable_instance_for_call,
+    demanded_callable_instances, demanded_callable_instances_for_mir, demanded_callable_references,
     demanded_callable_references_for_mir, demanded_constant_terms, demanded_constants,
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
     demanded_types, mapped_runtime_references, static_host_section_name,
+};
+pub use optimization::{
+    BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer, BackendBitcodeTargetContract,
 };
 pub use options::{
     CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,

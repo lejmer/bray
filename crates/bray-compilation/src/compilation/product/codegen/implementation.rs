@@ -206,11 +206,25 @@ impl Compilation {
             }
         };
 
+        let linkable_artifact = if configuration.uses_thin_lto() {
+            LinkableArtifactKind::BackendBitcode
+        } else {
+            LinkableArtifactKind::RelocatableObject
+        };
+
+        let serialization =
+            bray_codegen::BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault)
+                .with_bitcode_semantics(if configuration.uses_thin_lto() {
+                    bray_codegen::BackendBitcodeSemantics::ThinLto
+                } else {
+                    bray_codegen::BackendBitcodeSemantics::Plain
+                });
+
         let policy = BackendEmissionPolicy::new(
             options.debug_information(),
             debug_output,
-            Some(LinkableArtifactKind::RelocatableObject),
-            bray_codegen::BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
+            Some(linkable_artifact),
+            serialization,
         );
 
         let backend = EmissionBackend::try_new(

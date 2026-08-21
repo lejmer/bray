@@ -57,6 +57,7 @@ pub enum DiagnosticLinkRequirement {
     StartupExplicitInputs,
     StartupPlatformCompilerDriver,
     RuntimeExplicitInput,
+    OptimizationThinLto,
 }
 
 impl DiagnosticLinkRequirement {
@@ -112,6 +113,7 @@ impl DiagnosticLinkRequirement {
             | Self::StartupExplicitInputs
             | Self::StartupPlatformCompilerDriver => DiagnosticLinkRequirementKind::Startup,
             Self::RuntimeExplicitInput => DiagnosticLinkRequirementKind::Runtime,
+            Self::OptimizationThinLto => DiagnosticLinkRequirementKind::Optimization,
         }
     }
 
@@ -158,6 +160,7 @@ impl DiagnosticLinkRequirement {
             Self::StartupExplicitInputs => "explicit_inputs",
             Self::StartupPlatformCompilerDriver => "platform_compiler_driver",
             Self::RuntimeExplicitInput => "explicit_input",
+            Self::OptimizationThinLto => "thin_lto",
         }
     }
 }
@@ -179,6 +182,7 @@ pub enum DiagnosticLinkRequirementKind {
     Symbol,
     Startup,
     Runtime,
+    Optimization,
 }
 
 impl DiagnosticLinkRequirementKind {
@@ -199,6 +203,7 @@ impl DiagnosticLinkRequirementKind {
             Self::Symbol => "symbol",
             Self::Startup => "startup",
             Self::Runtime => "runtime",
+            Self::Optimization => "optimization",
         }
     }
 }

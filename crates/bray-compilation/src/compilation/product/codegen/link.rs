@@ -13,6 +13,12 @@ use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
 use super::super::super::Compilation;
 use super::error::NativeProductPlanningError;
 
+struct StandardLibraryLinkSelection {
+    inputs: Vec<Result<LinkInputSpec, NativeProductPlanningError>>,
+    optimization_modules: u64,
+    optimization_bytes: u64,
+}
+
 impl Compilation {
     pub(super) fn product_link_inputs(
         &self,
@@ -52,6 +58,7 @@ impl Compilation {
             }
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
             crate::BuildConfiguration::Release
+            | crate::BuildConfiguration::ObjectRelease
             | crate::BuildConfiguration::ObservedRelease
             | crate::BuildConfiguration::TimedRelease { .. } => DebugLinkPolicy::None,
         };
@@ -65,6 +72,7 @@ impl Compilation {
                 match configuration {
                     crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
                     crate::BuildConfiguration::Release
+                    | crate::BuildConfiguration::ObjectRelease
                     | crate::BuildConfiguration::ObservedRelease
                     | crate::BuildConfiguration::TimedRelease { .. } => DebugLinkPolicy::None,
                 },
@@ -98,6 +106,15 @@ impl Compilation {
                 linked_debug,
                 None,
             ),
+        };
+
+        let policy = if configuration.uses_thin_lto() && product != LinkedProductKind::StaticLibrary
+        {
+            policy.with_optimization(bray_linker::LinkTimeOptimizationPolicy::ThinLto {
+                jobs: self.worker_budget().nonzero(),
+            })
+        } else {
+            policy
         };
 
         let configured_inputs = self.native_link_inputs().iter().map(|requirement| {
@@ -134,12 +151,17 @@ impl Compilation {
             .copied()
             .collect();
 
-        let standard_library_inputs =
-            self.standard_library_link_inputs(kind, &imported_symbols, &platform_overrides)?;
+        let standard_library = self.standard_library_link_selection(
+            kind,
+            &imported_symbols,
+            &platform_overrides,
+            target,
+            configuration,
+        )?;
 
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
-            .chain(standard_library_inputs)
+            .chain(standard_library.inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut inputs =
@@ -149,17 +171,49 @@ impl Compilation {
             inputs = inputs.with_runtime(runtime);
         }
 
+        let mut preservation_roots =
+            super::plan::product_preservation_roots(mappings, product_host)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+
         if let Some(host) = host {
-            // Link inputs own the Arc-backed entry symbol after host construction returns.
-            inputs = inputs.with_retained_symbols([host.native_entry().clone()]);
+            preservation_roots.insert(host.native_entry().clone());
         }
 
         if let Some(product_host) = product_host {
-            inputs = inputs.with_retained_symbols([
+            preservation_roots.extend([
                 product_host.descriptor_symbol().clone(),
                 product_host.control_symbol().clone(),
             ]);
+        }
 
+        if configuration.uses_thin_lto() {
+            if let Some(profile) = self.state.fact_runtime.profile() {
+                profile.add_metric(
+                    crate::profile::ProfileMetricKind::OptimizationModules,
+                    standard_library.optimization_modules,
+                );
+
+                profile.add_metric(
+                    crate::profile::ProfileMetricKind::OptimizationInputBytes,
+                    standard_library.optimization_bytes,
+                );
+
+                profile.add_metric(
+                    crate::profile::ProfileMetricKind::OptimizationWorkers,
+                    u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
+                );
+
+                profile.add_metric(
+                    crate::profile::ProfileMetricKind::OptimizationPreservationRoots,
+                    u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
+                );
+            }
+        }
+
+        inputs = inputs.with_retained_symbols(preservation_roots);
+
+        if let Some(product_host) = product_host {
             if kind == ProductKind::Library {
                 inputs = inputs.with_exported_symbols([
                     product_host.descriptor_symbol().clone(),
@@ -171,19 +225,28 @@ impl Compilation {
         Ok(inputs)
     }
 
-    pub(super) fn standard_library_link_inputs(
+    fn standard_library_link_selection(
         &self,
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError>
-    {
+        target: &CodegenTarget,
+        configuration: crate::BuildConfiguration,
+    ) -> Result<StandardLibraryLinkSelection, NativeProductPlanningError> {
         if product_kind == ProductKind::Library {
-            return Ok(Vec::new());
+            return Ok(StandardLibraryLinkSelection {
+                inputs: Vec::new(),
+                optimization_modules: 0,
+                optimization_bytes: 0,
+            });
         }
 
         let Some(resolver) = self.standard_library_provider_resolver() else {
-            return Ok(Vec::new());
+            return Ok(StandardLibraryLinkSelection {
+                inputs: Vec::new(),
+                optimization_modules: 0,
+                optimization_bytes: 0,
+            });
         };
 
         let selected = self.requested_target();
@@ -202,13 +265,46 @@ impl Compilation {
             .copied()
             .collect::<Vec<_>>();
 
-        let artifacts = resolver
-            .link_artifacts_for_platform_services(
-                selected.profile().identity(),
+        let artifacts = if configuration.uses_thin_lto() {
+            let artifacts = resolver
+                .target_artifacts(selected.profile().identity(), selected.runtime_abi())
+                .map_err(NativeProductPlanningError::StandardLibrary)?;
+
+            let codegen = self
+                .state
+                .codegen
+                .as_ref()
+                .ok_or(NativeProductPlanningError::CodegenUnavailable)?;
+
+            let compatibility = codegen
+                .selected_bitcode_target_contract(target)
+                .map_err(NativeProductPlanningError::BitcodeTargetContract)?
+                .ok_or_else(|| {
+                    NativeProductPlanningError::StandardLibrary(
+                        bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
+                            target: target.identity().clone(),
+                        },
+                    )
+                })?;
+
+            select_optimization_artifacts(
+                &artifacts,
+                &compatibility,
                 selected.runtime_abi(),
-                &provider_services,
-            )
-            .map_err(NativeProductPlanningError::StandardLibrary)?;
+                codegen.selected(),
+            )?
+        } else {
+            resolver
+                .link_artifacts_for_platform_services(
+                    selected.profile().identity(),
+                    selected.runtime_abi(),
+                    &provider_services,
+                )
+                .map_err(NativeProductPlanningError::StandardLibrary)?
+                .iter()
+                .cloned()
+                .collect()
+        };
 
         let package = bray_symbols::PackageIdentity::try_new(
             bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
@@ -217,6 +313,18 @@ impl Compilation {
 
         // Every standard-library input retains the Arc-backed package provenance.
         let selected_artifacts = artifacts.iter();
+
+        let optimization_modules = selected_artifacts
+            .clone()
+            .filter_map(|artifact| artifact.metadata().optimization())
+            .map(|metadata| u64::from(metadata.module_count().get()))
+            .sum();
+
+        let optimization_bytes = selected_artifacts
+            .clone()
+            .filter(|artifact| artifact.metadata().optimization().is_some())
+            .map(|artifact| artifact.metadata().byte_len())
+            .sum();
 
         let artifact_inputs = selected_artifacts.clone().filter_map(|artifact| {
             let kind = match artifact.metadata().kind() {
@@ -229,10 +337,12 @@ impl Compilation {
                 bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary => {
                     LinkInputKind::Archive
                 }
+                bray_standard_library::StandardLibraryArtifactKind::OptimizationArchive => {
+                    LinkInputKind::Archive
+                }
                 bray_standard_library::StandardLibraryArtifactKind::PackageInterface
                 | bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
                 | bray_standard_library::StandardLibraryArtifactKind::DependencyMetadata
-                | bray_standard_library::StandardLibraryArtifactKind::OptimizationArchive
                 | bray_standard_library::StandardLibraryArtifactKind::RuntimeArtifact => {
                     return None;
                 }
@@ -245,12 +355,7 @@ impl Compilation {
                 LinkInputSpec::try_new(
                     kind,
                     LinkInputSource::file(artifact.path()),
-                    match artifact.metadata().kind() {
-                        bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary => {
-                            LinkInputProvenance::PlatformProvider(package.clone())
-                        }
-                        _ => LinkInputProvenance::Package(package.clone()),
-                    },
+                    standard_library_artifact_provenance(artifact.metadata(), &package),
                     LinkInputMode::Ordinary,
                 )
                 .map_err(|_| NativeProductPlanningError::InvalidNativeLinkInput),
@@ -270,7 +375,168 @@ impl Compilation {
 
         let inputs = artifact_inputs.chain(native_inputs).collect();
 
-        Ok(inputs)
+        Ok(StandardLibraryLinkSelection {
+            inputs,
+            optimization_modules,
+            optimization_bytes,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn standard_library_link_inputs(
+        &self,
+        product_kind: ProductKind,
+        imported_symbols: &BTreeSet<&str>,
+        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
+    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError>
+    {
+        let target = self
+            .requested_target()
+            .codegen_target()
+            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
+
+        self.standard_library_link_selection(
+            product_kind,
+            imported_symbols,
+            platform_overrides,
+            &target,
+            crate::BuildConfiguration::Development,
+        )
+        .map(|selection| selection.inputs)
+    }
+}
+
+fn standard_library_artifact_provenance(
+    artifact: &bray_standard_library::StandardLibraryArtifact,
+    package: &bray_symbols::PackageIdentity,
+) -> LinkInputProvenance {
+    let is_native_provider = artifact.kind()
+        == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
+        || artifact.optimization().is_some_and(|optimization| {
+            optimization.producer().kind()
+                == bray_standard_library::StandardLibraryOptimizationProducerKind::PinnedNative
+        });
+
+    if is_native_provider {
+        LinkInputProvenance::PlatformProvider(package.clone())
+    } else {
+        LinkInputProvenance::Package(package.clone())
+    }
+}
+
+fn select_optimization_artifacts(
+    artifacts: &[bray_standard_library::ResolvedStandardLibraryArtifact],
+    compatibility: &bray_codegen::BackendBitcodeTargetContract,
+    runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+    backend: &bray_codegen::BackendIdentity,
+) -> Result<Vec<bray_standard_library::ResolvedStandardLibraryArtifact>, NativeProductPlanningError>
+{
+    let compatible_optimization = artifacts
+        .iter()
+        .filter_map(|artifact| {
+            optimization_artifact_is_compatible(
+                artifact.metadata(),
+                compatibility,
+                runtime_abi,
+                backend,
+            )
+            .then_some(artifact)
+        })
+        .collect::<Vec<_>>();
+
+    let fully_optimized_fallbacks = compatible_optimization
+        .iter()
+        .filter_map(|artifact| artifact.metadata().optimization())
+        .filter(|metadata| optimization_fully_replaces_fallback(metadata, artifacts))
+        .map(|metadata| (metadata.fallback().path(), metadata.fallback().digest()))
+        .collect::<BTreeSet<_>>();
+
+    let selected = artifacts
+        .iter()
+        .filter(|artifact| {
+            if compatible_optimization.contains(artifact) {
+                return true;
+            }
+
+            artifact.metadata().kind()
+                == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
+                && !fully_optimized_fallbacks
+                    .contains(&(artifact.metadata().path(), artifact.metadata().digest()))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !selected.iter().any(|artifact| {
+        artifact
+            .metadata()
+            .optimization()
+            .is_some_and(|metadata| metadata.partition() == "std")
+    }) {
+        return Err(NativeProductPlanningError::StandardLibrary(
+            bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
+                target: compatibility.target().clone(),
+            },
+        ));
+    }
+
+    Ok(selected)
+}
+
+fn optimization_fully_replaces_fallback(
+    optimization: &bray_standard_library::StandardLibraryOptimizationMetadata,
+    artifacts: &[bray_standard_library::ResolvedStandardLibraryArtifact],
+) -> bool {
+    artifacts.iter().any(|artifact| {
+        artifact.metadata().path() == optimization.fallback().path()
+            && artifact.metadata().digest() == optimization.fallback().digest()
+            && optimization_covers_fallback(optimization, artifact.metadata())
+    })
+}
+
+fn optimization_covers_fallback(
+    optimization: &bray_standard_library::StandardLibraryOptimizationMetadata,
+    fallback: &bray_standard_library::StandardLibraryArtifact,
+) -> bool {
+    fallback.platform_services().iter().all(|service| {
+        optimization
+            .platform_services()
+            .binary_search(service)
+            .is_ok()
+    })
+}
+
+fn optimization_artifact_is_compatible(
+    artifact: &bray_standard_library::StandardLibraryArtifact,
+    compatibility: &bray_codegen::BackendBitcodeTargetContract,
+    runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+    backend: &bray_codegen::BackendIdentity,
+) -> bool {
+    let Some(metadata) = artifact.optimization() else {
+        return false;
+    };
+
+    let artifact_compatibility = metadata.compatibility();
+    let producer = metadata.producer();
+
+    if metadata.semantics() != bray_standard_library::StandardLibraryOptimizationSemantics::ThinLto
+        || artifact_compatibility.triple() != compatibility.triple()
+        || artifact_compatibility.data_layout() != compatibility.data_layout()
+        || artifact_compatibility.relocation_model() != compatibility.relocation_model()
+        || artifact_compatibility.code_model() != compatibility.code_model()
+        || artifact_compatibility.runtime_abi() != runtime_abi
+        || producer.toolchain() != "llvm"
+        || producer.toolchain_revision() != backend.toolchain_revision()
+    {
+        return false;
+    }
+
+    match producer.kind() {
+        bray_standard_library::StandardLibraryOptimizationProducerKind::Bray => {
+            metadata.partition() == "std"
+                && producer.implementation() == backend.name()
+                && producer.implementation_revision() == backend.revision()
+        }
+        bray_standard_library::StandardLibraryOptimizationProducerKind::PinnedNative => true,
     }
 }
 
@@ -314,4 +580,230 @@ fn native_link_input(
     };
 
     input.ok_or(NativeProductPlanningError::InvalidNativeLinkInput)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_standard_library::{
+        StandardLibraryArtifact, StandardLibraryArtifactKind,
+        StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationFallback,
+        StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
+        StandardLibraryOptimizationProducerKind,
+    };
+    use bray_target::NativeTarget;
+
+    use super::{
+        optimization_artifact_is_compatible, optimization_covers_fallback,
+        standard_library_artifact_provenance,
+    };
+
+    #[test]
+    fn optimization_selection_requires_the_complete_backend_target_contract() {
+        let target = bray_codegen::CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let contract =
+            bray_codegen::BackendBitcodeTargetContract::try_new(&target, "test-data-layout")
+                .unwrap_or_else(|| panic!("test bitcode contract must be valid"));
+
+        let backend = bray_codegen::BackendIdentity::try_new("llvm", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let runtime_abi = RuntimeAbiVersion::new(1, 0);
+        let artifact = optimization_artifact(&contract, runtime_abi, &backend);
+
+        assert!(optimization_artifact_is_compatible(
+            &artifact,
+            &contract,
+            runtime_abi,
+            &backend,
+        ));
+
+        let different_layout =
+            bray_codegen::BackendBitcodeTargetContract::try_new(&target, "different-data-layout")
+                .unwrap_or_else(|| panic!("different test bitcode contract must be valid"));
+
+        assert!(!optimization_artifact_is_compatible(
+            &artifact,
+            &different_layout,
+            runtime_abi,
+            &backend,
+        ));
+
+        assert!(!optimization_artifact_is_compatible(
+            &artifact,
+            &contract,
+            RuntimeAbiVersion::new(1, 1),
+            &backend,
+        ));
+    }
+
+    #[test]
+    fn partial_provider_optimization_retains_its_object_fallback() {
+        use bray_runtime_interface::PlatformServiceRole;
+
+        let fallback = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/test/libprovider.a",
+            b"fallback",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([
+                PlatformServiceRole::ContextNativeTextWidth,
+                PlatformServiceRole::TimeDateValidate,
+            ])
+        })
+        .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
+
+        let target = bray_codegen::CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let contract = bray_codegen::BackendBitcodeTargetContract::try_new(&target, "layout")
+            .unwrap_or_else(|| panic!("test target contract must be valid"));
+
+        let backend = bray_codegen::BackendIdentity::try_new("llvm", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let optimization =
+            optimization_metadata(&fallback, &contract, RuntimeAbiVersion::new(1, 0), &backend)
+                .with_platform_services([PlatformServiceRole::TimeDateValidate]);
+
+        assert!(!optimization_covers_fallback(&optimization, &fallback));
+
+        let complete = optimization.with_platform_services([
+            PlatformServiceRole::ContextNativeTextWidth,
+            PlatformServiceRole::TimeDateValidate,
+        ]);
+
+        assert!(optimization_covers_fallback(&complete, &fallback));
+    }
+
+    #[test]
+    fn pinned_native_optimization_keeps_platform_provider_precedence() {
+        use bray_runtime_interface::PlatformServiceRole;
+
+        let fallback = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/test/libprovider.a",
+            b"fallback",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
+
+        let target = bray_codegen::CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let contract = bray_codegen::BackendBitcodeTargetContract::try_new(&target, "layout")
+            .unwrap_or_else(|| panic!("test target contract must be valid"));
+
+        let backend = bray_codegen::BackendIdentity::try_new("llvm", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let optimization = optimization_metadata_for(
+            &fallback,
+            &contract,
+            RuntimeAbiVersion::new(1, 0),
+            &backend,
+            StandardLibraryOptimizationProducerKind::PinnedNative,
+            "provider",
+        )
+        .with_platform_services([PlatformServiceRole::StandardOutputWrite]);
+
+        let artifact = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "targets/test/libprovider_optimization.a",
+            b"optimization",
+        )
+        .map(|artifact| artifact.with_optimization(optimization))
+        .unwrap_or_else(|error| panic!("test optimization artifact must be valid: {error:?}"));
+
+        let package = bray_symbols::PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        assert!(matches!(
+            standard_library_artifact_provenance(&artifact, &package),
+            bray_linker::LinkInputProvenance::PlatformProvider(_)
+        ));
+    }
+
+    fn optimization_artifact(
+        contract: &bray_codegen::BackendBitcodeTargetContract,
+        runtime_abi: RuntimeAbiVersion,
+        backend: &bray_codegen::BackendIdentity,
+    ) -> StandardLibraryArtifact {
+        let fallback = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "targets/test/libstd.a",
+            b"fallback",
+        )
+        .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
+
+        let metadata = optimization_metadata(&fallback, contract, runtime_abi, backend);
+
+        StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "targets/test/libstd_optimization.a",
+            b"optimization",
+        )
+        .map(|artifact| artifact.with_optimization(metadata))
+        .unwrap_or_else(|error| panic!("test optimization artifact must be valid: {error:?}"))
+    }
+
+    fn optimization_metadata(
+        fallback: &StandardLibraryArtifact,
+        contract: &bray_codegen::BackendBitcodeTargetContract,
+        runtime_abi: RuntimeAbiVersion,
+        backend: &bray_codegen::BackendIdentity,
+    ) -> StandardLibraryOptimizationMetadata {
+        optimization_metadata_for(
+            fallback,
+            contract,
+            runtime_abi,
+            backend,
+            StandardLibraryOptimizationProducerKind::Bray,
+            "std",
+        )
+    }
+
+    fn optimization_metadata_for(
+        fallback: &StandardLibraryArtifact,
+        contract: &bray_codegen::BackendBitcodeTargetContract,
+        runtime_abi: RuntimeAbiVersion,
+        backend: &bray_codegen::BackendIdentity,
+        producer_kind: StandardLibraryOptimizationProducerKind,
+        partition: &str,
+    ) -> StandardLibraryOptimizationMetadata {
+        let fallback =
+            StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())
+                .unwrap_or_else(|error| panic!("test fallback contract must be valid: {error:?}"));
+
+        let producer = StandardLibraryOptimizationProducer::try_new(
+            producer_kind,
+            backend.name(),
+            backend.revision(),
+            "llvm",
+            backend.toolchain_revision(),
+        )
+        .unwrap_or_else(|error| panic!("test producer must be valid: {error:?}"));
+
+        let compatibility = StandardLibraryOptimizationCompatibility::try_new(
+            contract.triple(),
+            contract.data_layout(),
+            contract.relocation_model(),
+            contract.code_model(),
+            runtime_abi,
+        )
+        .unwrap_or_else(|error| panic!("test compatibility must be valid: {error:?}"));
+
+        StandardLibraryOptimizationMetadata::try_new(
+            partition,
+            producer,
+            compatibility,
+            fallback,
+            NonZeroU32::MIN,
+        )
+        .unwrap_or_else(|error| panic!("test optimization metadata must be valid: {error:?}"))
+    }
 }

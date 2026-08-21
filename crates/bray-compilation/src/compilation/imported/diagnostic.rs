@@ -134,6 +134,15 @@ pub(super) fn standard_library_diagnostics(
             ))),
             None,
         ),
+        StandardLibraryLoadError::OptimizationUnavailable { target } => (
+            Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::StandardLibraryOptimizationUnavailable,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::target_triple(target.as_str())),
+            None,
+        ),
         StandardLibraryLoadError::Infrastructure => (
             Diagnostic::new(
                 DiagnosticId::new(0),

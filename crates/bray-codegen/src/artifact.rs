@@ -3,9 +3,9 @@ mod contribution;
 mod request;
 
 pub use content::{
-    ArtifactContent, ArtifactContentBuildError, ArtifactContentSource, ArtifactDigest,
-    ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError, ArtifactSpoolOperation,
-    ArtifactSpoolWriter,
+    ArtifactContent, ArtifactContentBuildError, ArtifactContentReader, ArtifactContentSource,
+    ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
+    ArtifactSpoolOperation, ArtifactSpoolWriter,
 };
 pub use contribution::{
     BackendArtifactContribution, BackendArtifactSet, BackendArtifactSetBuildError,
@@ -13,6 +13,6 @@ pub use contribution::{
 pub use request::{
     AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
     BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
-    LinkableArtifactRequirement,
+    BackendBitcodeSemantics, BackendSerializationOptions, DebugInformationOutputMode,
+    LinkableArtifactKind, LinkableArtifactRequirement,
 };

@@ -176,6 +176,11 @@ const LINKER_UNSUPPORTED_RUNTIME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("selected linker does not support runtime ownership "),
     MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
 ];
+
+const LINKER_UNSUPPORTED_OPTIMIZATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support optimization requirement "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
 const LINKER_DRIVER_UNAVAILABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "no configured native linker can satisfy this target and product",
 )];
@@ -724,6 +729,13 @@ const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
     MessageTemplatePart::Text(" but the standard library provides "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualRuntimeAbi),
+];
+
+const STANDARD_LIBRARY_OPTIMIZATION_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "standard library has no optimization artifacts compatible with target ",
+    ),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
@@ -1964,6 +1976,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::StandardLibraryRuntimeAbiMismatch => {
             MessageTemplate::new(STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH)
         }
+        DiagnosticKind::StandardLibraryOptimizationUnavailable => {
+            MessageTemplate::new(STANDARD_LIBRARY_OPTIMIZATION_UNAVAILABLE)
+        }
         DiagnosticKind::RequestDuplicateSourceInput => {
             MessageTemplate::new(REQUEST_DUPLICATE_SOURCE_INPUT)
         }
@@ -2626,6 +2641,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::LinkerUnsupportedRuntime => {
             MessageTemplate::new(LINKER_UNSUPPORTED_RUNTIME)
+        }
+        DiagnosticKind::LinkerUnsupportedOptimization => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_OPTIMIZATION)
         }
         DiagnosticKind::LinkerDriverUnavailable => MessageTemplate::new(LINKER_DRIVER_UNAVAILABLE),
         DiagnosticKind::LinkerDriverIncompatible => {

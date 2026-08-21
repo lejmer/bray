@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
-use std::io::{self, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -259,6 +259,23 @@ pub enum ArtifactContentSource<'content> {
     CompilerSpool(&'content ArtifactSpool),
 }
 
+/// Read-only stream over immutable in-memory or compiler-spooled artifact content.
+pub enum ArtifactContentReader<'content> {
+    /// A borrowed immutable memory view.
+    Memory(Cursor<&'content [u8]>),
+    /// An independently opened compiler spool.
+    CompilerSpool(File),
+}
+
+impl Read for ArtifactContentReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Memory(reader) => reader.read(buffer),
+            Self::CompilerSpool(reader) => reader.read(buffer),
+        }
+    }
+}
+
 /// Immutable artifact bytes or a compiler-owned immutable spool containing them.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArtifactContent {
@@ -306,6 +323,18 @@ impl ArtifactContent {
             ArtifactContentStorage::CompilerSpool(spool) => {
                 ArtifactContentSource::CompilerSpool(spool)
             }
+        }
+    }
+
+    /// Opens an independent read-only stream over the complete immutable content.
+    pub fn open_reader(&self) -> Result<ArtifactContentReader<'_>, ArtifactSpoolError> {
+        match self.source() {
+            ArtifactContentSource::Memory(bytes) => {
+                Ok(ArtifactContentReader::Memory(Cursor::new(bytes)))
+            }
+            ArtifactContentSource::CompilerSpool(spool) => spool
+                .open_reader()
+                .map(ArtifactContentReader::CompilerSpool),
         }
     }
 }

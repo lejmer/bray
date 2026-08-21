@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
-    BackendArtifactRequirement, BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
+    BackendArtifactRequirement, BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer,
+    BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
     BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
     BackendTargetCapabilities, BackendTargetConfiguration, CodeGenerator, CodegenFailure,
     CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata, CodegenTarget, DebugInformationMode,
@@ -36,6 +37,7 @@ pub struct LlvmCodeGenerator {
     identity: BackendIdentity,
     capabilities: BackendCapabilities,
     sessions: Mutex<BTreeMap<LlvmSessionKey, Arc<LlvmBackendSession>>>,
+    bitcode_optimizer: Option<Arc<dyn BackendBitcodeOptimizer>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -45,8 +47,20 @@ struct LlvmSessionKey {
 }
 
 impl LlvmCodeGenerator {
+    /// Returns the exact LLVM revision used by this backend.
+    pub const fn llvm_revision() -> &'static str {
+        LLVM_REVISION
+    }
+
     /// Creates the LLVM backend with its stable identity and declared capabilities.
     pub fn try_new() -> Result<Self, CodegenFailure> {
+        Self::try_with_bitcode_optimizer(None)
+    }
+
+    /// Creates the LLVM backend with compiler-host support for summarized bitcode.
+    pub fn try_with_bitcode_optimizer(
+        bitcode_optimizer: Option<Arc<dyn BackendBitcodeOptimizer>>,
+    ) -> Result<Self, CodegenFailure> {
         let Some(identity) =
             BackendIdentity::try_new(BACKEND_NAME, BACKEND_REVISION, LLVM_REVISION)
         else {
@@ -55,8 +69,9 @@ impl LlvmCodeGenerator {
 
         Ok(Self {
             identity,
-            capabilities: capabilities()?,
+            capabilities: capabilities(bitcode_optimizer.is_some())?,
             sessions: Mutex::new(BTreeMap::new()),
+            bitcode_optimizer,
         })
     }
 
@@ -179,8 +194,9 @@ impl LlvmCodeGenerator {
                 // Artifact content is an Arc-backed immutable handle reused for repeated requests.
                 content.clone()
             } else {
-                match serialize_artifact(&machine, &module, kind) {
-                    Ok(content) => {
+                match self.serialize_artifact(request, &machine, &module, kind) {
+                    Ok(None) => return Ok(CodegenOutcome::cancelled(DiagnosticBag::new())),
+                    Ok(Some(content)) => {
                         // The cache retains the immutable bytes for later same-kind entries.
                         serialized.insert(kind, content.clone());
 
@@ -219,6 +235,33 @@ impl LlvmCodeGenerator {
         )
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
     }
+
+    fn serialize_artifact(
+        &self,
+        request: CodegenRequest<'_>,
+        machine: &LlvmTargetMachine,
+        module: &Module<'_>,
+        kind: BackendArtifactKind,
+    ) -> Result<Option<ArtifactContent>, CodegenFailure> {
+        let content = serialize_artifact(machine, module, kind)?;
+
+        if kind != BackendArtifactKind::BackendBitcode
+            || request.artifacts().serialization().bitcode_semantics()
+                != bray_codegen::BackendBitcodeSemantics::ThinLto
+        {
+            return Ok(Some(content));
+        }
+
+        let optimizer = self
+            .bitcode_optimizer
+            .as_ref()
+            .ok_or(CodegenFailure::InvalidConfiguration)?;
+
+        match optimizer.add_thin_lto_summary(&content, request.cancellation())? {
+            BackendBitcodeOptimizationOutcome::Complete(content) => Ok(Some(content)),
+            BackendBitcodeOptimizationOutcome::Cancelled => Ok(None),
+        }
+    }
 }
 
 impl CodeGenerator for LlvmCodeGenerator {
@@ -242,6 +285,25 @@ impl CodeGenerator for LlvmCodeGenerator {
         machine.validate_contract(target, &context)
     }
 
+    fn bitcode_target_contract(
+        &self,
+        target: &CodegenTarget,
+    ) -> Result<Option<bray_codegen::BackendBitcodeTargetContract>, CodegenFailure> {
+        if self.bitcode_optimizer.is_none() {
+            return Ok(None);
+        }
+
+        self.validate_target(target)?;
+
+        let session = self.session(target, OptimizationLevel::None)?;
+        let machine = LlvmTargetMachine::create_for_session(&session)?;
+        let data_layout = machine.data_layout()?;
+
+        bray_codegen::BackendBitcodeTargetContract::try_new(target, data_layout)
+            .map(Some)
+            .ok_or(CodegenFailure::InvalidConfiguration)
+    }
+
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
         if request.cancellation().is_cancelled() {
             return CodegenOutcome::cancelled(DiagnosticBag::new());
@@ -261,7 +323,7 @@ impl CodeGenerator for LlvmCodeGenerator {
     }
 }
 
-fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
+fn capabilities(supports_thin_lto: bool) -> Result<BackendCapabilities, CodegenFailure> {
     let Some(revision) = BackendCapabilityRevision::try_new(1) else {
         return Err(CodegenFailure::InvalidConfiguration);
     };
@@ -312,6 +374,8 @@ fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
                 DebugInformationOutputMode::Embedded,
             ],
             [AssemblySyntaxKind::TargetDefault],
+            std::iter::once(bray_codegen::BackendBitcodeSemantics::Plain)
+                .chain(supports_thin_lto.then_some(bray_codegen::BackendBitcodeSemantics::ThinLto)),
         ),
         ReproducibilityLevel::ByteForByte,
     ))
@@ -458,7 +522,8 @@ mod tests {
         codegen_request_for_target_and_backend, codegen_target, codegen_target_with_profile,
     };
     use bray_codegen::{
-        BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus,
+        ArtifactContent, BackendArtifactKind, BackendBitcodeOptimizationOutcome,
+        BackendBitcodeOptimizer, CodeGenerator, CodegenFailure, CodegenStatus,
         OptimizationLevel as CodegenOptimizationLevel,
     };
     use bray_target::test_support::test_target_profile;
@@ -490,6 +555,18 @@ mod tests {
         assert_eq!(
             backend.capabilities().outputs().assembly_syntax(),
             &[bray_codegen::AssemblySyntaxKind::TargetDefault]
+        );
+
+        assert!(
+            backend
+                .capabilities()
+                .supports_bitcode_semantics(bray_codegen::BackendBitcodeSemantics::Plain)
+        );
+
+        assert!(
+            !backend
+                .capabilities()
+                .supports_bitcode_semantics(bray_codegen::BackendBitcodeSemantics::ThinLto)
         );
 
         assert!(
@@ -592,6 +669,72 @@ mod tests {
 
             assert_ne!(content.byte_len(), 0, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn thin_lto_bitcode_uses_the_host_optimizer_transactionally() {
+        let optimizer = Arc::new(RecordingBitcodeOptimizer::new(false));
+
+        let Ok(backend) = LlvmCodeGenerator::try_with_bitcode_optimizer(Some(
+            Arc::clone(&optimizer) as Arc<dyn BackendBitcodeOptimizer>,
+        )) else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        assert!(
+            backend
+                .capabilities()
+                .supports_bitcode_semantics(bray_codegen::BackendBitcodeSemantics::ThinLto)
+        );
+
+        let target = codegen_target();
+
+        let contract = backend
+            .bitcode_target_contract(&target)
+            .unwrap_or_else(|error| panic!("bitcode target contract must form: {error:?}"))
+            .unwrap_or_else(|| panic!("ThinLTO backend must publish a target contract"));
+
+        assert_eq!(contract.target(), target.identity());
+        assert_eq!(contract.triple(), target.triple());
+        assert!(!contract.data_layout().is_empty());
+        assert_eq!(contract.relocation_model(), target.relocation_model());
+        assert_eq!(contract.code_model(), target.code_model());
+
+        let fixture =
+            codegen_request_for_backend(backend.identity().clone()).with_thin_lto_bitcode();
+
+        let outcome = backend.generate(fixture.request());
+
+        assert!(matches!(outcome.status(), CodegenStatus::Complete(_)));
+        assert_eq!(optimizer.calls(), 1);
+
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("successful generation must publish bitcode");
+        };
+
+        assert!(artifacts.contributions().iter().all(|contribution| {
+            contribution.id().kind() == BackendArtifactKind::BackendBitcode
+        }));
+    }
+
+    #[test]
+    fn cancelled_host_optimization_publishes_no_bitcode() {
+        let optimizer = Arc::new(RecordingBitcodeOptimizer::new(true));
+
+        let Ok(backend) = LlvmCodeGenerator::try_with_bitcode_optimizer(Some(
+            Arc::clone(&optimizer) as Arc<dyn BackendBitcodeOptimizer>,
+        )) else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture =
+            codegen_request_for_backend(backend.identity().clone()).with_thin_lto_bitcode();
+
+        let outcome = backend.generate(fixture.request());
+
+        assert!(matches!(outcome.status(), CodegenStatus::Cancelled));
+        assert!(outcome.artifacts().is_none());
+        assert_eq!(optimizer.calls(), 1);
     }
 
     #[test]
@@ -817,6 +960,40 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    struct RecordingBitcodeOptimizer {
+        calls: AtomicUsize,
+        cancels: bool,
+    }
+
+    impl RecordingBitcodeOptimizer {
+        const fn new(cancels: bool) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                cancels,
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::Relaxed)
+        }
+    }
+
+    impl BackendBitcodeOptimizer for RecordingBitcodeOptimizer {
+        fn add_thin_lto_summary(
+            &self,
+            bitcode: &ArtifactContent,
+            _cancellation: &dyn Cancellation,
+        ) -> Result<BackendBitcodeOptimizationOutcome, CodegenFailure> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+
+            if self.cancels {
+                Ok(BackendBitcodeOptimizationOutcome::Cancelled)
+            } else {
+                Ok(BackendBitcodeOptimizationOutcome::Complete(bitcode.clone()))
+            }
+        }
     }
 
     fn assert_native_object_header(object: &[u8], target: NativeTarget) {

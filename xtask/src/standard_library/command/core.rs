@@ -20,9 +20,8 @@ use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
     StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-    StandardLibraryTargetArtifacts,
-    decode_standard_library_manifest, encode_standard_library_manifest,
-    standard_library_target_artifact_directory,
+    StandardLibraryTargetArtifacts, decode_standard_library_manifest,
+    encode_standard_library_manifest, standard_library_target_artifact_directory,
 };
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{
@@ -408,16 +407,15 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let optimization_publication =
-            super::super::optimization::OptimizationPublication::new(
-                bundle,
-                &target_path,
-                native,
-                abi,
-                &backend,
-                &codegen_target,
-                &optimization,
-            );
+        let optimization_publication = super::super::optimization::OptimizationPublication::new(
+            bundle,
+            &target_path,
+            native,
+            abi,
+            &backend,
+            &codegen_target,
+            &optimization,
+        );
 
         let optimization_artifact =
             optimization_publication.publish_bray(&archive, optimization)?;
@@ -540,16 +538,17 @@ fn build_target(
 
     let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
-    let linker = native_linker(native, None).map_err(|error| BuildError::LinkerUnavailable {
-        target: target.clone(),
-        detail: format!("{error:?}"),
-    })?;
+    let linker =
+        native_linker(native, None, &output).map_err(|error| BuildError::LinkerUnavailable {
+            target: target.clone(),
+            detail: format!("{error:?}"),
+        })?;
 
     let native_plan = crate::progress::run("Planning the standard library native product", || {
         compilation
             .native_product_plan(
                 product.identity().clone(),
-                BuildConfiguration::Release,
+                BuildConfiguration::ObjectRelease,
                 None,
                 [],
                 Some(&linker),
@@ -592,10 +591,7 @@ fn build_target(
                 ArtifactRequirement::Required,
             ),
             RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
-            RequestedArtifact::new(
-                ArtifactKind::BackendBitcode,
-                ArtifactRequirement::Required,
-            ),
+            RequestedArtifact::new(ArtifactKind::BackendBitcode, ArtifactRequirement::Required),
         ],
         ReplacementPolicy::RequireAbsent,
     )
@@ -706,10 +702,7 @@ fn emitted_path(
         .ok_or(BuildError::MissingEmittedArtifact(kind))
 }
 
-fn emitted_paths(
-    outcome: &bray_emitter::EmissionOutcome,
-    kind: ArtifactKind,
-) -> Vec<PathBuf> {
+fn emitted_paths(outcome: &bray_emitter::EmissionOutcome, kind: ArtifactKind) -> Vec<PathBuf> {
     outcome
         .artifacts()
         .artifacts()

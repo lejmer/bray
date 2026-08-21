@@ -285,6 +285,7 @@ pub(super) const fn native_linker_build_failure_key(
         Failure::SystemInvocation(Invocation::DuplicateResponseFile) => {
             "system_invocation_duplicate_response_file"
         }
+        Failure::SystemThinLtoCacheRootEmpty => "system_thin_lto_cache_root_empty",
         Failure::SystemDriverKindMismatch => "system_driver_kind_mismatch",
         Failure::SystemCapabilities(Capability::DriverKindMismatch) => {
             "system_capabilities_driver_kind_mismatch"

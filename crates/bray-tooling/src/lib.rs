@@ -5,6 +5,8 @@
 #[cfg(feature = "analysis")]
 mod inspection;
 mod model;
+#[cfg(feature = "compiler")]
+mod optimization;
 mod output;
 #[cfg(feature = "analysis")]
 mod product;
@@ -13,6 +15,8 @@ mod runtime;
 #[cfg(feature = "analysis")]
 mod source;
 mod status;
+#[cfg(feature = "compiler")]
+mod toolchain;
 #[cfg(test)]
 mod test_support;
 
@@ -24,11 +28,12 @@ pub use inspection::{
     render_token_inspection,
 };
 pub use model::{InspectionTarget, OutputFormat};
+#[cfg(feature = "compiler")]
+pub use optimization::load_llvm_compilation;
 pub use output::{clap_styles, render_styled_text, write_diagnostic_groups, write_diagnostics};
 #[cfg(feature = "compiler")]
 pub use product::{
-    LlvmCompilationLoadError, LlvmToolPathError, NativeLinkerBuildError, llvm_tool_path,
-    load_llvm_compilation, native_linker,
+    LlvmCompilationLoadError, NativeLinkerBuildError, native_linker, thin_lto_cache_root,
 };
 #[cfg(feature = "analysis")]
 pub use product::{
@@ -42,3 +47,5 @@ pub use source::{
     SourceInputError, compilation_request_from_file_arguments, source_inputs_from_file_arguments,
 };
 pub use status::exit_code_from_diagnostics;
+#[cfg(feature = "compiler")]
+pub use toolchain::{LlvmToolPathError, llvm_tool_path};

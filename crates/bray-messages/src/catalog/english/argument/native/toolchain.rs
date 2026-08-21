@@ -63,6 +63,7 @@ const fn llvm_tool_role(role: bray_diagnostics::DiagnosticLlvmToolRole) -> &'sta
         Role::CompilerDriver => "LLVM compiler driver",
         Role::Linker => "LLVM linker",
         Role::Archiver => "LLVM archiver",
+        Role::Optimizer => "LLVM optimizer",
         Role::SymbolInspector => "LLVM symbol inspector",
         Role::ObjectInspector => "LLVM object inspector",
     }

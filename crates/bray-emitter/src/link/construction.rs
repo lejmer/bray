@@ -435,6 +435,7 @@ fn link_policy(
         debug,
         policy.subsystem(),
     )
+    .with_optimization(policy.optimization())
 }
 
 fn startup_mode(product: LinkedProductKind, inputs: &ProductLinkInputs) -> LinkStartupMode {
@@ -545,6 +546,8 @@ fn output_staging_by_id(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -558,8 +561,9 @@ mod tests {
         LinkEnvironmentCapability, LinkFailure, LinkInputKind, LinkInputMode, LinkInputProvenance,
         LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome, LinkPlanCapability, LinkPolicy,
         LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkStartupMode,
-        LinkSubsystem, LinkTarget, LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver,
-        LinkerDriverCapabilities, LinkerDriverIdentity, LinkerDriverKind,
+        LinkSubsystem, LinkTarget, LinkTimeOptimizationPolicy, LinkedArtifactKind,
+        LinkedProductKind, Linker, LinkerDriver, LinkerDriverCapabilities, LinkerDriverIdentity,
+        LinkerDriverKind,
         LinkerOperationalCapabilities, LinkerTargetCapabilities, SectionGarbageCollectionPolicy,
         StagingPathKey,
     };
@@ -573,7 +577,7 @@ mod tests {
 
     use super::{
         LinkOutputStaging, LinkPlanConstructionError, ProductLinkInputs, StagedArtifact,
-        construct_link_plan,
+        construct_link_plan, link_policy,
     };
     use crate::test_support::{
         backend_capabilities, backend_identity, codegen_unit_key, interface_artifact,
@@ -887,6 +891,19 @@ mod tests {
         let _ = linker.link(&link_plan, &|| false);
 
         assert_eq!(invocations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn link_policy_adjustment_preserves_cross_artifact_optimization() {
+        let optimization = LinkTimeOptimizationPolicy::ThinLto {
+            jobs: NonZeroUsize::MIN,
+        };
+
+        let policy = product_link_inputs()
+            .policy
+            .with_optimization(optimization);
+
+        assert_eq!(link_policy(policy, &BTreeMap::new()).optimization(), optimization);
     }
 
     #[test]

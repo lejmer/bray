@@ -35,8 +35,17 @@ impl SystemLinkerDriver {
         // Capabilities retain their exact target after configuration moves into the driver.
         let target = configuration.target().clone();
 
-        let capabilities = system_driver_capabilities(identity, configuration.family(), target)
-            .map_err(SystemLinkerDriverBuildError::Capabilities)?;
+        let accepts_thin_lto = configuration.thin_lto_cache().is_some()
+            && matches!(
+                configuration.family(),
+                SystemLinkerFamily::GnuCompiler
+                    | SystemLinkerFamily::MicrosoftCompiler
+                    | SystemLinkerFamily::AppleCompiler
+            );
+
+        let capabilities =
+            system_driver_capabilities(identity, configuration.family(), target, accepts_thin_lto)
+                .map_err(SystemLinkerDriverBuildError::Capabilities)?;
 
         Ok(Self {
             capabilities,
@@ -86,6 +95,21 @@ impl LinkerDriver for SystemLinkerDriver {
             arguments.extend(output.arguments(self.family(), current_directory));
         }
 
+        if matches!(
+            plan.policy().optimization(),
+            crate::LinkTimeOptimizationPolicy::ThinLto { .. }
+        ) {
+            let Some(cache) = self.configuration.thin_lto_cache() else {
+                return failed_outcome(plan, LinkFailure::DriverIncompatible);
+            };
+
+            arguments.extend(thin_lto_cache_arguments(
+                self.family(),
+                cache,
+                current_directory,
+            ));
+        }
+
         let invocation = match invocation(&self.configuration, plan, arguments) {
             Ok(invocation) => invocation,
             Err(error) => return outcome_from_invocation_error(plan, error),
@@ -105,6 +129,35 @@ impl LinkerDriver for SystemLinkerDriver {
         }
 
         complete_linked_outputs(plan)
+    }
+}
+
+fn thin_lto_cache_arguments(
+    family: SystemLinkerFamily,
+    root: &std::path::Path,
+    current_directory: Option<&std::path::Path>,
+) -> Vec<std::ffi::OsString> {
+    let root = crate::command::linker_visible_path(root, current_directory);
+
+    match family {
+        SystemLinkerFamily::GnuCompiler => vec![
+            format!("-Wl,--thinlto-cache-dir={}", root.display()).into(),
+            "-Wl,--thinlto-cache-policy=cache_size_bytes=1073741824".into(),
+        ],
+        SystemLinkerFamily::MicrosoftCompiler => vec![
+            "-Xlinker".into(),
+            format!("/lldltocache:{}", root.display()).into(),
+            "-Xlinker".into(),
+            "/lldltocachepolicy:cache_size_bytes=1073741824".into(),
+        ],
+        SystemLinkerFamily::AppleCompiler => vec![
+            "-Wl,-cache_path_lto".into(),
+            format!("-Wl,{}", root.display()).into(),
+        ],
+        SystemLinkerFamily::Gnu
+        | SystemLinkerFamily::Microsoft
+        | SystemLinkerFamily::Apple
+        | SystemLinkerFamily::WslGnuCompiler => Vec::new(),
     }
 }
 
@@ -146,7 +199,7 @@ mod tests {
     use bray_target::{ObjectFormat, TargetArchitecture};
     use bray_testing::{TemporaryFile, assert_goal_state_diagnostic_kind};
 
-    use super::{SystemLinkerDriver, SystemLinkerDriverBuildError};
+    use super::{SystemLinkerDriver, SystemLinkerDriverBuildError, thin_lto_cache_arguments};
     use crate::test_support::{
         RecordingExternalToolHost, TestOutput, planned_output, product, target,
     };
@@ -232,6 +285,46 @@ mod tests {
             let arguments = output.arguments(family, None);
 
             assert_eq!(arguments, expected);
+        }
+    }
+
+    #[test]
+    fn thin_lto_cache_arguments_follow_each_compiler_driver_family() {
+        let root = Path::new("cache/thin-lto");
+
+        assert_eq!(
+            thin_lto_cache_arguments(SystemLinkerFamily::GnuCompiler, root, None),
+            [
+                OsString::from("-Wl,--thinlto-cache-dir=cache/thin-lto"),
+                OsString::from("-Wl,--thinlto-cache-policy=cache_size_bytes=1073741824"),
+            ]
+        );
+
+        assert_eq!(
+            thin_lto_cache_arguments(SystemLinkerFamily::MicrosoftCompiler, root, None),
+            [
+                OsString::from("-Xlinker"),
+                OsString::from("/lldltocache:cache/thin-lto"),
+                OsString::from("-Xlinker"),
+                OsString::from("/lldltocachepolicy:cache_size_bytes=1073741824"),
+            ]
+        );
+
+        assert_eq!(
+            thin_lto_cache_arguments(SystemLinkerFamily::AppleCompiler, root, None),
+            [
+                OsString::from("-Wl,-cache_path_lto"),
+                OsString::from("-Wl,cache/thin-lto"),
+            ]
+        );
+
+        for family in [
+            SystemLinkerFamily::Gnu,
+            SystemLinkerFamily::Microsoft,
+            SystemLinkerFamily::Apple,
+            SystemLinkerFamily::WslGnuCompiler,
+        ] {
+            assert!(thin_lto_cache_arguments(family, root, None).is_empty());
         }
     }
 

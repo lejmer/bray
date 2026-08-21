@@ -1,42 +1,24 @@
 use std::fs::File;
-use std::io::{self, Cursor, Read};
+use std::io::{self, Read};
 use std::path::Path;
 
 use bray_base::Cancellation;
-use bray_codegen::{
-    ArtifactContent, ArtifactContentSource, ArtifactDigest, ArtifactDigestAlgorithm,
-};
+use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
 use sha2::{Digest as _, Sha256};
 
 const COPY_BUFFER_LEN: usize = 64 * 1024;
 
-pub(crate) enum ContentReader<'content> {
-    Memory(Cursor<&'content [u8]>),
-    File(File),
-}
-
-impl Read for ContentReader<'_> {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Memory(reader) => reader.read(buffer),
-            Self::File(reader) => reader.read(buffer),
-        }
-    }
-}
+pub(crate) use bray_codegen::ArtifactContentReader as ContentReader;
 
 pub(crate) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_>, io::ErrorKind> {
-    match content.source() {
-        ArtifactContentSource::Memory(bytes) => Ok(ContentReader::Memory(Cursor::new(bytes))),
-        ArtifactContentSource::CompilerSpool(spool) => spool
-            .open_reader()
-            .map(ContentReader::File)
-            .map_err(|error| error.source().map_or(io::ErrorKind::Other, io::Error::kind)),
-    }
+    content
+        .open_reader()
+        .map_err(|error| error.source().map_or(io::ErrorKind::Other, io::Error::kind))
 }
 
 pub(crate) fn open_linked_staging(path: &Path) -> Result<ContentReader<'static>, io::ErrorKind> {
     File::open(path)
-        .map(ContentReader::File)
+        .map(ContentReader::CompilerSpool)
         .map_err(|error| error.kind())
 }
 

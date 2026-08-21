@@ -578,6 +578,10 @@ impl Compilation {
 
         let (contributions, diagnostics) = result.into_parts();
 
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.record_optimization_inputs(plan.backend_requests(), &contributions);
+        }
+
         Ok(ProductEmissionContributions {
             backend: Some(contributions),
             diagnostics,

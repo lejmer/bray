@@ -72,10 +72,12 @@ fn validate_plan(plan: &LinkPlan) -> Result<(), ArchiveInvocationBuildError> {
 
     if plan.outputs().len() != 1
         || plan.outputs()[0].kind() != LinkedArtifactKind::StaticLibrary
-        || plan
-            .inputs()
-            .iter()
-            .any(|input| input.kind() != LinkInputKind::RelocatableObject)
+        || plan.inputs().iter().any(|input| {
+            !matches!(
+                input.kind(),
+                LinkInputKind::RelocatableObject | LinkInputKind::Bitcode
+            )
+        })
         || !plan.exported_symbols().is_empty()
         || !plan.retained_symbols().is_empty()
         || !plan.search_paths().is_empty()

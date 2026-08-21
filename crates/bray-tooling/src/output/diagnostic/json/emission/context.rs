@@ -100,6 +100,7 @@ pub(super) fn planning_failure_context(
         | Failure::BackendRequestMissingRequiredDebugCompanion
         | Failure::BackendRequestUnexpectedDebugCompanion
         | Failure::BackendRequestUnexpectedAssemblySyntax
+        | Failure::BackendRequestUnexpectedBitcodeSemantics
         | Failure::InconsistentPlan => Vec::new(),
     }
 }

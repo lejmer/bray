@@ -17,6 +17,7 @@ pub struct SystemLinkerConfiguration {
     target: LinkerTargetIdentity,
     invocation_template: ExternalToolInvocation,
     map_output: Option<SystemLinkerMapOutput>,
+    thin_lto_cache: Option<PathBuf>,
 }
 
 impl SystemLinkerConfiguration {
@@ -43,6 +44,7 @@ impl SystemLinkerConfiguration {
             target,
             invocation_template,
             map_output: None,
+            thin_lto_cache: None,
         })
     }
 
@@ -51,6 +53,22 @@ impl SystemLinkerConfiguration {
         self.map_output = Some(output);
 
         self
+    }
+
+    /// Returns this configuration with a validated persistent ThinLTO cache root.
+    pub fn try_with_thin_lto_cache(
+        mut self,
+        root: impl Into<PathBuf>,
+    ) -> Result<Self, SystemLinkerConfigurationBuildError> {
+        let root = root.into();
+
+        if root.as_os_str().is_empty() {
+            return Err(SystemLinkerConfigurationBuildError::ThinLtoCacheRootEmpty);
+        }
+
+        self.thin_lto_cache = Some(root);
+
+        Ok(self)
     }
 
     /// Returns the configured platform linker family.
@@ -103,6 +121,11 @@ impl SystemLinkerConfiguration {
     /// Returns the optional linker-map destination selected by the host workflow.
     pub const fn map_output(&self) -> Option<&SystemLinkerMapOutput> {
         self.map_output.as_ref()
+    }
+
+    /// Returns the persistent ThinLTO cache root when optimization is available.
+    pub fn thin_lto_cache(&self) -> Option<&Path> {
+        self.thin_lto_cache.as_deref()
     }
 }
 
@@ -166,6 +189,8 @@ pub enum SystemLinkerConfigurationBuildError {
     ProgramPathNotExplicit,
     /// The external-tool invocation configuration is invalid.
     Invocation(ExternalToolInvocationBuildError),
+    /// The persistent ThinLTO cache root is empty.
+    ThinLtoCacheRootEmpty,
 }
 
 #[cfg(test)]
@@ -204,6 +229,23 @@ mod tests {
         assert_eq!(
             configuration.map_output().map(SystemLinkerMapOutput::path),
             Some(std::path::Path::new("reports/application.map"))
+        );
+    }
+
+    #[test]
+    fn thin_lto_cache_roots_must_be_nonempty() {
+        let configuration = SystemLinkerConfiguration::try_new(
+            SystemLinkerFamily::GnuCompiler,
+            target(),
+            "tools/clang",
+            [],
+            None,
+        )
+        .unwrap_or_else(|error| panic!("test configuration must be valid: {error:?}"));
+
+        assert_eq!(
+            configuration.try_with_thin_lto_cache(""),
+            Err(SystemLinkerConfigurationBuildError::ThinLtoCacheRootEmpty)
         );
     }
 

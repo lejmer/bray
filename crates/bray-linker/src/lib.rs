@@ -58,7 +58,8 @@ pub use plan::{
     LinkSearchPathKind,
 };
 pub use policy::{
-    DeadStripPolicy, DebugLinkPolicy, LinkPolicy, LinkSubsystem, SectionGarbageCollectionPolicy,
+    DeadStripPolicy, DebugLinkPolicy, LinkPolicy, LinkSubsystem, LinkTimeOptimizationKind,
+    LinkTimeOptimizationPolicy, SectionGarbageCollectionPolicy,
 };
 pub use system::{
     SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerDriver,

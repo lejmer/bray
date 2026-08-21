@@ -294,6 +294,32 @@ fn validate_serialization_policy(
         ));
     }
 
+    let bitcode = request.artifact(ArtifactKind::BackendBitcode);
+
+    let links_bitcode = backend
+        .policy()
+        .linkable_artifact()
+        .is_some_and(|artifact| artifact.artifact_kind() == BackendArtifactKind::BackendBitcode);
+
+    if serialization.bitcode_semantics() != bray_codegen::BackendBitcodeSemantics::Plain
+        && bitcode.is_none()
+        && !links_bitcode
+    {
+        return Err(EmissionPlanningError::MissingSerializationArtifact(
+            BackendArtifactKind::BackendBitcode,
+        ));
+    }
+
+    if (links_bitcode || bitcode.is_some())
+        && !backend
+            .capabilities()
+            .supports_bitcode_semantics(serialization.bitcode_semantics())
+    {
+        return Err(EmissionPlanningError::UnsupportedBackendArtifact(
+            BackendArtifactKind::BackendBitcode,
+        ));
+    }
+
     Ok(())
 }
 
