@@ -411,14 +411,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ),
         CodegenFailure,
     > {
-        let data = llvm(self.builder.build_alloca(pointer, "string.result.data"))?;
+        let data = self.allocate_temporary(pointer, "string.result.data")?;
 
-        let length = llvm(
-            self.builder
-                .build_alloca(self.pointer_integer_type(), "string.result.length"),
-        )?;
+        let length =
+            self.allocate_temporary(self.pointer_integer_type(), "string.result.length")?;
 
-        let owner = llvm(self.builder.build_alloca(pointer, "string.result.owner"))?;
+        let owner = self.allocate_temporary(pointer, "string.result.owner")?;
 
         llvm(self.builder.build_store(data, pointer.const_null()))?;
 
@@ -576,7 +574,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         payload: Option<BasicValueEnum<'context>>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let llvm_type = self.types.map(result)?;
-        let storage = llvm(self.builder.build_alloca(llvm_type, "string.result"))?;
+        let storage = self.allocate_temporary(llvm_type, "string.result")?;
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 

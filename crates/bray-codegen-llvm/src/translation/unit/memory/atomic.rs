@@ -291,10 +291,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(BasicValueEnum::from);
         }
 
-        let storage = llvm(
-            self.builder
-                .build_alloca(storage_type, "atomic.value.storage"),
-        )?;
+        let storage = self.allocate_temporary(storage_type, "atomic.value.storage")?;
 
         llvm(self.builder.build_store(storage, storage_type.const_zero()))?;
 
@@ -330,10 +327,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let storage_type = self.atomic_storage_type(value_type)?;
 
-        let storage = llvm(
-            self.builder
-                .build_alloca(storage_type, "atomic.bits.storage"),
-        )?;
+        let storage = self.allocate_temporary(storage_type, "atomic.bits.storage")?;
 
         llvm(self.builder.build_store(storage, value))?;
 

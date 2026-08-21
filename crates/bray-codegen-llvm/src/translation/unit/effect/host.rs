@@ -118,9 +118,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     )?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    let frame_storage = llvm(
-                        self.builder
-                            .build_alloca(frame.get_type(), "root.frame.transfer.storage"),
+                    let frame_storage = self.allocate_temporary(
+                        frame.get_type(),
+                        "root.frame.transfer.storage",
                     )?;
 
                     llvm(self.builder.build_store(frame_storage, frame))?;
@@ -441,10 +441,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         for (index, argument) in arguments.iter().copied().enumerate() {
             if crate::native::uses_indirect_argument(self.request.target(), runtime.role(), index) {
-                let storage = llvm(self.builder.build_alloca(
+                let storage = self.allocate_temporary(
                     argument.get_type(),
                     &format!("{}.argument", runtime.role().as_str()),
-                ))?;
+                )?;
 
                 llvm(self.builder.build_store(storage, argument))?;
                 native_arguments.push(storage.into());
@@ -618,10 +618,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let destination = match result_type {
-            Some(result_type) => llvm(
-                self.builder
-                    .build_alloca(result_type, "root.result.storage"),
-            )?,
+            Some(result_type) => self.allocate_temporary(result_type, "root.result.storage")?,
             None => self
                 .types
                 .context()

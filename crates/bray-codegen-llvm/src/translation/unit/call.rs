@@ -472,7 +472,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         alignment: u64,
         name: &str,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let storage = llvm(self.builder.build_alloca(self.types.map(pointee)?, name))?;
+        let pointee = self.types.map(pointee)?;
+        let storage = self.allocate_temporary(pointee, name)?;
 
         let alignment = u32::try_from(alignment).map_err(|_| CodegenFailure::UnsupportedTarget)?;
 

@@ -291,7 +291,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let llvm_type = self.types.map(result)?;
-        let storage = llvm(self.builder.build_alloca(llvm_type, "construction.union"))?;
+        let storage = self.allocate_temporary(llvm_type, "construction.union")?;
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 
@@ -432,10 +432,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(projected)
             }
             PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
-                let storage = llvm(
-                    self.builder
-                        .build_alloca(projected.get_type(), "pattern.borrow"),
-                )?;
+                let storage = self.allocate_temporary(projected.get_type(), "pattern.borrow")?;
 
                 llvm(self.builder.build_store(storage, projected))?;
 
@@ -518,10 +515,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let storage = llvm(
-            self.builder
-                .build_alloca(subject.get_type(), "pattern.union"),
-        )?;
+        let storage = self.allocate_temporary(subject.get_type(), "pattern.union")?;
 
         llvm(self.builder.build_store(storage, subject))?;
 

@@ -14,10 +14,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let allocation_type = crate::native::task_allocation_type(self.types.context());
 
         let allocation = if crate::native::uses_microsoft_x64_abi(self.request.target()) {
-            let storage = llvm(
-                self.builder
-                    .build_alloca(allocation_type, "task.allocation"),
-            )?;
+            let storage = self.allocate_temporary(allocation_type, "task.allocation")?;
 
             llvm(
                 self.builder
@@ -54,7 +51,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         if crate::native::uses_microsoft_x64_abi(self.request.target()) {
             let frame_type = crate::native::inactive_frame_type(self.types.context());
-            let storage = llvm(self.builder.build_alloca(frame_type, "task.frame"))?;
+            let storage = self.allocate_temporary(frame_type, "task.frame")?;
 
             llvm(self.builder.build_store(storage, frame))?;
             arguments.push(storage.into());
@@ -120,10 +117,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let frame_type = crate::native::inactive_frame_type(self.types.context());
 
         if crate::native::uses_microsoft_x64_abi(self.request.target()) {
-            let storage = llvm(
-                self.builder
-                    .build_alloca(frame_type, "task.observation.frame"),
-            )?;
+            let storage = self.allocate_temporary(frame_type, "task.observation.frame")?;
 
             arguments.insert(0, storage.into());
 
@@ -267,7 +261,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             tag_constant(cancelled.tag())?,
         ]);
 
-        let storage = llvm(self.builder.build_alloca(layout_type, "task.result.layout"))?;
+        let storage = self.allocate_temporary(layout_type, "task.result.layout")?;
 
         llvm(self.builder.build_store(storage, value))?;
 

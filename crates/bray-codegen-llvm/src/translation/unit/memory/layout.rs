@@ -215,7 +215,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let llvm_type = self.types.map(ty)?;
-        let storage = llvm(self.builder.build_alloca(llvm_type, "memory.union"))?;
+        let storage = self.allocate_temporary(llvm_type, "memory.union")?;
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 

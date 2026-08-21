@@ -566,10 +566,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             match mapping.kind() {
                 CodegenTypeKind::Union { tag, .. } => {
-                    let storage = llvm(
-                        self.builder
-                            .build_alloca(subject.get_type(), "pattern.union.subject"),
-                    )?;
+                    let storage =
+                        self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
 
                     llvm(self.builder.build_store(storage, subject))?;
 

@@ -279,7 +279,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         result = insert_value(&self.builder, result, length.into(), 1)?;
 
-        let storage = llvm(self.builder.build_alloca(result.get_type(), "slice.value"))?;
+        let storage = self.allocate_temporary(result.get_type(), "slice.value")?;
 
         llvm(self.builder.build_store(storage, result))?;
 
