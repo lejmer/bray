@@ -12,9 +12,14 @@ pub use model::{
     StandardLibraryManifestError, StandardLibraryTargetArtifacts,
     standard_library_target_artifact_directory,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use model::target_artifacts_for_test;
+#[cfg(test)]
+pub(crate) use model::TEST_OPTIMIZATION_ARTIFACT_BYTES;
 pub use optimization::{
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
-    StandardLibraryOptimizationFallback, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationFallback, StandardLibraryOptimizationLifecycleRoot,
+    StandardLibraryOptimizationMetadata,
     StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
     StandardLibraryOptimizationSemantics,
 };

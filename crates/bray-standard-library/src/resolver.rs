@@ -130,8 +130,8 @@ impl StandardLibraryResolver {
             .map(Arc::from)
     }
 
-    /// Returns target artifacts after selecting only providers for the required platform roles.
-    pub fn target_artifacts_for_platform_services(
+    /// Returns native link artifacts after selecting providers for the required platform roles.
+    pub fn link_artifacts_for_platform_services(
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
@@ -144,11 +144,20 @@ impl StandardLibraryResolver {
             .artifacts()
             .iter()
             .filter(|artifact| {
-                artifact.kind() != crate::StandardLibraryArtifactKind::PlatformServiceLibrary
-                    || artifact
+                match artifact.kind() {
+                    crate::StandardLibraryArtifactKind::RelocatableObject
+                    | crate::StandardLibraryArtifactKind::StaticLibrary
+                    | crate::StandardLibraryArtifactKind::SharedLibrary => true,
+                    crate::StandardLibraryArtifactKind::PlatformServiceLibrary => artifact
                         .platform_services()
                         .iter()
-                        .any(|role| platform_services.contains(role))
+                        .any(|role| platform_services.contains(role)),
+                    crate::StandardLibraryArtifactKind::PackageInterface
+                    | crate::StandardLibraryArtifactKind::PackageImplementation
+                    | crate::StandardLibraryArtifactKind::DependencyMetadata
+                    | crate::StandardLibraryArtifactKind::OptimizationArchive
+                    | crate::StandardLibraryArtifactKind::RuntimeArtifact => false,
+                }
             })
             .map(|artifact| self.resolve(artifact))
             .collect::<Result<Vec<_>, _>>()
@@ -333,6 +342,7 @@ mod tests {
     use crate::{
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
         StandardLibraryRoot, StandardLibraryTargetArtifacts, encode_standard_library_manifest,
+        target_artifacts_for_test,
     };
 
     #[test]
@@ -495,7 +505,7 @@ mod tests {
         fs::write(implementation.beneath(root), b"implementation")
             .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
 
-        StandardLibraryTargetArtifacts::try_new(target, runtime_abi, [interface, implementation])
+        target_artifacts_for_test(target, runtime_abi, vec![interface, implementation])
             .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"))
     }
 
@@ -533,10 +543,10 @@ mod tests {
             let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu")
                 .unwrap_or_else(|| panic!("target identity must be valid"));
 
-            let target = StandardLibraryTargetArtifacts::try_new(
+            let target = target_artifacts_for_test(
                 target,
                 bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-                [interface, implementation, archive],
+                vec![interface, implementation, archive],
             )
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
@@ -581,6 +591,15 @@ mod tests {
 
             let archive = self.archive_path();
 
+            let optimization = target
+                .artifacts()
+                .iter()
+                .find(|artifact| {
+                    artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive
+                })
+                .unwrap_or_else(|| panic!("fixture must contain its optimization archive"))
+                .beneath(self.directory.path());
+
             fs::create_dir_all(
                 interface
                     .parent()
@@ -603,6 +622,12 @@ mod tests {
 
             fs::write(archive, b"archive")
                 .unwrap_or_else(|error| panic!("archive must be written: {error}"));
+
+            fs::write(
+                optimization,
+                crate::manifest::TEST_OPTIMIZATION_ARTIFACT_BYTES,
+            )
+                .unwrap_or_else(|error| panic!("optimization must be written: {error}"));
 
             let bytes = encode_standard_library_manifest(&self.manifest)
                 .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));

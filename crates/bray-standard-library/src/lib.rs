@@ -18,12 +18,14 @@ pub use manifest::{
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
     StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
     StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
-    StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
-    StandardLibraryOptimizationProducerKind, StandardLibraryOptimizationSemantics,
-    StandardLibraryTargetArtifacts,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
+    StandardLibraryOptimizationSemantics, StandardLibraryTargetArtifacts,
     decode_standard_library_manifest, encode_standard_library_manifest,
     standard_library_target_artifact_directory,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use manifest::target_artifacts_for_test;
 pub use resolver::{
     ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,
 };

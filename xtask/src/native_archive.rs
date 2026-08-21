@@ -194,6 +194,7 @@ fn configure_c_toolchain(
 ) {
     if matches!(compilation, NativeCompilation::ThinLto) {
         let tools = native_tools(target);
+        let flags = thin_lto_flags(root);
 
         command
             .env(
@@ -208,8 +209,8 @@ fn configure_c_toolchain(
                 target_environment("AR", target),
                 bray_llvm_toolchain::tool_path(root, tools.archiver),
             )
-            .env(target_environment("CFLAGS", target), "-flto=thin")
-            .env(target_environment("CXXFLAGS", target), "-flto=thin");
+            .env(target_environment("CFLAGS", target), &flags)
+            .env(target_environment("CXXFLAGS", target), flags);
 
         return;
     }
@@ -229,6 +230,30 @@ fn configure_c_toolchain(
                 bray_llvm_toolchain::tool_path(root, "llvm-ar"),
             );
     }
+}
+
+fn thin_lto_flags(root: &Path) -> String {
+    thin_lto_arguments(root)
+        .into_iter()
+        .map(|argument| {
+            if argument.contains(' ') {
+                format!("\"{argument}\"")
+            } else {
+                argument
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn thin_lto_arguments(root: &Path) -> [String; 3] {
+    let root = crate::path::slash_separated(root);
+
+    [
+        "-flto=thin".to_owned(),
+        format!("-ffile-prefix-map={root}=."),
+        "-fdebug-compilation-dir=.".to_owned(),
+    ]
 }
 
 fn native_tools(target: NativeTarget) -> NativeTools {
@@ -347,6 +372,7 @@ mod tests {
 
     use super::{
         NativeTools, native_tools, parse_native_link_arguments, rust_static_library_file_name,
+        thin_lto_flags,
     };
 
     #[test]
@@ -376,6 +402,14 @@ mod tests {
                 cpp_compiler: "clang++",
                 archiver: "llvm-ar",
             }
+        );
+    }
+
+    #[test]
+    fn optimization_native_flags_remove_checkout_identity() {
+        assert_eq!(
+            thin_lto_flags(std::path::Path::new("C:\\work space\\bray")),
+            "-flto=thin \"-ffile-prefix-map=C:/work space/bray=.\" -fdebug-compilation-dir=."
         );
     }
 

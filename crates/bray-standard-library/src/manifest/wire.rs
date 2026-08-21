@@ -13,7 +13,8 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 use super::optimization::{
-    StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducerKind,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationProducerKind,
 };
 
 pub(super) const MANIFEST_FORMAT_REVISION: u32 = 1;
@@ -61,6 +62,7 @@ struct OptimizationWire<'manifest> {
     fallback: OptimizationFallbackWire<'manifest>,
     module_count: u32,
     preservation_roots: Vec<&'manifest str>,
+    lifecycle_roots: Vec<&'static str>,
     platform_services: Vec<&'manifest str>,
     dependencies: Vec<OptimizationDependencyWire<'manifest>>,
 }
@@ -143,6 +145,7 @@ pub(super) struct OwnedOptimizationWire {
     pub fallback: OwnedOptimizationFallbackWire,
     pub module_count: u32,
     pub preservation_roots: Vec<String>,
+    pub lifecycle_roots: Vec<String>,
     pub platform_services: Vec<String>,
     pub dependencies: Vec<OwnedOptimizationDependencyWire>,
 }
@@ -326,6 +329,12 @@ fn optimization_wire(
             .iter()
             .map(|symbol| symbol.as_str())
             .collect(),
+        lifecycle_roots: optimization
+            .lifecycle_roots()
+            .iter()
+            .copied()
+            .map(optimization_lifecycle_root)
+            .collect(),
         platform_services: optimization
             .platform_services()
             .iter()
@@ -339,6 +348,16 @@ fn optimization_wire(
                 digest: digest_wire(dependency.digest().bytes()),
             })
             .collect(),
+    }
+}
+
+const fn optimization_lifecycle_root(
+    root: StandardLibraryOptimizationLifecycleRoot,
+) -> &'static str {
+    match root {
+        StandardLibraryOptimizationLifecycleRoot::GlobalConstructors => "global_constructors",
+        StandardLibraryOptimizationLifecycleRoot::GlobalDestructors => "global_destructors",
+        StandardLibraryOptimizationLifecycleRoot::ExitRegistration => "exit_registration",
     }
 }
 

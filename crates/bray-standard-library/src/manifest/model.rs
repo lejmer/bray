@@ -527,3 +527,83 @@ pub enum StandardLibraryManifestError {
     /// A platform length cannot fit the manifest contract.
     LengthExceeded,
 }
+
+/// Stable optimization bytes shared by standard-library consumer tests.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) const TEST_OPTIMIZATION_ARTIFACT_BYTES: &[u8] =
+    b"test standard library optimization";
+
+/// Completes a minimal target artifact set for tests of standard-library consumers.
+#[cfg(any(test, feature = "test-support"))]
+pub fn target_artifacts_for_test(
+    target: TargetIdentity,
+    runtime_abi: RuntimeAbiVersion,
+    mut artifacts: Vec<StandardLibraryArtifact>,
+) -> Result<StandardLibraryTargetArtifacts, StandardLibraryManifestError> {
+    if artifacts
+        .iter()
+        .any(|artifact| artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
+    {
+        return StandardLibraryTargetArtifacts::try_new(target, runtime_abi, artifacts);
+    }
+
+    let prefix = standard_library_target_artifact_directory(&target, runtime_abi);
+
+    let fallback = match artifacts
+        .iter()
+        .find(|artifact| artifact.kind() == StandardLibraryArtifactKind::StaticLibrary)
+    {
+        Some(fallback) => fallback.clone(),
+        None => {
+            let fallback = StandardLibraryArtifact::try_for_bytes(
+                StandardLibraryArtifactKind::StaticLibrary,
+                format!("{prefix}/std.fallback"),
+                b"test standard library fallback",
+            )?;
+
+            artifacts.push(fallback.clone());
+
+            fallback
+        }
+    };
+
+    let producer = super::StandardLibraryOptimizationProducer::try_new(
+        super::StandardLibraryOptimizationProducerKind::Bray,
+        "test-bray",
+        "1",
+        "test-llvm",
+        "1",
+    )?;
+
+    let compatibility = super::StandardLibraryOptimizationCompatibility::try_new(
+        target.as_str(),
+        "test-data-layout",
+        bray_target::RelocationModel::PositionIndependent,
+        bray_target::CodeModel::Small,
+        runtime_abi,
+    )?;
+
+    let fallback = super::StandardLibraryOptimizationFallback::try_new(
+        fallback.path(),
+        fallback.digest(),
+    )?;
+
+    let optimization = super::StandardLibraryOptimizationMetadata::try_new(
+        "std",
+        producer,
+        compatibility,
+        fallback,
+        std::num::NonZeroU32::MIN,
+    )?;
+
+    let optimization = StandardLibraryArtifact::try_for_bytes(
+        StandardLibraryArtifactKind::OptimizationArchive,
+        format!("{prefix}/std.optimization"),
+        TEST_OPTIMIZATION_ARTIFACT_BYTES,
+    )?
+    .with_optimization(optimization);
+
+    artifacts.push(optimization);
+
+    StandardLibraryTargetArtifacts::try_new(target, runtime_abi, artifacts)
+}

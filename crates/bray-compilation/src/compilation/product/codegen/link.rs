@@ -203,7 +203,7 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         let artifacts = resolver
-            .target_artifacts_for_platform_services(
+            .link_artifacts_for_platform_services(
                 selected.profile().identity(),
                 selected.runtime_abi(),
                 &provider_services,

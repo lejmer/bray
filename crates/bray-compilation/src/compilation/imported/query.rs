@@ -1324,8 +1324,8 @@ mod tests {
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceSpan, SourceVersion, TextSize};
     use bray_standard_library::{
         STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
-        StandardLibraryBundleManifest, StandardLibraryRoot, StandardLibraryTargetArtifacts,
-        encode_standard_library_manifest, standard_library_target_artifact_directory,
+        StandardLibraryBundleManifest, StandardLibraryRoot, encode_standard_library_manifest,
+        standard_library_target_artifact_directory, target_artifacts_for_test,
     };
     use bray_symbols::{
         ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolSkeletonBuildError,
@@ -2336,10 +2336,10 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
 
-        let inventory = StandardLibraryTargetArtifacts::try_new(
+        let inventory = target_artifacts_for_test(
             target,
             runtime_abi,
-            [interface.clone(), implementation.clone()],
+            vec![interface.clone(), implementation.clone()],
         )
         .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"));
 

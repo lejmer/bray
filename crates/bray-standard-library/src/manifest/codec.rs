@@ -17,7 +17,8 @@ use super::model::{
 };
 use super::optimization::{
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
-    StandardLibraryOptimizationFallback, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationFallback, StandardLibraryOptimizationLifecycleRoot,
+    StandardLibraryOptimizationMetadata,
     StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
 };
 use super::wire::{
@@ -175,6 +176,17 @@ fn decode_optimization(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let lifecycle_roots = wire
+        .lifecycle_roots
+        .into_iter()
+        .map(|root| match root.as_str() {
+            "global_constructors" => Ok(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors),
+            "global_destructors" => Ok(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors),
+            "exit_registration" => Ok(StandardLibraryOptimizationLifecycleRoot::ExitRegistration),
+            _ => Err(StandardLibraryManifestError::InvalidOptimizationMetadata),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     let platform_services = wire
         .platform_services
         .into_iter()
@@ -203,6 +215,7 @@ fn decode_optimization(
         module_count,
     )
     .map(|metadata| metadata.with_preservation_roots(preservation_roots))
+    .map(|metadata| metadata.with_lifecycle_roots(lifecycle_roots))
     .map(|metadata| metadata.with_platform_services(platform_services))
     .map(|metadata| metadata.with_dependencies(dependencies))
 }
@@ -257,8 +270,9 @@ mod tests {
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
         StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
         StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
-        StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducer,
-        StandardLibraryOptimizationProducerKind, StandardLibraryTargetArtifacts,
+        StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
+        StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
+        StandardLibraryTargetArtifacts,
     };
 
     #[test]
@@ -297,6 +311,49 @@ mod tests {
 
         assert_eq!(
             result,
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+        );
+    }
+
+    #[test]
+    fn target_artifacts_require_the_bray_optimization_partition() {
+        let manifest = manifest();
+        let target = &manifest.targets()[0];
+
+        let without_optimization = StandardLibraryTargetArtifacts::try_new(
+            target.target().clone(),
+            target.runtime_abi(),
+            target
+                .artifacts()
+                .iter()
+                .filter(|artifact| {
+                    artifact.kind() != StandardLibraryArtifactKind::OptimizationArchive
+                })
+                .cloned(),
+        );
+
+        assert_eq!(
+            without_optimization,
+            Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
+        );
+
+        let native_only = StandardLibraryTargetArtifacts::try_new(
+            target.target().clone(),
+            target.runtime_abi(),
+            target
+                .artifacts()
+                .iter()
+                .filter(|artifact| {
+                    artifact.optimization().is_none_or(|optimization| {
+                        optimization.producer().kind()
+                            != StandardLibraryOptimizationProducerKind::Bray
+                    })
+                })
+                .cloned(),
+        );
+
+        assert_eq!(
+            native_only,
             Err(StandardLibraryManifestError::InvalidOptimizationMetadata)
         );
     }
@@ -515,6 +572,12 @@ mod tests {
         )
         .map(|metadata| {
             metadata.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
+        })
+        .map(|metadata| {
+            metadata.with_lifecycle_roots([
+                StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
+                StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
+            ])
         })
         .map(|metadata| {
             metadata.with_dependencies([

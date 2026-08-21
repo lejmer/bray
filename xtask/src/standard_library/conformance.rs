@@ -16,6 +16,7 @@ use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
     StandardLibraryArtifactKind, StandardLibraryBundleManifest, StandardLibraryLoadError,
+    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationProducerKind,
     StandardLibraryResolver, StandardLibraryRoot,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
@@ -27,7 +28,16 @@ pub(super) fn verify(scratch: &Path) -> Result<(), BuildError> {
     let first = scratch.join("first");
     let second = scratch.join("second");
     let source = scratch.join("source");
+    let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
+    let target = NativeTarget::current().ok_or_else(|| {
+        BuildError::conformance(
+            "production-build",
+            "the compiler host has no supported native target",
+        )
+    })?;
+
+    super::optimization::verify_relocated_native_modules(&root, scratch, target)?;
     write_synthetic_project(&source)?;
     build(&source, &first)?;
     build(&source, &second)?;
@@ -131,6 +141,34 @@ fn verify_optimization_artifacts(
                     target.target().as_str()
                 ),
             ));
+        }
+
+        for artifact in optimization_artifacts {
+            let optimization = artifact.metadata().optimization().ok_or_else(|| {
+                BuildError::conformance(
+                    "optimization-artifact",
+                    "optimization archive has no selection metadata",
+                )
+            })?;
+
+            if optimization.producer().kind()
+                == StandardLibraryOptimizationProducerKind::PinnedNative
+                && !optimization.dependencies().is_empty()
+                && [
+                    StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
+                    StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
+                ]
+                .iter()
+                .any(|root| !optimization.lifecycle_roots().contains(root))
+            {
+                return Err(BuildError::conformance(
+                    "optimization-artifact",
+                    format!(
+                        "{} has incomplete lifecycle roots",
+                        optimization.partition()
+                    ),
+                ));
+            }
         }
     }
 

@@ -219,6 +219,17 @@ pub enum StandardLibraryOptimizationSemantics {
     ThinLto,
 }
 
+/// Native lifecycle obligation retained across whole-product optimization.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StandardLibraryOptimizationLifecycleRoot {
+    /// LLVM's appending global constructor table.
+    GlobalConstructors,
+    /// LLVM's appending global destructor table.
+    GlobalDestructors,
+    /// Process-exit callback registration performed by a native module.
+    ExitRegistration,
+}
+
 /// Selection and preservation contract for one optimization archive.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StandardLibraryOptimizationMetadata {
@@ -228,6 +239,7 @@ pub struct StandardLibraryOptimizationMetadata {
     fallback: StandardLibraryOptimizationFallback,
     module_count: NonZeroU32,
     preservation_roots: Arc<[BinarySymbolName]>,
+    lifecycle_roots: Arc<[StandardLibraryOptimizationLifecycleRoot]>,
     platform_services: Arc<[PlatformServiceRole]>,
     dependencies: Arc<[StandardLibraryOptimizationDependency]>,
 }
@@ -252,6 +264,7 @@ impl StandardLibraryOptimizationMetadata {
             fallback,
             module_count,
             preservation_roots: Arc::from([]),
+            lifecycle_roots: Arc::from([]),
             platform_services: Arc::from([]),
             dependencies: Arc::from([]),
         })
@@ -263,6 +276,16 @@ impl StandardLibraryOptimizationMetadata {
         preservation_roots: impl IntoIterator<Item = BinarySymbolName>,
     ) -> Self {
         self.preservation_roots = sorted_unique_shared_slice(preservation_roots);
+
+        self
+    }
+
+    /// Returns this partition with its complete native lifecycle-root set.
+    pub fn with_lifecycle_roots(
+        mut self,
+        lifecycle_roots: impl IntoIterator<Item = StandardLibraryOptimizationLifecycleRoot>,
+    ) -> Self {
+        self.lifecycle_roots = sorted_unique_shared_slice(lifecycle_roots);
 
         self
     }
@@ -320,6 +343,11 @@ impl StandardLibraryOptimizationMetadata {
     /// Returns symbols that remain roots during whole-product optimization.
     pub fn preservation_roots(&self) -> &[BinarySymbolName] {
         &self.preservation_roots
+    }
+
+    /// Returns lifecycle obligations retained during whole-product optimization.
+    pub fn lifecycle_roots(&self) -> &[StandardLibraryOptimizationLifecycleRoot] {
+        &self.lifecycle_roots
     }
 
     /// Returns platform services associated with this native provider partition.
@@ -429,6 +457,10 @@ pub(super) fn validate_target(
         }) {
             return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
         }
+    }
+
+    if !has_bray_partition {
+        return Err(StandardLibraryManifestError::InvalidOptimizationMetadata);
     }
 
     Ok(())

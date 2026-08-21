@@ -764,7 +764,7 @@ mod tests {
     };
     use bray_standard_library::{
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-        StandardLibraryRoot, StandardLibraryTargetArtifacts, encode_standard_library_manifest,
+        StandardLibraryRoot, encode_standard_library_manifest, target_artifacts_for_test,
     };
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
@@ -1218,10 +1218,10 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("process metadata must be valid: {error:?}"));
 
-        let target_artifacts = StandardLibraryTargetArtifacts::try_new(
+        let target_artifacts = target_artifacts_for_test(
             target,
             runtime_abi,
-            [
+            vec![
                 interface.clone(),
                 implementation.clone(),
                 archive.clone(),

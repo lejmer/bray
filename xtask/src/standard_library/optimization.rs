@@ -10,7 +10,8 @@ use bray_runtime_interface::{BinarySymbolName, PlatformServiceRole, RuntimeAbiVe
 use bray_standard_library::{
     StandardLibraryArtifact, StandardLibraryArtifactKind,
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,
-    StandardLibraryOptimizationFallback, StandardLibraryOptimizationMetadata,
+    StandardLibraryOptimizationFallback, StandardLibraryOptimizationLifecycleRoot,
+    StandardLibraryOptimizationMetadata,
     StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
 };
 use bray_target::{NativeTarget, ObjectFormat, TargetOutputKind, TargetOutputName};
@@ -21,6 +22,7 @@ pub(super) struct BuiltOptimizationArchive {
     pub(super) bytes: Vec<u8>,
     pub(super) module_count: NonZeroU32,
     pub(super) preservation_roots: Vec<BinarySymbolName>,
+    pub(super) lifecycle_roots: Vec<StandardLibraryOptimizationLifecycleRoot>,
     pub(super) triple: String,
     pub(super) data_layout: String,
 }
@@ -142,6 +144,7 @@ impl<'publication> OptimizationPublication<'publication> {
             built.module_count,
         )
         .map(|metadata| metadata.with_preservation_roots(built.preservation_roots))
+        .map(|metadata| metadata.with_lifecycle_roots(built.lifecycle_roots))
         .map(|metadata| metadata.with_platform_services(services.iter().copied()))
         .map(|metadata| metadata.with_dependencies(dependencies))
         .map_err(manifest_error)?;
@@ -258,6 +261,7 @@ fn build_archive(
 
     let mut summarized = Vec::with_capacity(modules.len());
     let mut contract = None;
+    let mut lifecycle_roots = BTreeSet::new();
 
     for (index, bytes) in modules.into_iter().enumerate() {
         if !is_bitcode(&bytes) {
@@ -272,7 +276,7 @@ fn build_archive(
         fs::write(&input, bytes).map_err(|error| BuildError::write(&input, error))?;
         summarize_module(root, &input, &output, target_triple)?;
 
-        let module_contract = inspect_module_contract(root, &output)?;
+        let (module_contract, module_lifecycle_roots) = inspect_module_contract(root, &output)?;
 
         if contract
             .as_ref()
@@ -284,6 +288,7 @@ fn build_archive(
         }
 
         contract.get_or_insert(module_contract);
+        lifecycle_roots.extend(module_lifecycle_roots);
         summarized.push(output);
     }
 
@@ -300,6 +305,7 @@ fn build_archive(
         bytes,
         module_count,
         preservation_roots: preservation_roots.into_iter().collect(),
+        lifecycle_roots: lifecycle_roots.into_iter().collect(),
         triple,
         data_layout,
     })
@@ -311,7 +317,7 @@ fn summarize_module(
     output: &Path,
     target_triple: Option<&str>,
 ) -> Result<(), BuildError> {
-    let canonical = canonicalize_module(root, input)?;
+    let canonical = canonicalize_module(root, root, input)?;
     let mut summarize = Command::new(bray_llvm_toolchain::tool_path(root, "opt"));
 
     summarize
@@ -335,7 +341,11 @@ fn summarize_module(
     require_success(verify, "LLVM rejected an optimization module")
 }
 
-fn canonicalize_module(root: &Path, input: &Path) -> Result<PathBuf, BuildError> {
+fn canonicalize_module(
+    root: &Path,
+    checkout_root: &Path,
+    input: &Path,
+) -> Result<PathBuf, BuildError> {
     let llvm_ir = input.with_extension("ll");
     let canonical = input.with_extension("canonical.bc");
     let mut disassemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-dis"));
@@ -346,6 +356,19 @@ fn canonicalize_module(root: &Path, input: &Path) -> Result<PathBuf, BuildError>
         disassemble,
         "LLVM could not canonicalize an optimization module",
     )?;
+
+    let llvm_ir_text = fs::read_to_string(&llvm_ir)
+        .map_err(|error| BuildError::read(&llvm_ir, error))?;
+
+    let llvm_ir_text = remap_checkout_path(&llvm_ir_text, checkout_root);
+
+    if contains_checkout_path(&llvm_ir_text, checkout_root) {
+        return Err(BuildError::NativeArchive(
+            "optimization module retains the checkout path".to_owned(),
+        ));
+    }
+
+    fs::write(&llvm_ir, llvm_ir_text).map_err(|error| BuildError::write(&llvm_ir, error))?;
 
     let mut assemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-as"));
 
@@ -359,7 +382,40 @@ fn canonicalize_module(root: &Path, input: &Path) -> Result<PathBuf, BuildError>
     Ok(canonical)
 }
 
-fn inspect_module_contract(root: &Path, module: &Path) -> Result<(String, String), BuildError> {
+fn remap_checkout_path(llvm_ir: &str, root: &Path) -> String {
+    let native = root.to_string_lossy();
+    let slash = native.replace('\\', "/");
+    let escaped = native.replace('\\', "\\\\");
+    let llvm_escaped = native.replace('\\', "\\5C");
+
+    [escaped.as_str(), llvm_escaped.as_str(), slash.as_str(), native.as_ref()]
+        .into_iter()
+        .fold(llvm_ir.to_owned(), |normalized, spelling| {
+            normalized.replace(spelling, ".")
+        })
+}
+
+fn contains_checkout_path(llvm_ir: &str, root: &Path) -> bool {
+    let native = root.to_string_lossy();
+    let slash = native.replace('\\', "/");
+    let escaped = native.replace('\\', "\\\\");
+    let llvm_escaped = native.replace('\\', "\\5C");
+
+    [native.as_ref(), &slash, &escaped, &llvm_escaped]
+        .into_iter()
+        .any(|spelling| llvm_ir.contains(spelling))
+}
+
+fn inspect_module_contract(
+    root: &Path,
+    module: &Path,
+) -> Result<
+    (
+        (String, String),
+        BTreeSet<StandardLibraryOptimizationLifecycleRoot>,
+    ),
+    BuildError,
+> {
     let destination = module.with_extension("ll");
     let mut disassemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-dis"));
 
@@ -371,21 +427,43 @@ fn inspect_module_contract(root: &Path, module: &Path) -> Result<(String, String
 
     let mut triple = None;
     let mut data_layout = None;
+    let mut lifecycle_roots = BTreeSet::new();
 
     for line in BufReader::new(file).lines() {
         let line = line.map_err(|error| BuildError::read(&destination, error))?;
 
         triple = triple.or_else(|| quoted_assignment(&line, "target triple"));
         data_layout = data_layout.or_else(|| quoted_assignment(&line, "target datalayout"));
-
-        if triple.is_some() && data_layout.is_some() {
-            break;
-        }
+        lifecycle_roots.extend(lifecycle_roots_for_line(&line));
     }
 
     triple
         .zip(data_layout)
+        .map(|contract| (contract, lifecycle_roots))
         .ok_or_else(|| BuildError::NativeArchive("optimization module target is incomplete".to_owned()))
+}
+
+fn lifecycle_roots_for_line(
+    line: &str,
+) -> impl Iterator<Item = StandardLibraryOptimizationLifecycleRoot> {
+    let mut roots = Vec::new();
+
+    if line.starts_with("@llvm.global_ctors =") {
+        roots.push(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors);
+    }
+
+    if line.starts_with("@llvm.global_dtors =") {
+        roots.push(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors);
+    }
+
+    if ["@atexit(", "@_atexit(", "@__cxa_atexit("]
+        .iter()
+        .any(|symbol| line.contains(symbol))
+    {
+        roots.push(StandardLibraryOptimizationLifecycleRoot::ExitRegistration);
+    }
+
+    roots.into_iter()
 }
 
 fn quoted_assignment(line: &str, name: &str) -> Option<String> {
@@ -534,9 +612,60 @@ fn require_success(mut command: Command, failure: &str) -> Result<(), BuildError
     )))
 }
 
+pub(super) fn verify_relocated_native_modules(
+    root: &Path,
+    scratch: &Path,
+    target: NativeTarget,
+) -> Result<(), BuildError> {
+    let mut modules = Vec::new();
+
+    for directory_name in ["relocated-first", "relocated-second"] {
+        let directory = scratch.join(directory_name);
+        let source = directory.join("provider.c");
+        let module = directory.join("provider.bc");
+
+        fs::create_dir_all(&directory).map_err(|error| BuildError::write(&directory, error))?;
+
+        fs::write(&source, "int bray_relocated_provider(void) { return 1; }\n")
+            .map_err(|error| BuildError::write(&source, error))?;
+
+        let mut compile = Command::new(bray_llvm_toolchain::tool_path(root, "clang"));
+
+        compile
+            .arg(format!("--target={}", target.as_str()))
+            .args(crate::native_archive::thin_lto_arguments(&directory))
+            .args(["-g", "-emit-llvm", "-c"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&module);
+
+        require_success(
+            compile,
+            "LLVM could not build the relocated optimization fixture",
+        )?;
+
+        let canonical = canonicalize_module(root, &directory, &module)?;
+
+        modules.push(fs::read(&canonical).map_err(|error| BuildError::read(&canonical, error))?);
+    }
+
+    if modules.windows(2).any(|pair| pair[0] != pair[1]) {
+        return Err(BuildError::NativeArchive(
+            "optimization module identity depends on the checkout path".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_bitcode, quoted_assignment};
+    use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
+
+    use super::{
+        contains_checkout_path, is_bitcode, lifecycle_roots_for_line, quoted_assignment,
+        remap_checkout_path,
+    };
 
     #[test]
     fn bitcode_detection_accepts_raw_llvm_modules() {
@@ -553,5 +682,58 @@ mod tests {
         );
 
         assert_eq!(quoted_assignment("target triple = empty", "target triple"), None);
+    }
+
+    #[test]
+    fn native_lifecycle_roots_cover_construction_and_termination() {
+        assert_eq!(
+            lifecycle_roots_for_line("@llvm.global_ctors = appending global []")
+                .collect::<Vec<_>>(),
+            [StandardLibraryOptimizationLifecycleRoot::GlobalConstructors]
+        );
+
+        assert_eq!(
+            lifecycle_roots_for_line("call i32 @atexit(ptr @close)").collect::<Vec<_>>(),
+            [StandardLibraryOptimizationLifecycleRoot::ExitRegistration]
+        );
+
+        assert_eq!(
+            lifecycle_roots_for_line("@llvm.global_dtors = appending global []")
+                .collect::<Vec<_>>(),
+            [StandardLibraryOptimizationLifecycleRoot::GlobalDestructors]
+        );
+
+        assert_eq!(
+            lifecycle_roots_for_line("call i32 @__cxa_atexit(ptr @close)").collect::<Vec<_>>(),
+            [StandardLibraryOptimizationLifecycleRoot::ExitRegistration]
+        );
+    }
+
+    #[test]
+    fn checkout_path_detection_covers_native_and_llvm_escaped_paths() {
+        let root = std::path::Path::new("C:\\workspace\\bray");
+
+        assert!(contains_checkout_path(
+            "source_filename = \"C:\\\\workspace\\\\bray\\\\source.cpp\"",
+            root,
+        ));
+
+        assert!(contains_checkout_path(
+            "!DIFile(filename: \"source.cpp\", directory: \"C:\\5Cworkspace\\5Cbray\")",
+            root,
+        ));
+
+        assert!(!contains_checkout_path(
+            "source_filename = \"./source.cpp\"",
+            root,
+        ));
+
+        assert_eq!(
+            remap_checkout_path(
+                "source_filename = \"C:\\\\workspace\\\\bray\\\\source.cpp\"",
+                root,
+            ),
+            "source_filename = \".\\\\source.cpp\""
+        );
     }
 }
