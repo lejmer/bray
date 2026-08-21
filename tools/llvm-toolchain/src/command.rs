@@ -4,11 +4,12 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output};
+use std::process::{Command, ExitCode};
 
 use bray_base::{lowercase_hex, sha256_file};
 use serde::{Deserialize, Serialize};
 
+use crate::process::output_detail;
 use crate::workspace;
 
 const USAGE: &str = "usage: cargo llvm <fetch | validate [--root <directory>] | host>";
@@ -359,8 +360,16 @@ fn prepare_staging(
 
     validate_root(staging, version)?;
 
-    crate::instrumentation::install(staging, source_archive, version, native_sources)
-        .map_err(ToolchainError::Instrumentation)?;
+    let identity = crate::instrumentation::identity(version, &source.sha256);
+
+    crate::instrumentation::install(
+        staging,
+        source_archive,
+        version,
+        &identity,
+        native_sources,
+    )
+    .map_err(ToolchainError::Instrumentation)?;
 
     write_marker(staging, version, package, source)
 }
@@ -435,18 +444,6 @@ fn process_stdout(command: &mut Command, program: &'static str) -> Result<String
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn output_detail(output: &Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = stderr.trim();
-
-    if detail.is_empty() {
-        stdout.trim().to_owned()
-    } else {
-        detail.to_owned()
-    }
-}
-
 fn write_marker(
     root: &Path,
     version: &str,
@@ -455,6 +452,7 @@ fn write_marker(
 ) -> Result<(), ToolchainError> {
     let marker = ToolchainMarker {
         version: version.to_owned(),
+        identity: crate::instrumentation::identity(version, &source.sha256),
         host: package.host.clone(),
         archive: package.archive.clone(),
         sha256: package.sha256.clone(),
@@ -480,6 +478,7 @@ fn validate_marker(
     let marker: ToolchainMarker = serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
 
     if marker.version != version
+        || marker.identity != crate::instrumentation::identity(version, &source.sha256)
         || marker.host != package.host
         || marker.archive != package.archive
         || marker.sha256 != package.sha256
@@ -615,6 +614,7 @@ struct ToolchainPackage {
 #[derive(Deserialize, Serialize)]
 struct ToolchainMarker {
     version: String,
+    identity: String,
     host: String,
     archive: String,
     sha256: String,

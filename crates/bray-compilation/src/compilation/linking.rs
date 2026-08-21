@@ -81,7 +81,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<LinkOutcome, FactQueryError> {
         if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::LinkInputs,
                 u64::try_from(plan.inputs().len()).unwrap_or(u64::MAX),
             );
@@ -168,7 +168,7 @@ fn record_optimization_report(
             report.active_workers(),
         ),
     ] {
-        profile.add_metric(metric, value);
+        profile.record_metric(metric, value);
     }
 }
 

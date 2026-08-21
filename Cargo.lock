@@ -239,6 +239,8 @@ dependencies = [
  "bray-target",
  "bray-testing",
  "inkwell",
+ "serde",
+ "serde_json",
  "target-lexicon",
 ]
 

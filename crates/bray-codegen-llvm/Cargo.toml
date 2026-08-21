@@ -28,5 +28,9 @@ bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 bray-testing = { path = "../bray-testing" }
 
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [lints]
 workspace = true

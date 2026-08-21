@@ -2,8 +2,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Errc.h"
@@ -36,22 +34,33 @@ constexpr llvm::StringLiteral report_environment = "BRAY_LLD_OPTIMIZATION_REPORT
 constexpr llvm::StringLiteral cache_magic = "BRAYLTOCACHE";
 constexpr std::uint32_t format = 1;
 
+#ifndef BRAY_LLD_TOOLCHAIN_IDENTITY
+#error BRAY_LLD_TOOLCHAIN_IDENTITY must identify the pinned linker build
+#endif
+
+constexpr llvm::StringLiteral toolchain_identity = BRAY_LLD_TOOLCHAIN_IDENTITY;
+
 enum class DefinitionKind : std::uint8_t
 {
     Function,
     Data,
 };
 
+struct DefinitionState
+{
+    DefinitionKind kind;
+    std::uint64_t bytes;
+};
+
 struct ModuleState
 {
-    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionKind> internalized;
-    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionKind> imported;
+    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> internalized;
+    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> imported;
     std::uint64_t imported_functions = 0;
     std::uint64_t imported_data = 0;
     std::uint64_t eliminated_functions = 0;
     std::uint64_t eliminated_data = 0;
     std::uint64_t eliminated_bytes = 0;
-    std::uint64_t imported_bytes = 0;
 };
 
 struct CachedState
@@ -127,6 +136,7 @@ llvm::SmallVector<char, 64> encode_cache_state(const CachedState& state)
     append_u64(bytes, state.eliminated_functions);
     append_u64(bytes, state.eliminated_data);
     append_u64(bytes, state.eliminated_bytes);
+    bytes.append(toolchain_identity.begin(), toolchain_identity.end());
     bytes.append(cache_magic.begin(), cache_magic.end());
 
     return bytes;
@@ -137,7 +147,9 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
 )
 {
     constexpr std::size_t payload_size = sizeof(std::uint32_t) + 5 * sizeof(std::uint64_t);
-    constexpr std::size_t trailer_size = payload_size + cache_magic.size();
+    constexpr std::size_t trailer_size = payload_size
+        + toolchain_identity.size()
+        + cache_magic.size();
 
     if (bytes.size() < trailer_size)
         return std::nullopt;
@@ -145,6 +157,10 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
     const llvm::StringRef trailer = bytes.take_back(trailer_size);
 
     if (trailer.take_back(cache_magic.size()) != cache_magic)
+        return std::nullopt;
+
+    if (trailer.slice(payload_size, payload_size + toolchain_identity.size())
+        != toolchain_identity)
         return std::nullopt;
 
     std::size_t offset = 0;
@@ -171,11 +187,11 @@ std::optional<std::pair<llvm::StringRef, CachedState>> decode_cache_entry(
     };
 }
 
-llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionKind> definitions(
+llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> definitions(
     const llvm::Module& module
 )
 {
-    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionKind> result;
+    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> result;
 
     for (const llvm::GlobalValue& value : module.global_values())
     {
@@ -186,20 +202,19 @@ llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionKind> definitions(
             ? DefinitionKind::Function
             : DefinitionKind::Data;
 
-        result.try_emplace(value.getGUID(), kind);
+        std::string representation;
+        llvm::raw_string_ostream output(representation);
+
+        value.print(output);
+        output.flush();
+
+        result.try_emplace(
+            value.getGUID(),
+            DefinitionState{kind, static_cast<std::uint64_t>(representation.size())}
+        );
     }
 
     return result;
-}
-
-std::uint64_t bitcode_size(const llvm::Module& module)
-{
-    llvm::SmallVector<char, 0> bytes;
-    llvm::raw_svector_ostream stream(bytes);
-
-    llvm::WriteBitcodeToFile(module, stream);
-
-    return static_cast<std::uint64_t>(bytes.size());
 }
 
 std::uint64_t peak_resident_bytes()
@@ -305,42 +320,38 @@ public:
         std::lock_guard lock(mutex);
         ModuleState& state = modules[task];
 
-        for (const auto& [guid, kind] : found)
+        for (const auto& [guid, definition] : found)
         {
             if (state.internalized.contains(guid))
                 continue;
 
-            if (kind == DefinitionKind::Function)
+            if (definition.kind == DefinitionKind::Function)
                 ++state.imported_functions;
             else
                 ++state.imported_data;
         }
 
         state.imported = found;
-        state.imported_bytes = bitcode_size(module);
     }
 
     void record_optimized(unsigned task, const llvm::Module& module)
     {
         const auto found = definitions(module);
-        const std::uint64_t optimized_bytes = bitcode_size(module);
         std::lock_guard lock(mutex);
         ModuleState& state = modules[task];
 
-        for (const auto& [guid, kind] : state.imported)
+        for (const auto& [guid, definition] : state.imported)
         {
             if (found.contains(guid))
                 continue;
 
-            if (kind == DefinitionKind::Function)
+            if (definition.kind == DefinitionKind::Function)
                 ++state.eliminated_functions;
             else
                 ++state.eliminated_data;
-        }
 
-        state.eliminated_bytes = state.imported_bytes > optimized_bytes
-            ? state.imported_bytes - optimized_bytes
-            : 0;
+            state.eliminated_bytes += definition.bytes;
+        }
 
         add_to_totals(state);
         release_worker();
@@ -423,7 +434,7 @@ public:
 
         output << "{\n"
                << "  \"format\": 1,\n"
-               << "  \"toolchain\": \"" << LLVM_VERSION_STRING << "\",\n"
+               << "  \"toolchain\": \"" << toolchain_identity << "\",\n"
                << "  \"driver\": \"" << driver_name() << "\",\n"
                << "  \"imported_functions\": " << snapshot.imported_functions << ",\n"
                << "  \"imported_data\": " << snapshot.imported_data << ",\n"
@@ -573,6 +584,31 @@ private:
     Telemetry& telemetry;
 };
 
+llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> read_cache_entry(
+    llvm::StringRef path
+)
+{
+    llvm::Expected<llvm::sys::fs::file_t> opened =
+        llvm::sys::fs::openNativeFileForRead(path, llvm::sys::fs::OF_UpdateAtime);
+
+    if (!opened)
+        return llvm::errorToErrorCode(opened.takeError());
+
+    llvm::sys::fs::file_t descriptor = *opened;
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer =
+        llvm::MemoryBuffer::getOpenFile(descriptor, path, -1, false);
+
+    const std::error_code close_error = llvm::sys::fs::closeFile(descriptor);
+
+    if (!buffer)
+        return buffer;
+
+    if (close_error)
+        return close_error;
+
+    return std::move(*buffer);
+}
+
 }
 
 namespace bray::lld
@@ -605,7 +641,7 @@ llvm::Expected<llvm::FileCache> telemetry_cache(
         llvm::sys::path::append(entry_path, directory, "llvmcache-" + key);
 
         llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> entry =
-            llvm::MemoryBuffer::getFile(entry_path, false, false);
+            read_cache_entry(entry_path);
 
         if (entry)
         {

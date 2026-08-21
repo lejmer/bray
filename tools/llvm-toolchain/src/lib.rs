@@ -4,6 +4,7 @@
 
 mod command;
 mod instrumentation;
+mod process;
 mod workspace;
 
 pub use command::{run, tool_path};

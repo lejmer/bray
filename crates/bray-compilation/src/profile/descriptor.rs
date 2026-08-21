@@ -1,7 +1,7 @@
 use crate::fact::CompilationFactKey;
 use bray_profile::{
-    CompilationProfileCategory, CompilationProfileMode, CompilationProfileOutcome,
-    CompilationProfileSubjectKind, CompilationProfileUnit,
+    CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileMode,
+    CompilationProfileOutcome, CompilationProfileSubjectKind, CompilationProfileUnit,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -262,6 +262,24 @@ impl ProfileMetricKind {
             ),
             Self::EmittedArtifacts => ("compiler.emitted.artifacts", CompilationProfileUnit::Count),
             Self::EmittedBytes => ("compiler.emitted.bytes", CompilationProfileUnit::Bytes),
+        }
+    }
+
+    pub(crate) const fn aggregation(self) -> CompilationProfileAggregation {
+        match self {
+            Self::OptimizationPeakResidentBytes | Self::OptimizationActiveWorkers => {
+                CompilationProfileAggregation::Maximum
+            }
+            _ => CompilationProfileAggregation::Sum,
+        }
+    }
+
+    pub(crate) fn merge(self, current: u64, observed: u64) -> u64 {
+        match self {
+            Self::OptimizationPeakResidentBytes | Self::OptimizationActiveWorkers => {
+                current.max(observed)
+            }
+            _ => current.saturating_add(observed),
         }
     }
 

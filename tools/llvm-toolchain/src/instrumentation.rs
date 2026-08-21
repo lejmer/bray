@@ -3,9 +3,11 @@ use std::fs;
 use std::hash::Hasher;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use bray_base::{StableDigestHasher, lowercase_hex};
+
+use crate::process::output_detail;
 
 const BUILD_DIRECTORY: &str = "bray-lld-build";
 const SOURCE_DIRECTORY: &str = "source";
@@ -28,10 +30,23 @@ pub(crate) fn digest() -> String {
     lowercase_hex(&digest.finalize())
 }
 
+pub(crate) fn identity(version: &str, source_digest: &str) -> String {
+    let instrumentation = digest();
+    let mut identity = StableDigestHasher::new();
+
+    for component in [version, source_digest, instrumentation.as_str()] {
+        identity.write_usize(component.len());
+        identity.write(component.as_bytes());
+    }
+
+    lowercase_hex(&identity.finalize())
+}
+
 pub(crate) fn install(
     toolchain: &Path,
     source_archive: &Path,
     version: &str,
+    identity: &str,
     native_sources: &Path,
 ) -> Result<(), InstrumentationError> {
     let build = toolchain.join(BUILD_DIRECTORY);
@@ -43,7 +58,7 @@ pub(crate) fn install(
     fs::create_dir_all(&build).map_err(|error| InstrumentationError::io("create", &build, error))?;
 
     let result = prepare_sources(&build, source_archive, version)
-        .and_then(|source| build_linker(toolchain, &source, native_sources, &build));
+        .and_then(|source| build_linker(toolchain, &source, native_sources, &build, identity));
 
     let cleanup = fs::remove_dir_all(&build)
         .map_err(|error| InstrumentationError::io("remove", &build, error));
@@ -88,6 +103,7 @@ fn build_linker(
     source: &Path,
     native_sources: &Path,
     build: &Path,
+    identity: &str,
 ) -> Result<(), InstrumentationError> {
     let flavor = host_flavor();
     let flavor_source = source.join("lld").join(flavor.source_directory());
@@ -127,6 +143,7 @@ fn build_linker(
             build,
             name,
             &source_path,
+            identity,
         )?);
     }
 
@@ -138,6 +155,7 @@ fn build_linker(
             build,
             "manifest",
             &native_sources.join("manifest.cpp"),
+            identity,
         )?);
     }
 
@@ -192,6 +210,7 @@ fn compile(
     build: &Path,
     name: &str,
     source: &Path,
+    identity: &str,
 ) -> Result<PathBuf, InstrumentationError> {
     let extension = if cfg!(windows) { "obj" } else { "o" };
     let object = build.join(format!("{name}.{extension}"));
@@ -200,6 +219,7 @@ fn compile(
 
     if cfg!(windows) {
         command.args(["/nologo", "/std:c++17", "/O2", "/DNDEBUG", "/EHsc", "/c"]);
+        command.arg(format!("/DBRAY_LLD_TOOLCHAIN_IDENTITY=\"{identity}\""));
         command.arg(source);
 
         for include in include_directories(toolchain, source_root, native_sources) {
@@ -216,6 +236,8 @@ fn compile(
             "-fno-rtti",
             "-c",
         ]);
+
+        command.arg(format!("-DBRAY_LLD_TOOLCHAIN_IDENTITY=\"{identity}\""));
 
         command.arg(source);
 
@@ -359,17 +381,6 @@ fn run(command: &mut Command, program: &'static str) -> Result<(), Instrumentati
     }
 
     Ok(())
-}
-
-fn output_detail(output: &Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    if stderr.trim().is_empty() {
-        stdout.trim().to_owned()
-    } else {
-        stderr.trim().to_owned()
-    }
 }
 
 fn tool(toolchain: &Path, name: &str) -> PathBuf {
@@ -530,12 +541,22 @@ impl fmt::Display for InstrumentationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{HostFlavor, InstrumentationError, digest, instrument_lto_source};
+    use super::{HostFlavor, InstrumentationError, digest, identity, instrument_lto_source};
 
     #[test]
     fn instrumentation_digest_authenticates_every_build_input() {
         assert_eq!(digest().len(), 64);
         assert!(digest().bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn toolchain_identity_covers_llvm_source_and_instrumentation() {
+        let source = "a".repeat(64);
+        let identity = identity("22.1.8", &source);
+
+        assert_eq!(identity.len(), 64);
+        assert_ne!(identity, super::identity("22.1.9", &source));
+        assert_ne!(identity, super::identity("22.1.8", &"b".repeat(64)));
     }
 
     #[test]

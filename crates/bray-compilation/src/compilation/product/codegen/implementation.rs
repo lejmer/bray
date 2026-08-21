@@ -538,7 +538,7 @@ impl Compilation {
             return;
         };
 
-        profile.add_metric(
+        profile.record_metric(
             crate::profile::ProfileMetricKind::RuntimeComponents,
             u64::try_from(runtime.components().len()).unwrap_or(u64::MAX),
         );
@@ -560,7 +560,7 @@ impl Compilation {
             profile.add_runtime_artifact(component.metadata().identity().as_str(), component_bytes);
         }
 
-        profile.add_metric(
+        profile.record_metric(
             crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
             bytes,
         );

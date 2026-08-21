@@ -198,11 +198,11 @@ impl ProfileSession {
         statistics.invalidations = statistics.invalidations.saturating_add(1);
     }
 
-    pub(crate) fn add_metric(&self, metric: ProfileMetricKind, value: u64) {
+    pub(crate) fn record_metric(&self, metric: ProfileMetricKind, value: u64) {
         let mut shard = self.shard();
         let current = &mut shard.metrics[metric.index()];
 
-        *current = current.saturating_add(value);
+        *current = metric.merge(*current, value);
     }
 
     pub(crate) fn record_optimization_inputs(
@@ -230,8 +230,8 @@ impl ProfileSession {
                 )
             });
 
-        self.add_metric(ProfileMetricKind::OptimizationModules, modules);
-        self.add_metric(ProfileMetricKind::OptimizationInputBytes, bytes);
+        self.record_metric(ProfileMetricKind::OptimizationModules, modules);
+        self.record_metric(ProfileMetricKind::OptimizationInputBytes, bytes);
     }
 
     pub(crate) fn add_runtime_artifact(&self, identity: &str, bytes: u64) {
@@ -625,8 +625,10 @@ fn merge_metrics(
     destination: &mut [u64; ProfileMetricKind::COUNT],
     source: &[u64; ProfileMetricKind::COUNT],
 ) {
-    for (destination, source) in destination.iter_mut().zip(source) {
-        *destination = destination.saturating_add(*source);
+    for metric in ProfileMetricKind::all() {
+        let index = metric.index();
+
+        destination[index] = metric.merge(destination[index], source[index]);
     }
 }
 
@@ -741,7 +743,7 @@ fn descriptor_catalog() -> CompilationProfileDescriptorCatalog {
                 name: name.to_owned(),
                 unit,
                 category: CompilationProfileCategory::Measurement,
-                aggregation: CompilationProfileAggregation::Sum,
+                aggregation: metric.aggregation(),
                 allowed_subjects: metric.allowed_subjects().to_vec(),
             }
         })
@@ -798,10 +800,11 @@ mod tests {
 
     use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
-    use super::{ProfileClock, ProfileSession};
+    use super::{ProfileClock, ProfileSession, descriptor_catalog, merge_metrics};
     use crate::profile::{
-        CompilationProfileConfiguration, CompilationProfileContext, CompilationProfileMode,
-        CompilationProfileOutcome, ProfileMetricKind, ProfileOperation, ProfileQueryKind,
+        CompilationProfileAggregation, CompilationProfileConfiguration, CompilationProfileContext,
+        CompilationProfileMode, CompilationProfileOutcome, ProfileMetricKind, ProfileOperation,
+        ProfileQueryKind,
     };
 
     fn context() -> CompilationProfileContext {
@@ -843,7 +846,7 @@ mod tests {
 
         session.record_query_request(ProfileQueryKind::SyntaxTree);
         session.record_query_cache_hit(ProfileQueryKind::SyntaxTree);
-        session.add_metric(ProfileMetricKind::SourceUnits, 2);
+        session.record_metric(ProfileMetricKind::SourceUnits, 2);
 
         let span = session.start(
             ProfileOperation::QueryEvaluation,
@@ -863,6 +866,59 @@ mod tests {
         assert_eq!(report.queries[0].evaluations, 1);
         assert_eq!(report.metrics[0].value, 2);
         assert!(report.events.is_empty());
+    }
+
+    #[test]
+    fn peak_metrics_retain_maxima_within_and_across_profile_shards() {
+        let session = ProfileSession::with_clock(
+            CompilationProfileConfiguration::new(CompilationProfileMode::Summary),
+            1,
+            context(),
+            Arc::new(TestClock::new()),
+        );
+
+        session.record_metric(ProfileMetricKind::OptimizationPeakResidentBytes, 4096);
+        session.record_metric(ProfileMetricKind::OptimizationPeakResidentBytes, 2048);
+
+        let report = session.report();
+
+        let peak = report
+            .metrics
+            .iter()
+            .find(|metric| metric.id == ProfileMetricKind::OptimizationPeakResidentBytes.id())
+            .unwrap_or_else(|| panic!("peak metric must be present"));
+
+        assert_eq!(peak.value, 4096);
+
+        let mut destination = [0_u64; ProfileMetricKind::COUNT];
+        let mut source = [0_u64; ProfileMetricKind::COUNT];
+
+        destination[ProfileMetricKind::SourceUnits.index()] = 2;
+        source[ProfileMetricKind::SourceUnits.index()] = 3;
+        destination[ProfileMetricKind::OptimizationActiveWorkers.index()] = 4;
+        source[ProfileMetricKind::OptimizationActiveWorkers.index()] = 6;
+
+        merge_metrics(&mut destination, &source);
+
+        assert_eq!(destination[ProfileMetricKind::SourceUnits.index()], 5);
+
+        assert_eq!(
+            destination[ProfileMetricKind::OptimizationActiveWorkers.index()],
+            6
+        );
+
+        let catalog = descriptor_catalog();
+
+        let descriptor = catalog
+            .metrics
+            .iter()
+            .find(|metric| metric.id == ProfileMetricKind::OptimizationActiveWorkers.id())
+            .unwrap_or_else(|| panic!("worker metric descriptor must be present"));
+
+        assert_eq!(
+            descriptor.aggregation,
+            CompilationProfileAggregation::Maximum
+        );
     }
 
     #[test]

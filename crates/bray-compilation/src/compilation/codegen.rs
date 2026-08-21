@@ -292,9 +292,9 @@ impl Compilation {
                 if result.is_ok()
                     && let Some(profile) = self.state.fact_runtime.profile()
                 {
-                    profile.add_metric(crate::profile::ProfileMetricKind::CodegenUnits, 1);
+                    profile.record_metric(crate::profile::ProfileMetricKind::CodegenUnits, 1);
 
-                    profile.add_metric(
+                    profile.record_metric(
                         crate::profile::ProfileMetricKind::ConcreteInstances,
                         u64::try_from(unit.instances().len()).unwrap_or(u64::MAX),
                     );

@@ -29,7 +29,7 @@ pub struct LinkOptimizationReport {
 }
 
 impl LinkOptimizationReport {
-    /// Returns the exact LLVM toolchain revision that produced the report.
+    /// Returns the exact pinned linker build identity that produced the report.
     pub fn toolchain(&self) -> &str {
         &self.toolchain
     }
@@ -59,7 +59,7 @@ impl LinkOptimizationReport {
         self.eliminated_data
     }
 
-    /// Returns the reduction in serialized optimized IR bytes.
+    /// Returns the LLVM IR representation bytes attributed to removed definitions.
     pub const fn eliminated_bytes(&self) -> u64 {
         self.eliminated_bytes
     }
@@ -106,7 +106,7 @@ pub enum LinkOptimizationReportProblem {
     Malformed,
     /// The report uses an unsupported format number.
     UnsupportedFormat(u32),
-    /// The report came from another LLVM toolchain revision.
+    /// The report came from another pinned linker build.
     ToolchainMismatch(String),
     /// The report came from another LLD driver flavor.
     DriverMismatch(String),
@@ -238,7 +238,9 @@ impl RawReport {
             return Err(LinkOptimizationReportProblem::InconsistentCacheOutcomes);
         }
 
-        if self.peak_resident_bytes == 0 {
+        if self.peak_resident_bytes == 0
+            || (self.cache_misses > 0 && self.active_workers == 0)
+        {
             return Err(LinkOptimizationReportProblem::MissingResourceMeasurement);
         }
 
@@ -264,7 +266,7 @@ impl RawReport {
 mod tests {
     use std::path::Path;
 
-    use super::{LinkOptimizationReportProblem, OptimizationReportRequest};
+    use super::{LinkOptimizationReportProblem, OptimizationReportRequest, RawReport};
     use crate::test_support::TestOutput;
 
     #[test]
@@ -345,5 +347,57 @@ mod tests {
         );
 
         request.abandon();
+    }
+
+    #[test]
+    fn cache_misses_require_an_active_worker_measurement() {
+        let report = RawReport {
+            format: 1,
+            toolchain: "exact-linker".to_owned(),
+            driver: "coff".to_owned(),
+            imported_functions: 0,
+            imported_data: 0,
+            eliminated_functions: 0,
+            eliminated_data: 0,
+            eliminated_bytes: 0,
+            cache_hits: 0,
+            cache_misses: 1,
+            cache_writes: 1,
+            reused_partitions: 0,
+            peak_resident_bytes: 4096,
+            active_workers: 0,
+        };
+
+        assert_eq!(
+            report.validate("exact-linker", "coff"),
+            Err(LinkOptimizationReportProblem::MissingResourceMeasurement)
+        );
+    }
+
+    #[test]
+    fn reports_require_the_exact_pinned_linker_identity() {
+        let report = RawReport {
+            format: 1,
+            toolchain: "stale-linker".to_owned(),
+            driver: "coff".to_owned(),
+            imported_functions: 0,
+            imported_data: 0,
+            eliminated_functions: 0,
+            eliminated_data: 0,
+            eliminated_bytes: 0,
+            cache_hits: 1,
+            cache_misses: 0,
+            cache_writes: 0,
+            reused_partitions: 1,
+            peak_resident_bytes: 4096,
+            active_workers: 0,
+        };
+
+        assert_eq!(
+            report.validate("current-linker", "coff"),
+            Err(LinkOptimizationReportProblem::ToolchainMismatch(
+                "stale-linker".to_owned()
+            ))
+        );
     }
 }

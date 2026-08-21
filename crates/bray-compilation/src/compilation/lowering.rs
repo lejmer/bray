@@ -211,14 +211,14 @@ impl Compilation {
         let mir = result.map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.add_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
+            profile.record_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
 
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::MirBlocks,
                 u64::try_from(mir.blocks().len()).unwrap_or(u64::MAX),
             );
 
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::MirOperations,
                 u64::try_from(mir.operations().len()).unwrap_or(u64::MAX),
             );

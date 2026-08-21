@@ -6,6 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde::Deserialize;
+
 #[path = "src/environment.rs"]
 mod environment;
 
@@ -28,8 +30,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let targets = command_output(&config, "--targets-built")?;
+    let identity = toolchain_identity(&prefix, &version)?;
 
     println!("cargo:rustc-env=BRAY_LLVM_REVISION={version}");
+    println!("cargo:rustc-env=BRAY_LLVM_TOOLCHAIN_IDENTITY={identity}");
 
     println!(
         "cargo:rustc-env=BRAY_LLVM_TARGETS={}",
@@ -39,6 +43,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     configure_linkage(&prefix)?;
 
     Ok(())
+}
+
+fn toolchain_identity(prefix: &Path, version: &str) -> Result<String, Box<dyn Error>> {
+    let path = prefix.join("bray-llvm-toolchain.json");
+    let bytes = std::fs::read(&path)?;
+    let marker: ToolchainMarker = serde_json::from_slice(&bytes)?;
+
+    println!("cargo:rerun-if-changed={}", path.display());
+
+    if marker.version != version || marker.identity.is_empty() {
+        return Err(io::Error::other(
+            "the LLVM toolchain marker does not match the selected LLVM revision",
+        )
+        .into());
+    }
+
+    Ok(marker.identity)
+}
+
+#[derive(Deserialize)]
+struct ToolchainMarker {
+    version: String,
+    identity: String,
 }
 
 fn llvm_config(prefix: &Path) -> PathBuf {

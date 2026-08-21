@@ -225,12 +225,12 @@ impl Compilation {
                 total.saturating_add(artifact.byte_len())
             });
 
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::EmittedArtifacts,
                 u64::try_from(artifacts.len()).unwrap_or(u64::MAX),
             );
 
-            profile.add_metric(crate::profile::ProfileMetricKind::EmittedBytes, bytes);
+            profile.record_metric(crate::profile::ProfileMetricKind::EmittedBytes, bytes);
         }
 
         result
@@ -515,12 +515,12 @@ impl Compilation {
             .map_err(ProductEmissionErrorKind::PackageInterfaceEncoding)?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::InterfaceSections,
                 artifact.section_count(),
             );
 
-            profile.add_metric(
+            profile.record_metric(
                 crate::profile::ProfileMetricKind::InterfaceBytes,
                 artifact.byte_len(),
             );
