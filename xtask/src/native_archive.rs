@@ -327,10 +327,7 @@ fn profile_directory(profile: &str) -> &str {
 #[derive(Debug)]
 pub(crate) enum BuildError {
     Cargo(std::io::Error),
-    BuildFailed {
-        package: String,
-        detail: String,
-    },
+    BuildFailed { package: String, detail: String },
     MissingArchive(PathBuf),
     MissingNativeLinks,
     InvalidNativeLink,

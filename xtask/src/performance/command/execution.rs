@@ -126,11 +126,8 @@ fn execute(mut options: Options) -> Result<(), String> {
         )?);
     }
 
-    let optimization_artifacts = optimization_artifacts(
-        prepared.standard_library(),
-        options.target,
-        &workloads,
-    )?;
+    let optimization_artifacts =
+        optimization_artifacts(prepared.standard_library(), options.target, &workloads)?;
 
     let candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,

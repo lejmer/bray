@@ -19,10 +19,9 @@ use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, CompilationBuildReport,
     CompilationComparability, CompilationEvidenceReport, CompilationIncomparability,
     CompilationKind, CompilationLanguage, CompilationReuseEvidence, LibraryReuse,
-    LinkerInvocationReport, LinkerMapReport, Observation, OptimizationArtifactReport,
-    PeerBatching, PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage,
-    SCHEMA_REVISION, ToolInvocationReport, WorkloadBatching, WorkloadCategory,
-    WorkloadObservations, WorkloadReport,
+    LinkerInvocationReport, LinkerMapReport, Observation, OptimizationArtifactReport, PeerBatching,
+    PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
+    ToolInvocationReport, WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,

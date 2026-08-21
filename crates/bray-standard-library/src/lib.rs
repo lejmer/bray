@@ -13,6 +13,8 @@ pub use identity::{
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, is_public_standard_library_package,
     is_reserved_standard_library_package,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use manifest::target_artifacts_for_test;
 pub use manifest::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
@@ -24,8 +26,6 @@ pub use manifest::{
     decode_standard_library_manifest, encode_standard_library_manifest,
     standard_library_target_artifact_directory,
 };
-#[cfg(any(test, feature = "test-support"))]
-pub use manifest::target_artifacts_for_test;
 pub use resolver::{
     ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,
 };
