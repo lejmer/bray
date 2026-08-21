@@ -28,9 +28,9 @@ impl ProductGenerationIdentity {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublishedProductGeneration {
     identity: ProductGenerationIdentity,
-    manifest_digest: [u8; 32],
     root: PathBuf,
     store: PathBuf,
+    directory: PathBuf,
     reference: PathBuf,
     artifacts: EmittedArtifactSet,
 }
@@ -38,17 +38,17 @@ pub struct PublishedProductGeneration {
 impl PublishedProductGeneration {
     pub(crate) fn new(
         identity: ProductGenerationIdentity,
-        manifest_digest: [u8; 32],
         root: PathBuf,
         store: PathBuf,
+        directory: PathBuf,
         reference: PathBuf,
         artifacts: EmittedArtifactSet,
     ) -> Self {
         Self {
             identity,
-            manifest_digest,
             root,
             store,
+            directory,
             reference,
             artifacts,
         }
@@ -57,11 +57,6 @@ impl PublishedProductGeneration {
     /// Returns the content identity of the complete generation.
     pub const fn identity(&self) -> ProductGenerationIdentity {
         self.identity
-    }
-
-    /// Returns the digest of the canonical generation manifest.
-    pub const fn manifest_digest(&self) -> &[u8; 32] {
-        &self.manifest_digest
     }
 
     /// Returns the managed output root that owns this generation's private state.
@@ -101,12 +96,7 @@ impl PublishedProductGeneration {
             return None;
         }
 
-        Some(
-            self.store
-                .join("generations")
-                .join(self.identity.to_hex())
-                .join(relative.to_path_buf()),
-        )
+        Some(self.directory.join(relative.to_path_buf()))
     }
 
     /// Resolves one managed artifact to its stable public path.

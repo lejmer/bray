@@ -996,6 +996,18 @@ mod tests {
             .published_artifact_path(artifact.id())
             .unwrap_or_else(|| panic!("stable artifact path must resolve"));
 
+        let private = path
+            .parent()
+            .unwrap_or_else(|| panic!("managed artifact must have a private directory"));
+
+        let locator = private
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| panic!("generation locator must be portable"));
+
+        assert_eq!(private.parent(), Some(generation.store()));
+        assert!(bray_base::decode_lowercase_hex::<8>(locator).is_some());
+
         assert_eq!(file_bytes(&path), b"second");
         assert_eq!(file_bytes(&published), b"second");
 
@@ -1037,13 +1049,12 @@ mod tests {
 
         assert_eq!(first_generation.identity(), second_generation.identity());
 
-        let generations = first_generation.store().join("generations");
+        let artifact = first.artifacts().artifacts()[0].id();
 
-        let count = std::fs::read_dir(generations)
-            .unwrap_or_else(|error| panic!("generation store must be readable: {error}"))
-            .count();
-
-        assert_eq!(count, 1);
+        assert_eq!(
+            first_generation.artifact_path(artifact),
+            second_generation.artifact_path(artifact)
+        );
     }
 
     #[test]
@@ -1073,23 +1084,19 @@ mod tests {
         assert_complete_artifact(&second, b"second");
         assert!(first_path.exists());
 
+        let second_path = second
+            .generation()
+            .and_then(|generation| {
+                generation.artifact_path(second.artifacts().artifacts()[0].id())
+            })
+            .unwrap_or_else(|| panic!("second private artifact path must resolve"));
+
         let third = ArtifactPublisher::new(&never_cancelled)
             .publish(&plan, [contribution(&plan, b"third", None)]);
 
         assert_complete_artifact(&third, b"third");
         assert!(!first_path.exists());
-
-        let generations = third
-            .generation()
-            .unwrap_or_else(|| panic!("third managed generation must exist"))
-            .store()
-            .join("generations");
-
-        let count = std::fs::read_dir(generations)
-            .unwrap_or_else(|error| panic!("generation store must be readable: {error}"))
-            .count();
-
-        assert_eq!(count, 2);
+        assert!(second_path.exists());
 
         assert_eq!(
             file_bytes(&output.path().join("application.brayd")),
@@ -2153,7 +2160,7 @@ mod tests {
             ArtifactProducer::Linker(LinkerProducerId::new(0)),
             PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
                 root: root.to_owned(),
-                artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                artifact: crate::ManagedArtifactPath::try_new(name)
                     .unwrap_or_else(|| panic!("test managed path must be valid")),
                 published: path,
             }),
@@ -2224,7 +2231,7 @@ mod tests {
             RequestedArtifactDestination::FilesystemDirectory(path.to_owned().into()),
             OutputSink::ManagedFilesystem {
                 root: path.to_owned(),
-                artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayd")
+                artifact: crate::ManagedArtifactPath::try_new("application.brayd")
                     .unwrap_or_else(|| panic!("test managed path must be valid")),
                 published: path.join("application.brayd"),
             },
@@ -2279,7 +2286,7 @@ mod tests {
                 artifact.producer,
                 PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
                     root: root.clone(),
-                    artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                    artifact: crate::ManagedArtifactPath::try_new(name)
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
                     published: path,
                 }),

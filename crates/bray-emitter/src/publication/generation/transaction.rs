@@ -13,6 +13,7 @@ use tempfile::{Builder, TempDir};
 use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
 use super::layout::{STAGING_DIRECTORY, product_store_relative};
 use super::lock::ProductPublicationLock;
+use super::locator::GenerationLocator;
 use super::manifest::{
     GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
     ManifestProduct, permission_key,
@@ -34,10 +35,10 @@ use crate::{
     ProductGenerationIdentity, PublishedProductGeneration, ReplacementPolicy,
 };
 
-pub(super) const GENERATIONS_DIRECTORY: &str = "generations";
 pub(super) const GENERATION_MANIFEST: &str = "manifest.json";
 pub(super) const PUBLISHED_REFERENCE: &str = "published-generation.json";
 const PRIVATE_GENERATION_PREFIX: &str = ".bray-generation-";
+const LOCATOR_ATTEMPTS: u32 = 256;
 pub(super) const MANIFEST_REVISION: u32 = 1;
 
 pub(in crate::publication) struct ManagedGenerationPublication {
@@ -69,7 +70,7 @@ pub(in crate::publication) fn publish_managed_generation(
     let preceding_generation = referenced_generation(&layout);
 
     let preceding_public_paths = preceding_generation
-        .map(|identity| generation_public_paths(root, &layout, identity, first.planned))
+        .map(|locator| generation_public_paths(root, &layout, locator, first.planned))
         .transpose()?
         .unwrap_or_default();
 
@@ -88,7 +89,7 @@ pub(in crate::publication) fn publish_managed_generation(
         return Err(ArtifactPublicationFailure::Cancelled);
     }
 
-    commit_generation(
+    let locator = commit_generation(
         &private,
         &layout,
         identity,
@@ -105,7 +106,7 @@ pub(in crate::publication) fn publish_managed_generation(
 
     let projections = prepare_public_projections(
         &layout,
-        identity,
+        locator,
         &prepared,
         stale_public_paths(root, &manifest, preceding_public_paths, first.planned)?,
         replacement,
@@ -120,7 +121,7 @@ pub(in crate::publication) fn publish_managed_generation(
         return Err(error);
     }
 
-    let reference_bytes = encode_reference(identity, manifest_digest, first.planned)?;
+    let reference_bytes = encode_reference(locator, identity, first.planned)?;
 
     let reference_warning = match commit_reference(
         &layout,
@@ -138,7 +139,7 @@ pub(in crate::publication) fn publish_managed_generation(
     };
 
     let retention_warning =
-        retain_recent_generations(&layout, identity, preceding_generation, first.planned).err();
+        retain_recent_generations(&layout, locator, preceding_generation, first.planned).err();
 
     let warning = reference_warning.or(retention_warning);
 
@@ -146,9 +147,9 @@ pub(in crate::publication) fn publish_managed_generation(
 
     let generation = PublishedProductGeneration::new(
         identity,
-        manifest_digest,
         root.to_owned(),
-        layout.metadata,
+        layout.metadata.clone(),
+        layout.metadata.join(locator.to_hex()),
         layout.reference,
         // The generation and outcome share immutable Arc-backed artifact records.
         artifacts.clone(),
@@ -163,7 +164,6 @@ pub(in crate::publication) fn publish_managed_generation(
 
 pub(super) struct ManagedLayout {
     pub(super) metadata: PathBuf,
-    pub(super) generations: PathBuf,
     pub(super) reference: PathBuf,
     pub(super) staging: PathBuf,
 }
@@ -228,11 +228,7 @@ fn create_layout(
 
     create_managed_directory(&metadata, &staging, planned)?;
 
-    let generations = metadata.join(GENERATIONS_DIRECTORY);
-
-    create_managed_directory(&metadata, &generations, planned)?;
-
-    let supported = atomic_rename_exclusive_is_supported(&generations)
+    let supported = atomic_rename_exclusive_is_supported(&metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
     if !supported {
@@ -242,13 +238,12 @@ fn create_layout(
         ));
     }
 
-    sync_directory(&generations)
+    sync_directory(&metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
 
     Ok(ManagedLayout {
         reference: metadata.join(PUBLISHED_REFERENCE),
         metadata,
-        generations,
         staging,
     })
 }
@@ -323,7 +318,7 @@ fn create_private_generation(
 ) -> Result<TempDir, ArtifactPublicationFailure> {
     Builder::new()
         .prefix(PRIVATE_GENERATION_PREFIX)
-        .tempdir_in(&layout.generations)
+        .tempdir_in(&layout.metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))
 }
 
@@ -433,12 +428,11 @@ fn stage_generation(
     Ok((manifest, emitted))
 }
 
-fn referenced_generation(layout: &ManagedLayout) -> Option<ProductGenerationIdentity> {
+fn referenced_generation(layout: &ManagedLayout) -> Option<GenerationLocator> {
     let bytes = std::fs::read(&layout.reference).ok()?;
     let reference = serde_json::from_slice::<GenerationReference>(&bytes).ok()?;
-    let identity = bray_base::decode_lowercase_hex::<32>(&reference.generation)?;
 
-    Some(ProductGenerationIdentity::new(identity))
+    GenerationLocator::try_from_hex(&reference.locator)
 }
 
 fn portable_path(path: &Path) -> Option<String> {
@@ -562,48 +556,62 @@ fn commit_generation(
     artifacts: &[EmittedArtifact],
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
-) -> Result<(), ArtifactPublicationFailure> {
-    let destination = layout.generations.join(identity.to_hex());
+) -> Result<GenerationLocator, ArtifactPublicationFailure> {
+    for attempt in 0..LOCATOR_ATTEMPTS {
+        let locator = GenerationLocator::for_identity(identity, attempt);
+        let destination = layout.metadata.join(locator.to_hex());
 
-    match atomic_rename_exclusive(private.path(), &destination) {
-        Ok(()) => {
-            sync_directory(&layout.generations).map_err(|error| {
-                artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
-            })?;
-        }
-        Err(_) if destination.exists() => {
-            validate_existing_generation(
-                &destination,
-                manifest_bytes,
-                manifest,
-                artifacts,
-                planned,
-                cancellation,
-            )?;
-        }
-        Err(error) => {
-            return Err(artifact_failure(
-                planned,
-                PublicationErrorKind::Commit(error.kind()),
-            ));
+        return match atomic_rename_exclusive(private.path(), &destination) {
+            Ok(()) => {
+                sync_directory(&layout.metadata).map_err(|error| {
+                    artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
+                })?;
+
+                Ok(locator)
+            }
+            Err(_) if destination.exists() => {
+                let existing_manifest = std::fs::read(destination.join(GENERATION_MANIFEST))
+                    .map_err(|_| {
+                        artifact_failure(planned, PublicationErrorKind::GenerationCollision)
+                    })?;
+
+                if existing_manifest != manifest_bytes {
+                    continue;
+                }
+
+                validate_existing_generation(
+                    &destination,
+                    manifest,
+                    artifacts,
+                    planned,
+                    cancellation,
+                )?;
+
+                Ok(locator)
+            }
+            Err(error) => {
+                Err(artifact_failure(
+                    planned,
+                    PublicationErrorKind::Commit(error.kind()),
+                ))
+            }
         }
     }
 
-    Ok(())
+    Err(artifact_failure(
+        planned,
+        PublicationErrorKind::GenerationCollision,
+    ))
 }
 
 fn validate_existing_generation(
     destination: &Path,
-    manifest_bytes: &[u8],
     manifest: &GenerationManifest,
     artifacts: &[EmittedArtifact],
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
 ) -> Result<(), ArtifactPublicationFailure> {
-    let existing_manifest = std::fs::read(destination.join(GENERATION_MANIFEST))
-        .map_err(|_| artifact_failure(planned, PublicationErrorKind::GenerationCollision))?;
-
-    if existing_manifest != manifest_bytes || manifest.artifacts.len() != artifacts.len() {
+    if manifest.artifacts.len() != artifacts.len() {
         return Err(artifact_failure(
             planned,
             PublicationErrorKind::GenerationCollision,
@@ -650,14 +658,14 @@ fn validate_existing_generation(
 }
 
 fn encode_reference(
+    locator: GenerationLocator,
     identity: ProductGenerationIdentity,
-    manifest_digest: [u8; 32],
     planned: &crate::PlannedArtifact,
 ) -> Result<Vec<u8>, ArtifactPublicationFailure> {
     serde_json::to_vec(&GenerationReference {
         revision: MANIFEST_REVISION,
-        generation: identity.to_hex(),
-        manifest_digest: lowercase_hex(&manifest_digest),
+        locator: locator.to_hex(),
+        manifest_digest: lowercase_hex(&identity.as_bytes()),
     })
     .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))
 }
@@ -736,7 +744,6 @@ mod tests {
         let reference = metadata.join("published-generation.json");
 
         let layout = ManagedLayout {
-            generations: metadata.join("generations"),
             reference: reference.clone(),
             staging: metadata.join("staging"),
             metadata,

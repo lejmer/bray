@@ -6,13 +6,14 @@ use bray_base::{
     Cancellation, CompletedStagedFile, FileReplacementMode, StagedFile, sync_directory,
 };
 
+use super::locator::GenerationLocator;
 use super::transaction::ManagedLayout;
 use crate::publication::diagnostic::PublicationErrorKind;
 use crate::publication::operation::{
     ArtifactPublicationFailure, PreparedArtifact, artifact_failure,
 };
 use crate::publication::staging::replacement_mode;
-use crate::{OutputSink, PlannedArtifactDestination, ProductGenerationIdentity, ReplacementPolicy};
+use crate::{OutputSink, PlannedArtifactDestination, ReplacementPolicy};
 
 pub(super) struct CommittedPublicProjection {
     destination: PathBuf,
@@ -28,13 +29,13 @@ pub(super) struct PreparedPublicProjection<'plan> {
 
 pub(super) fn prepare_public_projections<'plan>(
     layout: &ManagedLayout,
-    identity: ProductGenerationIdentity,
+    locator: GenerationLocator,
     prepared: &'plan [PreparedArtifact<'_, '_>],
     stale_paths: impl IntoIterator<Item = PathBuf>,
     replacement: ReplacementPolicy,
     cancellation: &dyn Cancellation,
 ) -> Result<Vec<PreparedPublicProjection<'plan>>, ArtifactPublicationFailure> {
-    let generation = layout.generations.join(identity.to_hex());
+    let generation = layout.metadata.join(locator.to_hex());
     let mut projections = Vec::with_capacity(prepared.len());
 
     for artifact in prepared {

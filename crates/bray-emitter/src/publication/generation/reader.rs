@@ -6,10 +6,9 @@ use serde::Deserialize;
 
 use super::layout::product_store;
 use super::lock::open_lock_file;
+use super::locator::GenerationLocator;
 use super::manifest::{GenerationManifest, GenerationReference, permission_key};
-use super::transaction::{
-    GENERATION_MANIFEST, GENERATIONS_DIRECTORY, MANIFEST_REVISION, PUBLISHED_REFERENCE,
-};
+use super::transaction::{GENERATION_MANIFEST, MANIFEST_REVISION, PUBLISHED_REFERENCE};
 use crate::artifact::content::validate_staged_content;
 use crate::{
     ArtifactKind, ManagedArtifactPath, ManagedFilesystemDestination, ManagedOutputDirectory,
@@ -24,8 +23,8 @@ pub enum PublishedGenerationReadError {
     MalformedReference,
     /// The publication reference uses an unsupported schema revision.
     UnsupportedReferenceRevision(u32),
-    /// The referenced generation identity is not canonical.
-    InvalidGenerationIdentity,
+    /// The referenced generation locator or manifest digest is not canonical.
+    InvalidGenerationReference,
     /// The canonical manifest does not match the reference digest.
     ManifestDigestMismatch,
     /// The generation manifest is malformed.
@@ -107,19 +106,13 @@ pub fn resolve_published_artifact(
     let reference: GenerationReference = serde_json::from_slice(&reference_bytes)
         .map_err(|_| PublishedGenerationReadError::MalformedReference)?;
 
-    let identity = decode_lowercase_hex::<32>(&reference.generation)
-        .ok_or(PublishedGenerationReadError::InvalidGenerationIdentity)?;
+    let locator = GenerationLocator::try_from_hex(&reference.locator)
+        .ok_or(PublishedGenerationReadError::InvalidGenerationReference)?;
 
     let manifest_digest = decode_lowercase_hex::<32>(&reference.manifest_digest)
-        .ok_or(PublishedGenerationReadError::InvalidGenerationIdentity)?;
+        .ok_or(PublishedGenerationReadError::InvalidGenerationReference)?;
 
-    if identity != manifest_digest {
-        return Err(PublishedGenerationReadError::InvalidGenerationIdentity);
-    }
-
-    let generation = store
-        .join(GENERATIONS_DIRECTORY)
-        .join(&reference.generation);
+    let generation = store.join(locator.to_hex());
 
     let manifest_bytes = std::fs::read(generation.join(GENERATION_MANIFEST))
         .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;

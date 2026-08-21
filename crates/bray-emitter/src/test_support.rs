@@ -156,7 +156,7 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         ArtifactProducer::PackageInterface,
         PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
             root: "out".into(),
-            artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayi")
+            artifact: crate::ManagedArtifactPath::try_new("application.brayi")
                 .unwrap_or_else(|| panic!("test managed path must be valid")),
             published: "out/application.brayi".into(),
         }),
@@ -201,7 +201,7 @@ pub(crate) fn linked_artifact(
         ArtifactProducer::Linker(LinkerProducerId::new(ordinal)),
         PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
             root: root.to_owned(),
-            artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+            artifact: crate::ManagedArtifactPath::try_new(name)
                 .unwrap_or_else(|| panic!("test managed path must be valid")),
             published: path.to_owned(),
         }),

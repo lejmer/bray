@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn managed_artifact_paths_require_canonical_portable_relatives() {
-        assert!(ManagedArtifactPath::try_new("artifacts/application.exe").is_some());
+        assert!(ManagedArtifactPath::try_new("nested/application.exe").is_some());
 
         for path in ["", "/artifacts/output", "../output", "artifacts\\output"] {
             assert!(ManagedArtifactPath::try_new(path).is_none(), "{path}");

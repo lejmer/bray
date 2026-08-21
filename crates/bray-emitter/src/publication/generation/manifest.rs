@@ -138,7 +138,7 @@ impl ManifestProducer {
 #[serde(deny_unknown_fields)]
 pub(super) struct GenerationReference {
     pub(super) revision: u32,
-    pub(super) generation: String,
+    pub(super) locator: String,
     pub(super) manifest_digest: String,
 }
 
