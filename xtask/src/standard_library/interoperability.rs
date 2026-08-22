@@ -265,10 +265,16 @@ fn build_native_fixture(
 ) -> Result<NativeFixture, BuildError> {
     let source = root.join("xtask/fixtures/foreign-interoperability.c");
 
-    let object = output.join(if cfg!(windows) {
-        "fixture.obj"
+    let shared_object = output.join(if cfg!(windows) {
+        "fixture-shared.obj"
     } else {
-        "fixture.o"
+        "fixture-shared.o"
+    });
+
+    let static_object = output.join(if cfg!(windows) {
+        "fixture-static.obj"
+    } else {
+        "fixture-static.o"
     });
 
     let archive = output.join(output_name(
@@ -284,26 +290,13 @@ fn build_native_fixture(
     )?);
 
     let clang = native_tool(DiagnosticLlvmToolRole::CompilerDriver)?;
-    let mut compile = Command::new(&clang);
+    compile_native_fixture_source(&clang, &source, &shared_object, true)?;
 
-    compile
-        .args(["-std=c11", "-O2", "-c"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&object);
-
-    if !cfg!(windows) {
-        compile.args(["-fPIC", "-pthread"]);
-    }
-
-    crate::command::require_success(compile, "compiling foreign interoperability fixture")
-        .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
-
-    let mut shared_command = Command::new(clang);
+    let mut shared_command = Command::new(&clang);
 
     shared_command
         .arg("-shared")
-        .arg(&object)
+        .arg(&shared_object)
         .arg("-o")
         .arg(&shared);
 
@@ -314,13 +307,18 @@ fn build_native_fixture(
     crate::command::require_success(shared_command, "linking foreign interoperability fixture")
         .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 
+    compile_native_fixture_source(&clang, &source, &static_object, false)?;
+
     if archive.exists() {
         fs::remove_file(&archive).map_err(|error| BuildError::write(&archive, error))?;
     }
 
     let mut archive_command = Command::new(native_tool(DiagnosticLlvmToolRole::Archiver)?);
 
-    archive_command.args(["rcs"]).arg(&archive).arg(&object);
+    archive_command
+        .args(["rcs"])
+        .arg(&archive)
+        .arg(&static_object);
 
     crate::command::require_success(
         archive_command,
@@ -329,6 +327,31 @@ fn build_native_fixture(
     .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 
     Ok(NativeFixture { shared })
+}
+
+fn compile_native_fixture_source(
+    clang: &Path,
+    source: &Path,
+    object: &Path,
+    shared: bool,
+) -> Result<(), BuildError> {
+    let mut command = Command::new(clang);
+
+    command.args(["-std=c11", "-O2", "-c"]);
+
+    if shared {
+        command.arg("-DBRAY_SHARED_FIXTURE=1");
+    }
+
+    if !cfg!(windows) {
+        command.args(["-fPIC", "-pthread"]);
+    }
+
+    command.arg(source).arg("-o").arg(object);
+
+    crate::command::require_success(command, "compiling foreign interoperability fixture")
+        .map(|_| ())
+        .map_err(|error| BuildError::conformance("foreign interoperability", error))
 }
 
 fn emit_fixture(

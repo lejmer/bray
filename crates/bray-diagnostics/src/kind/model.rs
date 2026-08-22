@@ -189,6 +189,8 @@ define_diagnostic_kinds! {
     SyntaxUnexpectedEof,
     /// Source syntax nesting exceeds the parser's deterministic depth limit.
     SyntaxNestingLimitExceeded,
+    /// A language-defined directive appears before a syntax form that does not accept it.
+    SyntaxInvalidDirectiveTarget,
     /// A declaration name is repeated in the same declaration domain.
     DeclarationDuplicateName,
     /// Split declarations of one module disagree on effective visibility.
@@ -716,6 +718,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedExpression => 3005,
             Self::SyntaxUnexpectedEof => 3003,
             Self::SyntaxNestingLimitExceeded => 3006,
+            Self::SyntaxInvalidDirectiveTarget => 3007,
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
@@ -1059,6 +1062,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedExpression => "syntax_expected_expression",
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
             Self::SyntaxNestingLimitExceeded => "syntax_nesting_limit_exceeded",
+            Self::SyntaxInvalidDirectiveTarget => "syntax_invalid_directive_target",
             Self::DeclarationDuplicateName => "declaration_duplicate_name",
             Self::DeclarationConflictingModuleVisibility => DECLARATION_VISIBILITY_KEY,
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",

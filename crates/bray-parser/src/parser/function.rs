@@ -3,10 +3,7 @@ use bray_syntax::{
     FunctionDirectivesSyntaxBuilder, FunctionModifiersSyntax, SyntaxKind,
 };
 
-use super::directive::{
-    ABI_DIRECTIVE_NAME, DirectiveScanKind, ENTRYPOINT_DIRECTIVE_NAME, LINK_DIRECTIVE_NAME,
-    SYMBOL_DIRECTIVE_NAME, TEST_DIRECTIVE_NAME,
-};
+use super::directive::DirectiveScanKind;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
 
@@ -74,7 +71,7 @@ impl Parser {
         let mut builder = FunctionDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(ABI_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::AbiDirective) {
                 builder.push_abi_directive(
                     self.parse_abi_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -82,7 +79,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(LINK_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::LinkDirective) {
                 builder.push_link_directive(
                     self.parse_link_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -90,7 +87,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(SYMBOL_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::SymbolDirective) {
                 builder.push_symbol_directive(
                     self.parse_symbol_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -98,12 +95,12 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(ENTRYPOINT_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::EntrypointDirective) {
                 builder.push_entrypoint_directive(self.parse_entrypoint_directive());
                 continue;
             }
 
-            if self.at_directive_name(TEST_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::TestDirective) {
                 builder.push_test_directive(
                     self.parse_test_directive(&FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -121,7 +118,10 @@ impl Parser {
         &mut self,
         builder: &mut FunctionDirectivesSyntaxBuilder,
     ) {
-        self.recover_current_and_until(builder, &FUNCTION_DECLARATION_START_KINDS);
+        self.recover_unsupported_directive(
+            builder,
+            &FUNCTION_DECLARATION_START_KINDS,
+        );
     }
 
     fn parse_function_modifiers(&mut self) -> FunctionModifiersSyntax {
@@ -196,12 +196,16 @@ impl Parser {
 
     fn consume_function_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
-            match directive_name {
-                ABI_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME | SYMBOL_DIRECTIVE_NAME => {
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(
+                    SyntaxKind::AbiDirective
+                    | SyntaxKind::LinkDirective
+                    | SyntaxKind::SymbolDirective,
+                ) => {
                     DirectiveScanKind::ArgumentList
                 }
-                TEST_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                ENTRYPOINT_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                Some(SyntaxKind::TestDirective) => DirectiveScanKind::ArgumentList,
+                Some(SyntaxKind::EntrypointDirective) => DirectiveScanKind::Bare,
                 _ => DirectiveScanKind::Unknown,
             }
         });

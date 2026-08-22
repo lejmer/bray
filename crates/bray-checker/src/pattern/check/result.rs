@@ -30,10 +30,10 @@ where
         &self,
         pattern: &BoundPattern,
         kind: BoundPatternKind,
-        target: Option<BoundPatternTarget>,
         subject: &TypeData,
         compatible: bool,
         trusted_variant: bool,
+        only_union_variant: bool,
     ) -> Result<bool, CheckerInfrastructureError> {
         if !compatible {
             return Ok(false);
@@ -48,24 +48,38 @@ where
             (
                 BoundPatternKind::Variant,
                 TypeData::Named {
-                    definition: NamedTypeSymbolId::Union(union),
+                    definition: NamedTypeSymbolId::Union(_),
                     ..
                 },
             ) => {
-                let Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))) = target
-                else {
-                    return Ok(false);
-                };
-
                 trusted_variant && self.tagless_union(subject)?
-                    || available_dependency(self.request.union(*union))?
-                        .flatten()
-                        .is_some_and(|record| record.variants() == [variant])
+                    || only_union_variant
             }
             _ => false,
         };
 
         Ok(is_total)
+    }
+
+    pub(super) fn only_union_variant(
+        &self,
+        subject: &TypeData,
+        target: Option<BoundPatternTarget>,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let (
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Union(union),
+                ..
+            },
+            Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))),
+        ) = (subject, target)
+        else {
+            return Ok(false);
+        };
+
+        Ok(available_dependency(self.request.union(*union))?
+            .flatten()
+            .is_some_and(|record| record.variants() == [variant]))
     }
 
     pub(super) fn tagless_union(

@@ -14,9 +14,7 @@ use bray_syntax::{
 
 use crate::cursor::RecoverySet;
 
-use super::directive::{
-    DirectiveScanKind, LINK_DIRECTIVE_NAME, TARGET_DIRECTIVE_NAME, TEST_DIRECTIVE_NAME,
-};
+use super::directive::DirectiveScanKind;
 use super::entry::DeclarationFragmentSyntax;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -176,7 +174,7 @@ impl Parser {
         let mut builder = ModuleDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(TARGET_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::TargetDirective) {
                 builder.push_target_directive(
                     self.parse_target_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -184,7 +182,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(TEST_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::TestDirective) {
                 builder.push_test_directive(
                     self.parse_test_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -192,7 +190,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(LINK_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::LinkDirective) {
                 builder.push_link_directive(
                     self.parse_link_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -207,7 +205,10 @@ impl Parser {
     }
 
     fn recover_unknown_module_directive(&mut self, builder: &mut ModuleDirectivesSyntaxBuilder) {
-        self.recover_current_and_until(builder, &MODULE_DECLARATION_START_KINDS);
+        self.recover_unsupported_directive(
+            builder,
+            &MODULE_DECLARATION_START_KINDS,
+        );
     }
 
     fn parse_module_modifiers(&mut self) -> ModuleModifiersSyntax {
@@ -448,8 +449,12 @@ impl Parser {
 
     fn consume_module_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
-            match directive_name {
-                TARGET_DIRECTIVE_NAME | TEST_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME => {
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(
+                    SyntaxKind::TargetDirective
+                    | SyntaxKind::TestDirective
+                    | SyntaxKind::LinkDirective,
+                ) => {
                     DirectiveScanKind::ArgumentList
                 }
                 _ => DirectiveScanKind::Unknown,

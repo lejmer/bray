@@ -605,6 +605,10 @@ impl DiagnosticKind {
             Self::SyntaxExpectedExpression | Self::SyntaxNestingLimitExceeded => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
+            Self::SyntaxInvalidDirectiveTarget => Self::quality_source(
+                &[DiagnosticArgName::DirectiveKind],
+                primary_components!(&[]),
+            ),
             Self::DeclarationDuplicateName => Self::quality_source(
                 &[DeclarationName],
                 related_components!(

@@ -1522,6 +1522,11 @@ const DECLARATION_INVALID_DIRECTIVE_TARGET: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" directive is not valid on this declaration"),
 ];
 
+const SYNTAX_INVALID_DIRECTIVE_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::DirectiveKind),
+    MessageTemplatePart::Text(" directive is not valid before this syntax form"),
+];
+
 const DECLARATION_INVALID_PARAMETER_ORDER: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "positional parameters must precede named-only parameters",
 )];
@@ -2232,6 +2237,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::SyntaxUnexpectedEof => MessageTemplate::new(SYNTAX_UNEXPECTED_EOF),
         DiagnosticKind::SyntaxNestingLimitExceeded => {
             MessageTemplate::new(SYNTAX_NESTING_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::SyntaxInvalidDirectiveTarget => {
+            MessageTemplate::new(SYNTAX_INVALID_DIRECTIVE_TARGET)
         }
         DiagnosticKind::DeclarationDuplicateName => {
             MessageTemplate::new(DECLARATION_DUPLICATE_NAME)

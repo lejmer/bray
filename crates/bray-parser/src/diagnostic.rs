@@ -82,6 +82,25 @@ pub(crate) fn nesting_limit_exceeded(
         ))
 }
 
+pub(crate) fn invalid_directive_target(
+    snapshot: &SourceSnapshot,
+    marker: &SyntaxToken,
+    name: &SyntaxToken,
+    directive_kind: SyntaxKind,
+) -> Diagnostic {
+    let span = SourceSpan::new(
+        snapshot.source_id(),
+        marker.range().cover(name.range()),
+    );
+
+    diagnostic(span, DiagnosticKind::SyntaxInvalidDirectiveTarget)
+        .with_arg(DiagnosticArg::directive_kind(directive_kind))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidDeclaration,
+            span,
+        ))
+}
+
 fn diagnostic(span: SourceSpan, kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(diagnostic_id(span.start()), kind, SeverityKind::Error).with_primary_span(span)
 }
@@ -119,7 +138,10 @@ mod tests {
     use bray_syntax::{SyntaxKind, SyntaxToken};
     use bray_testing::test_source_snapshot as snapshot;
 
-    use super::{expected_expression, expected_token, nesting_limit_exceeded, unexpected_eof};
+    use super::{
+        expected_expression, expected_token, invalid_directive_target, nesting_limit_exceeded,
+        unexpected_eof,
+    };
 
     #[test]
     fn expected_token_diagnostic_uses_an_insertion_point_span() {
@@ -213,6 +235,39 @@ mod tests {
 
         assert!(unexpected.suggestions().is_empty());
         bray_testing::assert_goal_state_diagnostic(&unexpected);
+    }
+
+    #[test]
+    fn invalid_directive_targets_cover_the_directive_name() {
+        let snapshot = snapshot("@link");
+
+        let marker = SyntaxToken::new(
+            SyntaxKind::AtToken,
+            TextRange::new(TextSize::ZERO, TextSize::new(1)),
+        );
+
+        let name = SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::new(1), TextSize::new(5)),
+        );
+
+        let diagnostic =
+            invalid_directive_target(&snapshot, &marker, &name, SyntaxKind::LinkDirective);
+
+        assert_eq!(
+            diagnostic.primary_span(),
+            Some(bray_source::SourceSpan::new(
+                snapshot.source_id(),
+                TextRange::new(TextSize::ZERO, TextSize::new(5))
+            ))
+        );
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::SyntaxInvalidDirectiveTarget
+        );
+
+        bray_testing::assert_goal_state_diagnostic(&diagnostic);
     }
 
     #[test]

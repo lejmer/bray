@@ -473,7 +473,39 @@ pub enum SyntaxKind {
     DocumentationBlockCommentTrivia,
 }
 
+const DIRECTIVE_NAMES: &[(SyntaxKind, &str)] = &[
+    (SyntaxKind::TargetDirective, "target"),
+    (SyntaxKind::TestDirective, "test"),
+    (SyntaxKind::LinkDirective, "link"),
+    (SyntaxKind::LayoutDirective, "layout"),
+    (SyntaxKind::CopyDirective, "copy"),
+    (SyntaxKind::TagDirective, "tag"),
+    (SyntaxKind::AbiDirective, "abi"),
+    (SyntaxKind::SymbolDirective, "symbol"),
+    (SyntaxKind::EntrypointDirective, "entrypoint"),
+    (SyntaxKind::ThreadLocalDirective, "thread_local"),
+];
+
 impl SyntaxKind {
+    /// Resolves a language-defined directive name to its syntax kind.
+    pub fn directive_from_name(name: &str) -> Option<Self> {
+        DIRECTIVE_NAMES
+            .iter()
+            .find_map(|(kind, candidate)| (*candidate == name).then_some(*kind))
+    }
+
+    /// Returns the language-defined name for a directive syntax kind.
+    pub fn directive_name(self) -> Option<&'static str> {
+        DIRECTIVE_NAMES
+            .iter()
+            .find_map(|(kind, name)| (*kind == self).then_some(*name))
+    }
+
+    /// Returns whether this directive selects a source contribution before validation.
+    pub const fn is_contribution_gate_directive(self) -> bool {
+        matches!(self, Self::TargetDirective | Self::TestDirective)
+    }
+
     /// Returns whether this kind represents a syntax tree node.
     pub const fn is_node(self) -> bool {
         matches!(
@@ -1134,7 +1166,7 @@ impl SyntaxKind {
 
 #[cfg(test)]
 mod tests {
-    use super::SyntaxKind;
+    use super::{DIRECTIVE_NAMES, SyntaxKind};
 
     #[test]
     fn syntax_kinds_classify_nodes_tokens_and_trivia() {
@@ -1359,6 +1391,20 @@ mod tests {
         assert!(SyntaxKind::WithExpression.is_block_shaped_expression());
         assert!(!SyntaxKind::LambdaExpression.is_block_shaped_expression());
         assert!(!SyntaxKind::GeneralGeneratorExpression.is_block_shaped_expression());
+    }
+
+    #[test]
+    fn directive_names_round_trip_through_syntax_kinds() {
+        for &(kind, name) in DIRECTIVE_NAMES {
+            assert_eq!(SyntaxKind::directive_from_name(name), Some(kind));
+            assert_eq!(kind.directive_name(), Some(name));
+        }
+
+        assert_eq!(SyntaxKind::directive_from_name("unknown"), None);
+        assert_eq!(SyntaxKind::StructDeclaration.directive_name(), None);
+        assert!(SyntaxKind::TargetDirective.is_contribution_gate_directive());
+        assert!(SyntaxKind::TestDirective.is_contribution_gate_directive());
+        assert!(!SyntaxKind::LinkDirective.is_contribution_gate_directive());
     }
 
     #[test]

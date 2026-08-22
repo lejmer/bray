@@ -37,6 +37,15 @@ static _Atomic uint64_t live_resources = 0;
 
 BRAY_EXPORT int32_t bray_foreign_counter = 40;
 
+#if !defined(BRAY_SHARED_FIXTURE)
+extern int32_t bray_exported_value;
+
+BRAY_EXPORT int32_t bray_foreign_read_exported_value(void)
+{
+    return bray_exported_value;
+}
+#endif
+
 BRAY_EXPORT int32_t bray_foreign_read_counter(const int32_t* value)
 {
     if (value != &bray_foreign_counter)

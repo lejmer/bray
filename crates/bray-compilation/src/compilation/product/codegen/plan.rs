@@ -101,11 +101,9 @@ pub(super) fn product_preservation_roots<'plan>(
 
     let native_data = mappings
         .iter()
-        .flat_map(bray_codegen::CodegenMappings::native_storages)
-        .filter(|mapping| {
-            mapping.direction() == bray_symbols::ForeignCallableDirection::Export
-        })
-        .map(bray_codegen::CodegenNativeStaticMapping::symbol);
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .filter(|mapping| mapping.native_binding().is_some())
+        .map(bray_codegen::CodegenStaticStorageMapping::symbol);
 
     let lifecycle = product_host.into_iter().flat_map(|host| {
         [host.descriptor_symbol(), host.control_symbol()]

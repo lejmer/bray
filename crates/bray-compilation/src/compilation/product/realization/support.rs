@@ -18,8 +18,8 @@ use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
-    ImplementationSymbolId, ReceiverMode, SelfTypeContext, SemanticValueStore, SymbolKey,
-    SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
+    ImplementationSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext,
+    SemanticValueStore, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -268,13 +268,18 @@ pub(in crate::compilation::product) fn closed_array_length(
 pub(super) fn native_boundary_mapping(
     symbol: &str,
     direction: ForeignCallableDirection,
+    binding: NativeSymbolBinding,
 ) -> Result<(BinarySymbolName, CodegenLinkage), CodegenPreparationError> {
     let name =
         BinarySymbolName::try_new(symbol).ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-    let linkage = match direction {
-        ForeignCallableDirection::Import => CodegenLinkage::Import,
-        ForeignCallableDirection::Export => CodegenLinkage::Export,
+    let linkage = match (direction, binding) {
+        (ForeignCallableDirection::Import, NativeSymbolBinding::Strong) => CodegenLinkage::Import,
+        (ForeignCallableDirection::Export, NativeSymbolBinding::Strong) => CodegenLinkage::Export,
+        (ForeignCallableDirection::Export, NativeSymbolBinding::Weak) => CodegenLinkage::Weak,
+        (ForeignCallableDirection::Import, NativeSymbolBinding::Weak) => {
+            return Err(CodegenPreparationError::InvalidAbiMapping);
+        }
     };
 
     Ok((name, linkage))

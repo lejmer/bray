@@ -6,7 +6,7 @@ use bray_syntax::{
 };
 
 use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
-use super::directive::{COPY_DIRECTIVE_NAME, DirectiveScanKind, LAYOUT_DIRECTIVE_NAME};
+use super::directive::DirectiveScanKind;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -81,7 +81,7 @@ impl Parser {
         let mut builder = TypeDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(LAYOUT_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::LayoutDirective) {
                 builder.push_layout_directive(
                     self.parse_layout_directive(&TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -89,7 +89,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(COPY_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::CopyDirective) {
                 builder.push_copy_directive(self.parse_copy_directive());
                 continue;
             }
@@ -101,7 +101,10 @@ impl Parser {
     }
 
     fn recover_unknown_type_directive(&mut self, builder: &mut TypeDirectivesSyntaxBuilder) {
-        self.recover_current_and_until(builder, &TYPE_DECLARATION_START_KINDS);
+        self.recover_unsupported_directive(
+            builder,
+            &TYPE_DECLARATION_START_KINDS,
+        );
     }
 
     fn parse_type_modifiers(&mut self) -> TypeModifiersSyntax {
@@ -177,9 +180,9 @@ impl Parser {
 
     fn consume_type_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
-            match directive_name {
-                LAYOUT_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                COPY_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(SyntaxKind::LayoutDirective) => DirectiveScanKind::ArgumentList,
+                Some(SyntaxKind::CopyDirective) => DirectiveScanKind::Bare,
                 _ => DirectiveScanKind::Unknown,
             }
         });
@@ -365,6 +368,33 @@ mod tests {
         );
 
         assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_reports_known_directives_on_unsupported_declaration_forms() {
+        let source = concat!(
+            "module main; ",
+            "@link(name = \"native\") ",
+            "@entrypoint ",
+            "struct NativeMutex;",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        assert_eq!(
+            diagnostic_kinds(result.diagnostics()),
+            [
+                DiagnosticKind::SyntaxInvalidDirectiveTarget,
+                DiagnosticKind::SyntaxInvalidDirectiveTarget,
+            ]
+        );
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].identifier_token().text(source), Some("NativeMutex"));
     }
 
     #[test]

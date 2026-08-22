@@ -25,6 +25,11 @@ extern trusted static FOREIGN_COUNTER: i32;
 @symbol(name = "bray_exported_value")
 static EXPORTED_VALUE: i32 = 41;
 
+@symbol(name = "bray_foreign_read_exported_value")
+@abi(c)
+extern trusted func native_read_exported_value() -> i32
+    uses(foreign_call);
+
 @symbol(name = "bray_foreign_read_counter")
 @abi(c)
 extern trusted func native_read_counter(pos value: RawPointer<i32>) -> i32
@@ -559,7 +564,7 @@ trusted func audit_native_data()
 
     assert(!std.memory.is_null<i32>(FOREIGN_COUNTER));
     assert(trusted native_read_counter(FOREIGN_COUNTER) == 40);
-    assert(EXPORTED_VALUE == 41);
+    assert(trusted native_read_exported_value() == 41);
     assert(trusted native_sum_variadic(3, signed_byte, unsigned_short, true) == 23);
 }
 

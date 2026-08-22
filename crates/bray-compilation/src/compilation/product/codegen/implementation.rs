@@ -13,7 +13,7 @@ use bray_linker::Linker;
 use bray_runtime_interface::{
     RuntimeArtifact, RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeCapability,
 };
-use bray_symbols::{ProductIdentity, ProductKind};
+use bray_symbols::{CallableDefinitionId, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
@@ -151,6 +151,14 @@ impl Compilation {
             None
         };
 
+        let entry_definitions = super::roots::product_entry_symbols(
+            semantic.value(),
+            test_discovery.as_deref().map(|discovery| discovery.value()),
+        )?
+        .into_iter()
+        .filter_map(CallableDefinitionId::try_new)
+        .collect::<BTreeSet<_>>();
+
         let source_roots = self.product_root_instances(
             semantic.value(),
             test_discovery.as_deref().map(|discovery| discovery.value()),
@@ -160,7 +168,10 @@ impl Compilation {
 
         let entry_roots = source_roots
             .iter()
-            .filter(|root| root.callable_instance().is_some())
+            .filter(|root| {
+                root.callable_instance()
+                    .is_some_and(|callable| entry_definitions.contains(&callable.definition()))
+            })
             .cloned()
             .collect::<Vec<_>>();
 
@@ -508,7 +519,7 @@ impl Compilation {
 
                 // Runtime selection owns the Arc-backed identities used after planning.
                 let capabilities = transfers_cleanup_incident
-                    .then_some(bray_runtime_interface::RuntimeCapability::MemoryOperations);
+                    .then_some(RuntimeCapability::MemoryOperations);
 
                 bray_runtime_interface::RuntimeRequirements::new(
                     Some(runtime.contract().identity().clone()),
@@ -748,9 +759,9 @@ mod tests {
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
         CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration, CodegenGenericArgument,
-        CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping, CodegenSpecialization,
-        CodegenStatus, DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement,
-        OptimizationLevel, partition_codegen_units,
+        CodegenLinkage, CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping,
+        CodegenSpecialization, CodegenStatus, DebugInformationMode, LinkableArtifactKind,
+        LinkableArtifactRequirement, OptimizationLevel, partition_codegen_units,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_ir::{
@@ -784,8 +795,9 @@ mod tests {
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
-        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity,
-        ProductKind, StaticStorageDuration, SymbolOrigin, TraitApplicationData, TypeData,
+        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
+        PackageIdentity, ProductIdentity, ProductKind, StaticStorageDuration, SymbolOrigin,
+        TraitApplicationData, TypeData,
     };
     use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
@@ -2973,19 +2985,24 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
     ) {
-        runtime_native_plan_for_sources_target(&[source], product_kind, target)
+        runtime_native_plan_for_sources_target(&[source], product_kind, target, &[])
     }
 
     fn runtime_native_plan_for_sources_target(
         sources: &[&str],
         product_kind: ProductKind,
         target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
     ) {
-        let (backend, compilation) =
-            codegen_compilation_for_sources_target(sources, product_kind, target);
+        let (backend, compilation) = codegen_compilation_for_sources_target(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+        );
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
@@ -3203,13 +3220,13 @@ mod tests {
 
         let product_instances = instances
             .iter()
-            .filter(|instance| instance.duration() == bray_symbols::StaticStorageDuration::Product)
+            .filter(|instance| instance.duration() == StaticStorageDuration::Product)
             .count();
 
         let thread_instances = instances
             .iter()
             .filter(|instance| {
-                instance.duration() == bray_symbols::StaticStorageDuration::ExactThread
+                instance.duration() == StaticStorageDuration::ExactThread
             })
             .count();
 
@@ -3539,6 +3556,7 @@ mod tests {
             &sources,
             ProductKind::Executable,
             SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            &[],
         );
 
         let requirements = plan
@@ -3548,6 +3566,88 @@ mod tests {
 
         assert!(requirements.requires_role(RuntimeAbiRole::AwaitedFrameComposition));
         assert!(requirements.requires_role(RuntimeAbiRole::FrameCompletionMove));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
+        let source = concat!(
+            "module app;\n",
+            "@layout(c, size = 40, align = 8)\n",
+            "struct NativeMutex;\n",
+            "@link(name = \"native\")\n",
+            "@symbol(name = \"native_mutex\")\n",
+            "extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;\n",
+            "@symbol(name = \"unused_export\")\n",
+            "static UNUSED_EXPORT: i32 = 7;\n",
+            "@symbol(name = \"weak_export\", binding = weak)\n",
+            "@abi(c)\n",
+            "func weak_export() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
+            "}\n",
+        );
+
+        let native_link = NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("native")
+                .unwrap_or_else(|| panic!("native link name must be valid")),
+            NativeLinkKind::Dynamic,
+        );
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &[source],
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            &[native_link],
+        );
+
+        let host = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("executable plan must retain its host"));
+
+        assert_eq!(host.entries().len(), 1);
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == "weak_export"
+                    && mapping.linkage() == CodegenLinkage::Weak
+            })
+        }));
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.static_storages().iter().any(|mapping| {
+                mapping.symbol().as_str() == "unused_export"
+                    && mapping.native_binding() == Some(NativeSymbolBinding::Strong)
+                    && mapping.defines_storage()
+            })
+        }));
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.types().iter().any(|mapping| {
+                mapping.layout().is_some_and(|layout| {
+                    layout.size() == 40 && layout.alignment().get() == 8
+                })
+            })
+        }));
+
+        let backend_ir = generated_artifacts_of_kind(
+            &backend,
+            &plan,
+            BackendArtifactKind::BackendIr,
+        );
+
+        assert!(backend_ir.iter().any(|artifact| {
+            String::from_utf8_lossy(artifact).contains("@unused_export =")
+        }));
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -3574,13 +3674,14 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
     ) {
-        codegen_compilation_for_sources_target(&[source], product_kind, target)
+        codegen_compilation_for_sources_target(&[source], product_kind, target, &[])
     }
 
     fn codegen_compilation_for_sources_target(
         sources: &[&str],
         product_kind: ProductKind,
         target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
@@ -3610,7 +3711,8 @@ mod tests {
                     )
                 })
                 .collect(),
-            CompilationOptions::new(WorkerBudget::serial(), product_kind, target),
+            CompilationOptions::new(WorkerBudget::serial(), product_kind, target)
+                .with_native_link_inputs(native_link_inputs.iter().cloned()),
         );
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)

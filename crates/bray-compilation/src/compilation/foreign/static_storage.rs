@@ -4,8 +4,8 @@ use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, DirectiveKind, ForeignCallableDirection, ForeignStaticContract,
-    NativeSymbolPresence, StaticDeclaredTypeQuery, StaticSymbolId, SymbolQueryRequest, TypeData,
-    TypeExpressionTemplate,
+    NativeSymbolBinding, NativeSymbolPresence, StaticDeclaredTypeQuery, StaticSymbolId,
+    SymbolQueryRequest, TypeData, TypeExpressionTemplate,
 };
 use bray_syntax::StaticDeclarationSyntax;
 
@@ -115,8 +115,22 @@ impl Compilation {
         };
 
         if let Some(symbol) = &symbol {
-            match (direction, symbol.presence()) {
-                (ForeignCallableDirection::Import, NativeSymbolPresence::Optional)
+            match (direction, symbol.binding(), symbol.presence()) {
+                (
+                    ForeignCallableDirection::Import,
+                    NativeSymbolBinding::Weak,
+                    NativeSymbolPresence::Required | NativeSymbolPresence::Optional,
+                ) => {
+                    diagnostics.add(invalid_symbol_policy(
+                        symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax),
+                        "binding",
+                    ));
+                }
+                (
+                    ForeignCallableDirection::Import,
+                    _,
+                    NativeSymbolPresence::Optional,
+                )
                     if !self
                         .requested_target()
                         .profile()
@@ -129,7 +143,11 @@ impl Compilation {
                         "presence",
                     ));
                 }
-                (ForeignCallableDirection::Export, NativeSymbolPresence::Optional) => {
+                (
+                    ForeignCallableDirection::Export,
+                    _,
+                    NativeSymbolPresence::Optional,
+                ) => {
                     diagnostics.add(invalid_symbol_policy(
                         symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax),
                         "presence",
@@ -270,7 +288,9 @@ fn native_static_type_is_incomplete(
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::SymbolOrigin;
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::test_support::compilation;
 
@@ -302,5 +322,36 @@ mod tests {
 
         assert!(contract.diagnostics().is_empty(), "{:#?}", contract.diagnostics());
         assert!(contract.value().is_some());
+    }
+
+    #[test]
+    fn imported_statics_reject_weak_binding_without_weak_required_resolution() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "@symbol(name = \"foreign_counter\", binding = weak)\n",
+            "extern trusted static FOREIGN_COUNTER: i32;\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let declaration = symbols
+            .statics()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(bray_symbols::StaticSymbol::id)
+            .unwrap_or_else(|| panic!("test package must declare one source static"));
+
+        let contract = compilation
+            .foreign_static_contract(declaration)
+            .unwrap_or_else(|error| panic!("foreign static contract must be available: {error:?}"));
+
+        assert!(contract.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            contract.diagnostics(),
+            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+        );
     }
 }

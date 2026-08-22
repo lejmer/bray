@@ -344,6 +344,7 @@ where
         let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref())?;
 
         let kind = effective_pattern_kind(pattern, target);
+        let only_union_variant = self.only_union_variant(type_data.as_ref(), target)?;
 
         let mut compatible = self.pattern_is_compatible(
             id,
@@ -356,7 +357,8 @@ where
 
         let tagless_variant_requires_fact = kind == BoundPatternKind::Variant
             && self.tagless_union(type_data.as_ref())?
-            && !matched_subject.trusted_variant;
+            && !matched_subject.trusted_variant
+            && !only_union_variant;
 
         if tagless_variant_requires_fact {
             compatible = false;
@@ -413,10 +415,10 @@ where
         let shape_is_total = self.pattern_shape_is_total(
             pattern,
             kind,
-            target,
             type_data.as_ref(),
             compatible,
             matched_subject.trusted_variant,
+            only_union_variant,
         )?;
 
         let refutability = pattern_refutability(

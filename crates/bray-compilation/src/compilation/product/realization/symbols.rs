@@ -327,7 +327,12 @@ impl Compilation {
                 .name()
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-            return native_boundary_mapping(name, contract.direction()).map(Some);
+            return native_boundary_mapping(
+                name,
+                contract.direction(),
+                contract.symbol().binding(),
+            )
+            .map(Some);
         }
 
         let boundary =
@@ -341,7 +346,11 @@ impl Compilation {
                     .name()
                     .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-                native_boundary_mapping(name, boundary.direction())
+                native_boundary_mapping(
+                    name,
+                    boundary.direction(),
+                    boundary.symbol().binding(),
+                )
             })
             .transpose()
     }
@@ -362,6 +371,7 @@ impl Compilation {
 
             hasher.write(b"bray.codegen-runtime-default-symbol");
             provider.hash(&mut hasher);
+
             realization.key().specialization().hash(&mut hasher);
             realization.key().witnesses().hash(&mut hasher);
             realization.key().target().hash(&mut hasher);
@@ -382,6 +392,7 @@ impl Compilation {
 
         hasher.write(b"bray.codegen-callable-symbol");
         definition.hash(&mut hasher);
+
         realization.key().specialization().hash(&mut hasher);
         realization.key().witnesses().hash(&mut hasher);
         realization.key().target().hash(&mut hasher);

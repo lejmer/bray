@@ -30,8 +30,8 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
                             .add_global(pointee, None, mapping.symbol().as_str())
                     });
 
-                let optional = mapping.presence() == bray_symbols::NativeSymbolPresence::Optional
-                    || mapping.binding() == bray_symbols::NativeSymbolBinding::Weak;
+                let optional =
+                    mapping.presence() == bray_symbols::NativeSymbolPresence::Optional;
 
                 global.set_linkage(if optional {
                     Linkage::ExternalWeak

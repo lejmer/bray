@@ -2,9 +2,7 @@ use bray_syntax::{
     StaticDeclarationModifiersSyntax, StaticDeclarationSyntax, StaticDirectivesSyntax, SyntaxKind,
 };
 
-use super::directive::{
-    DirectiveScanKind, LINK_DIRECTIVE_NAME, SYMBOL_DIRECTIVE_NAME, THREAD_LOCAL_DIRECTIVE_NAME,
-};
+use super::directive::DirectiveScanKind;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
 
@@ -79,12 +77,12 @@ impl Parser {
         let mut builder = StaticDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(THREAD_LOCAL_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::ThreadLocalDirective) {
                 builder.push_thread_local_directive(self.parse_thread_local_directive());
                 continue;
             }
 
-            if self.at_directive_name(LINK_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::LinkDirective) {
                 builder.push_link_directive(
                     self.parse_link_directive(&STATIC_DECLARATION_START_KINDS),
                 );
@@ -92,7 +90,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(SYMBOL_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::SymbolDirective) {
                 builder.push_symbol_directive(
                     self.parse_symbol_directive(&STATIC_DECLARATION_START_KINDS),
                 );
@@ -100,7 +98,10 @@ impl Parser {
                 continue;
             }
 
-            self.recover_current_and_until(&mut builder, &STATIC_DECLARATION_START_KINDS);
+            self.recover_unsupported_directive(
+                &mut builder,
+                &STATIC_DECLARATION_START_KINDS,
+            );
         }
 
         builder.build()
@@ -159,10 +160,14 @@ impl Parser {
         }
 
         self.scan_ahead(|scan| {
-            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| match name {
-                THREAD_LOCAL_DIRECTIVE_NAME => DirectiveScanKind::Bare,
-                LINK_DIRECTIVE_NAME | SYMBOL_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                _ => DirectiveScanKind::Unknown,
+            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| {
+                match SyntaxKind::directive_from_name(name) {
+                    Some(SyntaxKind::ThreadLocalDirective) => DirectiveScanKind::Bare,
+                    Some(SyntaxKind::LinkDirective | SyntaxKind::SymbolDirective) => {
+                        DirectiveScanKind::ArgumentList
+                    }
+                    _ => DirectiveScanKind::Unknown,
+                }
             });
 
             while scan.at_static_declaration_modifier() {

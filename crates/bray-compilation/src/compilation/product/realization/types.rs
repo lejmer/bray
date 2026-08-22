@@ -5,7 +5,7 @@ use bray_codegen::{
     CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
     CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
 };
-use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
+use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext, StructSymbolId, TypeData, TypeId,
@@ -513,10 +513,6 @@ impl Compilation {
                 }
 
                 if let Some(size) = representation.value().opaque_size() {
-                    let element = self.compiler_known_type(RepresentationRole::ScalarU8)?;
-
-                    self.codegen_type(element, target, cancellation, mappings, pending)?;
-
                     let alignment = representation
                         .value()
                         .alignment()
@@ -530,10 +526,7 @@ impl Compilation {
                             alignment,
                             target_layout_contract(representation.value().layout()),
                         ),
-                        CodegenTypeKind::Array {
-                            element,
-                            length: size,
-                        },
+                        CodegenTypeKind::aggregate([]),
                     ));
                 }
 

@@ -4,7 +4,7 @@ use bray_syntax::{
     ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxToken,
 };
 
-use super::directive::{ABI_DIRECTIVE_NAME, DirectiveScanKind};
+use super::directive::DirectiveScanKind;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -88,7 +88,7 @@ impl Parser {
         let mut builder = CallableDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(ABI_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::AbiDirective) {
                 builder.push_abi_directive(self.parse_abi_directive(form_start_kinds));
                 continue;
             }
@@ -104,7 +104,7 @@ impl Parser {
         builder: &mut CallableDirectivesSyntaxBuilder,
         form_start_kinds: &[SyntaxKind],
     ) {
-        self.recover_current_and_until(builder, form_start_kinds);
+        self.recover_unsupported_directive(builder, form_start_kinds);
     }
 
     pub(super) fn parse_callable_modifiers(&mut self) -> CallableModifiersSyntax {
@@ -136,9 +136,11 @@ impl Parser {
         &mut self,
         form_start_kinds: &[SyntaxKind],
     ) {
-        self.consume_directives_for_scan(form_start_kinds, |directive_name| match directive_name {
-            ABI_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-            _ => DirectiveScanKind::Unknown,
+        self.consume_directives_for_scan(form_start_kinds, |directive_name| {
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(SyntaxKind::AbiDirective) => DirectiveScanKind::ArgumentList,
+                _ => DirectiveScanKind::Unknown,
+            }
         });
     }
 

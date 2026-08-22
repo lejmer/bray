@@ -24,7 +24,11 @@ pub(super) fn prepare<'context, 'request>(
     function: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(FunctionValue<'context>, Option<FunctionValue<'context>>), CodegenFailure> {
-    if symbol.linkage() != CodegenLinkage::Export || symbol.signature().abi() == CallableAbi::Bray {
+    if !matches!(
+        symbol.linkage(),
+        CodegenLinkage::Export | CodegenLinkage::Weak
+    ) || symbol.signature().abi() == CallableAbi::Bray
+    {
         return Ok((function, None));
     }
 
@@ -37,7 +41,7 @@ pub(super) fn prepare<'context, 'request>(
         .as_global_value()
         .set_dll_storage_class(DLLStorageClass::Default);
 
-    let trampoline = declare_symbol(module, symbol, request.target(), types)?;
+    let trampoline = declare_symbol(module, symbol, request.target(), true, types)?;
 
     Ok((function, Some(trampoline)))
 }

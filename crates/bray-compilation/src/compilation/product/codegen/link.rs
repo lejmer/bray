@@ -229,11 +229,9 @@ impl Compilation {
 
         let native_exports = mappings
             .iter()
-            .flat_map(bray_codegen::CodegenMappings::native_storages)
-            .filter(|mapping| {
-                mapping.direction() == bray_symbols::ForeignCallableDirection::Export
-            })
-            .map(bray_codegen::CodegenNativeStaticMapping::symbol)
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .filter(|mapping| mapping.native_binding().is_some())
+            .map(bray_codegen::CodegenStaticStorageMapping::symbol)
             .cloned()
             .collect::<BTreeSet<_>>();
 

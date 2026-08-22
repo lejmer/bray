@@ -6,15 +6,16 @@ use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsQuery, CallableSignatureQuery, CallableSymbolId, DirectiveKind,
-    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolOrigin,
-    NativeSymbolContract, NativeSymbolPresence, SymbolQueryRequest,
+    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, NativeSymbolBinding,
+    NativeSymbolContract, NativeSymbolPresence, SymbolOrigin, SymbolQueryRequest,
 };
 use bray_syntax::{FunctionDeclarationSyntax, SyntaxKind};
 
 use super::super::Compilation;
 use super::diagnostic::{duplicate_native_symbol, missing_directive};
 use super::directive::{
-    foreign_link_requirements, foreign_symbol_contract, validate_foreign_import_requirements,
+    foreign_link_requirements, foreign_symbol_contract, invalid_symbol_policy,
+    validate_foreign_import_requirements,
 };
 use super::platform::platform_service_role;
 use super::validation::validate_platform_service_surface;
@@ -171,10 +172,20 @@ impl Compilation {
         {
             let anchor = symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax);
 
-            diagnostics.add(super::directive::invalid_symbol_policy(
+            diagnostics.add(invalid_symbol_policy(
                 anchor,
                 "presence",
             ));
+        }
+
+        if direction == ForeignCallableDirection::Import
+            && symbol
+                .as_ref()
+                .is_some_and(|symbol| symbol.binding() == NativeSymbolBinding::Weak)
+        {
+            let anchor = symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax);
+
+            diagnostics.add(invalid_symbol_policy(anchor, "binding"));
         }
 
         let links = if direction == ForeignCallableDirection::Import && platform_role.is_none() {
@@ -316,7 +327,9 @@ mod tests {
         DiagnosticPlatformAbiType, DiagnosticPlatformServiceSignatureProblem,
     };
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
-    use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
+    use bray_symbols::{
+        ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
+    };
     use bray_target::{TargetAbiSupport, TargetForeignAbiContract, TargetProfile};
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
@@ -355,6 +368,60 @@ extern trusted func native_read(pos value: i32) -> i32
         assert_eq!(contract.symbol().identity().name(), Some("native_read"));
         assert_eq!(contract.links().len(), 1);
         assert_eq!(contract.links()[0].name(), "c");
+    }
+
+    #[test]
+    fn imported_callables_reject_weak_binding_without_weak_required_resolution() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+@link(name = "c")
+@symbol(name = "native_read", binding = weak)
+@abi(c)
+extern trusted func native_read(pos value: i32) -> i32
+    uses(foreign_call);
+"#,
+            "c",
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "native_read"))
+            .unwrap_or_else(|error| panic!("foreign contract must be available: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+        );
+    }
+
+    #[test]
+    fn exported_callables_preserve_weak_binding() {
+        let compilation = compilation(
+            r#"module app;
+
+@symbol(name = "weak_export", binding = weak)
+@abi(c)
+func weak_export() -> i32
+{
+    return 1;
+}
+"#,
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "weak_export"))
+            .unwrap_or_else(|error| panic!("foreign contract must be available: {error:?}"));
+
+        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+
+        let contract = result
+            .value()
+            .as_ref()
+            .unwrap_or_else(|| panic!("weak native export must publish its contract"));
+
+        assert_eq!(contract.symbol().binding(), NativeSymbolBinding::Weak);
     }
 
     #[test]

@@ -1156,6 +1156,35 @@ mod tests {
     }
 
     #[test]
+    fn misplaced_known_directives_flow_into_compiler_diagnostics() {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input(
+                concat!(
+                    "module app;\n",
+                    "@link(name = \"native\")\n",
+                    "struct NativeMutex;\n",
+                    "func use(pos pointer: RawPointer<NativeMutex>) {}\n",
+                ),
+                0,
+            )],
+        ) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        };
+
+        let invalid_target = bray_testing::diagnostics_of_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::SyntaxInvalidDirectiveTarget,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_target,
+            DiagnosticKind::SyntaxInvalidDirectiveTarget,
+        );
+    }
+
+    #[test]
     fn check_diagnostics_request_syntax_and_declaration_semantics() {
         let invalid_utf8 = SourceInput::file_bytes(
             SourceIdentity::new(20),
