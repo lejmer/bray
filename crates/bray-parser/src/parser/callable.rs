@@ -4,7 +4,7 @@ use bray_syntax::{
     ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxToken,
 };
 
-use super::directive::{ABI_DIRECTIVE_NAME, DirectiveScanKind};
+use super::directive::DirectiveScanKind;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -22,7 +22,8 @@ const PARAMETER_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::IdentifierToken,
 ];
 
-const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
+const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
+    SyntaxKind::EllipsisToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::ArrowToken,
     SyntaxKind::RequiresKeyword,
@@ -87,7 +88,7 @@ impl Parser {
         let mut builder = CallableDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(ABI_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::AbiDirective) {
                 builder.push_abi_directive(self.parse_abi_directive(form_start_kinds));
                 continue;
             }
@@ -103,7 +104,7 @@ impl Parser {
         builder: &mut CallableDirectivesSyntaxBuilder,
         form_start_kinds: &[SyntaxKind],
     ) {
-        self.recover_current_and_until(builder, form_start_kinds);
+        self.recover_unsupported_directive(builder, form_start_kinds);
     }
 
     pub(super) fn parse_callable_modifiers(&mut self) -> CallableModifiersSyntax {
@@ -135,9 +136,11 @@ impl Parser {
         &mut self,
         form_start_kinds: &[SyntaxKind],
     ) {
-        self.consume_directives_for_scan(form_start_kinds, |directive_name| match directive_name {
-            ABI_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-            _ => DirectiveScanKind::Unknown,
+        self.consume_directives_for_scan(form_start_kinds, |directive_name| {
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(SyntaxKind::AbiDirective) => DirectiveScanKind::ArgumentList,
+                _ => DirectiveScanKind::Unknown,
+            }
         });
     }
 
@@ -173,6 +176,15 @@ impl Parser {
 
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
         self.parse_separated_list(&mut builder, spec, Parser::parse_parameter);
+
+        if self.at(SyntaxKind::EllipsisToken) {
+            builder.push_ellipsis_token(self.expect(SyntaxKind::EllipsisToken));
+
+            if self.at(SyntaxKind::CommaToken) {
+                builder.push_separator_token(self.expect(SyntaxKind::CommaToken));
+            }
+        }
+
         builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
 
         builder.build()
@@ -343,6 +355,26 @@ mod tests {
         );
 
         assert_eq!(second.type_expression().full_text(), "Bool");
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_preserves_a_variadic_parameter_tail() {
+        let sources = source_store(["(pos format: RawPointer<u8>, ...)"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let list = parser.parse_parameter_list();
+        let diagnostics = parser.finish();
+
+        assert_eq!(list.full_text(), "(pos format: RawPointer<u8>, ...)");
+        assert_eq!(list.parameters().count(), 1);
+
+        assert_eq!(
+            list.ellipsis_token().map(|token| token.kind()),
+            Some(SyntaxKind::EllipsisToken)
+        );
 
         assert!(diagnostics.is_empty());
     }

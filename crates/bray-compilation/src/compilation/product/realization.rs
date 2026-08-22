@@ -1,6 +1,8 @@
 mod aggregate;
 mod lifecycle;
+mod known;
 mod names;
+mod native_statics;
 mod operations;
 mod signatures;
 mod statics;

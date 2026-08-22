@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
+use bray_symbols::{AnySymbolId, ExternalSymbolKey, PackageIdentity, SymbolKind};
 
 use crate::test_support::{insert_key_and_owners, package_version};
 use crate::{
@@ -12,6 +12,53 @@ use crate::{
 
 pub(super) use crate::test_support::local_by_kind;
 pub(super) type OwnedSection = (InterfaceSectionTag, u64, Vec<u8>);
+
+pub(super) struct Resolver {
+    symbols: Vec<AnySymbolId>,
+    keys: Vec<ExternalSymbolKey>,
+}
+
+impl Resolver {
+    pub(super) fn new(symbols: Vec<AnySymbolId>, keys: Vec<ExternalSymbolKey>) -> Self {
+        Self { symbols, keys }
+    }
+
+    pub(super) fn replace_symbol(
+        &mut self,
+        id: bray_symbols::InterfaceSymbolId,
+        symbol: AnySymbolId,
+    ) {
+        let index = id
+            .to_index()
+            .unwrap_or_else(|| panic!("test symbol ID must fit the host index"));
+
+        self.symbols[index] = symbol;
+    }
+}
+
+impl crate::InterfaceSymbolResolver for Resolver {
+    fn resolve(&self, reference: &crate::InterfaceSymbolReference) -> Option<AnySymbolId> {
+        let crate::InterfaceSymbolReference::Local(id) = reference else {
+            return None;
+        };
+
+        self.symbols.get(id.to_index()?).copied()
+    }
+
+    fn symbol_key(
+        &self,
+        reference: &crate::InterfaceSymbolReference,
+    ) -> Option<bray_symbols::SymbolKey> {
+        let crate::InterfaceSymbolReference::Local(id) = reference else {
+            return None;
+        };
+
+        self.keys
+            .get(id.to_index()?)
+            .cloned()
+            .map(bray_symbols::SymbolKey::external)
+    }
+}
 
 pub(super) fn owned_section_views(sections: &[OwnedSection]) -> Vec<ValidatedInterfaceSection<'_>> {
     sections

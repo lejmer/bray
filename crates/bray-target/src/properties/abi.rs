@@ -60,6 +60,7 @@ pub struct TargetForeignAbiContract {
     qualified_callables: bool,
     c_layout: bool,
     transparent_layout: bool,
+    variadic: bool,
     max_alignment: NonZeroU64,
 }
 
@@ -71,6 +72,7 @@ impl TargetForeignAbiContract {
         qualified_callables: bool,
         c_layout: bool,
         transparent_layout: bool,
+        variadic: bool,
         max_alignment: NonZeroU64,
     ) -> Self {
         Self {
@@ -79,6 +81,7 @@ impl TargetForeignAbiContract {
             qualified_callables,
             c_layout,
             transparent_layout,
+            variadic,
             max_alignment,
         }
     }
@@ -106,6 +109,11 @@ impl TargetForeignAbiContract {
     /// Returns whether transparent-layout aggregates are accepted by value.
     pub const fn transparent_layout(self) -> bool {
         self.transparent_layout
+    }
+
+    /// Returns whether this ABI defines promoted variadic calls.
+    pub const fn variadic(self) -> bool {
+        self.variadic
     }
 
     /// Returns the largest aggregate alignment accepted by this ABI.

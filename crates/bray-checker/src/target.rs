@@ -81,6 +81,8 @@ impl TargetAggregateAbi {
 /// One value representation crossing a selected foreign ABI boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetAbiValue {
+    /// A value that has no representation in a foreign ABI.
+    Unsupported,
     /// A compiler-known scalar representation.
     Scalar(TargetScalarKind),
     /// A raw pointer value.
@@ -97,6 +99,7 @@ pub struct TargetCallableAbiRequirement {
     abi: CallableAbi,
     parameters: Arc<[TargetAbiValue]>,
     result: Option<TargetAbiValue>,
+    variadic: bool,
 }
 
 impl TargetCallableAbiRequirement {
@@ -110,7 +113,15 @@ impl TargetCallableAbiRequirement {
             abi,
             parameters: parameters.into_iter().collect(),
             result,
+            variadic: false,
         }
+    }
+
+    /// Returns this requirement with its variadic-call state.
+    pub const fn with_variadic(mut self, variadic: bool) -> Self {
+        self.variadic = variadic;
+
+        self
     }
 
     /// Returns the selected callable ABI.
@@ -126,6 +137,11 @@ impl TargetCallableAbiRequirement {
     /// Returns the by-value result representation, or `None` for a unit result.
     pub const fn result(&self) -> Option<TargetAbiValue> {
         self.result
+    }
+
+    /// Returns whether the callable accepts promoted trailing arguments.
+    pub const fn is_variadic(&self) -> bool {
+        self.variadic
     }
 }
 
@@ -290,6 +306,10 @@ fn callable_abi_violation(
         return Some(TargetViolation::CallableAbi(requirement.abi()));
     };
 
+    if requirement.is_variadic() && !contract.variadic() {
+        return Some(TargetViolation::CallableAbi(requirement.abi()));
+    }
+
     requirement
         .parameters()
         .iter()
@@ -332,6 +352,7 @@ fn abi_accepts_value(
     value: TargetAbiValue,
 ) -> bool {
     match value {
+        TargetAbiValue::Unsupported => false,
         TargetAbiValue::Scalar(scalar) => contract.scalars().supports(scalar),
         TargetAbiValue::RawPointer => contract.raw_pointers(),
         TargetAbiValue::Callable(value_abi) => contract.qualified_callables() && value_abi == abi,
@@ -508,6 +529,7 @@ fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
 
 fn diagnostic_abi_value(value: TargetAbiValue) -> DiagnosticTargetRepresentation {
     match value {
+        TargetAbiValue::Unsupported => DiagnosticTargetRepresentation::Unsupported,
         TargetAbiValue::Scalar(scalar) => diagnostic_scalar(scalar),
         TargetAbiValue::RawPointer => DiagnosticTargetRepresentation::RawPointer,
         TargetAbiValue::Callable(_) => DiagnosticTargetRepresentation::AbiQualifiedCallable,

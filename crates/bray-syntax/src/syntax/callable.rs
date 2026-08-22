@@ -220,6 +220,14 @@ define_source_syntax_node! {
                 push_separator_token;
                 kind: SyntaxKind::CommaToken;
                 slot: "parameter_list.comma_token";
+            },
+            {
+                /// Returns the optional variadic ellipsis token.
+                ellipsis_token;
+                /// Appends a variadic ellipsis token.
+                push_ellipsis_token;
+                kind: SyntaxKind::EllipsisToken;
+                slot: "parameter_list.ellipsis_token";
             }
         ],
         required_children: [],

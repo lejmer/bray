@@ -6,7 +6,7 @@ use bray_syntax::{
 };
 
 use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
-use super::directive::{COPY_DIRECTIVE_NAME, DirectiveScanKind, LAYOUT_DIRECTIVE_NAME};
+use super::directive::DirectiveScanKind;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -39,7 +39,12 @@ impl Parser {
         let mut builder = StructDeclarationSyntax::builder(self.syntax_source(), start);
 
         self.parse_type_declaration_header(&mut builder, SyntaxKind::StructKeyword);
-        builder.push_struct_body(self.parse_struct_body());
+
+        if self.at(SyntaxKind::SemicolonToken) {
+            builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
+        } else {
+            builder.push_struct_body(self.parse_struct_body());
+        }
 
         builder.build()
     }
@@ -76,7 +81,7 @@ impl Parser {
         let mut builder = TypeDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(LAYOUT_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::LayoutDirective) {
                 builder.push_layout_directive(
                     self.parse_layout_directive(&TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -84,7 +89,7 @@ impl Parser {
                 continue;
             }
 
-            if self.at_directive_name(COPY_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::CopyDirective) {
                 builder.push_copy_directive(self.parse_copy_directive());
                 continue;
             }
@@ -96,7 +101,10 @@ impl Parser {
     }
 
     fn recover_unknown_type_directive(&mut self, builder: &mut TypeDirectivesSyntaxBuilder) {
-        self.recover_current_and_until(builder, &TYPE_DECLARATION_START_KINDS);
+        self.recover_unsupported_directive(
+            builder,
+            &TYPE_DECLARATION_START_KINDS,
+        );
     }
 
     fn parse_type_modifiers(&mut self) -> TypeModifiersSyntax {
@@ -172,9 +180,9 @@ impl Parser {
 
     fn consume_type_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |directive_name| {
-            match directive_name {
-                LAYOUT_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                COPY_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+            match SyntaxKind::directive_from_name(directive_name) {
+                Some(SyntaxKind::LayoutDirective) => DirectiveScanKind::ArgumentList,
+                Some(SyntaxKind::CopyDirective) => DirectiveScanKind::Bare,
                 _ => DirectiveScanKind::Unknown,
             }
         });
@@ -279,7 +287,14 @@ mod tests {
             Some(SyntaxKind::PublicKeyword)
         );
 
-        assert_eq!(declaration.struct_body().full_text(), "{}");
+        assert_eq!(
+            declaration
+                .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
+                .full_text(),
+            "{}"
+        );
+
         assert!(result.diagnostics().is_empty());
     }
 
@@ -356,6 +371,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_reports_known_directives_on_unsupported_declaration_forms() {
+        let source = concat!(
+            "module main; ",
+            "@link(name = \"native\") ",
+            "@entrypoint ",
+            "struct NativeMutex;",
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        assert_eq!(
+            diagnostic_kinds(result.diagnostics()),
+            [
+                DiagnosticKind::SyntaxInvalidDirectiveTarget,
+                DiagnosticKind::SyntaxInvalidDirectiveTarget,
+            ]
+        );
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].identifier_token().text(source), Some("NativeMutex"));
+    }
+
+    #[test]
     fn parser_parses_type_generics_and_constraints() {
         let source = "module main; struct Box<T> with(copyable) { value: T; }";
         let sources = source_store([source]);
@@ -368,7 +410,10 @@ mod tests {
             panic!("expected one struct declaration: {declarations:?}");
         };
 
-        let body = declaration.struct_body();
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
+
         let fields = body.struct_field_declarations().collect::<Vec<_>>();
 
         let [field] = fields.as_slice() else {
@@ -389,7 +434,14 @@ mod tests {
         assert_eq!(field.type_expression().full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
         assert_eq!(field.identifier_token().kind(), SyntaxKind::IdentifierToken);
-        assert_eq!(declaration.struct_body().full_text(), "{ value: T; }");
+
+        assert_eq!(
+            declaration
+                .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
+                .full_text(),
+            "{ value: T; }"
+        );
 
         assert!(result.diagnostics().is_empty());
     }
@@ -483,6 +535,7 @@ mod tests {
 
         let members = declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .type_callable_member_declarations()
             .collect::<Vec<_>>();
 
@@ -552,6 +605,7 @@ mod tests {
 
         let struct_constants = struct_declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .constant_declarations()
             .collect::<Vec<_>>();
 
@@ -604,6 +658,42 @@ mod tests {
     }
 
     #[test]
+    fn parser_preserves_bodyless_and_flexible_struct_forms() {
+        let source = concat!(
+            "module main; ",
+            "struct FILE; ",
+            "@layout(c) struct Packet { length: usize; bytes: [u8; ..]; }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let declarations = result.syntax_tree().root().source_units()[0]
+            .struct_declarations()
+            .collect::<Vec<_>>();
+
+        let [incomplete, flexible] = declarations.as_slice() else {
+            panic!("expected two struct declarations: {declarations:?}");
+        };
+
+        assert!(incomplete.semicolon_token().is_some());
+        assert!(incomplete.struct_body().is_none());
+
+        let body = flexible
+            .struct_body()
+            .unwrap_or_else(|| panic!("flexible struct must have a body"));
+
+        let fields = body.struct_field_declarations().collect::<Vec<_>>();
+
+        let [_, trailing] = fields.as_slice() else {
+            panic!("expected two fields: {fields:?}");
+        };
+
+        assert!(trailing.type_expression().dot_dot_token().is_some());
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
     fn parser_struct_body_missing_open_brace_does_not_consume_following_item() {
         let source = "module main; struct Point\nusing core;";
         let sources = source_store([source]);
@@ -617,7 +707,10 @@ mod tests {
         };
 
         let insertion = marker_offset(source, "using");
-        let body = declaration.struct_body();
+
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(source_unit.using_declarations().count(), 1);

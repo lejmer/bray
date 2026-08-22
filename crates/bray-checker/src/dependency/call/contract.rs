@@ -68,7 +68,9 @@ where
     };
 
     let authority = match implementation {
-        bray_compiler_known::ImplementationHook::StringUtf8 => None,
+        bray_compiler_known::ImplementationHook::StringUtf8
+        | bray_compiler_known::ImplementationHook::CallableFromPointer
+        | bray_compiler_known::ImplementationHook::PointerFromCallable => None,
         bray_compiler_known::ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
         bray_compiler_known::ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
         _ => return Ok(contracts),
@@ -318,6 +320,7 @@ where
         | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
         | TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
+        | TypeExpressionTemplate::FlexibleArray(_)
         | TypeExpressionTemplate::Slice(_)
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }
@@ -331,12 +334,12 @@ where
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BorrowCapabilityOrigin, BoundCallResult, BoundCallableTarget, BoundDependencyGuard,
-        BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-        BoundErrorExpression, BoundExpression, BoundFutureConstruction, BoundResolvedCall,
-        BoundUnitId, PlannedBorrowCapability, SelectedArgument, SelectedCall, StorageAccess,
-        StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId, StoragePlanBuilder,
-        StorageProjection,
+        BorrowCapabilityOrigin, BoundCallResult, BoundCallableTarget, BoundDependencyContract,
+        BoundDependencyGuard, BoundDependencyRequirement, BoundDependencyRequirementKind,
+        BoundDependencySubject, BoundErrorExpression, BoundExpression, BoundFutureConstruction,
+        BoundResolvedCall, BoundUnitId, PlannedBorrowCapability, SelectedArgument, SelectedCall,
+        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+        StoragePlanBuilder, StorageProjection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
@@ -417,18 +420,13 @@ mod tests {
         );
 
         let contracts = selected_contracts(&unit, &storage, call_expression, &call);
-
         let contract = contracts.invocation();
 
-        assert!(contract.requirements().iter().any(|requirement| {
-            matches!(
-                requirement,
-                BoundDependencyRequirement::Direct {
-                    subject: BoundDependencySubject::StorageAccess(access),
-                    kind: BoundDependencyRequirementKind::StorageAlive,
-                } if *access == argument_access
-            )
-        }));
+        assert_storage_requirement(
+            contract,
+            argument_access,
+            BoundDependencyRequirementKind::StorageAlive,
+        );
 
         assert!(contract.requirements().iter().any(|requirement| {
             matches!(
@@ -451,13 +449,19 @@ mod tests {
 
     #[test]
     fn borrowed_text_results_retain_their_source_dependency() {
-        assert_borrowed_result_dependency(ImplementationHook::StringUtf8);
+        assert_result_source_dependency(ImplementationHook::StringUtf8);
     }
 
     #[test]
     fn trusted_raw_borrows_retain_owner_and_capability_dependencies() {
-        assert_borrowed_result_dependency(ImplementationHook::BorrowFrom);
-        assert_borrowed_result_dependency(ImplementationHook::BorrowMutFrom);
+        assert_result_source_dependency(ImplementationHook::BorrowFrom);
+        assert_result_source_dependency(ImplementationHook::BorrowMutFrom);
+    }
+
+    #[test]
+    fn callable_address_conversions_retain_their_source_dependency() {
+        assert_result_source_dependency(ImplementationHook::CallableFromPointer);
+        assert_result_source_dependency(ImplementationHook::PointerFromCallable);
     }
 
     #[test]
@@ -538,7 +542,7 @@ mod tests {
         }
     }
 
-    fn assert_borrowed_result_dependency(implementation: ImplementationHook) {
+    fn assert_result_source_dependency(implementation: ImplementationHook) {
         let unit_id = BoundUnitId::new(31);
 
         let (unit, argument, call_expression) = expression_pair(unit_id);
@@ -589,18 +593,13 @@ mod tests {
         .with_implementation_hook(Some(implementation));
 
         let contracts = selected_contracts(&unit, &storage, call_expression, &call);
-
         let contract = contracts.invocation();
 
-        assert!(contract.requirements().iter().any(|requirement| {
-            matches!(
-                requirement,
-                BoundDependencyRequirement::Direct {
-                    subject: BoundDependencySubject::StorageAccess(access),
-                    kind: BoundDependencyRequirementKind::StorageAlive,
-                } if *access == argument_access
-            )
-        }));
+        assert_storage_requirement(
+            contract,
+            argument_access,
+            BoundDependencyRequirementKind::StorageAlive,
+        );
 
         if let Some((capability, expected)) = capability {
             assert!(contract.requirements().iter().any(|requirement| {
@@ -690,15 +689,11 @@ mod tests {
 
         let contract = contracts.invocation();
 
-        assert!(contract.requirements().iter().any(|requirement| {
-            matches!(
-                requirement,
-                BoundDependencyRequirement::Direct {
-                    subject: BoundDependencySubject::StorageAccess(access),
-                    kind: BoundDependencyRequirementKind::StorageAlive,
-                } if *access == source_access
-            )
-        }));
+        assert_storage_requirement(
+            contract,
+            source_access,
+            BoundDependencyRequirementKind::StorageAlive,
+        );
 
         assert!(contract.requirements().iter().any(|requirement| {
             matches!(
@@ -707,6 +702,22 @@ mod tests {
                     subject: BoundDependencySubject::StorageAccess(access),
                     kind: BoundDependencyRequirementKind::StorageInitialized,
                 } if *access == cursor_access
+            )
+        }));
+    }
+
+    fn assert_storage_requirement(
+        contract: &BoundDependencyContract,
+        expected_access: StorageAccessId,
+        expected_kind: BoundDependencyRequirementKind,
+    ) {
+        assert!(contract.requirements().iter().any(|requirement| {
+            matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::StorageAccess(access),
+                    kind,
+                } if *access == expected_access && *kind == expected_kind
             )
         }));
     }

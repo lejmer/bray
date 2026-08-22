@@ -242,7 +242,8 @@ where
                     .statically_establishes_copyability(semantic_context, ty),
                 None => Ok(false),
             },
-            TypeData::Slice(_)
+            TypeData::FlexibleArray(_)
+            | TypeData::Slice(_)
             | TypeData::Generator(_)
             | TypeData::Borrow {
                 kind: BorrowKind::Mutable,

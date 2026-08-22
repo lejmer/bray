@@ -221,8 +221,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .and_then(|mapping| mapping.layout())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+        let tag = (*tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let tag_size = self
-            .type_mapping(*tag)
+            .type_mapping(tag)
             .and_then(|mapping| mapping.layout())
             .map(|layout| layout.size())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -252,13 +254,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             usize_constant(represented.size()),
             usize_constant(represented.alignment().get()),
             usize_constant(tag_size),
-            tag_constant(completed.tag())?,
+            tag_constant(
+                completed
+                    .tag()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            )?,
             usize_constant(completed_field.offset_bytes()),
             usize_constant(completed_layout.size()),
             usize_constant(completed_layout.alignment().get()),
-            tag_constant(panicked.tag())?,
+            tag_constant(
+                panicked
+                    .tag()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            )?,
             usize_constant(panicked_field.offset_bytes()),
-            tag_constant(cancelled.tag())?,
+            tag_constant(
+                cancelled
+                    .tag()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            )?,
         ]);
 
         let storage = self.allocate_temporary(layout_type, "task.result.layout")?;

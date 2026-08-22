@@ -66,4 +66,25 @@ pub enum DiagnosticNativeLinkDirectiveProblem {
 pub enum DiagnosticNativeSymbolDirectiveProblem {
     /// Named-argument shape or required value is invalid.
     Argument(DiagnosticDirectiveArgumentProblem),
+    /// Neither target symbol identity form was supplied.
+    MissingIdentity,
+    /// Both target symbol identity forms were supplied.
+    ConflictingIdentity,
+    /// A policy option uses an unrecognized value.
+    UnsupportedValue {
+        /// Directive argument name.
+        name: String,
+        /// Supplied source spelling.
+        provided: String,
+    },
+    /// The selected target cannot represent one requested symbol option.
+    UnsupportedTargetOption {
+        /// Directive argument name.
+        name: String,
+    },
+    /// The requested policy is unavailable for this import or export category.
+    IncompatiblePolicy {
+        /// Directive argument name.
+        name: String,
+    },
 }

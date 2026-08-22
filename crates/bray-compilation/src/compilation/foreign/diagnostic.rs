@@ -76,7 +76,9 @@ pub(in crate::compilation) fn template_diagnostic_type(
         TypeExpressionTemplate::Tuple(elements) => {
             DiagnosticType::Tuple(u64::try_from(elements.len()).unwrap_or(u64::MAX))
         }
-        TypeExpressionTemplate::Array { .. } => DiagnosticType::Array,
+        TypeExpressionTemplate::Array { .. } | TypeExpressionTemplate::FlexibleArray(_) => {
+            DiagnosticType::Array
+        }
         TypeExpressionTemplate::Slice(_) => DiagnosticType::Slice,
         TypeExpressionTemplate::Nullable(_) => DiagnosticType::Nullable,
         TypeExpressionTemplate::Borrow { .. } => DiagnosticType::Borrow,

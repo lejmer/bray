@@ -5,7 +5,7 @@ use bray_bound_tree::{
     MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, SeverityKind};
 use bray_symbols::{GenericArgument, TypeId};
 
 use crate::{
@@ -42,7 +42,14 @@ where
         return Ok(Some(kind));
     }
 
-    classify_core_operation(request, hook, &types, read_kinds, diagnostics)
+    classify_core_operation(
+        request,
+        hook,
+        &types,
+        expression,
+        read_kinds,
+        diagnostics,
+    )
 }
 
 fn memory_type_arguments(
@@ -63,6 +70,7 @@ fn classify_core_operation<C>(
     request: CheckerUnitView<'_, C>,
     hook: ImplementationHook,
     types: &[TypeId],
+    expression: bray_bound_tree::BoundExpressionId,
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
@@ -78,6 +86,26 @@ where
 
         Ok(*ty)
     };
+
+    if matches!(
+        hook,
+        ImplementationHook::CallableFromPointer | ImplementationHook::PointerFromCallable
+    ) && !validate_callable_address_type(request, hook, types, expression, diagnostics)?
+    {
+        return Ok(None);
+    }
+
+    if let Some(kind) = layout_query_kind(hook)
+        && !validate_layout_query_type(request, hook, kind, types, expression, diagnostics)?
+    {
+        return Ok(None);
+    }
+
+    if memory_operation_requires_complete_pointee(hook)
+        && !validate_memory_pointee_type(request, hook, types, expression, diagnostics)?
+    {
+        return Ok(None);
+    }
 
     let kind = match hook {
         ImplementationHook::UninitNew => CheckedMemoryOperationKind::UninitNew { element: one()? },
@@ -146,6 +174,12 @@ where
                 target: *target,
             }
         }
+        ImplementationHook::CallableFromPointer => {
+            CheckedMemoryOperationKind::CallableFromPointer { callable: one()? }
+        }
+        ImplementationHook::PointerFromCallable => {
+            CheckedMemoryOperationKind::PointerFromCallable { callable: one()? }
+        }
         ImplementationHook::CallbackState => {
             CheckedMemoryOperationKind::CallbackState { state: one()? }
         }
@@ -185,6 +219,10 @@ where
         ImplementationHook::MemoryLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
             ty: one()?,
             kind: MemoryLayoutQueryKind::Layout,
+        },
+        ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
+            ty: one()?,
+            kind: MemoryLayoutQueryKind::Trailing,
         },
         ImplementationHook::RawAllocate
         | ImplementationHook::RawDeallocate
@@ -275,6 +313,233 @@ where
     };
 
     Ok(Some(kind))
+}
+
+const fn layout_query_kind(hook: ImplementationHook) -> Option<MemoryLayoutQueryKind> {
+    match hook {
+        ImplementationHook::MemorySizeOf => Some(MemoryLayoutQueryKind::Size),
+        ImplementationHook::MemoryAlignOf => Some(MemoryLayoutQueryKind::Alignment),
+        ImplementationHook::MemoryStrideOf => Some(MemoryLayoutQueryKind::Stride),
+        ImplementationHook::MemoryLayoutOf => Some(MemoryLayoutQueryKind::Layout),
+        ImplementationHook::MemoryTrailingLayoutOf => Some(MemoryLayoutQueryKind::Trailing),
+        _ => None,
+    }
+}
+
+const fn memory_operation_requires_complete_pointee(hook: ImplementationHook) -> bool {
+    matches!(
+        hook,
+        ImplementationHook::UninitNew
+            | ImplementationHook::UninitPointer
+            | ImplementationHook::UninitPointerMut
+            | ImplementationHook::UninitWrite
+            | ImplementationHook::UninitAssumeInitialized
+            | ImplementationHook::UninitMove
+            | ImplementationHook::BorrowFrom
+            | ImplementationHook::BorrowMutFrom
+            | ImplementationHook::RawPointerOffset
+            | ImplementationHook::RawPointerRead
+            | ImplementationHook::RawPointerWrite
+            | ImplementationHook::MemoryCopy
+            | ImplementationHook::MemoryCopyOverlapping
+    )
+}
+
+fn validate_memory_pointee_type<C>(
+    request: CheckerUnitView<'_, C>,
+    hook: ImplementationHook,
+    types: &[TypeId],
+    expression: bray_bound_tree::BoundExpressionId,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(pointee) = types.first().copied() else {
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
+    };
+
+    let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
+        .map_err(query_outcome)?;
+
+    let data = request.semantic_values().type_data(pointee).map_err(|_| {
+        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    if matches!(data.as_ref(), bray_symbols::TypeData::Error)
+        || complete && !matches!(data.as_ref(), bray_symbols::TypeData::Callable(_))
+    {
+        return Ok(true);
+    }
+
+    let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
+        CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        )
+    })?;
+
+    let span = crate::diagnostic::expression_span(request, expression)
+        .map_err(CheckerOutcome::InfrastructureFailure)?;
+
+    diagnostics.add(
+        Diagnostic::new(
+            crate::diagnostic::diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_arg(DiagnosticArg::memory_operation(operation)),
+    );
+
+    Ok(false)
+}
+
+fn validate_layout_query_type<C>(
+    request: CheckerUnitView<'_, C>,
+    hook: ImplementationHook,
+    kind: MemoryLayoutQueryKind,
+    types: &[TypeId],
+    expression: bray_bound_tree::BoundExpressionId,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let [ty] = types else {
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
+    };
+
+    let fixed = crate::representation::type_supports_complete_fixed_layout(request, *ty)
+        .map_err(query_outcome)?;
+
+    let flexible = crate::representation::type_supports_flexible_c_layout(request, *ty)
+        .map_err(query_outcome)?;
+
+    let valid = match kind {
+        MemoryLayoutQueryKind::Alignment => fixed || flexible,
+        MemoryLayoutQueryKind::Trailing => flexible,
+        MemoryLayoutQueryKind::Size
+        | MemoryLayoutQueryKind::Stride
+        | MemoryLayoutQueryKind::Layout => fixed,
+    };
+
+    if valid {
+        return Ok(true);
+    }
+
+    let span = crate::diagnostic::expression_span(request, expression)
+        .map_err(CheckerOutcome::InfrastructureFailure)?;
+
+    let mut diagnostic = Diagnostic::new(
+        crate::diagnostic::diagnostic_id(diagnostics.len()),
+        if kind == MemoryLayoutQueryKind::Trailing {
+            DiagnosticKind::CheckingTrailingLayoutQueryTypeUnsupported
+        } else {
+            DiagnosticKind::CheckingFixedLayoutQueryTypeUnsupported
+        },
+        SeverityKind::Error,
+    )
+    .with_primary_span(span);
+
+    if kind != MemoryLayoutQueryKind::Trailing {
+        let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(
+            || {
+                CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                )
+            },
+        )?;
+
+        diagnostic = diagnostic.with_arg(DiagnosticArg::memory_operation(operation));
+    }
+
+    diagnostics.add(diagnostic);
+
+    Ok(false)
+}
+
+const fn query_outcome(
+    error: crate::CheckerQueryError,
+) -> CheckerOutcome<CheckedMemoryOperations> {
+    match error {
+        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        crate::CheckerQueryError::Infrastructure(error) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+    }
+}
+
+fn validate_callable_address_type<C>(
+    request: CheckerUnitView<'_, C>,
+    hook: ImplementationHook,
+    types: &[TypeId],
+    expression: bray_bound_tree::BoundExpressionId,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let [callable] = types else {
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
+    };
+
+    let data = request.semantic_values().type_data(*callable).map_err(|_| {
+        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
+
+    let valid_type = matches!(
+        data.as_ref(),
+        bray_symbols::TypeData::Callable(callable)
+            if callable.abi() != bray_symbols::CallableAbi::Bray
+    );
+
+    let span = crate::diagnostic::expression_span(request, expression)
+        .map_err(CheckerOutcome::InfrastructureFailure)?;
+
+    if !valid_type {
+        diagnostics.add(
+            Diagnostic::new(
+                crate::diagnostic::diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingCallableAddressTypeUnsupported,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span),
+        );
+
+        return Ok(false);
+    }
+
+    if !request
+        .selected_target()
+        .properties()
+        .operations()
+        .callable_addresses()
+    {
+        let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(
+            || {
+                CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                )
+            },
+        )?;
+
+        crate::memory_diagnostics::add_target_memory_operation_unavailable(
+            span,
+            request.selected_target().identity().as_str(),
+            operation,
+            diagnostics,
+        );
+
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 fn classify_allocation_and_buffer_operation(
@@ -439,8 +704,10 @@ mod tests {
         MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
     };
     use bray_compiler_known::ImplementationHook;
-    use bray_diagnostics::DiagnosticBag;
-    use bray_symbols::{GenericArgument, TypeData};
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+    use bray_symbols::{
+        GenericArgument, GenericTypeParameterSymbolId, SymbolId, TypeData,
+    };
 
     use super::classify_operation;
     use crate::CheckerUnitView;
@@ -667,7 +934,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_reads_follow_the_pointee_copy_contract() {
+    fn raw_reads_reject_dynamically_sized_pointees() {
         with_request(|request| {
             let copyable = error_type();
 
@@ -705,15 +972,38 @@ mod tests {
                 }))
             );
 
+            assert_eq!(moved, Ok(None));
+
             assert_eq!(
-                moved,
-                Ok(Some(CheckedMemoryOperationKind::Read {
-                    pointee: non_copyable,
-                    kind: MemoryReadKind::Move,
-                }))
+                diagnostics
+                    .iter()
+                    .filter(|diagnostic| {
+                        diagnostic.kind() == DiagnosticKind::CheckingMemoryPointeeTypeUnsupported
+                    })
+                    .count(),
+                1
+            );
+        });
+    }
+
+    #[test]
+    fn generic_layout_requirements_defer_to_instantiation() {
+        with_request(|request| {
+            let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(8_001));
+
+            let ty = semantic_values()
+                .intern_type(TypeData::TypeParameter(parameter))
+                .unwrap_or_else(|error| panic!("generic parameter type must intern: {error:?}"));
+
+            assert_eq!(
+                crate::representation::type_supports_complete_fixed_layout(request, ty),
+                Ok(true)
             );
 
-            assert!(diagnostics.is_empty());
+            assert_eq!(
+                crate::representation::type_supports_flexible_c_layout(request, ty),
+                Ok(true)
+            );
         });
     }
 

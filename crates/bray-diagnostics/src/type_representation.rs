@@ -5,6 +5,8 @@ pub enum DiagnosticLayoutOption {
     Alignment,
     /// Packed stable storage.
     Packing,
+    /// Exact opaque storage size.
+    Size,
     /// Explicit union-tag type.
     Tag,
 }
@@ -15,6 +17,7 @@ impl DiagnosticLayoutOption {
         match self {
             Self::Alignment => "alignment",
             Self::Packing => "packing",
+            Self::Size => "size",
             Self::Tag => "tag",
         }
     }
@@ -59,6 +62,21 @@ pub enum DiagnosticLayoutProblem {
     TagRequiresUnion,
     /// C-compatible union layout omitted its explicit tag type.
     CUnionRequiresTag,
+    /// An opaque size was supplied for a declaration with a body.
+    OpaqueSizeRequiresBodylessStruct,
+    /// A bodyless struct did not provide a complete opaque layout contract.
+    BodylessStructRequiresSizeAndAlignment,
+    /// Opaque storage selected a layout mode without a stable ABI contract.
+    OpaqueStorageRequiresStableOrC,
+    /// The opaque size is not a multiple of its required alignment.
+    OpaqueSizeNotAligned {
+        /// Exact requested byte size.
+        size: u64,
+        /// Required byte alignment.
+        alignment: u64,
+    },
+    /// An unrepresented union tag was selected outside C union layout.
+    TaglessUnionRequiresCLayout,
 }
 
 impl DiagnosticLayoutProblem {
@@ -79,6 +97,13 @@ impl DiagnosticLayoutProblem {
             Self::PackingRequiresPlainStorage => "packing_requires_plain_storage",
             Self::TagRequiresUnion => "tag_requires_union",
             Self::CUnionRequiresTag => "c_union_requires_tag",
+            Self::OpaqueSizeRequiresBodylessStruct => "opaque_size_requires_bodyless_struct",
+            Self::BodylessStructRequiresSizeAndAlignment => {
+                "bodyless_struct_requires_size_and_alignment"
+            }
+            Self::OpaqueStorageRequiresStableOrC => "opaque_storage_requires_stable_or_c",
+            Self::OpaqueSizeNotAligned { .. } => "opaque_size_not_aligned",
+            Self::TaglessUnionRequiresCLayout => "tagless_union_requires_c_layout",
         }
     }
 }
@@ -119,6 +144,8 @@ pub enum DiagnosticUnionTagProblem {
     },
     /// Inferred tags included a negative value and cannot select an unsigned storage type.
     NegativeInferredValue,
+    /// A tagless union variant also supplied a represented tag value.
+    TaglessUnionHasVariantTag,
     /// Inferred tags require more than the maximum supported integer width.
     InferredValueTooWide {
         /// Significant bits required by the largest value.
@@ -140,6 +167,7 @@ impl DiagnosticUnionTagProblem {
             Self::ValueOutsideSelectedType { .. } => "value_outside_selected_type",
             Self::PartialExplicitTags { .. } => "partial_explicit_tags",
             Self::NegativeInferredValue => "negative_inferred_value",
+            Self::TaglessUnionHasVariantTag => "tagless_union_has_variant_tag",
             Self::InferredValueTooWide { .. } => "inferred_value_too_wide",
         }
     }
@@ -178,6 +206,10 @@ impl DiagnosticCopyContractProblem {
 /// Exact source-level type category that cannot be stored inline.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticStoredTypeProblem {
+    /// A flexible array was used outside the final field of a C-layout product.
+    FlexibleArrayRequiresFinalCStructField,
+    /// A flexible array element lacks complete plain C storage.
+    FlexibleArrayElementRequiresPlainCStorage,
     /// A dynamically sized slice was used as an inline member.
     Slice,
     /// A trait view was used as an inline member.
@@ -194,6 +226,12 @@ impl DiagnosticStoredTypeProblem {
     /// Returns the stable problem category key.
     pub const fn category(self) -> &'static str {
         match self {
+            Self::FlexibleArrayRequiresFinalCStructField => {
+                "flexible_array_requires_final_c_struct_field"
+            }
+            Self::FlexibleArrayElementRequiresPlainCStorage => {
+                "flexible_array_element_requires_plain_c_storage"
+            }
             Self::Slice => "slice",
             Self::TraitView => "trait_view",
             Self::Generator => "generator",

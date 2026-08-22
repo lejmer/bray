@@ -151,7 +151,10 @@ pub struct DeclaredTypeRepresentation {
     layout: DeclaredLayoutMode,
     alignment: Option<u64>,
     packing: Option<u64>,
+    opaque_size: Option<u64>,
+    incomplete: bool,
     union_tag_type: Option<TypeId>,
+    tagless_union: bool,
     union_tags: Arc<[DeclaredUnionTag]>,
     storage: DeclaredStorageShape,
     copy: DeclaredCopyContract,
@@ -169,7 +172,10 @@ impl DeclaredTypeRepresentation {
             layout: DeclaredLayoutMode::Default,
             alignment: None,
             packing: None,
+            opaque_size: None,
+            incomplete: false,
             union_tag_type: None,
+            tagless_union: false,
             union_tags: Arc::from([]),
             storage: match subject {
                 NamedTypeSymbolId::Struct(_) => DeclaredStorageShape::Structure(Arc::from([])),
@@ -181,6 +187,27 @@ impl DeclaredTypeRepresentation {
             finite_size: false,
             recovered: false,
         }
+    }
+
+    /// Returns this contract with a checked opaque byte size.
+    pub const fn with_opaque_size(mut self, size: Option<u64>) -> Self {
+        self.opaque_size = size;
+
+        self
+    }
+
+    /// Returns this contract with its incomplete-type state.
+    pub const fn with_incomplete(mut self, incomplete: bool) -> Self {
+        self.incomplete = incomplete;
+
+        self
+    }
+
+    /// Returns this contract with an unrepresented semantic union tag.
+    pub const fn with_tagless_union(mut self, tagless: bool) -> Self {
+        self.tagless_union = tagless;
+
+        self
     }
 
     /// Returns this contract with its checked layout request.
@@ -262,9 +289,24 @@ impl DeclaredTypeRepresentation {
         self.packing
     }
 
+    /// Returns the exact byte size of complete opaque storage.
+    pub const fn opaque_size(&self) -> Option<u64> {
+        self.opaque_size
+    }
+
+    /// Returns whether the declaration has no complete storage representation.
+    pub const fn is_incomplete(&self) -> bool {
+        self.incomplete
+    }
+
     /// Returns the integer tag type fixed by the source-level union layout.
     pub const fn union_tag_type(&self) -> Option<TypeId> {
         self.union_tag_type
+    }
+
+    /// Returns whether the union stores no represented discriminant.
+    pub const fn is_tagless_union(&self) -> bool {
+        self.tagless_union
     }
 
     /// Returns union variant tags in declaration order.
@@ -275,6 +317,18 @@ impl DeclaredTypeRepresentation {
     /// Returns the complete storage shape used for target layout realization.
     pub const fn storage(&self) -> &DeclaredStorageShape {
         &self.storage
+    }
+
+    /// Returns whether the structure ends in a flexible array member.
+    pub fn has_flexible_trailing_member(&self) -> bool {
+        matches!(
+            &self.storage,
+            DeclaredStorageShape::Structure(fields)
+                if matches!(
+                    fields.last().map(DeclaredStructStorageMember::ty),
+                    Some(TypeExpressionTemplate::FlexibleArray(_))
+                )
+        )
     }
 
     /// Returns the type's checked implicit-copy contract.

@@ -15,6 +15,13 @@ extern func byte_offset<T>(pos pointer: RawPointer<T>, bytes: isize) -> RawPoint
 extern trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> RawPointer<Target>
     uses(layout_reinterpret);
 
+extern trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+    requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
+    uses(layout_reinterpret);
+
+extern trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+    uses(layout_reinterpret);
+
 extern trusted func read<T>(pos pointer: RawPointer<T>) -> T
     requires(
         trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
@@ -246,6 +253,8 @@ extern const func align_of<T>() -> usize;
 extern const func stride_of<T>() -> usize;
 
 extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
+
+extern const func trailing_layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
 
 @copy
 internal union CapacityGrowth

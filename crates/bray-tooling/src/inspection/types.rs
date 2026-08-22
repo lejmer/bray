@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableParameterMode, GenericArgument, GenericArgumentTemplate,
-    SemanticValueStore, SymbolGraph, TraitApplicationId, TraitApplicationTemplate, TypeData,
-    TypeExpressionTemplate, TypeId,
+    GenericSubstitutionData, SemanticValueStore, SymbolGraph, TraitApplicationId,
+    TraitApplicationTemplate, TypeData, TypeExpressionTemplate, TypeId,
 };
 use serde::Serialize;
 
@@ -143,6 +143,11 @@ impl<'model> TypeFormatter<'model> {
 
                 Ok(format!("[{element}; <const>]"))
             }
+            TypeExpressionTemplate::FlexibleArray(element) => {
+                let element = self.template(element, depth + 1)?;
+
+                Ok(format!("[{element}; ..]"))
+            }
             TypeExpressionTemplate::Slice(element) => {
                 let element = self.template(element, depth + 1)?;
 
@@ -213,11 +218,7 @@ impl<'model> TypeFormatter<'model> {
                     .generic_substitution_data(*substitution)
                     .map_err(|_| TypeInspectionError::SemanticValue)?;
 
-                let arguments = substitution
-                    .bindings()
-                    .iter()
-                    .map(|binding| self.argument(binding.argument(), depth + 1))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let arguments = self.substitution_arguments(&substitution, depth)?;
 
                 Ok(format_application(name, arguments))
             }
@@ -250,6 +251,11 @@ impl<'model> TypeFormatter<'model> {
                 let element = self.ty(*element, depth + 1)?;
 
                 Ok(format!("[{element}; <const>]"))
+            }
+            TypeData::FlexibleArray(element) => {
+                let element = self.ty(*element, depth + 1)?;
+
+                Ok(format!("[{element}; ..]"))
             }
             TypeData::Slice(element) => {
                 let element = self.ty(*element, depth + 1)?;
@@ -331,6 +337,18 @@ impl<'model> TypeFormatter<'model> {
         }
     }
 
+    fn substitution_arguments(
+        &mut self,
+        substitution: &GenericSubstitutionData,
+        depth: usize,
+    ) -> Result<Vec<String>, TypeInspectionError> {
+        substitution
+            .bindings()
+            .iter()
+            .map(|binding| self.argument(binding.argument(), depth + 1))
+            .collect()
+    }
+
     fn trait_template(
         &mut self,
         application: &TraitApplicationTemplate,
@@ -359,11 +377,7 @@ impl<'model> TypeFormatter<'model> {
             .generic_substitution_data(application.substitution())
             .map_err(|_| TypeInspectionError::SemanticValue)?;
 
-        let arguments = substitution
-            .bindings()
-            .iter()
-            .map(|binding| self.argument(binding.argument(), depth + 1))
-            .collect::<Result<Vec<_>, _>>()?;
+        let arguments = self.substitution_arguments(&substitution, depth)?;
 
         Ok(format_application(name, arguments))
     }
@@ -409,6 +423,7 @@ fn template_kind(template: &TypeExpressionTemplate) -> &'static str {
         }
         TypeExpressionTemplate::Tuple(_) => "tuple",
         TypeExpressionTemplate::Array { .. } => "array",
+        TypeExpressionTemplate::FlexibleArray(_) => "flexible_array",
         TypeExpressionTemplate::Slice(_) => "slice",
         TypeExpressionTemplate::Nullable(_) => "nullable",
         TypeExpressionTemplate::Borrow { .. } => "borrow",
@@ -427,6 +442,7 @@ fn type_data_kind(data: &TypeData) -> &'static str {
         TypeData::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
         TypeData::Tuple(_) => "tuple",
         TypeData::Array { .. } => "array",
+        TypeData::FlexibleArray(_) => "flexible_array",
         TypeData::Slice(_) => "slice",
         TypeData::Generator(_) => "generator",
         TypeData::Nullable(_) => "nullable",

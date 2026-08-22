@@ -6,19 +6,9 @@ use bray_syntax::{
 };
 
 use super::expression::EXPRESSION_START_KINDS;
+use super::recovery::RecoverySyntaxSink;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
-
-pub(super) const ABI_DIRECTIVE_NAME: &str = "abi";
-pub(super) const COPY_DIRECTIVE_NAME: &str = "copy";
-pub(super) const ENTRYPOINT_DIRECTIVE_NAME: &str = "entrypoint";
-pub(super) const LAYOUT_DIRECTIVE_NAME: &str = "layout";
-pub(super) const LINK_DIRECTIVE_NAME: &str = "link";
-pub(super) const SYMBOL_DIRECTIVE_NAME: &str = "symbol";
-pub(super) const TAG_DIRECTIVE_NAME: &str = "tag";
-pub(super) const TARGET_DIRECTIVE_NAME: &str = "target";
-pub(super) const TEST_DIRECTIVE_NAME: &str = "test";
-pub(super) const THREAD_LOCAL_DIRECTIVE_NAME: &str = "thread_local";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DirectiveScanKind {
@@ -28,6 +18,29 @@ pub(super) enum DirectiveScanKind {
 }
 
 impl Parser {
+    pub(super) fn recover_unsupported_directive(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        stop_kinds: &[SyntaxKind],
+    ) {
+        let marker = self.peek();
+        let name = self.lookahead(1);
+
+        if name.kind() == SyntaxKind::IdentifierToken
+            && let Some(text) = self.token_text(&name)
+            && let Some(kind) = SyntaxKind::directive_from_name(text)
+            && !kind.is_contribution_gate_directive()
+        {
+            let source = self.syntax_source();
+
+            self.record_syntax_diagnostic(crate::diagnostic::invalid_directive_target(
+                &source, &marker, &name, kind,
+            ));
+        }
+
+        self.recover_current_and_until(builder, stop_kinds);
+    }
+
     pub(super) fn parse_target_directive(
         &mut self,
         argument_recovery_kinds: &[SyntaxKind],
@@ -241,10 +254,14 @@ impl Parser {
         self.at(SyntaxKind::IdentifierToken) && self.lookahead(1).kind() == SyntaxKind::EqualsToken
     }
 
-    pub(super) fn at_directive_name(&mut self, name: &str) -> bool {
+    pub(super) fn at_directive_kind(&mut self, kind: SyntaxKind) -> bool {
         if !self.at(SyntaxKind::AtToken) {
             return false;
         }
+
+        let Some(name) = kind.directive_name() else {
+            return false;
+        };
 
         let name_token = self.lookahead(1);
 

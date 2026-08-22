@@ -38,7 +38,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let operand_type = call
                         .arguments()
                         .first()
-                        .and_then(bray_ir::MirCallArgument::value)
+                        .and_then(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
                         .transpose()?
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -380,7 +380,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let mut arguments = Vec::new();
 
-        if semantic_arguments.len() != signature.parameters().len() {
+        if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
@@ -405,7 +405,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let mut arguments = Vec::new();
 
-        if semantic_arguments.len() != signature.parameters().len() {
+        if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
@@ -461,6 +461,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     arguments.push(storage.into());
                 }
             }
+        }
+
+        for argument in semantic_arguments.iter().skip(signature.parameters().len()) {
+            arguments.push((*argument).into());
         }
 
         Ok(result_storage)
@@ -537,5 +541,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(Vec::new())
+    }
+}
+
+fn call_argument_count_is_valid(signature: &CodegenCallableSignature, actual: usize) -> bool {
+    let fixed = signature.parameters().len();
+
+    if signature.is_variadic() {
+        actual >= fixed
+    } else {
+        actual == fixed
     }
 }

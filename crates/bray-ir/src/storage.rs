@@ -28,6 +28,8 @@ pub enum MirStorageKind {
     ChildTask,
     /// One open or closed Bray-owned static instance selected by checked semantics.
     Static(StaticReferenceSelection),
+    /// One provider-owned native static address selected by checked semantics.
+    NativeStatic(StaticReferenceSelection),
 }
 
 /// One typed storage allocation owned by a MIR unit.

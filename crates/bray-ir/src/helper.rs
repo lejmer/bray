@@ -278,7 +278,9 @@ fn collect_conversion_helpers(
         ConversionTarget::TraitConstraint { member, .. } => {
             helpers.push(MirHelperReference::Conversion(*member));
         }
-        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+        ConversionTarget::Identity
+        | ConversionTarget::BuiltInScalar
+        | ConversionTarget::CVariadicPromotion => {}
     }
 }
 

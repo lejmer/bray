@@ -6,15 +6,16 @@ use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsQuery, CallableSignatureQuery, CallableSymbolId, DirectiveKind,
-    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, SymbolOrigin,
-    SymbolQueryRequest,
+    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, NativeSymbolBinding,
+    NativeSymbolContract, NativeSymbolPresence, SymbolOrigin, SymbolQueryRequest,
 };
 use bray_syntax::{FunctionDeclarationSyntax, SyntaxKind};
 
 use super::super::Compilation;
 use super::diagnostic::{duplicate_native_symbol, missing_directive};
 use super::directive::{
-    foreign_link_requirements, foreign_symbol_name, validate_foreign_import_requirements,
+    foreign_link_requirements, foreign_symbol_contract, invalid_symbol_policy,
+    validate_foreign_import_requirements,
 };
 use super::platform::platform_service_role;
 use super::validation::validate_platform_service_surface;
@@ -153,9 +154,10 @@ impl Compilation {
         let symbol = match (platform_role, symbol_directive) {
             (Some(role), _) => NonEmptySharedStr::try_new(
                 bray_runtime_interface::native_platform_service_role_symbol(role),
-            ),
+            )
+            .map(NativeSymbolContract::required_name),
             (None, Some(directive)) => {
-                foreign_symbol_name(self, directive, cancellation, &mut diagnostics)?
+                foreign_symbol_contract(self, directive, cancellation, &mut diagnostics)?
             }
             (None, None) => {
                 diagnostics.add(missing_directive(anchor, SyntaxKind::SymbolDirective));
@@ -164,10 +166,32 @@ impl Compilation {
             }
         };
 
+        if symbol
+            .as_ref()
+            .is_some_and(|symbol| symbol.presence() != NativeSymbolPresence::Required)
+        {
+            let anchor = symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax);
+
+            diagnostics.add(invalid_symbol_policy(
+                anchor,
+                "presence",
+            ));
+        }
+
+        if direction == ForeignCallableDirection::Import
+            && symbol
+                .as_ref()
+                .is_some_and(|symbol| symbol.binding() == NativeSymbolBinding::Weak)
+        {
+            let anchor = symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax);
+
+            diagnostics.add(invalid_symbol_policy(anchor, "binding"));
+        }
+
         let links = if direction == ForeignCallableDirection::Import && platform_role.is_none() {
             foreign_link_requirements(
                 self,
-                function,
+                function.into(),
                 declaration_directives.value(),
                 cancellation,
                 &mut diagnostics,
@@ -226,14 +250,16 @@ impl Compilation {
                 .syntax_anchor()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            match native_symbols.entry(contract.symbol().to_owned()) {
+            match native_symbols.entry(contract.symbol().identity().clone()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
                     entry.insert(vec![anchor]);
                 }
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let display = native_symbol_display(contract.symbol().identity());
+
                     diagnostics.add(duplicate_native_symbol(
                         anchor,
-                        contract.symbol(),
+                        &display,
                         entry.get(),
                     ));
 
@@ -242,7 +268,49 @@ impl Compilation {
             }
         }
 
+        for static_symbol in symbols
+            .statics()
+            .iter()
+            .filter(|static_symbol| static_symbol.origin() == SymbolOrigin::Source)
+        {
+            cancellation.check()?;
+
+            let result = self.foreign_static_contract_with_cancellation(
+                static_symbol.id(),
+                cancellation,
+            )?;
+
+            diagnostics.add_range(result.diagnostics().iter().cloned());
+
+            let Some(contract) = result.value() else {
+                continue;
+            };
+
+            let anchor = static_symbol
+                .syntax_anchor()
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            match native_symbols.entry(contract.symbol().identity().clone()) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(vec![anchor]);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let display = native_symbol_display(contract.symbol().identity());
+
+                    diagnostics.add(duplicate_native_symbol(anchor, &display, entry.get()));
+                    entry.get_mut().push(anchor);
+                }
+            }
+        }
+
         Ok(diagnostics)
+    }
+}
+
+fn native_symbol_display(identity: &bray_symbols::NativeSymbolIdentity) -> String {
+    match identity {
+        bray_symbols::NativeSymbolIdentity::Name(name) => name.as_str().to_owned(),
+        bray_symbols::NativeSymbolIdentity::Ordinal(ordinal) => format!("ordinal {ordinal}"),
     }
 }
 
@@ -259,7 +327,9 @@ mod tests {
         DiagnosticPlatformAbiType, DiagnosticPlatformServiceSignatureProblem,
     };
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
-    use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
+    use bray_symbols::{
+        ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
+    };
     use bray_target::{TargetAbiSupport, TargetForeignAbiContract, TargetProfile};
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
@@ -295,9 +365,63 @@ extern trusted func native_read(pos value: i32) -> i32
         };
 
         assert_eq!(contract.direction(), ForeignCallableDirection::Import);
-        assert_eq!(contract.symbol(), "native_read");
+        assert_eq!(contract.symbol().identity().name(), Some("native_read"));
         assert_eq!(contract.links().len(), 1);
         assert_eq!(contract.links()[0].name(), "c");
+    }
+
+    #[test]
+    fn imported_callables_reject_weak_binding_without_weak_required_resolution() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+@link(name = "c")
+@symbol(name = "native_read", binding = weak)
+@abi(c)
+extern trusted func native_read(pos value: i32) -> i32
+    uses(foreign_call);
+"#,
+            "c",
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "native_read"))
+            .unwrap_or_else(|error| panic!("foreign contract must be available: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+        );
+    }
+
+    #[test]
+    fn exported_callables_preserve_weak_binding() {
+        let compilation = compilation(
+            r#"module app;
+
+@symbol(name = "weak_export", binding = weak)
+@abi(c)
+func weak_export() -> i32
+{
+    return 1;
+}
+"#,
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "weak_export"))
+            .unwrap_or_else(|error| panic!("foreign contract must be available: {error:?}"));
+
+        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+
+        let contract = result
+            .value()
+            .as_ref()
+            .unwrap_or_else(|| panic!("weak native export must publish its contract"));
+
+        assert_eq!(contract.symbol().binding(), NativeSymbolBinding::Weak);
     }
 
     #[test]
@@ -427,10 +551,10 @@ extern trusted internal func flush() -> PlatformStatus
         };
 
         assert_eq!(
-            contract.symbol(),
-            bray_runtime_interface::native_platform_service_role_symbol(
+            contract.symbol().identity().name(),
+            Some(bray_runtime_interface::native_platform_service_role_symbol(
                 PlatformServiceRole::StandardOutputFlush,
-            ),
+            )),
         );
     }
 
@@ -523,7 +647,7 @@ extern trusted func native_read() -> i32
             panic!("valid foreign import must publish a contract");
         };
 
-        assert_eq!(contract.symbol(), "native_read");
+        assert_eq!(contract.symbol().identity().name(), Some("native_read"));
         assert_eq!(contract.links()[0].name(), "native");
     }
 
@@ -598,7 +722,7 @@ extern trusted func native_read() -> i32
             panic!("valid foreign import must publish a contract");
         };
 
-        assert_eq!(contract.symbol(), "native_read");
+        assert_eq!(contract.symbol().identity().name(), Some("native_read"));
     }
 
     #[test]
@@ -1104,6 +1228,7 @@ func third()
                 .c_contract()
                 .unwrap_or_else(|| panic!("baseline target must provide a C ABI"))
                 .scalars(),
+            true,
             true,
             true,
             true,

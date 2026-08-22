@@ -48,8 +48,8 @@ pub use compiler_known::{
     CompilerKnownTargetProfile,
 };
 pub use diagnostic::{
-    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_symbol_identity,
-    diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
+    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_external_symbol_identity,
+    diagnostic_symbol_identity, diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
@@ -151,6 +151,7 @@ pub use semantic::{
     DirectiveKind, DirectiveSurface, DirectiveTemplate, ErrorCallableParameterDefault,
     ErrorConstantDefinition, ErrorPredicateDefinition, ErrorStructFieldDefault,
     ErrorUnionPayloadDefault, ForeignCallableContract, ForeignCallableDirection,
+    ForeignStaticContract,
     GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintObligationKey, GenericConstraintSatisfactionQuery, GenericConstraintSet,
     GenericConstraintTemplate, GenericConstraintsQuery, GenericDeclarationTemplate,
@@ -167,7 +168,8 @@ pub use semantic::{
     ImplementationSelectionCandidate, ImplementationSelectionQuery, ImplementationSubject,
     ImplementationSubjectQuery, ImplementationSubjectTemplate, ImplementedTraitApplicationQuery,
     InherentTypeMemberValueQuery, ModuleContributionGate, ModuleReExport, ModuleSurface,
-    ModuleSurfaceQuery, ModuleUsing, NativeLinkKind, NativeLinkRequirement,
+    ModuleSurfaceQuery, ModuleUsing, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
+    NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
     NeverCancelSymbolCompletion, OverloadArmTemplate, OverloadSignatureTemplate,
     ParticipatingImplementation, PredicateDefinition, PredicateDefinitionQuery,
     PredicateDefinitionState, PredicateParameterTemplate, PredicateSemanticSummary,

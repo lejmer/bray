@@ -405,6 +405,7 @@ fn callable_type_template(
                 callable.abi(),
                 callable.dependency_contracts(),
             )
+            .with_variadic(callable.is_variadic())
             .with_phase_behaviors(callable.phase_behaviors().clone()))
         }
         _ => Err(FactQueryError::InfrastructureFailure),

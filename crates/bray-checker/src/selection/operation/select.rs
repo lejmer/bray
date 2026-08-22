@@ -1,6 +1,7 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
-    ExpressionTypeResult, SelectedConstruction, SelectedOperation, SelectionKind,
+    ConstructionTarget, ExpressionTypeResult, SelectedConstruction, SelectedOperation,
+    SelectionKind,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -232,6 +233,22 @@ where
         } => {
             if kind != SelectionKind::Construction {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+
+            if let ConstructionTarget::Struct(structure) = target {
+                let representation = match request.declared_type_representation(structure.into()) {
+                    Ok(representation) => representation,
+                    Err(crate::CheckerQueryError::Cancelled) => {
+                        return Ok(CandidateCheck::Recovered);
+                    }
+                    Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
+                };
+
+                if representation.value().has_flexible_trailing_member() {
+                    return Ok(CandidateCheck::Incompatible(
+                        SelectionCandidateRejectionReason::ExpressionForm,
+                    ));
+                }
             }
 
             let inputs = match map_construction_inputs(request, types, expression, target, &inputs)?
@@ -493,9 +510,9 @@ mod tests {
     };
 
     use crate::test_support::{
-        TestCheckerContext, callable_entry, checked_expression_types, compiler_known_symbol,
-        declaration_key, expression_unit, push_expression, semantic_values, symbol_name,
-        tuple_type,
+        TestCheckerContext, callable_entry, checked_expression_types,
+        checked_expression_types_from_entries, compiler_known_symbol, declaration_key,
+        expression_unit, push_expression, semantic_values, symbol_name, tuple_type,
     };
     use crate::{
         CandidateSelection, CheckerUnitView, ConstructionInputSurface, DefaultSemanticSelector,
@@ -643,15 +660,14 @@ mod tests {
             vec![operand, conversion]
         });
 
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
+        let types = checked_expression_types_from_entries(
+            &unit,
             [
-                ExpressionTypeEntry::new(
+                (
                     expressions[0],
                     ExpressionTypeResult::new(source_type, ExpressionTypeStatus::Valid),
                 ),
-                ExpressionTypeEntry::new(
+                (
                     expressions[1],
                     ExpressionTypeResult::new(target_type, ExpressionTypeStatus::Valid),
                 ),

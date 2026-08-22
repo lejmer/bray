@@ -6456,6 +6456,48 @@ func other()
     }
 
     #[test]
+    fn single_variant_tagless_unions_preserve_exact_variant_knowledge() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "@layout(c, tag = none)\n",
+            "union Choice\n",
+            "{\n",
+            "    Only;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    match Choice.Only\n",
+            "    {\n",
+            "        case .Only {}\n",
+            "    }\n",
+            "    let preserved: Choice = Choice.Only;\n",
+            "    match preserved\n",
+            "    {\n",
+            "        case .Only {}\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let analysis = compilation
+            .patterns(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("tagless patterns must be available: {error:?}"));
+
+        assert_eq!(analysis.value().matches().len(), 2);
+
+        assert!(
+            analysis
+                .value()
+                .matches()
+                .iter()
+                .all(bray_bound_tree::MatchCoverageEntry::is_exhaustive),
+            "{analysis:?}"
+        );
+
+        assert!(!analysis.value().is_recovered(), "{analysis:?}");
+        assert!(analysis.diagnostics().is_empty(), "{:#?}", analysis.diagnostics());
+    }
+
+    #[test]
     fn late_typed_match_subjects_resolve_contextual_variants() {
         let compilation = compilation(concat!(
             "module app;\n",

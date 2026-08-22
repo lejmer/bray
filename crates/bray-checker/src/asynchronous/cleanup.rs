@@ -101,7 +101,10 @@ where
 
                 shape
             }
-            TypeData::Slice(_) | TypeData::Borrow { .. } | TypeData::TraitView(_) => {
+            TypeData::FlexibleArray(_)
+            | TypeData::Slice(_)
+            | TypeData::Borrow { .. }
+            | TypeData::TraitView(_) => {
                 CleanupShape::default()
             }
         };

@@ -32,11 +32,24 @@ pub fn checked_expression_types(
     expressions: impl IntoIterator<Item = BoundExpressionId>,
     result: ExpressionTypeResult,
 ) -> CheckedExpressionTypes {
+    checked_expression_types_from_entries(
+        unit,
+        expressions
+            .into_iter()
+            .map(|expression| (expression, result)),
+    )
+}
+
+/// Creates checked types from expression and result pairs for semantic tests.
+pub fn checked_expression_types_from_entries(
+    unit: &BoundUnit,
+    entries: impl IntoIterator<Item = (BoundExpressionId, ExpressionTypeResult)>,
+) -> CheckedExpressionTypes {
     CheckedExpressionTypes::new(
         unit.unit(),
         unit.key().kind(),
-        expressions
+        entries
             .into_iter()
-            .map(|expression| ExpressionTypeEntry::new(expression, result)),
+            .map(|(expression, result)| ExpressionTypeEntry::new(expression, result)),
     )
 }

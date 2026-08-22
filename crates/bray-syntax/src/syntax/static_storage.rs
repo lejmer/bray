@@ -1,8 +1,8 @@
 use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
 use crate::{
-    ExpressionSyntax, GenericParameterListSyntax, SyntaxKind, SyntaxToken,
-    ThreadLocalDirectiveSyntax, TypeExpressionSyntax, WithClauseSyntax,
+    ExpressionSyntax, GenericParameterListSyntax, LinkDirectiveSyntax, SymbolDirectiveSyntax,
+    SyntaxKind, SyntaxToken, ThreadLocalDirectiveSyntax, TypeExpressionSyntax, WithClauseSyntax,
 };
 
 define_source_syntax_node! {
@@ -27,6 +27,22 @@ define_source_syntax_node! {
                 push_thread_local_directive;
                 ty: ThreadLocalDirectiveSyntax;
                 kind: SyntaxKind::ThreadLocalDirective;
+            },
+            {
+                /// Returns `@link(...)` directives in source order.
+                link_directives;
+                /// Appends an `@link(...)` directive.
+                push_link_directive;
+                ty: LinkDirectiveSyntax;
+                kind: SyntaxKind::LinkDirective;
+            },
+            {
+                /// Returns `@symbol(...)` directives in source order.
+                symbol_directives;
+                /// Appends an `@symbol(...)` directive.
+                push_symbol_directive;
+                ty: SymbolDirectiveSyntax;
+                kind: SyntaxKind::SymbolDirective;
             }
         ],
     }
@@ -55,6 +71,18 @@ impl StaticDeclarationModifiersSyntax {
         self.tokens()
             .find(|token| token.kind().is_visibility_modifier())
     }
+
+    /// Returns the first optional `extern` modifier token.
+    pub fn extern_token(&self) -> Option<SyntaxToken> {
+        self.tokens()
+            .find(|token| token.kind() == SyntaxKind::ExternKeyword)
+    }
+
+    /// Returns the first optional `trusted` modifier token.
+    pub fn trusted_token(&self) -> Option<SyntaxToken> {
+        self.tokens()
+            .find(|token| token.kind() == SyntaxKind::TrustedKeyword)
+    }
 }
 
 impl StaticDeclarationModifiersSyntaxBuilder {
@@ -65,6 +93,18 @@ impl StaticDeclarationModifiersSyntaxBuilder {
             "static_declaration_modifiers.visibility_token expected a visibility modifier"
         );
 
+        self.node.push_token(token);
+    }
+
+    /// Appends an `extern` modifier token.
+    pub fn push_extern_token(&mut self, token: SyntaxToken) {
+        assert_eq!(token.kind(), SyntaxKind::ExternKeyword);
+        self.node.push_token(token);
+    }
+
+    /// Appends a `trusted` modifier token.
+    pub fn push_trusted_token(&mut self, token: SyntaxToken) {
+        assert_eq!(token.kind(), SyntaxKind::TrustedKeyword);
         self.node.push_token(token);
     }
 }
@@ -106,14 +146,6 @@ define_source_syntax_node! {
                 slot: "static_declaration.colon_token";
             },
             {
-                /// Returns the required initializer equals token.
-                equals_token;
-                /// Appends the initializer equals token.
-                push_equals_token;
-                kind: SyntaxKind::EqualsToken;
-                slot: "static_declaration.equals_token";
-            },
-            {
                 /// Returns the required semicolon token.
                 semicolon_token;
                 /// Appends the semicolon token.
@@ -122,7 +154,24 @@ define_source_syntax_node! {
                 slot: "static_declaration.semicolon_token";
             }
         ],
-        optional_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the optional externally mutable storage token.
+                mut_token;
+                /// Appends an externally mutable storage token.
+                push_mut_token;
+                kind: SyntaxKind::MutKeyword;
+                slot: "static_declaration.mut_token";
+            },
+            {
+                /// Returns the optional initializer equals token.
+                equals_token;
+                /// Appends an initializer equals token.
+                push_equals_token;
+                kind: SyntaxKind::EqualsToken;
+                slot: "static_declaration.equals_token";
+            }
+        ],
         required_children: [
             {
                 /// Returns the static directives child.

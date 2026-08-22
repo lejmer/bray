@@ -48,6 +48,7 @@ pub use implementation::{
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceNativeBoundaryKind,
     InterfacePreSpecializedMir, PackageImplementationArtifact,
     PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,

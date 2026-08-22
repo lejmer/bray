@@ -339,6 +339,7 @@ fn template_internal_dependency(
             }
             TypeExpressionTemplate::Tuple(elements) => pending.extend(elements.iter()),
             TypeExpressionTemplate::Array { element, .. }
+            | TypeExpressionTemplate::FlexibleArray(element)
             | TypeExpressionTemplate::Slice(element)
             | TypeExpressionTemplate::Nullable(element) => pending.push(element),
             TypeExpressionTemplate::Borrow { target, .. } => pending.push(target),
@@ -587,7 +588,10 @@ fn type_exposes_internal(
             pending.push(SemanticValueDependency::Type(*element));
             pending.push(SemanticValueDependency::ConstantTerm(*length));
         }
-        TypeData::Slice(element) | TypeData::Generator(element) | TypeData::Nullable(element) => {
+        TypeData::FlexibleArray(element)
+        | TypeData::Slice(element)
+        | TypeData::Generator(element)
+        | TypeData::Nullable(element) => {
             pending.push(SemanticValueDependency::Type(*element));
         }
         TypeData::Borrow { target, .. } => {

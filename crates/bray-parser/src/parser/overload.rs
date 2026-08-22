@@ -374,6 +374,7 @@ mod tests {
         assert_eq!(
             struct_declaration
                 .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
                 .callable_overload_declarations()
                 .count(),
             1

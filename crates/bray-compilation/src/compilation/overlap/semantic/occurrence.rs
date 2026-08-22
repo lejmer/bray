@@ -52,6 +52,7 @@ impl SemanticUnifier<'_> {
                 Ok(false)
             }
             TypeData::Array { element, .. }
+            | TypeData::FlexibleArray(element)
             | TypeData::Slice(element)
             | TypeData::Generator(element)
             | TypeData::Nullable(element) => {

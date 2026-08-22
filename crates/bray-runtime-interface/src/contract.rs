@@ -377,6 +377,16 @@ impl ExecutableHostContract {
     }
 }
 
+/// Selects the executable host spelling for a runtime role, falling back to the native ABI.
+pub fn selected_runtime_role_symbol(
+    host: Option<&ExecutableHostContract>,
+    role: RuntimeAbiRole,
+) -> Option<BinarySymbolName> {
+    host.and_then(|host| host.role_binding(role))
+        .map(|binding| binding.symbol_name().clone())
+        .or_else(|| crate::native_runtime_role_symbol(role).and_then(BinarySymbolName::try_new))
+}
+
 /// A contract violation that prevents executable-host construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ExecutableHostContractBuildError {

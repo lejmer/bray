@@ -421,8 +421,8 @@ fn call_matches_expression(
         SelectedArgument::Explicit {
             parameter, ordinal, ..
         } if !saw_default
-            && parameter.is_some() == declaration_backed
-            && (declaration_backed
+            && parameter.is_none_or(|_| declaration_backed)
+            && (parameter.is_some()
                 || usize::try_from(*ordinal)
                     .is_ok_and(|ordinal| ordinal < source.arguments().len())) =>
         {
@@ -536,12 +536,12 @@ mod tests {
         SemanticSelectionTableBuildError,
     };
     use crate::test_support::{expression_unit, push_expression, semantic_values};
-    use crate::testing::checked_expression_types;
+    use crate::testing::{checked_expression_types, checked_expression_types_from_entries};
     use crate::{
         BoundConversionExpression, BoundErrorExpression, BoundExpression, BoundExpressionId,
         BoundMemberAccessExpression, BoundMemberSelector, BoundOperator, BoundUnit, BoundUnitId,
-        CheckedExpressionTypes, ConversionTarget, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus, MemberTarget, OperatorTarget, SelectedConversion,
+        CheckedExpressionTypes, ConversionTarget, ExpressionTypeResult, ExpressionTypeStatus,
+        MemberTarget, OperatorTarget, SelectedConversion,
         SelectedImplementationWitness, SelectedOperation,
     };
 
@@ -661,15 +661,14 @@ mod tests {
             vec![operand, conversion]
         });
 
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
+        let types = checked_expression_types_from_entries(
+            &unit,
             [
-                ExpressionTypeEntry::new(
+                (
                     expressions[0],
                     ExpressionTypeResult::new(source_type, ExpressionTypeStatus::Valid),
                 ),
-                ExpressionTypeEntry::new(
+                (
                     expressions[1],
                     ExpressionTypeResult::new(target_type, ExpressionTypeStatus::Valid),
                 ),

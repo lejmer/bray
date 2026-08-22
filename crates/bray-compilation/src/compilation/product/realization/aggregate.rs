@@ -48,17 +48,21 @@ impl Compilation {
             return Err(CodegenPreparationError::UnresolvedType(ty));
         };
 
-        let tag = representation
-            .value()
-            .union_tag_type()
-            .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+        let tag = representation.value().union_tag_type();
 
-        self.codegen_type(tag, target, cancellation, mappings, pending)?;
+        if let Some(tag) = tag {
+            self.codegen_type(tag, target, cancellation, mappings, pending)?;
+        }
 
-        let tag_layout = sized_layout(mappings, tag)?;
+        let tag_layout = tag
+            .map(|tag| sized_layout(mappings, tag))
+            .transpose()?;
+
         let packing = representation.value().packing().and_then(NonZeroU64::new);
 
-        let tag_alignment = packed_alignment(tag_layout.alignment(), packing);
+        let tag_alignment = tag_layout
+            .map(|layout| packed_alignment(layout.alignment(), packing))
+            .unwrap_or(NonZeroU64::MIN);
 
         let mut payload_alignment = NonZeroU64::MIN;
         let mut payload_size = 0_u64;
@@ -102,19 +106,12 @@ impl Compilation {
             variants.push((variant.variant(), fields));
         }
 
-        let payload_offset = align_to(tag_layout.size(), payload_alignment)
+        let payload_offset = align_to(tag_layout.map_or(0, TargetValueLayout::size), payload_alignment)
             .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
 
         let variants = variants
             .into_iter()
             .map(|(variant, fields)| {
-                let tag = representation
-                    .value()
-                    .union_tags()
-                    .iter()
-                    .find(|tag| tag.variant() == variant)
-                    .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
-
                 let fields = fields
                     .into_iter()
                     .map(|field| {
@@ -131,11 +128,22 @@ impl Compilation {
                     .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 
                 // Representation binding_context are shared. Codegen mappings own exact tag magnitudes.
-                Ok(CodegenUnionVariantLayout::new(
-                    variant,
-                    tag.value().clone(),
-                    fields,
-                ))
+                if representation.value().is_tagless_union() {
+                    Ok(CodegenUnionVariantLayout::untagged(variant, fields))
+                } else {
+                    let tag = representation
+                        .value()
+                        .union_tags()
+                        .iter()
+                        .find(|tag| tag.variant() == variant)
+                        .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+
+                    Ok(CodegenUnionVariantLayout::new(
+                        variant,
+                        tag.value().clone(),
+                        fields,
+                    ))
+                }
             })
             .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 
@@ -159,7 +167,10 @@ impl Compilation {
                 alignment,
                 target_layout_contract(representation.value().layout()),
             ),
-            CodegenTypeKind::union(tag, variants),
+            match tag {
+                Some(tag) => CodegenTypeKind::union(tag, variants),
+                None => CodegenTypeKind::untagged_union(variants),
+            },
         ))
     }
 
@@ -424,6 +435,68 @@ impl Compilation {
             TargetValueLayout::new(size, alignment, contract),
             CodegenTypeKind::aggregate(layouts),
         ))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "flexible aggregate realization keeps layout and recursive mapping state explicit"
+    )]
+    pub(super) fn codegen_flexible_aggregate_type(
+        &self,
+        ty: TypeId,
+        fields: &[(Option<bray_ir::MirFieldReference>, TypeId)],
+        element: TypeId,
+        contract: TargetLayoutContract,
+        requested_alignment: Option<u64>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenPreparationError> {
+        let mut offset = 0_u64;
+        let mut alignment = NonZeroU64::MIN;
+        let mut layouts = Vec::with_capacity(fields.len());
+
+        for (reference, field) in fields {
+            self.codegen_type(*field, target, cancellation, mappings, pending)?;
+
+            let field_layout = sized_layout(mappings, *field)?;
+
+            alignment = alignment.max(field_layout.alignment());
+
+            offset = align_to(offset, field_layout.alignment())
+                .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+
+            layouts.push(CodegenFieldLayout::new(*reference, *field, offset));
+
+            offset = offset
+                .checked_add(field_layout.size())
+                .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+        }
+
+        self.codegen_type(element, target, cancellation, mappings, pending)?;
+
+        let element_layout = sized_layout(mappings, element)?;
+        alignment = alignment.max(element_layout.alignment());
+
+        if let Some(requested) = requested_alignment.and_then(NonZeroU64::new) {
+            alignment = alignment.max(requested);
+        }
+
+        ensure_target_alignment(ty, alignment, target)?;
+
+        let offset = align_to(offset, element_layout.alignment())
+            .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+
+        Ok(CodegenTypeMapping::new(
+            ty,
+            TargetValueLayout::new(offset, alignment, contract),
+            CodegenTypeKind::aggregate(layouts),
+        )
+        .with_behavior(Some(bray_codegen::CodegenTypeBehavior::FlexibleAggregate {
+            element,
+            offset,
+        })))
     }
 
     pub(in crate::compilation::product) fn resolve_codegen_type(

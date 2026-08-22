@@ -148,7 +148,8 @@ pub const fn diagnostic_symbol_kind(kind: SymbolKind) -> DiagnosticInterfaceSymb
     }
 }
 
-fn diagnostic_external_symbol_identity(
+/// Converts an external semantic symbol key into its locale-neutral diagnostic identity.
+pub fn diagnostic_external_symbol_identity(
     key: &ExternalSymbolKey,
 ) -> DiagnosticInterfaceSymbolIdentity {
     match key.data() {

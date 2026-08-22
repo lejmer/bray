@@ -59,6 +59,8 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::RawPointerOffset => Operation::PointerElementOffset,
         Hook::RawPointerByteOffset => Operation::PointerByteOffset,
         Hook::RawPointerReinterpret => Operation::PointerReinterpretation,
+        Hook::CallableFromPointer => Operation::CallableFromPointer,
+        Hook::PointerFromCallable => Operation::PointerFromCallable,
         Hook::CallbackState => Operation::CallbackState,
         Hook::RawPointerRead => Operation::PointerRead,
         Hook::RawPointerWrite => Operation::PointerWrite,
@@ -68,6 +70,7 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::MemoryAlignOf => Operation::AlignmentDetermination,
         Hook::MemoryStrideOf => Operation::StrideDetermination,
         Hook::MemoryLayoutOf => Operation::LayoutDetermination,
+        Hook::MemoryTrailingLayoutOf => Operation::TrailingLayoutDetermination,
         Hook::RawAllocate => Operation::RawAllocation,
         Hook::RawDeallocate => Operation::RawDeallocation,
         Hook::Allocate => Operation::Allocation,
@@ -154,6 +157,8 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             ..
         } => Operation::PointerByteOffset,
         CheckedMemoryOperationKind::Reinterpret { .. } => Operation::PointerReinterpretation,
+        CheckedMemoryOperationKind::CallableFromPointer { .. } => Operation::CallableFromPointer,
+        CheckedMemoryOperationKind::PointerFromCallable { .. } => Operation::PointerFromCallable,
         CheckedMemoryOperationKind::Read { .. } => Operation::PointerRead,
         CheckedMemoryOperationKind::Write { .. } => Operation::PointerWrite,
         CheckedMemoryOperationKind::Copy {
@@ -180,6 +185,10 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             kind: MemoryLayoutQueryKind::Layout,
             ..
         } => Operation::LayoutDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Trailing,
+            ..
+        } => Operation::TrailingLayoutDetermination,
         CheckedMemoryOperationKind::RawAllocate => Operation::RawAllocation,
         CheckedMemoryOperationKind::RawDeallocate => Operation::RawDeallocation,
         CheckedMemoryOperationKind::Allocate => Operation::Allocation,

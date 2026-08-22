@@ -140,6 +140,9 @@ fn decode_type_representation(
 
     let alignment = read_optional_u64(reader)?;
     let packing = read_optional_u64(reader)?;
+    let opaque_size = read_optional_u64(reader)?;
+    let incomplete = decode_bool(reader)?;
+    let tagless_union = decode_bool(reader)?;
 
     let union_tag_type =
         crate::semantic::codec::common::read_optional_u32(reader)?.map(InterfaceTypeId::new);
@@ -207,6 +210,8 @@ fn decode_type_representation(
 
     Ok(InterfaceTypeRepresentation::new(owner)
         .with_layout(layout, alignment, packing, union_tag_type)
+        .with_opaque_storage(opaque_size, incomplete)
+        .with_tagless_union(tagless_union)
         .with_union_tags(union_tags)
         .with_storage(storage)
         .with_copy(copy, copy_dependencies)

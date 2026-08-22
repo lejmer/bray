@@ -28,3 +28,17 @@ pub(super) fn callable_abi_diagnostic(
         span,
     ))
 }
+
+pub(super) fn source_diagnostic(
+    syntax: &impl SourceSyntaxNode,
+    kind: DiagnosticKind,
+) -> Diagnostic {
+    let span = SourceSpan::new(syntax.source().source_id(), syntax.full_range());
+
+    Diagnostic::new(
+        DiagnosticId::new(span.range().start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+}

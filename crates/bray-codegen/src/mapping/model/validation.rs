@@ -90,7 +90,10 @@ pub fn mapped_runtime_references(
     }));
 
     if symbols.iter().any(|symbol| {
-        symbol.linkage() == CodegenLinkage::Export
+        matches!(
+            symbol.linkage(),
+            CodegenLinkage::Export | CodegenLinkage::Weak
+        )
             && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
     }) {
         references.extend(

@@ -118,6 +118,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32(element.raw());
             encoder.write_u32(length.raw());
         }
+        InterfaceType::FlexibleArray(element) => write_tagged_id(encoder, 14, element.raw()),
         InterfaceType::Slice(element) => write_tagged_id(encoder, 6, element.raw()),
         InterfaceType::Generator(element) => write_tagged_id(encoder, 13, element.raw()),
         InterfaceType::Nullable(target) => write_tagged_id(encoder, 7, target.raw()),
@@ -139,6 +140,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
         }
         InterfaceType::Callable {
             parameters,
+            variadic,
             result,
             constness,
             trust,
@@ -158,6 +160,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
                 encoder.write_u32(parameter.ty.raw());
             }
 
+            encoder.write_u32(u32::from(*variadic));
             encoder.write_u32(result.raw());
             encoder.write_u32((*constness).to_wire());
             encoder.write_u32((*trust).to_wire());

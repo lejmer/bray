@@ -69,6 +69,8 @@ pub enum InterfaceType {
         /// Checked open or closed length.
         length: InterfaceConstantTermId,
     },
+    /// An incomplete-extent array used as a C product's final storage field.
+    FlexibleArray(InterfaceTypeId),
     /// A dynamically sized slice.
     Slice(InterfaceTypeId),
     /// A lazy homogeneous generator value.
@@ -95,6 +97,8 @@ pub enum InterfaceType {
     Callable {
         /// Ordered caller-visible parameters.
         parameters: Arc<[InterfaceCallableParameter]>,
+        /// Whether calls may supply promoted trailing positional arguments.
+        variadic: bool,
         /// Result type.
         result: InterfaceTypeId,
         /// Constant-evaluation eligibility.

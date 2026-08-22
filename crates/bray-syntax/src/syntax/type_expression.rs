@@ -116,6 +116,14 @@ define_source_syntax_node! {
                 slot: "type_expression.semicolon_token";
             },
             {
+                /// Returns the optional flexible array extent token.
+                dot_dot_token;
+                /// Appends a flexible array extent token.
+                push_dot_dot_token;
+                kind: SyntaxKind::DotDotToken;
+                slot: "type_expression.dot_dot_token";
+            },
+            {
                 /// Returns the optional closing bracket token.
                 close_bracket_token;
                 /// Appends a closing bracket token.

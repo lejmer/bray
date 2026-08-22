@@ -7,8 +7,8 @@ use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync, CheckedBodyBehavior,
     CheckedControlFlow, CheckedDependencyContracts, CheckedMemoryOperations, CheckedPatterns,
-    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SemanticSelection, StorageFlow,
-    StoragePlan,
+    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SelectedArgument,
+    SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -577,7 +577,7 @@ impl Compilation {
                 continue;
             };
 
-            let bray_symbols::NamedTypeSymbolId::Struct(definition) = definition else {
+            let NamedTypeSymbolId::Struct(definition) = definition else {
                 continue;
             };
 
@@ -634,7 +634,7 @@ impl Compilation {
                 return Err(FactQueryError::InfrastructureFailure);
             };
 
-            let parameters = callable
+            let mut parameters = callable
                 .parameters()
                 .iter()
                 .map(|parameter| {
@@ -642,18 +642,42 @@ impl Compilation {
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .flatten();
+                .map(|value| value.unwrap_or(bray_checker::TargetAbiValue::Unsupported))
+                .collect::<Vec<_>>();
+
+            for argument in call.arguments() {
+                let SelectedArgument::Explicit {
+                    ordinal,
+                    conversion,
+                    ..
+                } = argument
+                else {
+                    continue;
+                };
+
+                if usize::try_from(*ordinal).is_ok_and(|ordinal| ordinal < callable.parameters().len()) {
+                    continue;
+                }
+
+                let value = super::foreign::target_abi_value_from_type(
+                    self,
+                    conversion.target_type(),
+                    cancellation,
+                )?
+                .unwrap_or(bray_checker::TargetAbiValue::Unsupported);
+
+                parameters.push(value);
+            }
 
             let result =
                 super::foreign::target_abi_value_from_type(self, callable.result(), cancellation)?;
 
             let request = TargetValidityRequest::new(
                 expression.origin().source_anchor(),
-                TargetValidityRequirement::CallableAbi(TargetCallableAbiRequirement::new(
-                    call.abi(),
-                    parameters,
-                    result,
-                )),
+                TargetValidityRequirement::CallableAbi(
+                    TargetCallableAbiRequirement::new(call.abi(), parameters, result)
+                        .with_variadic(callable.is_variadic()),
+                ),
             );
 
             let result = self.target_validity_with_cancellation(request, cancellation)?;
@@ -687,7 +711,7 @@ enum SemanticDiagnosticSource {
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
     CallableContracts(
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
             >,
         >,
@@ -695,7 +719,7 @@ enum SemanticDiagnosticSource {
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
     TraitConformance(
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
             >,
         >,
@@ -747,8 +771,9 @@ impl SemanticSyntaxIndex {
 
             for anchor in declaration
                 .surface()
-                .constraints()
+                .directives()
                 .iter()
+                .chain(declaration.surface().constraints())
                 .chain(declaration.surface().contract_clauses())
                 .copied()
                 .chain(declaration.surface().runtime_default())
@@ -871,6 +896,7 @@ mod tests {
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
     use bray_checker::SemanticUnitContext;
     use bray_diagnostics::DiagnosticKind;
+    use bray_source::TextSize;
     use bray_symbols::{CallableContractClauseKind, ConstantTermData};
 
     use crate::WorkerBudget;
@@ -912,6 +938,35 @@ mod tests {
                 BoundUnitKind::ContractClause,
                 BoundUnitKind::ContractClause,
             ]
+        );
+    }
+
+    #[test]
+    fn static_directive_arguments_are_not_initializer_units() {
+        let source = concat!(
+            "module app;\n",
+            "@symbol(name = \"exported_value\")\n",
+            "static EXPORTED_VALUE: i32 = 41;\n",
+        );
+
+        let compilation = compilation(source);
+
+        let keys = compilation
+            .declared_unit_keys()
+            .unwrap_or_else(|error| panic!("static initializer key must be available: {error:?}"));
+
+        let [key] = keys.as_slice() else {
+            panic!("test package must contain one semantic unit");
+        };
+
+        let initializer_start = source
+            .find("41")
+            .and_then(|offset| u32::try_from(offset).ok())
+            .map(TextSize::from);
+
+        assert_eq!(
+            Some(key.source().syntax().full_range().start()),
+            initializer_start
         );
     }
 

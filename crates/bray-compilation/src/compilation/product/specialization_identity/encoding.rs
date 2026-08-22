@@ -127,6 +127,10 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.ty(*element)?;
                 self.constant_term(*length)?;
             }
+            TypeData::FlexibleArray(element) => {
+                self.tag(14);
+                self.ty(*element)?;
+            }
             TypeData::Slice(element) => {
                 self.tag(7);
                 self.ty(*element)?;
@@ -169,6 +173,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                     self.ty(parameter.ty())?;
                 }
 
+                self.tag(u8::from(callable.is_variadic()));
                 self.ty(callable.result())?;
                 self.callable_constness(callable.constness());
                 self.callable_trust(callable.trust());

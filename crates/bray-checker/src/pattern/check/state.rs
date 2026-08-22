@@ -82,6 +82,7 @@ where
 pub(in crate::pattern) struct PatternSubject {
     pub(in crate::pattern) ty: TypeId,
     pub(in crate::pattern) is_recovered: bool,
+    pub(in crate::pattern) trusted_variant: bool,
 }
 
 pub(super) struct PatternChildren {
@@ -152,6 +153,7 @@ where
                     PatternSubject {
                         ty: input.element_type(),
                         is_recovered: input.is_recovered(),
+                        trusted_variant: false,
                     },
                 )
             })
@@ -280,6 +282,7 @@ where
             .unwrap_or(PatternSubject {
                 ty: self.error_type,
                 is_recovered: true,
+                trusted_variant: false,
             });
 
         self.subjects.insert(pattern, subject);
@@ -296,6 +299,11 @@ where
         Ok(PatternSubject {
             ty: result.ty(),
             is_recovered: result.is_recovered(),
+            trusted_variant: matches!(
+                self.request.view().expression(expression),
+                Some(BoundExpression::Structured(expression))
+                    if expression.kind() == BoundStructuredExpressionKind::TrustBoundary
+            ),
         })
     }
 
@@ -336,8 +344,9 @@ where
         let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref())?;
 
         let kind = effective_pattern_kind(pattern, target);
+        let only_union_variant = self.only_union_variant(type_data.as_ref(), target)?;
 
-        let compatible = self.pattern_is_compatible(
+        let mut compatible = self.pattern_is_compatible(
             id,
             pattern,
             kind,
@@ -345,6 +354,15 @@ where
             matched_subject.ty,
             type_data.as_ref(),
         )?;
+
+        let tagless_variant_requires_fact = kind == BoundPatternKind::Variant
+            && self.tagless_union(type_data.as_ref())?
+            && !matched_subject.trusted_variant
+            && !only_union_variant;
+
+        if tagless_variant_requires_fact {
+            compatible = false;
+        }
 
         let child_parent = if matches!(
             kind,
@@ -394,8 +412,14 @@ where
 
         self.record_entry_bindings(pattern, operation, &children.entries);
 
-        let shape_is_total =
-            self.pattern_shape_is_total(pattern, kind, target, type_data.as_ref(), compatible)?;
+        let shape_is_total = self.pattern_shape_is_total(
+            pattern,
+            kind,
+            type_data.as_ref(),
+            compatible,
+            matched_subject.trusted_variant,
+            only_union_variant,
+        )?;
 
         let refutability = pattern_refutability(
             kind,
@@ -407,6 +431,8 @@ where
 
         if is_ambiguous {
             self.report_ambiguous_name(id, pattern)?;
+        } else if tagless_variant_requires_fact {
+            self.report_tagless_union_pattern(id)?;
         } else if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
             self.report_incompatible(id, subject.ty)?;
         } else if !pattern_mode_accepts_refutable(pattern.mode())

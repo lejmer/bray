@@ -118,6 +118,7 @@ where
         | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
         | TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
+        | TypeExpressionTemplate::FlexibleArray(_)
         | TypeExpressionTemplate::Slice(_)
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }

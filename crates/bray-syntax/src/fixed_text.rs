@@ -116,6 +116,7 @@ fixed_syntax_text! {
     "<<=" => LessLessEqualsToken,
     ">>=" => GreaterGreaterEqualsToken,
     "**=" => StarStarEqualsToken,
+    "..." => EllipsisToken,
     ".." => DotDotToken,
     ":" => ColonToken,
     "." => DotToken,

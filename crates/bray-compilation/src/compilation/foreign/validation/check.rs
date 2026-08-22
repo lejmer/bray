@@ -25,6 +25,7 @@ pub(in crate::compilation::foreign) struct CallableBoundarySurface {
     pub(in crate::compilation::foreign) abi: CallableAbi,
     trust: CallableTrust,
     pub(in crate::compilation::foreign) execution: CallableExecution,
+    variadic: bool,
     pub(in crate::compilation::foreign) parameters: Vec<TypeExpressionTemplate>,
     pub(in crate::compilation::foreign) result: TypeExpressionTemplate,
 }
@@ -37,9 +38,14 @@ pub(in crate::compilation::foreign) fn callable_surface(
         .parameter_type_templates(values)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-    let (abi, trust, execution) = match signature.callable_type() {
+    let (abi, trust, execution, variadic) = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => {
-            (callable.abi(), callable.trust(), callable.execution())
+            (
+                callable.abi(),
+                callable.trust(),
+                callable.execution(),
+                callable.is_variadic(),
+            )
         }
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
@@ -50,7 +56,12 @@ pub(in crate::compilation::foreign) fn callable_surface(
                 return Err(FactQueryError::InfrastructureFailure);
             };
 
-            (callable.abi(), callable.trust(), callable.execution())
+            (
+                callable.abi(),
+                callable.trust(),
+                callable.execution(),
+                callable.is_variadic(),
+            )
         }
         _ => return Err(FactQueryError::InfrastructureFailure),
     };
@@ -59,6 +70,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
         abi,
         trust,
         execution,
+        variadic,
         parameters,
         // The boundary view owns its result template independently of the signature query result.
         result: signature.result().clone(),
@@ -88,6 +100,25 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
             )
             .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
         );
+    }
+
+    if callable.variadic
+        && (callable.parameters.is_empty()
+            || abi == CallableAbi::Bray
+            || syntax.function_modifiers().extern_token().is_none()
+            || callable.trust != CallableTrust::Trusted
+            || syntax.callable_body_block_expression().is_some()
+            || syntax.function_modifiers().const_token().is_some()
+            || syntax.function_modifiers().async_token().is_some()
+            || syntax
+                .parameter_list()
+                .parameters()
+                .any(|parameter| parameter.equals_token().is_some()))
+    {
+        diagnostics.add(source_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticKind::CheckingVariadicCallableContractUnsupported,
+        ));
     }
 
     let symbols = compilation.symbol_graph()?;
@@ -151,9 +182,10 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
 
     let request = TargetValidityRequest::new(
         BoundSourceAnchor::new(anchor, source.version()),
-        TargetValidityRequirement::CallableAbi(TargetCallableAbiRequirement::new(
-            abi, parameters, result,
-        )),
+        TargetValidityRequirement::CallableAbi(
+            TargetCallableAbiRequirement::new(abi, parameters, result)
+                .with_variadic(callable.variadic),
+        ),
     );
 
     let target = compilation.target_validity_with_cancellation(request, cancellation)?;
@@ -774,6 +806,7 @@ fn foreign_aggregate_alignment_is_supported(
         TypeExpressionTemplate::Callable(_)
         | TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
+        | TypeExpressionTemplate::FlexibleArray(_)
         | TypeExpressionTemplate::Slice(_)
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }
@@ -789,7 +822,7 @@ fn foreign_aggregate_alignment_is_supported(
     Ok(target_abi_value(compilation, template, cancellation)?.is_some())
 }
 
-fn foreign_type_is_supported(
+pub(in crate::compilation::foreign) fn foreign_type_is_supported(
     compilation: &Compilation,
     template: &TypeExpressionTemplate,
     abi: CallableAbi,
@@ -812,6 +845,7 @@ fn foreign_type_is_supported(
         }
         TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
+        | TypeExpressionTemplate::FlexibleArray(_)
         | TypeExpressionTemplate::Slice(_)
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }
@@ -837,6 +871,7 @@ fn foreign_type_data_is_supported(
         TypeData::Error => Ok(true),
         TypeData::Tuple(_)
         | TypeData::Array { .. }
+        | TypeData::FlexibleArray(_)
         | TypeData::Slice(_)
         | TypeData::Generator(_)
         | TypeData::Nullable(_)

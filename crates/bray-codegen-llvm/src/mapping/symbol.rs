@@ -22,10 +22,18 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     types: &mut LlvmTypeMappings<'context, 'mappings>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
-        declare_symbol(module, mapping, target, types)?;
+        let defines_symbol = match mapping.key() {
+            bray_codegen::CodegenSymbolKey::Instance(instance) => {
+                mappings.unit().instances().contains(instance)
+            }
+            bray_codegen::CodegenSymbolKey::Runtime(_)
+            | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => false,
+        };
+
+        declare_symbol(module, mapping, target, defines_symbol, types)?;
     }
 
-    super::static_storage::declare_static_storages(module, mappings, types)?;
+    super::static_storage::declare_static_storages(module, mappings, target, types)?;
 
     Ok(())
 }
@@ -34,6 +42,7 @@ pub(crate) fn declare_symbol<'context>(
     module: &Module<'context>,
     mapping: &CodegenSymbolMapping,
     target: &CodegenTarget,
+    defines_symbol: bool,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let native_type = crate::native::symbol_function_type(types.context(), target, mapping.key());
@@ -41,7 +50,7 @@ pub(crate) fn declare_symbol<'context>(
     let function_type = native_type.unwrap_or(types.function_type(mapping.signature())?);
     let function = module.add_function(mapping.name().as_str(), function_type, None);
 
-    apply_linkage(function, mapping, target)?;
+    apply_linkage(function, mapping, target, defines_symbol)?;
 
     if native_type.is_some() {
         function.set_call_conventions(0);
@@ -112,16 +121,21 @@ fn apply_linkage(
     function: FunctionValue<'_>,
     mapping: &CodegenSymbolMapping,
     target: &CodegenTarget,
+    defines_symbol: bool,
 ) -> Result<(), CodegenFailure> {
-    let linkage = match mapping.linkage() {
-        CodegenLinkage::Private => Linkage::Private,
-        CodegenLinkage::Internal => Linkage::External,
-        CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export => {
+    let linkage = match (mapping.linkage(), defines_symbol) {
+        (CodegenLinkage::Weak | CodegenLinkage::LinkOnce, false) => Linkage::External,
+        (CodegenLinkage::Private, _) => Linkage::Private,
+        (CodegenLinkage::Internal, _) => Linkage::External,
+        (
+            CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export,
+            _,
+        ) => {
             Linkage::External
         }
-        CodegenLinkage::Weak => Linkage::WeakAny,
-        CodegenLinkage::LinkOnce => Linkage::WeakODR,
-        CodegenLinkage::Common => return Err(CodegenFailure::UnsupportedTarget),
+        (CodegenLinkage::Weak, true) => Linkage::WeakAny,
+        (CodegenLinkage::LinkOnce, true) => Linkage::WeakODR,
+        (CodegenLinkage::Common, _) => return Err(CodegenFailure::UnsupportedTarget),
     };
 
     function.set_linkage(linkage);
@@ -135,16 +149,15 @@ fn apply_linkage(
             .set_visibility(GlobalVisibility::Hidden);
     }
 
-    if target.machine().object_format() == bray_target::ObjectFormat::Coff {
+    if defines_symbol && target.machine().object_format() == bray_target::ObjectFormat::Coff {
         match mapping.linkage() {
-            CodegenLinkage::Export => function
+            CodegenLinkage::Weak | CodegenLinkage::Export => function
                 .as_global_value()
                 .set_dll_storage_class(DLLStorageClass::Export),
             CodegenLinkage::Private
             | CodegenLinkage::Internal
             | CodegenLinkage::External
             | CodegenLinkage::Import
-            | CodegenLinkage::Weak
             | CodegenLinkage::LinkOnce
             | CodegenLinkage::Common => {}
         }
@@ -473,7 +486,7 @@ mod tests {
     use crate::mapping::LlvmTypeMappings;
 
     #[test]
-    fn ordinary_weak_symbols_use_non_odr_llvm_linkage() {
+    fn weak_linkage_is_emitted_only_by_the_defining_unit() {
         let fixture = codegen_request();
         let request = fixture.request();
         let mapping = &request.mappings().symbols()[0];
@@ -494,8 +507,27 @@ mod tests {
             None,
         );
 
-        assert_eq!(apply_linkage(function, &weak, request.target()), Ok(()));
+        assert_eq!(
+            apply_linkage(function, &weak, request.target(), true),
+            Ok(())
+        );
+
         assert_eq!(function.get_linkage(), Linkage::WeakAny);
+
+        let reference_module = context.create_module("weak-reference");
+
+        let reference = reference_module.add_function(
+            weak.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_linkage(reference, &weak, request.target(), false),
+            Ok(())
+        );
+
+        assert_eq!(reference.get_linkage(), Linkage::External);
     }
 
     #[test]
@@ -521,7 +553,7 @@ mod tests {
         );
 
         assert_eq!(
-            apply_linkage(function, &link_once, request.target()),
+            apply_linkage(function, &link_once, request.target(), true),
             Ok(())
         );
 
@@ -556,7 +588,7 @@ mod tests {
 
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
 
-        assert_eq!(apply_linkage(function, &imported, &target), Ok(()));
+        assert_eq!(apply_linkage(function, &imported, &target, false), Ok(()));
 
         assert_eq!(
             function.as_global_value().get_dll_storage_class(),

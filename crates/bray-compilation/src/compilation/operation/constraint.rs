@@ -121,6 +121,14 @@ fn normalize_type(
                 length: *length,
             })
             .map_err(|_| FactQueryError::InfrastructureFailure)?,
+        TypeData::FlexibleArray(element) => values
+            .intern_type(TypeData::FlexibleArray(normalize_type(
+                values,
+                *element,
+                constraints,
+                active,
+            )?))
+            .map_err(|_| FactQueryError::InfrastructureFailure)?,
         TypeData::Slice(element) => values
             .intern_type(TypeData::Slice(normalize_type(
                 values,
@@ -189,6 +197,7 @@ fn normalize_type(
                 callable.abi(),
                 callable.dependency_contracts(),
             )
+            .with_variadic(callable.is_variadic())
             .with_phase_behaviors(callable.phase_behaviors().clone());
 
             values

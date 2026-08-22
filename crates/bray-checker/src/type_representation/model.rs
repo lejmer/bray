@@ -190,6 +190,7 @@ pub struct DeclaredTypeDefinition {
     fields: Arc<[DeclaredStorageMember]>,
     variants: Arc<[DeclaredUnionVariant]>,
     directives: DirectiveSurface,
+    has_body: bool,
     has_lifecycle: bool,
     is_generic: bool,
     recovered: bool,
@@ -202,6 +203,7 @@ impl DeclaredTypeDefinition {
         span: SourceSpan,
         fields: impl IntoIterator<Item = DeclaredStorageMember>,
         directives: DirectiveSurface,
+        has_body: bool,
         has_lifecycle: bool,
         is_generic: bool,
         recovered: bool,
@@ -212,6 +214,7 @@ impl DeclaredTypeDefinition {
             fields: shared_slice(fields),
             variants: Arc::from([]),
             directives,
+            has_body,
             has_lifecycle,
             is_generic,
             recovered,
@@ -234,6 +237,7 @@ impl DeclaredTypeDefinition {
             fields: Arc::from([]),
             variants: shared_slice(variants),
             directives,
+            has_body: true,
             has_lifecycle,
             is_generic,
             recovered,
@@ -263,6 +267,11 @@ impl DeclaredTypeDefinition {
     /// Returns directives attached to the type declaration.
     pub const fn directives(&self) -> &DirectiveSurface {
         &self.directives
+    }
+
+    /// Returns whether the source declaration supplies a representation body.
+    pub const fn has_body(&self) -> bool {
+        self.has_body
     }
 
     /// Returns whether any lifecycle declaration is associated with the type.

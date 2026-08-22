@@ -369,8 +369,8 @@ mod tests {
         CheckedTemplateOperation, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
     };
     use bray_symbols::{
-        AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-        ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId, GenericConstParameterSymbolId,
+        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, ConstantSymbolId,
+        ExternalSymbolKey, FunctionSymbolId, GenericConstParameterSymbolId,
         GenericTypeParameterSymbolId, InterfaceSupportEntityId, LifecycleObligationKind,
         ModuleSymbolId, PackageIdentity, PackageSymbolId, PredicateSymbolId, SemanticValueStore,
         StructSymbolId, SymbolId, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
@@ -378,8 +378,8 @@ mod tests {
 
     use super::super::decode_semantics;
     use super::super::test_support::{
-        interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
-        owned_section_views, owned_sections, record_range,
+        Resolver, interface_surface, key_by_kind as symbol_key,
+        local_by_kind as symbol_reference, owned_section_views, owned_sections, record_range,
     };
     use crate::semantic::codec::encode_semantics;
     use crate::test_support::{module_key as test_module_key, named_key};
@@ -392,8 +392,8 @@ mod tests {
         InterfaceDependencyContract, InterfaceImplementationReference,
         InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfaceSectionTag,
         InterfaceSemantics, InterfaceSupportEntity, InterfaceSupportImplementation,
-        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTemplateReference,
-        InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
+        InterfaceTemplateReference, InterfaceType, InterfaceTypeId, InterfaceValidationError,
+        InterfaceValidationLimits,
     };
 
     #[test]
@@ -1352,35 +1352,6 @@ mod tests {
         interface_surface(package_identity(), symbols, [])
     }
 
-    struct Resolver {
-        symbols: Vec<AnySymbolId>,
-        keys: Vec<ExternalSymbolKey>,
-    }
-
-    impl InterfaceSymbolResolver for Resolver {
-        fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
-            let InterfaceSymbolReference::Local(symbol) = reference else {
-                return None;
-            };
-
-            self.symbols.get(symbol.to_index()?).copied()
-        }
-
-        fn symbol_key(
-            &self,
-            reference: &InterfaceSymbolReference,
-        ) -> Option<bray_symbols::SymbolKey> {
-            let InterfaceSymbolReference::Local(symbol) = reference else {
-                return None;
-            };
-
-            self.keys
-                .get(symbol.to_index()?)
-                .cloned()
-                .map(bray_symbols::SymbolKey::external)
-        }
-    }
-
     fn resolver(surface: &crate::PackageInterfaceSurface) -> Resolver {
         let keys = surface
             .symbols()
@@ -1420,7 +1391,7 @@ mod tests {
             })
             .collect();
 
-        Resolver { symbols, keys }
+        Resolver::new(symbols, keys)
     }
 
     fn helper_key() -> ExternalSymbolKey {

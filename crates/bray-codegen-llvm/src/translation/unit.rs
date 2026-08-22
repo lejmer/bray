@@ -1,3 +1,4 @@
+mod aggregate;
 mod call;
 mod callback;
 mod construction;
@@ -9,6 +10,7 @@ mod memory;
 mod place;
 mod range;
 mod scalar;
+mod storage;
 mod support;
 mod text;
 mod value;

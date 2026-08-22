@@ -349,8 +349,8 @@ where
 
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
-        Err(crate::CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
+        Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
+        Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
     };
 
     diagnostics.extend(result.diagnostics().iter().cloned());
@@ -678,18 +678,26 @@ where
             .type_data(candidate.callable_type())
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-        let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
+        let TypeData::Callable(callable) = callable.as_ref() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
         let Some(mapping) =
-            crate::selection::map_argument_parameter_indices(arguments, callable.parameters())
+            crate::selection::map_argument_parameter_indices(
+                arguments,
+                callable.parameters(),
+                callable.is_variadic(),
+            )
         else {
             return Ok(None);
         };
 
         let Some(parameter_index) = mapping.get(ordinal).copied() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        let Some(parameter_index) = parameter_index else {
+            return Ok(None);
         };
 
         let Some(parameter) = callable.parameters().get(parameter_index) else {
@@ -880,7 +888,7 @@ where
         .type_data(callee_type.ty())
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+    let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(Some(MaterializedCallCandidates {
             candidates: Cow::Owned(candidates),
             diagnostics,
@@ -945,7 +953,7 @@ where
                 .map(|witness| {
                     crate::ImplementationSelectionEvidence::new(
                         witness.requirement(),
-                        bray_symbols::ImplementationSelection::Selected(witness.witness()),
+                        ImplementationSelection::Selected(witness.witness()),
                     )
                 }),
         )
@@ -1088,6 +1096,15 @@ where
 
     session.add_evidence(call.callee(), candidate.callable_type())?;
 
+    let callable = request
+        .semantic_values()
+        .type_data(candidate.callable_type())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Callable(callable) = callable.as_ref() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
     for argument in selection.arguments() {
         let SelectedArgument::Explicit {
             expression,
@@ -1099,16 +1116,11 @@ where
             continue;
         };
 
-        let callable = request
-            .semantic_values()
-            .type_data(candidate.callable_type())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-        let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-        };
-
         let Some(selected) = callable.parameters().get(*ordinal as usize) else {
+            if callable.is_variadic() && parameter.is_none() {
+                continue;
+            }
+
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
@@ -1284,7 +1296,7 @@ where
             CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
 
-        if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
+        if let TypeData::Borrow { kind, .. } = data.as_ref() {
             return Ok(borrow_receiver_capability(*kind, mutable_projection));
         }
 

@@ -313,6 +313,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::CurrentTask => (6, None),
             MirStorageKind::ChildTask => (7, None),
             MirStorageKind::Static(_) => (8, None),
+            MirStorageKind::NativeStatic(_) => (9, None),
         };
 
         self.wire.write_u32(tag);
@@ -321,7 +322,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             self.wire.write_u32(ordinal);
         }
 
-        if let MirStorageKind::Static(reference) = kind {
+        if let MirStorageKind::Static(reference) | MirStorageKind::NativeStatic(reference) = kind {
             self.symbol(reference.template().declaration().into())?;
             self.substitution(reference.substitution())?;
 
@@ -1283,6 +1284,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         match conversion.target() {
             ConversionTarget::Identity => self.wire.write_u32(0),
             ConversionTarget::BuiltInScalar => self.wire.write_u32(1),
+            ConversionTarget::CVariadicPromotion => self.wire.write_u32(5),
             ConversionTarget::Composite(conversions) => {
                 self.wire.write_u32(2);
                 write_count(&mut self.wire, conversions.len());
@@ -1514,6 +1516,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(source)?;
                 self.ty(target)?;
             }
+            Kind::CallableFromPointer { callable } => {
+                self.wire.write_u32(54);
+                self.ty(callable)?;
+            }
+            Kind::PointerFromCallable { callable } => {
+                self.wire.write_u32(55);
+                self.ty(callable)?;
+            }
             Kind::Read { pointee, kind } => {
                 self.wire.write_u32(5);
                 self.ty(pointee)?;
@@ -1545,6 +1555,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     bray_bound_tree::MemoryLayoutQueryKind::Alignment => 1,
                     bray_bound_tree::MemoryLayoutQueryKind::Stride => 2,
                     bray_bound_tree::MemoryLayoutQueryKind::Layout => 3,
+                    bray_bound_tree::MemoryLayoutQueryKind::Trailing => 4,
                 });
             }
             Kind::RawAllocate => self.wire.write_u32(9),

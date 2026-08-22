@@ -129,6 +129,10 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         CheckedMemoryOperationKind::Reinterpret { source, target } => {
             types.extend([source, target]);
         }
+        CheckedMemoryOperationKind::CallableFromPointer { callable }
+        | CheckedMemoryOperationKind::PointerFromCallable { callable } => {
+            types.insert(callable);
+        }
         CheckedMemoryOperationKind::LayoutQuery { ty, .. } => {
             types.insert(ty);
         }

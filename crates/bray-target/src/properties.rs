@@ -16,8 +16,8 @@ pub use atomic::{
 pub use c::{TargetCDataModel, TargetCScalarKind};
 pub use kind::TargetPropertyKind;
 pub use model::{
-    TargetAddressSpaces, TargetAlignmentLimits, TargetOperationSupport, TargetPlatformIdentity,
-    TargetProperties,
+    TargetAddressSpaces, TargetAlignmentLimits, TargetNativeSymbolSupport, TargetOperationSupport,
+    TargetPlatformIdentity, TargetProperties,
 };
 pub use scalar::{TargetScalarKind, TargetScalarSupport};
 pub use value::TargetPropertyValue;

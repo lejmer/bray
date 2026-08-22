@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdarg.h>
 #include <wchar.h>
 
 #ifdef _WIN32
@@ -33,6 +34,40 @@ typedef struct CallbackInvocation
 
 static _Atomic uint64_t next_resource = 1;
 static _Atomic uint64_t live_resources = 0;
+
+BRAY_EXPORT int32_t bray_foreign_counter = 40;
+
+#if !defined(BRAY_SHARED_FIXTURE)
+extern int32_t bray_exported_value;
+
+BRAY_EXPORT int32_t bray_foreign_read_exported_value(void)
+{
+    return bray_exported_value;
+}
+#endif
+
+BRAY_EXPORT int32_t bray_foreign_read_counter(const int32_t* value)
+{
+    if (value != &bray_foreign_counter)
+        return -1;
+
+    return *value;
+}
+
+BRAY_EXPORT int32_t bray_foreign_sum_variadic(int32_t count, ...)
+{
+    int32_t result = 0;
+    va_list arguments;
+
+    va_start(arguments, count);
+
+    for (int32_t index = 0; index < count; index += 1)
+        result += va_arg(arguments, int32_t);
+
+    va_end(arguments);
+
+    return result;
+}
 
 BRAY_EXPORT BrayForeignRecord bray_foreign_transform_record(BrayForeignRecord value)
 {

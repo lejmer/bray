@@ -47,10 +47,35 @@ pub(in crate::output::diagnostic::json) fn native_link_directive_problem_json(
 pub(in crate::output::diagnostic::json) fn native_symbol_directive_problem_json(
     problem: &bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem,
 ) -> DiagnosticProblemJson {
+    use bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem as Problem;
+
     match problem {
-        bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem::Argument(problem) => {
+        Problem::Argument(problem) => {
             directive_argument_problem_json(problem)
         }
+        Problem::MissingIdentity => DiagnosticProblemJson {
+            reason: "missing_identity",
+            context: Vec::new(),
+        },
+        Problem::ConflictingIdentity => DiagnosticProblemJson {
+            reason: "conflicting_identity",
+            context: Vec::new(),
+        },
+        Problem::UnsupportedValue { name, provided } => DiagnosticProblemJson {
+            reason: "unsupported_value",
+            context: vec![
+                problem_text("name", name.clone()),
+                problem_text("provided", provided.clone()),
+            ],
+        },
+        Problem::UnsupportedTargetOption { name } => DiagnosticProblemJson {
+            reason: "unsupported_target_option",
+            context: vec![problem_text("name", name.clone())],
+        },
+        Problem::IncompatiblePolicy { name } => DiagnosticProblemJson {
+            reason: "incompatible_policy",
+            context: vec![problem_text("name", name.clone())],
+        },
     }
 }
 

@@ -5,7 +5,7 @@ use bray_syntax::{
 };
 
 use crate::cursor::RecoverySet;
-use crate::parser::directive::{DirectiveScanKind, TAG_DIRECTIVE_NAME};
+use crate::parser::directive::DirectiveScanKind;
 use crate::parser::member::body::MEMBER_ITEM_RECOVERY_KINDS;
 use crate::parser::separated::{
     SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds,
@@ -92,7 +92,7 @@ impl Parser {
         let mut builder = VariantDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(TAG_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::TagDirective) {
                 builder.push_tag_directive(
                     self.parse_tag_directive(&VARIANT_DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
                 );
@@ -107,7 +107,10 @@ impl Parser {
     }
 
     fn recover_unknown_variant_directive(&mut self, builder: &mut VariantDirectivesSyntaxBuilder) {
-        self.recover_current_and_until(builder, &UNION_VARIANT_DECLARATION_START_KINDS);
+        self.recover_unsupported_directive(
+            builder,
+            &UNION_VARIANT_DECLARATION_START_KINDS,
+        );
     }
 
     fn parse_union_variant_payload(&mut self) -> UnionVariantPayloadSyntax {
@@ -227,8 +230,8 @@ impl Parser {
     fn consume_variant_directives_for_scan(&mut self) {
         self.consume_directives_for_scan(
             &UNION_VARIANT_DECLARATION_START_KINDS,
-            |directive_name| match directive_name {
-                TAG_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+            |directive_name| match SyntaxKind::directive_from_name(directive_name) {
+                Some(SyntaxKind::TagDirective) => DirectiveScanKind::ArgumentList,
                 _ => DirectiveScanKind::Unknown,
             },
         );

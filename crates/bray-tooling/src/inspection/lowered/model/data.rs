@@ -882,6 +882,12 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::Reinterpret { source, target } => {
             ("reinterpret", vec![("source", source), ("target", target)])
         }
+        CheckedMemoryOperationKind::CallableFromPointer { callable } => {
+            ("callable_from_pointer", vec![("callable", callable)])
+        }
+        CheckedMemoryOperationKind::PointerFromCallable { callable } => {
+            ("pointer_from_callable", vec![("callable", callable)])
+        }
         CheckedMemoryOperationKind::Read { pointee, .. } => ("read", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::Write { pointee } => ("write", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::Copy { pointee, .. } => ("copy", vec![("pointee", pointee)]),
@@ -891,6 +897,7 @@ fn memory_operation_parts(
                 MemoryLayoutQueryKind::Alignment => "align_of",
                 MemoryLayoutQueryKind::Stride => "stride_of",
                 MemoryLayoutQueryKind::Layout => "layout_of",
+                MemoryLayoutQueryKind::Trailing => "trailing_layout_of",
             };
 
             (name, vec![("type", ty)])
@@ -2274,7 +2281,9 @@ fn conversion_parts(
     parts.r#type(format!("{role}_target"), conversion.target_type(), context)?;
 
     match conversion.target() {
-        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+        ConversionTarget::Identity
+        | ConversionTarget::BuiltInScalar
+        | ConversionTarget::CVariadicPromotion => {}
         ConversionTarget::Composite(elements) => {
             for (index, element) in elements.iter().enumerate() {
                 conversion_parts(&format!("{role}[{index}]"), element, parts, context)?;
@@ -2472,6 +2481,7 @@ fn storage_kind(kind: &MirStorageKind) -> &'static str {
         MirStorageKind::CurrentTask => "current_task",
         MirStorageKind::ChildTask => "child_task",
         MirStorageKind::Static(_) => "static",
+        MirStorageKind::NativeStatic(_) => "native_static",
     }
 }
 
@@ -2554,6 +2564,7 @@ fn conversion_kind(target: &ConversionTarget) -> &'static str {
     match target {
         ConversionTarget::Identity => "identity",
         ConversionTarget::BuiltInScalar => "built_in_scalar",
+        ConversionTarget::CVariadicPromotion => "c_variadic_promotion",
         ConversionTarget::Composite(_) => "composite",
         ConversionTarget::Trait { .. } => "trait",
         ConversionTarget::TraitConstraint { .. } => "trait_constraint",

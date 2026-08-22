@@ -2,12 +2,14 @@ use bray_syntax::{
     StaticDeclarationModifiersSyntax, StaticDeclarationSyntax, StaticDirectivesSyntax, SyntaxKind,
 };
 
-use super::directive::{DirectiveScanKind, THREAD_LOCAL_DIRECTIVE_NAME};
+use super::directive::DirectiveScanKind;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
 
-const STATIC_DECLARATION_START_KINDS: [SyntaxKind; 4] = [
+const STATIC_DECLARATION_START_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::AtToken,
+    SyntaxKind::ExternKeyword,
+    SyntaxKind::TrustedKeyword,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::StaticKeyword,
@@ -34,6 +36,11 @@ impl Parser {
         builder.push_static_directives(self.parse_static_directives());
         builder.push_static_declaration_modifiers(self.parse_static_declaration_modifiers());
         builder.push_static_keyword(self.expect(SyntaxKind::StaticKeyword));
+
+        if self.at(SyntaxKind::MutKeyword) {
+            builder.push_mut_token(self.expect(SyntaxKind::MutKeyword));
+        }
+
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
@@ -46,14 +53,17 @@ impl Parser {
 
         builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
         self.parse_with_clauses(&mut builder, Parser::at_static_constraint_boundary);
-        builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
-        if !self.at_static_initializer_boundary() {
-            let mut at_initializer_boundary = Parser::at_static_initializer_boundary;
+        if self.at(SyntaxKind::EqualsToken) {
+            builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
-            builder.push_expression(
-                self.parse_non_assignment_expression_until(&mut at_initializer_boundary),
-            );
+            if !self.at_static_initializer_boundary() {
+                let mut at_initializer_boundary = Parser::at_static_initializer_boundary;
+
+                builder.push_expression(
+                    self.parse_non_assignment_expression_until(&mut at_initializer_boundary),
+                );
+            }
         }
 
         self.recover_until_predicate(&mut builder, Parser::at_static_declaration_end);
@@ -67,12 +77,31 @@ impl Parser {
         let mut builder = StaticDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
-            if self.at_directive_name(THREAD_LOCAL_DIRECTIVE_NAME) {
+            if self.at_directive_kind(SyntaxKind::ThreadLocalDirective) {
                 builder.push_thread_local_directive(self.parse_thread_local_directive());
                 continue;
             }
 
-            self.recover_current_and_until(&mut builder, &STATIC_DECLARATION_START_KINDS);
+            if self.at_directive_kind(SyntaxKind::LinkDirective) {
+                builder.push_link_directive(
+                    self.parse_link_directive(&STATIC_DECLARATION_START_KINDS),
+                );
+
+                continue;
+            }
+
+            if self.at_directive_kind(SyntaxKind::SymbolDirective) {
+                builder.push_symbol_directive(
+                    self.parse_symbol_directive(&STATIC_DECLARATION_START_KINDS),
+                );
+
+                continue;
+            }
+
+            self.recover_unsupported_directive(
+                &mut builder,
+                &STATIC_DECLARATION_START_KINDS,
+            );
         }
 
         builder.build()
@@ -82,11 +111,27 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = StaticDeclarationModifiersSyntax::builder(self.syntax_source(), start);
 
-        if self.at_visibility_modifier() {
+        while self.at_static_declaration_modifier() {
+            if self.at(SyntaxKind::ExternKeyword) {
+                builder.push_extern_token(self.expect(SyntaxKind::ExternKeyword));
+                continue;
+            }
+
+            if self.at(SyntaxKind::TrustedKeyword) {
+                builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
+                continue;
+            }
+
             builder.push_visibility_token(self.parse_visibility_modifier());
         }
 
         builder.build()
+    }
+
+    fn at_static_declaration_modifier(&mut self) -> bool {
+        self.at(SyntaxKind::ExternKeyword)
+            || self.at(SyntaxKind::TrustedKeyword)
+            || self.at_visibility_modifier()
     }
 
     fn at_static_type_boundary(&mut self) -> bool {
@@ -115,12 +160,17 @@ impl Parser {
         }
 
         self.scan_ahead(|scan| {
-            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| match name {
-                THREAD_LOCAL_DIRECTIVE_NAME => DirectiveScanKind::Bare,
-                _ => DirectiveScanKind::Unknown,
+            scan.consume_directives_for_scan(&MODULE_ITEM_START_KINDS, |name| {
+                match SyntaxKind::directive_from_name(name) {
+                    Some(SyntaxKind::ThreadLocalDirective) => DirectiveScanKind::Bare,
+                    Some(SyntaxKind::LinkDirective | SyntaxKind::SymbolDirective) => {
+                        DirectiveScanKind::ArgumentList
+                    }
+                    _ => DirectiveScanKind::Unknown,
+                }
             });
 
-            if scan.at_visibility_modifier() {
+            while scan.at_static_declaration_modifier() {
                 scan.consume();
             }
 
@@ -179,6 +229,48 @@ mod tests {
                 .expression()
                 .map(|expression| expression.full_text()),
             Some("default<T>()".into())
+        );
+
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_preserves_native_data_symbol_declarations() {
+        let source = concat!(
+            "module app; ",
+            "@link(name = \"c\") ",
+            "@symbol(name = \"errno\", presence = optional) ",
+            "@thread_local extern trusted static mut errno: i32;"
+        );
+
+        let sources = test_source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let declarations = result.syntax_tree().root().source_units()[0]
+            .static_declarations()
+            .collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one static declaration: {declarations:?}");
+        };
+
+        let modifiers = declaration.static_declaration_modifiers();
+
+        assert!(modifiers.extern_token().is_some());
+        assert!(modifiers.trusted_token().is_some());
+        assert!(declaration.mut_token().is_some());
+        assert!(declaration.equals_token().is_none());
+        assert!(declaration.expression().is_none());
+
+        assert_eq!(declaration.static_directives().link_directives().count(), 1);
+        assert_eq!(declaration.static_directives().symbol_directives().count(), 1);
+
+        assert_eq!(
+            declaration
+                .static_directives()
+                .thread_local_directives()
+                .count(),
+            1
         );
 
         assert!(result.diagnostics().is_empty());

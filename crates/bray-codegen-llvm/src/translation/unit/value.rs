@@ -143,7 +143,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             CodegenTypeKind::Union { tag, variants } => {
-                self.retain_copied_union(value, tag, &variants)?;
+                if let Some(tag) = tag {
+                    self.retain_copied_union(value, tag, &variants)?;
+                }
             }
             CodegenTypeKind::Unit
             | CodegenTypeKind::Boolean
@@ -185,14 +187,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .iter()
             .enumerate()
             .map(|(index, variant)| {
-                (
-                    integer_constant(tag_type, variant.tag()),
+                Ok((
+                    integer_constant(
+                        tag_type,
+                        variant
+                            .tag()
+                            .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                    ),
                     self.types
                         .context()
                         .append_basic_block(self.function, &format!("copy.union.variant.{index}")),
-                )
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, CodegenFailure>>()?;
 
         llvm(self.builder.build_switch(tag, done, &cases))?;
 
@@ -511,7 +518,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CodegenTypeKind::Aggregate(fields)
                 if fields.len() == 3
-                    && mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::String) =>
+                    && mapping.behavior() == Some(CodegenTypeBehavior::String) =>
             {
                 self.string_value_constant(representation, global.as_pointer_value(), text.len())
                     .map(Into::into)
@@ -545,7 +552,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         if fields.len() != 3
-            || mapping.behavior() != Some(bray_codegen::CodegenTypeBehavior::String)
+            || mapping.behavior() != Some(CodegenTypeBehavior::String)
         {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
@@ -614,22 +621,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 
-        let BasicTypeEnum::IntType(tag_type) = self.types.map(*tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let tag = integer_constant(tag_type, variant.tag());
-
-        llvm(self.builder.build_store(storage, tag))?;
+        self.store_union_tag(storage, *tag, variant.tag())?;
 
         for field in fields {
             let layout = variant
-                .fields()
-                .iter()
-                .find(|layout| {
-                    layout.reference()
-                        == Some(bray_ir::MirFieldReference::UnionPayload(*field.field()))
-                })
+                .payload_field(*field.field())
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
@@ -1124,7 +1120,7 @@ mod tests {
 
     fn composite_mappings(
         unit: &CodegenUnit,
-        target: &bray_codegen::CodegenTarget,
+        target: &CodegenTarget,
         types: CompositeTypes,
         source: MirSourceAnchor,
         constants: Vec<CodegenConstantMapping>,

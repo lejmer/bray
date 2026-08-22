@@ -204,6 +204,7 @@ impl CallableParameterTypeTemplate {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableTypeTemplate {
     parameters: Arc<[CallableParameterTypeTemplate]>,
+    variadic: bool,
     result: Arc<TypeExpressionTemplate>,
     constness: CallableConstness,
     trust: CallableTrust,
@@ -223,12 +224,20 @@ impl CallableTypeTemplate {
     ) -> Self {
         Self {
             parameters: shared_slice(parameters),
+            variadic: false,
             result: Arc::new(result),
             constness,
             trust,
             abi,
             phase_behaviors: CallablePhaseBehaviors::empty(dependencies),
         }
+    }
+
+    /// Returns this callable template with its trailing variadic argument contract.
+    pub const fn with_variadic(mut self, variadic: bool) -> Self {
+        self.variadic = variadic;
+
+        self
     }
 
     /// Returns this callable template with complete caller-visible phase behavior.
@@ -241,6 +250,11 @@ impl CallableTypeTemplate {
     /// Returns parameters in declaration order.
     pub fn parameters(&self) -> &[CallableParameterTypeTemplate] {
         &self.parameters
+    }
+
+    /// Returns whether calls may supply promoted trailing positional arguments.
+    pub const fn is_variadic(&self) -> bool {
+        self.variadic
     }
 
     /// Returns the callable result type template.
@@ -306,6 +320,8 @@ pub enum TypeExpressionTemplate {
         element: Arc<TypeExpressionTemplate>,
         length: ConstantExpressionOccurrence,
     },
+    /// A flexible trailing array retains its element type template.
+    FlexibleArray(Arc<TypeExpressionTemplate>),
     /// A slice retains its element type template.
     Slice(Arc<TypeExpressionTemplate>),
     /// A nullable type retains its target type template.
@@ -335,6 +351,7 @@ impl TypeExpressionTemplate {
             | Self::TypeValuedMemberProjection { .. }
             | Self::Tuple(_)
             | Self::Array { .. }
+            | Self::FlexibleArray(_)
             | Self::Slice(_)
             | Self::Nullable(_)
             | Self::Borrow { .. }
@@ -376,7 +393,7 @@ impl TypeExpressionTemplate {
                 element.push_constant_expressions(occurrences);
                 occurrences.push(*length);
             }
-            Self::Slice(element) | Self::Nullable(element) => {
+            Self::FlexibleArray(element) | Self::Slice(element) | Self::Nullable(element) => {
                 element.push_constant_expressions(occurrences);
             }
             Self::Borrow { target, .. } => {

@@ -68,7 +68,9 @@ pub use execution::{
     CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation,
 };
 pub use foreign::{
-    ForeignCallableContract, ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement,
+    ForeignCallableContract, ForeignCallableDirection, ForeignStaticContract, NativeLinkKind,
+    NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity,
+    NativeSymbolPresence,
 };
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,

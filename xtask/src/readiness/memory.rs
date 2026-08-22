@@ -145,7 +145,7 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
         baseline_properties.c_abi(),
         baseline_properties.address_spaces(),
         baseline_properties.alignments(),
-        TargetOperationSupport::new(false, false),
+        TargetOperationSupport::new(false, false, false),
     );
 
     let profile = TargetProfile::try_new(

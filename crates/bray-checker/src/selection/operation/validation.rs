@@ -98,7 +98,9 @@ where
                 validate_trait_callable_instance(request, *member)?;
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion => {}
         }
     }
 
@@ -443,7 +445,9 @@ fn collect_conversion_operations(
                 target: conversion.target_type(),
             }),
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion => {}
         }
     }
 }

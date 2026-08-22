@@ -203,7 +203,9 @@ impl Compilation {
             TypeData::OwnedIndirection { .. } => CodegenLifecycleNeeds::DESTROY
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
-            TypeData::Borrow { .. } | TypeData::Callable(_) => CodegenLifecycleNeeds::NONE,
+            TypeData::FlexibleArray(_) | TypeData::Borrow { .. } | TypeData::Callable(_) => {
+                CodegenLifecycleNeeds::NONE
+            }
             TypeData::Error
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)

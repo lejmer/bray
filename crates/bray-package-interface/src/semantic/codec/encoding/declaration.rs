@@ -91,6 +91,9 @@ pub(super) fn encode_declaration_semantics(
             encoder.write_u32(encode_layout(representation.layout));
             write_optional_u64(encoder, representation.alignment);
             write_optional_u64(encoder, representation.packing);
+            write_optional_u64(encoder, representation.opaque_size);
+            encoder.write_u32(u32::from(representation.incomplete));
+            encoder.write_u32(u32::from(representation.tagless_union));
 
             super::super::common::write_optional_u32(
                 encoder,

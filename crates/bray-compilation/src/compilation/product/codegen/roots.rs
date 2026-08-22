@@ -26,22 +26,9 @@ impl Compilation {
     ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductPlanningError> {
         let binding_context = self.binding_context(cancellation)?;
 
-        let mut symbols: Vec<_> = match semantic.kind() {
-            ProductKind::Executable => semantic
-                .entrypoint()
-                .map(AnySymbolId::from)
-                .into_iter()
-                .collect(),
-            ProductKind::Test => {
-                let discovery = test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
-
-                discovery
-                    .catalog()
-                    .entries()
-                    .iter()
-                    .filter_map(|entry| discovery.function(entry.identity()))
-                    .map(AnySymbolId::from)
-                    .collect()
+        let mut symbols = match semantic.kind() {
+            ProductKind::Executable | ProductKind::Test => {
+                product_entry_symbols(semantic, test_discovery)?
             }
             ProductKind::Library => semantic.public_symbols().to_vec(),
         };
@@ -63,6 +50,19 @@ impl Compilation {
             }
         }
 
+        for function in binding_context.symbols().functions() {
+            if self
+                .foreign_callable_contract_with_cancellation(function.id(), cancellation)?
+                .value()
+                .as_ref()
+                .is_some_and(|contract| {
+                    contract.direction() == bray_symbols::ForeignCallableDirection::Export
+                })
+            {
+                symbols.push(function.id().into());
+            }
+        }
+
         for static_symbol in binding_context.symbols().statics() {
             if has_visible_generic_parameters(binding_context.symbols(), static_symbol.id().into())
             {
@@ -77,7 +77,16 @@ impl Compilation {
                 .resolved_type()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            if !template.value().lifecycle_obligations().is_empty()
+            let native_export = self
+                .foreign_static_contract_with_cancellation(static_symbol.id(), cancellation)?
+                .value()
+                .as_ref()
+                .is_some_and(|contract| {
+                    contract.direction() == bray_symbols::ForeignCallableDirection::Export
+                });
+
+            if native_export
+                || !template.value().lifecycle_obligations().is_empty()
                 || !self.codegen_cleanup_is_trivial(ty, cancellation)?
             {
                 symbols.push(static_symbol.id().into());
@@ -202,7 +211,7 @@ impl Compilation {
         let Some(implementation) = binding_context
             .symbols()
             .containing_symbol(symbol)
-            .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
+            .and_then(ImplementationSymbolId::try_from_any)
         else {
             let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
 
@@ -257,5 +266,30 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         Ok((callable, vec![witness]))
+    }
+}
+
+pub(super) fn product_entry_symbols(
+    semantic: &bray_symbols::ProductSemantics,
+    test_discovery: Option<&super::super::super::testing::TestDiscovery>,
+) -> Result<Vec<AnySymbolId>, NativeProductPlanningError> {
+    match semantic.kind() {
+        ProductKind::Executable => Ok(semantic
+            .entrypoint()
+            .map(AnySymbolId::from)
+            .into_iter()
+            .collect()),
+        ProductKind::Test => {
+            let discovery = test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
+
+            Ok(discovery
+                .catalog()
+                .entries()
+                .iter()
+                .filter_map(|entry| discovery.function(entry.identity()))
+                .map(AnySymbolId::from)
+                .collect())
+        }
+        ProductKind::Library => Ok(Vec::new()),
     }
 }

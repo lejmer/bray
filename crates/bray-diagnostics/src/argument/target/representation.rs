@@ -13,6 +13,7 @@ impl DiagnosticArg {
 /// Locale-neutral target representation categories used by target diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticTargetRepresentation {
+    Unsupported,
     Bool,
     Char,
     I8,
@@ -47,6 +48,7 @@ impl DiagnosticTargetRepresentation {
     /// Returns the stable machine key for this representation category.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Unsupported => "unsupported",
             Self::Bool => "bool",
             Self::Char => "char",
             Self::I8 => "i8",

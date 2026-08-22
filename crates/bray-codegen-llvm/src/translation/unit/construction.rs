@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_value_length, extract_value, insert_value, integer_constant, llvm, next_helper,
-    pointer_value,
+    aggregate_value_length, extract_value, insert_value, llvm, next_helper, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenResultMapping, CodegenTypeKind};
 use bray_ir::{
@@ -11,7 +10,6 @@ use bray_ir::{
     MirConstruction, MirConstructionInput, MirHelperReference, MirOperation, PatternOperation,
     PatternProjection, SelectedConversion,
 };
-use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 #[derive(Clone, Copy)]
@@ -282,8 +280,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let tag = *tag;
-
         let variant = variants
             .iter()
             .find(|layout| layout.variant() == variant)
@@ -295,13 +291,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 
-        let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let tag_value = integer_constant(tag_type, variant.tag());
-
-        llvm(self.builder.build_store(storage, tag_value))?;
+        self.store_union_tag(storage, *tag, variant.tag())?;
 
         for construction_input in construction.inputs() {
             let (MirConstructionInput::Explicit { input, .. }
@@ -319,11 +309,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
 
             let layout = variant
-                .fields()
-                .iter()
-                .find(|layout| {
-                    layout.reference() == Some(bray_ir::MirFieldReference::UnionPayload(*field))
-                })
+                .payload_field(*field)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
@@ -345,7 +331,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match conversion.target() {
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion => {
                 self.convert(value, conversion.source_type(), conversion.target_type())
             }
             ConversionTarget::Trait { fulfillment, .. } => {
@@ -507,12 +495,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let layout = variants
             .iter()
             .find(|layout| layout.variant() == variant)
-            .and_then(|layout| {
-                layout.fields().iter().find(|field_layout| {
-                    field_layout.reference()
-                        == Some(bray_ir::MirFieldReference::UnionPayload(field))
-                })
-            })
+            .and_then(|layout| layout.payload_field(field))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let storage = self.allocate_temporary(subject.get_type(), "pattern.union")?;

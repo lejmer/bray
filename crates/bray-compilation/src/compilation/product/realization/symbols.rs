@@ -123,13 +123,10 @@ impl Compilation {
         }
 
         for reference in codegen_runtime_references(unit, operations, &symbols) {
-            let symbol_name = executable_host
-                .and_then(|host| host.role_binding(reference.role()))
-                .map(|binding| binding.symbol_name().clone())
-                .or_else(|| {
-                    bray_runtime_interface::native_runtime_role_symbol(reference.role())
-                        .and_then(BinarySymbolName::try_new)
-                })
+            let symbol_name = bray_runtime_interface::selected_runtime_role_symbol(
+                executable_host,
+                reference.role(),
+            )
                 .ok_or(CodegenPreparationError::MissingRuntimeRole(
                     reference.role(),
                 ))?;
@@ -321,7 +318,18 @@ impl Compilation {
         let contract = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
 
         if let Some(contract) = contract.value() {
-            return native_boundary_mapping(contract.symbol(), contract.direction()).map(Some);
+            let name = contract
+                .symbol()
+                .identity()
+                .name()
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            return native_boundary_mapping(
+                name,
+                contract.direction(),
+                contract.symbol().binding(),
+            )
+            .map(Some);
         }
 
         let boundary =
@@ -329,7 +337,17 @@ impl Compilation {
 
         boundary
             .map(|boundary| {
-                native_boundary_mapping(boundary.symbol().as_str(), boundary.direction())
+                let name = boundary
+                    .symbol()
+                    .identity()
+                    .name()
+                    .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+                native_boundary_mapping(
+                    name,
+                    boundary.direction(),
+                    boundary.symbol().binding(),
+                )
             })
             .transpose()
     }
@@ -350,6 +368,7 @@ impl Compilation {
 
             hasher.write(b"bray.codegen-runtime-default-symbol");
             provider.hash(&mut hasher);
+
             realization.key().specialization().hash(&mut hasher);
             realization.key().witnesses().hash(&mut hasher);
             realization.key().target().hash(&mut hasher);
@@ -370,6 +389,7 @@ impl Compilation {
 
         hasher.write(b"bray.codegen-callable-symbol");
         definition.hash(&mut hasher);
+
         realization.key().specialization().hash(&mut hasher);
         realization.key().witnesses().hash(&mut hasher);
         realization.key().target().hash(&mut hasher);

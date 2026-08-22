@@ -63,7 +63,7 @@ pub(super) fn declaration_surface(
 
             declaration_surface_from_parts(
                 declaration.static_declaration_modifiers().tokens(),
-                syntax_anchors(declaration.static_directives().thread_local_directives()),
+                static_directives(declaration.static_directives()),
                 syntax_anchors(declaration.with_clauses()),
                 [],
             )
@@ -595,6 +595,15 @@ fn function_directives(directives: bray_syntax::FunctionDirectivesSyntax) -> Vec
     anchors.extend(syntax_anchors(directives.symbol_directives()));
     anchors.extend(syntax_anchors(directives.entrypoint_directives()));
     anchors.extend(syntax_anchors(directives.test_directives()));
+
+    sorted_anchors(anchors)
+}
+
+fn static_directives(directives: bray_syntax::StaticDirectivesSyntax) -> Vec<SyntaxAnchor> {
+    let mut anchors = syntax_anchors(directives.thread_local_directives());
+
+    anchors.extend(syntax_anchors(directives.link_directives()));
+    anchors.extend(syntax_anchors(directives.symbol_directives()));
 
     sorted_anchors(anchors)
 }

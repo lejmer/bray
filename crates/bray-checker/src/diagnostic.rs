@@ -129,7 +129,7 @@ where
 
             DiagnosticType::Tuple(count)
         }
-        TypeData::Array { .. } => DiagnosticType::Array,
+        TypeData::Array { .. } | TypeData::FlexibleArray(_) => DiagnosticType::Array,
         TypeData::Slice(_) => DiagnosticType::Slice,
         TypeData::Generator(_) => DiagnosticType::Generator,
         TypeData::Nullable(_) => DiagnosticType::Nullable,

@@ -566,12 +566,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             match mapping.kind() {
                 CodegenTypeKind::Union { tag, .. } => {
+                    let Some(tag) = *tag else {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    };
+
                     let storage =
                         self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
 
                     llvm(self.builder.build_store(storage, subject))?;
 
-                    break (storage, *tag);
+                    break (storage, tag);
                 }
                 CodegenTypeKind::Pointer { target, .. } => {
                     let storage =
@@ -582,7 +586,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     if let CodegenTypeKind::Union { tag, .. } = target_mapping.kind() {
-                        break (storage, *tag);
+                        let Some(tag) = *tag else {
+                            return Err(CodegenFailure::GeneratedModuleInvariant);
+                        };
+
+                        break (storage, tag);
                     }
 
                     subject = llvm(self.builder.build_load(
@@ -630,7 +638,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let tag = variants
             .iter()
             .find(|layout| layout.variant() == variant)
-            .map(bray_codegen::CodegenUnionVariantLayout::tag)
+            .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         Ok(integer_constant(tag_type, tag))

@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget};
-use bray_ir::MirStorageKind;
 use bray_runtime_interface::{ExecutableEntryResult, ExecutionLaneRequirement};
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
@@ -95,7 +94,9 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
+                let Some(reference) =
+                    self.codegen_static_reference(storage.kind(), cancellation)?
+                else {
                     continue;
                 };
 
@@ -143,7 +144,9 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
+                let Some(reference) =
+                    self.codegen_static_reference(storage.kind(), cancellation)?
+                else {
                     continue;
                 };
 

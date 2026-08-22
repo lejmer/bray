@@ -76,6 +76,7 @@ fn target_abi_value_from_data(
         TypeData::Error
         | TypeData::Tuple(_)
         | TypeData::Array { .. }
+        | TypeData::FlexibleArray(_)
         | TypeData::Slice(_)
         | TypeData::Generator(_)
         | TypeData::Nullable(_)

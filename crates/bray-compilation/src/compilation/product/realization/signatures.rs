@@ -262,7 +262,7 @@ impl Compilation {
             parameters,
             result,
             callable.abi(),
-            false,
+            callable.is_variadic(),
         ))
     }
 

@@ -80,6 +80,9 @@ where
             ConversionTarget::BuiltInScalar => {
                 scalar_conversion_is_valid(request.context(), source, target)?
             }
+            ConversionTarget::CVariadicPromotion => {
+                c_variadic_promotion_target(request, source)? == Some(target)
+            }
             ConversionTarget::Composite(children) => {
                 let is_valid =
                     composite_conversion_shape_is_valid(request, source, target, children)?;
@@ -133,6 +136,28 @@ where
     Ok(scalar_shape(source, target_width).is_some_and(|source| {
         scalar_shape(target, target_width).is_some_and(|target| source.can_represent(target))
     }))
+}
+
+pub(crate) fn c_variadic_promotion_target<C>(
+    request: CheckerUnitView<'_, C>,
+    source: TypeId,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let target = match crate::representation::type_representation(request, source)? {
+        Some(
+            RepresentationRole::ScalarBool
+            | RepresentationRole::ScalarI8
+            | RepresentationRole::ScalarI16
+            | RepresentationRole::ScalarU8
+            | RepresentationRole::ScalarU16,
+        ) => RepresentationRole::ScalarI32,
+        Some(RepresentationRole::ScalarR32) => RepresentationRole::ScalarR64,
+        _ => return Ok(None),
+    };
+
+    crate::representation::representation_type(request, target).map(Some)
 }
 
 fn composite_conversion_shape_is_valid<C>(
@@ -335,6 +360,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
         conversion.target(),
         ConversionTarget::Identity
             | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion
             | ConversionTarget::Composite(_)
     )
 }
@@ -350,7 +376,51 @@ mod tests {
         push_expression, tuple_type,
     };
 
-    use super::{ScalarShape, scalar_shape, validate_conversion};
+    use super::{
+        ScalarShape, c_variadic_promotion_target, scalar_shape, validate_conversion,
+    };
+
+    #[test]
+    fn c_variadic_arguments_use_the_default_scalar_promotions() {
+        let placeholder = tuple_type([]);
+        let unit = test_unit(BoundUnitId::new(87), placeholder);
+        let context = TestCheckerContext::new(false);
+        let entry = callable_entry(unit.key());
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("variadic promotion request must validate: {error:?}"));
+
+        for (source, target) in [
+            (RepresentationRole::ScalarBool, RepresentationRole::ScalarI32),
+            (RepresentationRole::ScalarI8, RepresentationRole::ScalarI32),
+            (RepresentationRole::ScalarI16, RepresentationRole::ScalarI32),
+            (RepresentationRole::ScalarU8, RepresentationRole::ScalarI32),
+            (RepresentationRole::ScalarU16, RepresentationRole::ScalarI32),
+            (RepresentationRole::ScalarR32, RepresentationRole::ScalarR64),
+        ] {
+            let source = crate::representation::representation_type(request, source)
+                .unwrap_or_else(|error| panic!("source type must resolve: {error:?}"));
+
+            let target = crate::representation::representation_type(request, target)
+                .unwrap_or_else(|error| panic!("target type must resolve: {error:?}"));
+
+            assert_eq!(
+                c_variadic_promotion_target(request, source),
+                Ok(Some(target))
+            );
+        }
+
+        for role in [
+            RepresentationRole::ScalarI32,
+            RepresentationRole::ScalarU32,
+            RepresentationRole::ScalarR64,
+        ] {
+            let ty = crate::representation::representation_type(request, role)
+                .unwrap_or_else(|error| panic!("unpromoted type must resolve: {error:?}"));
+
+            assert_eq!(c_variadic_promotion_target(request, ty), Ok(None));
+        }
+    }
 
     #[test]
     fn target_sized_integers_convert_to_their_fixed_128_bit_domains() {

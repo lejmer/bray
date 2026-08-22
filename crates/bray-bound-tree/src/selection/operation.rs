@@ -414,6 +414,8 @@ pub enum ConversionTarget {
     Identity,
     /// A compiler-defined total value-preserving scalar conversion.
     BuiltInScalar,
+    /// A scalar promotion required for an argument in a C variadic tail.
+    CVariadicPromotion,
     /// A compiler-defined structural conversion with exact nested conversion plans.
     Composite(Arc<[SelectedConversion]>),
     /// A selected `ConvertTo<Target>` member and implementation witness.
@@ -687,6 +689,7 @@ fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplemen
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
             | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion
             | ConversionTarget::TraitConstraint { .. } => {}
         }
     }

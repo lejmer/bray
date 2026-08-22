@@ -1058,9 +1058,15 @@ impl Lowerer<'_> {
             let storage = match self.static_storages.get(reference).copied() {
                 Some(storage) => storage,
                 None => {
+                    let kind = if self.input.is_native_static(reference.template()) {
+                        MirStorageKind::NativeStatic(reference.clone())
+                    } else {
+                        MirStorageKind::Static(reference.clone())
+                    };
+
                     let storage = self.builder.push_storage(
                         self.source(origin),
-                        MirStorageKind::Static(reference.clone()),
+                        kind,
                         ty,
                     )?;
 

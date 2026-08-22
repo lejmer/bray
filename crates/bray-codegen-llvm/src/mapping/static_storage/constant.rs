@@ -437,23 +437,23 @@ fn static_union<'context>(
         .find(|variant| variant.variant() == selected)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let BasicTypeEnum::IntType(tag_type) = types.map(*tag)? else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
-    };
+    let mut values = Vec::new();
 
-    let mut values = vec![(
-        0,
-        layout_size(owner, *tag, mappings)?,
-        crate::translation::integer_constant(tag_type, variant.tag()).into(),
-    )];
+    if let (Some(tag), Some(value)) = (*tag, variant.tag()) {
+        let BasicTypeEnum::IntType(tag_type) = types.map(tag)? else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        values.push((
+            0,
+            layout_size(owner, tag, mappings)?,
+            crate::translation::integer_constant(tag_type, value).into(),
+        ));
+    }
 
     for field in fields {
         let layout = variant
-            .fields()
-            .iter()
-            .find(|layout| {
-                layout.reference() == Some(bray_ir::MirFieldReference::UnionPayload(*field.field()))
-            })
+            .payload_field(*field.field())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let child = mappings

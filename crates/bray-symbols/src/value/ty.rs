@@ -263,6 +263,7 @@ impl CallableParameterData {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableTypeData {
     parameters: Arc<[CallableParameterData]>,
+    variadic: bool,
     result: TypeId,
     constness: CallableConstness,
     trust: CallableTrust,
@@ -282,12 +283,20 @@ impl CallableTypeData {
     ) -> Self {
         Self {
             parameters: shared_slice(parameters),
+            variadic: false,
             result,
             constness,
             trust,
             abi,
             phase_behaviors: CallablePhaseBehaviors::empty(dependency_contracts),
         }
+    }
+
+    /// Returns this callable type with its trailing variadic argument contract.
+    pub const fn with_variadic(mut self, variadic: bool) -> Self {
+        self.variadic = variadic;
+
+        self
     }
 
     /// Returns this callable type with complete caller-visible phase behavior.
@@ -300,6 +309,11 @@ impl CallableTypeData {
     /// Returns the ordered parameter surface.
     pub fn parameters(&self) -> &[CallableParameterData] {
         &self.parameters
+    }
+
+    /// Returns whether calls may supply promoted trailing positional arguments.
+    pub const fn is_variadic(&self) -> bool {
+        self.variadic
     }
 
     /// Returns the callable result type.
@@ -372,6 +386,8 @@ pub enum TypeData {
         /// The checked open or closed length term.
         length: ConstantTermId,
     },
+    /// An incomplete-extent array used as a C product's final storage field.
+    FlexibleArray(TypeId),
     /// A dynamically sized homogeneous slice.
     Slice(TypeId),
     /// A lazy homogeneous generator value.

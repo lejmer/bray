@@ -288,10 +288,12 @@ where
         let Some(operand) = self.term_value(operand)? else {
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
-                ConversionTarget::BuiltInScalar => self.intern_term(ConstantTermData::Conversion {
-                    operand,
-                    target: conversion.target_type(),
-                }),
+                ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
+                    self.intern_term(ConstantTermData::Conversion {
+                        operand,
+                        target: conversion.target_type(),
+                    })
+                }
                 ConversionTarget::Composite(_) => self.intern_term(ConstantTermData::Conversion {
                     operand,
                     target: conversion.target_type(),
@@ -326,7 +328,7 @@ where
 
         let kind = match conversion.target() {
             ConversionTarget::Identity => return Ok(value),
-            ConversionTarget::BuiltInScalar => {
+            ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
                 let Some(target) = type_representation(self.request, conversion.target_type())
                     .map_err(EvaluationFailure::Infrastructure)?
                 else {

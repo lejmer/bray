@@ -3,8 +3,8 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use crate::{
     Endianness, ObjectFormat, TargetArchitecture, TargetAtomicOperations,
     TargetAtomicRepresentationSupport, TargetAtomicSupport, TargetCDataModel, TargetIdentity,
-    TargetMachineProperties, TargetOperationSupport, TargetProfile, TargetProperties,
-    TargetScalarKind,
+    TargetMachineProperties, TargetNativeSymbolSupport, TargetOperationSupport, TargetProfile,
+    TargetProperties, TargetScalarKind,
 };
 
 /// Native target profiles provided by the Bray toolchain.
@@ -110,7 +110,8 @@ impl NativeTarget {
         .map(|properties| {
             properties
                 .with_atomics(native_atomic_properties())
-                .with_operations(TargetOperationSupport::new(true, true))
+                .with_operations(TargetOperationSupport::new(true, true, true))
+                .with_native_symbols(TargetNativeSymbolSupport::new(false, false, true, true))
                 .with_dynamic_loading(true)
                 .with_native_threads(true)
         })

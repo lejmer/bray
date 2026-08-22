@@ -129,7 +129,8 @@ impl InterfaceSemantics {
                 validate_index(element.to_index(), self.types.len())?;
                 validate_index(length.to_index(), self.constant_terms.len())?;
             }
-            InterfaceType::Slice(id)
+            InterfaceType::FlexibleArray(id)
+            | InterfaceType::Slice(id)
             | InterfaceType::Generator(id)
             | InterfaceType::Nullable(id) => {
                 validate_index(id.to_index(), self.types.len())?;
@@ -509,6 +510,7 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
     match ty {
         InterfaceType::Tuple(elements) => elements.to_vec(),
         InterfaceType::Array { element, .. }
+        | InterfaceType::FlexibleArray(element)
         | InterfaceType::Slice(element)
         | InterfaceType::Generator(element)
         | InterfaceType::Nullable(element)

@@ -33,7 +33,7 @@ pub use compatibility::{RuntimeRequirements, RuntimeRequirementsMergeError};
 pub use contract::{
     ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
     ExecutableHostContractBuilder, ExecutableHostEntry, ExecutableHostEntryId,
-    ExecutionCapacityLimits, RootExecution,
+    ExecutionCapacityLimits, RootExecution, selected_runtime_role_symbol,
 };
 pub use platform::{
     PlatformAbiType, PlatformServiceBinding, PlatformServiceRole, PlatformServiceSignature,

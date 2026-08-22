@@ -108,6 +108,11 @@ where
                     length: *length,
                 })?
             }
+            TypeData::FlexibleArray(element) => {
+                let element = self.normalize_type(*element)?;
+
+                self.intern(TypeData::FlexibleArray(element))?
+            }
             TypeData::Slice(element) => {
                 let element = self.normalize_type(*element)?;
 
@@ -169,6 +174,7 @@ where
                     callable.abi(),
                     callable.dependency_contracts(),
                 )
+                .with_variadic(callable.is_variadic())
                 .with_phase_behaviors(callable.phase_behaviors().clone());
 
                 self.intern(TypeData::Callable(callable))?

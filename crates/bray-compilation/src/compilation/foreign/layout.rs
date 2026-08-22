@@ -61,6 +61,7 @@ fn alignment_of_type(
             maximum_alignment(compilation, elements, cancellation, pending)?
         }
         TypeData::Array { element, .. }
+        | TypeData::FlexibleArray(element)
         | TypeData::Nullable(element)
         | TypeData::Generator(element) => {
             alignment_of_type(compilation, *element, cancellation, pending)?

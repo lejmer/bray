@@ -174,6 +174,10 @@ impl TypeExpressionBinder<'_> {
 
         let element = self.bind_type(&element)?;
 
+        if syntax.dot_dot_token().is_some() {
+            return Ok(TypeExpressionTemplate::FlexibleArray(Arc::new(element)));
+        }
+
         let mut lengths = syntax.expressions();
 
         let Some(length) = lengths.next() else {

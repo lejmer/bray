@@ -19,6 +19,27 @@ struct NativeRecord
     wide: u64;
 }
 
+@symbol(name = "bray_foreign_counter")
+extern trusted static FOREIGN_COUNTER: i32;
+
+@symbol(name = "bray_exported_value")
+static EXPORTED_VALUE: i32 = 41;
+
+@symbol(name = "bray_foreign_read_exported_value")
+@abi(c)
+extern trusted func native_read_exported_value() -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_read_counter")
+@abi(c)
+extern trusted func native_read_counter(pos value: RawPointer<i32>) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_sum_variadic")
+@abi(c)
+extern trusted func native_sum_variadic(pos count: i32, ...) -> i32
+    uses(foreign_call);
+
 @symbol(name = "bray_foreign_transform_record")
 @abi(c)
 extern trusted func transform_record(pos value: NativeRecord) -> NativeRecord
@@ -535,6 +556,18 @@ trusted func audit_dynamic_library()
     }
 }
 
+trusted func audit_native_data()
+    uses(foreign_call)
+{
+    let signed_byte: i8 = 10;
+    let unsigned_short: u16 = 12;
+
+    assert(!std.memory.is_null<i32>(FOREIGN_COUNTER));
+    assert(trusted native_read_counter(FOREIGN_COUNTER) == 40);
+    assert(trusted native_read_exported_value() == 41);
+    assert(trusted native_sum_variadic(3, signed_byte, unsigned_short, true) == 23);
+}
+
 trusted func main() -> i32
 {
     trusted audit_target_handle();
@@ -543,6 +576,7 @@ trusted func main() -> i32
     trusted audit_resources();
     trusted audit_callbacks();
     trusted audit_dynamic_library();
+    trusted audit_native_data();
 
     return 0;
 }

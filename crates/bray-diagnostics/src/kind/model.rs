@@ -189,6 +189,8 @@ define_diagnostic_kinds! {
     SyntaxUnexpectedEof,
     /// Source syntax nesting exceeds the parser's deterministic depth limit.
     SyntaxNestingLimitExceeded,
+    /// A language-defined directive appears before a syntax form that does not accept it.
+    SyntaxInvalidDirectiveTarget,
     /// A declaration name is repeated in the same declaration domain.
     DeclarationDuplicateName,
     /// Split declarations of one module disagree on effective visibility.
@@ -359,6 +361,12 @@ define_diagnostic_kinds! {
     CheckingStaticSpecializationDivergence,
     /// A closed generic static reference does not satisfy every declaration constraint.
     CheckingStaticConstraintUnsatisfied,
+    /// An extern static declaration does not form a provider-owned native storage contract.
+    CheckingExternStaticSurfaceUnsupported,
+    /// An exported static declaration does not form one concrete native data symbol.
+    CheckingExportedStaticSurfaceUnsupported,
+    /// A native static uses a stored type without a supported native data representation.
+    CheckingNativeStaticTypeUnsupported,
     /// A target-control literal contract is invalid for the selected target.
     CheckingInvalidTargetControlContract,
     /// A compiler-provided atomic operation received an invalid compile-time memory order.
@@ -449,6 +457,18 @@ define_diagnostic_kinds! {
     CheckingForeignCallableRequiresCapability,
     /// A callable execution mode cannot cross the selected foreign ABI.
     CheckingForeignCallableExecutionUnsupported,
+    /// A variadic callable does not satisfy the language's foreign boundary shape.
+    CheckingVariadicCallableContractUnsupported,
+    /// A callable address operation names a type without a foreign callable ABI.
+    CheckingCallableAddressTypeUnsupported,
+    /// A fixed-layout helper names a type without a complete fixed-size representation.
+    CheckingFixedLayoutQueryTypeUnsupported,
+    /// A trailing-layout helper names a type without flexible C storage.
+    CheckingTrailingLayoutQueryTypeUnsupported,
+    /// A typed memory operation names a pointee without complete fixed-size storage.
+    CheckingMemoryPointeeTypeUnsupported,
+    /// A tagless union pattern lacks one exact active-variant fact.
+    CheckingTaglessUnionPatternRequiresVariant,
     /// A declared value type cannot cross the selected foreign ABI.
     CheckingForeignAbiTypeUnsupported,
     /// A platform-service declaration does not match its role's closed ABI shape.
@@ -698,6 +718,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedExpression => 3005,
             Self::SyntaxUnexpectedEof => 3003,
             Self::SyntaxNestingLimitExceeded => 3006,
+            Self::SyntaxInvalidDirectiveTarget => 3007,
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
@@ -784,6 +805,9 @@ impl DiagnosticKind {
             Self::CheckingStaticLifecycleCycle => 7101,
             Self::CheckingStaticSpecializationDivergence => 7102,
             Self::CheckingStaticConstraintUnsatisfied => 7103,
+            Self::CheckingExternStaticSurfaceUnsupported => 7108,
+            Self::CheckingExportedStaticSurfaceUnsupported => 7109,
+            Self::CheckingNativeStaticTypeUnsupported => 7110,
             Self::CheckingInvalidTargetControlContract => 7096,
             Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
@@ -828,6 +852,12 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableRequiresTrusted => 7054,
             Self::CheckingForeignCallableRequiresCapability => 7055,
             Self::CheckingForeignCallableExecutionUnsupported => 7056,
+            Self::CheckingVariadicCallableContractUnsupported => 7104,
+            Self::CheckingCallableAddressTypeUnsupported => 7105,
+            Self::CheckingFixedLayoutQueryTypeUnsupported => 7106,
+            Self::CheckingTrailingLayoutQueryTypeUnsupported => 7107,
+            Self::CheckingMemoryPointeeTypeUnsupported => 7111,
+            Self::CheckingTaglessUnionPatternRequiresVariant => 7112,
             Self::CheckingForeignAbiTypeUnsupported => 7057,
             Self::CheckingPlatformServiceSignatureMismatch => 7089,
             Self::CheckingInvalidNativeLinkDirective => 7058,
@@ -1032,6 +1062,7 @@ impl DiagnosticKind {
             Self::SyntaxExpectedExpression => "syntax_expected_expression",
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
             Self::SyntaxNestingLimitExceeded => "syntax_nesting_limit_exceeded",
+            Self::SyntaxInvalidDirectiveTarget => "syntax_invalid_directive_target",
             Self::DeclarationDuplicateName => "declaration_duplicate_name",
             Self::DeclarationConflictingModuleVisibility => DECLARATION_VISIBILITY_KEY,
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
@@ -1150,6 +1181,15 @@ impl DiagnosticKind {
                 "checking_static_specialization_divergence"
             }
             Self::CheckingStaticConstraintUnsatisfied => "checking_static_constraint_unsatisfied",
+            Self::CheckingExternStaticSurfaceUnsupported => {
+                "checking_extern_static_surface_unsupported"
+            }
+            Self::CheckingExportedStaticSurfaceUnsupported => {
+                "checking_exported_static_surface_unsupported"
+            }
+            Self::CheckingNativeStaticTypeUnsupported => {
+                "checking_native_static_type_unsupported"
+            }
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"
             }
@@ -1235,6 +1275,24 @@ impl DiagnosticKind {
             }
             Self::CheckingForeignCallableExecutionUnsupported => {
                 "checking_foreign_callable_execution_unsupported"
+            }
+            Self::CheckingVariadicCallableContractUnsupported => {
+                "checking_variadic_callable_contract_unsupported"
+            }
+            Self::CheckingCallableAddressTypeUnsupported => {
+                "checking_callable_address_type_unsupported"
+            }
+            Self::CheckingFixedLayoutQueryTypeUnsupported => {
+                "checking_fixed_layout_query_type_unsupported"
+            }
+            Self::CheckingTrailingLayoutQueryTypeUnsupported => {
+                "checking_trailing_layout_query_type_unsupported"
+            }
+            Self::CheckingMemoryPointeeTypeUnsupported => {
+                "checking_memory_pointee_type_unsupported"
+            }
+            Self::CheckingTaglessUnionPatternRequiresVariant => {
+                "checking_tagless_union_pattern_requires_variant"
             }
             Self::CheckingForeignAbiTypeUnsupported => "checking_foreign_abi_type_unsupported",
             Self::CheckingPlatformServiceSignatureMismatch => {

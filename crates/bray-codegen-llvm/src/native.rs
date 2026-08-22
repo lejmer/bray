@@ -9,7 +9,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, StructValue};
 
 pub(crate) fn symbol_function_type<'context>(
     context: &'context Context,
@@ -375,6 +375,31 @@ pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
         ],
         false,
     )
+}
+
+pub(crate) fn source_anchor_value(
+    context: &Context,
+    source: bray_runtime_abi::NativeSourceAnchor,
+) -> StructValue<'_> {
+    source_anchor_type(context).const_named_struct(&[
+        context
+            .i32_type()
+            .const_int(u64::from(source.is_available()), false)
+            .into(),
+        context
+            .i32_type()
+            .const_int(u64::from(source.source()), false)
+            .into(),
+        context
+            .i32_type()
+            .const_int(u64::from(source.start()), false)
+            .into(),
+        context
+            .i32_type()
+            .const_int(u64::from(source.end()), false)
+            .into(),
+        context.i64_type().const_int(source.version(), false).into(),
+    ])
 }
 
 pub(crate) fn pointer_integer_type<'context>(

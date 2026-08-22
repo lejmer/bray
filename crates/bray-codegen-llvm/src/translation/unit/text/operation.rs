@@ -556,7 +556,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .cloned()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let tag = *tag;
+        let tag = (*tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
         let success = self.union_value(result, tag, &success, Some(string))?;
         let failure = self.union_value(result, tag, &failure, None)?;
 
@@ -584,7 +584,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(
             self.builder
-                .build_store(storage, integer_constant(tag_type, variant.tag())),
+                .build_store(
+                    storage,
+                    integer_constant(
+                        tag_type,
+                        variant
+                            .tag()
+                            .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                    ),
+                ),
         )?;
 
         if let Some(payload) = payload {

@@ -357,7 +357,7 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    if let bray_bound_tree::BoundCallableTarget::Declaration(callable) =
+    if let BoundCallableTarget::Declaration(callable) =
         candidate.resolution().target()
     {
         request
@@ -399,6 +399,7 @@ where
     }
 
     let recovered = match map_arguments(
+        request,
         input.types,
         input.mode,
         input.arguments,
@@ -702,6 +703,7 @@ enum ArgumentMapping {
 }
 
 fn map_arguments(
+    request: CheckerUnitView<'_, impl CheckerRequestContext + ?Sized>,
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
     arguments: &[BoundArgument],
@@ -716,7 +718,11 @@ fn map_arguments(
     let parameters = callable.parameters();
 
     let parameter_indices =
-        match map_argument_parameter_indices_for_diagnostic(arguments, parameters)? {
+        match map_argument_parameter_indices_for_diagnostic(
+            arguments,
+            parameters,
+            callable.is_variadic(),
+        )? {
             Ok(indices) => indices,
             Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
         };
@@ -730,6 +736,22 @@ fn map_arguments(
         let actual = expression_type(types, argument.expression())?;
 
         recovered |= argument.is_recovered() || actual.is_recovered();
+
+        let Some(parameter_index) = parameter_index else {
+            let conversion = variadic_argument_conversion(request, actual.ty())?;
+
+            let ordinal = u32::try_from(source_ordinal)
+                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            on_argument(SelectedArgument::Explicit {
+                expression: argument.expression(),
+                parameter: None,
+                ordinal,
+                conversion,
+            });
+
+            continue;
+        };
 
         if !actual.is_recovered() && actual.ty() != parameters[parameter_index].ty() {
             let ordinal = u64::try_from(source_ordinal)
@@ -839,7 +861,9 @@ fn map_arguments(
 fn map_argument_parameter_indices_for_diagnostic(
     arguments: &[BoundArgument],
     parameters: &[bray_symbols::CallableParameterData],
-) -> Result<Result<Vec<usize>, SelectionCallableArgumentRejection>, CheckerInfrastructureError> {
+    variadic: bool,
+) -> Result<Result<Vec<Option<usize>>, SelectionCallableArgumentRejection>, CheckerInfrastructureError>
+{
     let mut supplied = vec![false; parameters.len()];
     let mut positional_index = 0;
     let mut saw_named = false;
@@ -878,6 +902,11 @@ fn map_argument_parameter_indices_for_diagnostic(
                 positional_index += 1;
 
                 let Some(parameter) = parameters.get(index) else {
+                    if variadic {
+                        mapped.push(None);
+                        continue;
+                    }
+
                     return Ok(Err(
                         SelectionCallableArgumentRejection::PositionalUnavailable { ordinal },
                     ));
@@ -900,7 +929,7 @@ fn map_argument_parameter_indices_for_diagnostic(
             }));
         }
 
-        mapped.push(parameter_index);
+        mapped.push(Some(parameter_index));
     }
 
     Ok(Ok(mapped))
@@ -909,7 +938,8 @@ fn map_argument_parameter_indices_for_diagnostic(
 pub(crate) fn map_argument_parameter_indices(
     arguments: &[BoundArgument],
     parameters: &[bray_symbols::CallableParameterData],
-) -> Option<Vec<usize>> {
+    variadic: bool,
+) -> Option<Vec<Option<usize>>> {
     let mut supplied = vec![false; parameters.len()];
     let mut positional_index = 0;
     let mut saw_named = false;
@@ -923,19 +953,26 @@ pub(crate) fn map_argument_parameter_indices(
                 parameters
                     .iter()
                     .position(|parameter| parameter.name().as_str() == name.as_str())
+                    .map(Some)
             }
             None if saw_named => return None,
             None => {
                 let index = positional_index;
                 positional_index += 1;
 
-                parameters.get(index).and_then(|parameter| {
-                    (parameter.position() == CallablePosition::PositionalOrNamed).then_some(index)
-                })
+                match parameters.get(index) {
+                    Some(parameter) => (parameter.position()
+                        == CallablePosition::PositionalOrNamed)
+                        .then_some(Some(index)),
+                    None if variadic => Some(None),
+                    None => None,
+                }
             }
         }?;
 
-        if std::mem::replace(&mut supplied[parameter_index], true) {
+        if let Some(parameter_index) = parameter_index
+            && std::mem::replace(&mut supplied[parameter_index], true)
+        {
             return None;
         }
 
@@ -943,6 +980,28 @@ pub(crate) fn map_argument_parameter_indices(
     }
 
     Some(mapped)
+}
+
+fn variadic_argument_conversion<C>(
+    request: CheckerUnitView<'_, C>,
+    source: bray_symbols::TypeId,
+) -> Result<SelectedConversion, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(target) = super::operation::c_variadic_promotion_target(request, source)? else {
+        return Ok(SelectedConversion::new(
+            source,
+            source,
+            ConversionTarget::Identity,
+        ));
+    };
+
+    Ok(SelectedConversion::new(
+        source,
+        target,
+        ConversionTarget::CVariadicPromotion,
+    ))
 }
 
 #[derive(Clone)]
@@ -1229,7 +1288,7 @@ mod tests {
             Err(error) => panic!("method selection request must validate: {error:?}"),
         };
 
-        let member = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(4));
+        let member = FunctionSymbolId::from_symbol_id(SymbolId::new(4));
 
         let input = CallableSelectionRequest::new(
             fixture.call,
@@ -1514,7 +1573,7 @@ mod tests {
             SymbolKind::CallableOverload => {
                 bray_symbols::CallableOverloadSymbolId::from_symbol_id(SymbolId::new(0)).into()
             }
-            _ => bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(0)).into(),
+            _ => FunctionSymbolId::from_symbol_id(SymbolId::new(0)).into(),
         };
 
         BoundExpression::Name(bray_bound_tree::BoundNameExpression::new(

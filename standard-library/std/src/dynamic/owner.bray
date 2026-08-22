@@ -92,4 +92,9 @@ struct DynamicSymbol<T>
     {
         return self.owner;
     }
+
+    func pointer() -> RawPointer<T>
+    {
+        return self.address;
+    }
 }
