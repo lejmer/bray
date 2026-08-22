@@ -151,6 +151,10 @@ overridden by a selected component. The target defaults to the compiler host and
 cargo xtask runtime-artifact build --output target/release/lib/bray/runtime
 ```
 
+The output records the exact source, dependency, compiler, profile, target, and packaging inputs that produced it.
+Repeated builds authenticate the metadata and every component archive, then reuse a current runtime without rebuilding
+it.
+
 Run the host runtime build, deterministic partitioning, exact component symbol-boundary audit, synchronous linker-map
 leakage audit, and native-link smoke test with:
 
@@ -169,6 +173,10 @@ cargo xtask standard-library build --output <directory>
 Use `--source <directory>` to select another standard-library workspace. Without `--target`, the bundle contains
 artifacts for every supported native target. Use `--target <triple>` to build one target. A successful rebuild
 transactionally replaces an existing bundle at the output path.
+
+The bundle records the exact source, dependency, compiler, and packaging inputs that produced it. Repeated builds
+authenticate the manifest and every published artifact, then reuse a current bundle that contains all requested
+targets.
 
 To produce the installed layout expected by Bray Tack beside release binaries in `target/release/`, run:
 
@@ -197,7 +205,7 @@ The target bundle publishes separate core, standard-stream, filesystem, and proc
 records its exact native platform capabilities and direct native dependencies in the manifest. The build fails if that
 inventory is incomplete or overlaps another archive.
 
-tandard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
+Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
 
 Build, execute, validate, and measure the compiler performance corpus with:
 
@@ -207,9 +215,11 @@ cargo xtask performance --output <directory>
 
 The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain,
 performs one matched packaged-application compilation and one matched source-library compilation for Bray, Rust, and
-C++, compiles each runtime workload with Bray compiler summary profiling, performs warmups followed by seven measured
-executions, validates stable output, and writes bounded self-contained `candidate.html` and structured `candidate.json`
-reports. Each workload carries a fixed expected-output contract.
+C++, and compiles every matched workload with all three languages. Workload compilation records the complete compiler
+process duration including startup and teardown, then records compiler-reported work without compiler process startup or
+teardown. The command performs warmups followed by seven measured executions, validates stable output, and writes bounded
+self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output
+contract.
 
 The command writes phase and workload progress to standard error while keeping the `candidate.json` path as its only
 standard output line.

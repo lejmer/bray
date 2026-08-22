@@ -20,7 +20,7 @@ pub(super) fn build(
     output: &Path,
     kind: CompilationKind,
     target: NativeTarget,
-    toolchain: &Path,
+    standard_library: &Path,
     runtime: &Path,
 ) -> Result<CompilationBuildReport, String> {
     let output = output.join("bray");
@@ -52,7 +52,6 @@ pub(super) fn build(
     let evidence_output = output.join("evidence");
     let profile_path = output.join("profile.json");
     let linker_map_path = output.join("application.map");
-    let standard_library = toolchain.join("lib/bray/standard-library");
 
     std::fs::create_dir_all(&timed_output)
         .and_then(|()| std::fs::create_dir_all(&evidence_output))
@@ -63,10 +62,12 @@ pub(super) fn build(
 
     let timed_arguments = arguments(
         kind,
+        package,
+        product_name,
         &source,
         &timed_output,
         target,
-        &standard_library,
+        standard_library,
         runtime,
         None,
         None,
@@ -81,10 +82,12 @@ pub(super) fn build(
 
     let evidence_arguments = arguments(
         kind,
+        package,
+        product_name,
         &source,
         &evidence_output,
         target,
-        &standard_library,
+        standard_library,
         runtime,
         Some(&profile_path),
         (kind == CompilationKind::Application).then_some(linker_map_path.as_path()),
@@ -123,7 +126,7 @@ pub(super) fn build(
             let reuse = super::evidence::bray_reuse_evidence(
                 &artifact,
                 target,
-                &standard_library,
+                standard_library,
                 runtime,
             )?;
 
@@ -181,6 +184,8 @@ pub(super) fn build(
 )]
 fn arguments(
     kind: CompilationKind,
+    package: &str,
+    product: &str,
     source: &Path,
     output: &Path,
     target: NativeTarget,
@@ -189,76 +194,22 @@ fn arguments(
     profile: Option<&Path>,
     linker_map: Option<&Path>,
 ) -> Vec<String> {
-    let mut arguments = Vec::new();
-
-    if let Some(profile) = profile {
-        arguments.extend([
-            "--profile".to_owned(),
-            "summary".to_owned(),
-            "--profile-output".to_owned(),
-            crate::path::slash_separated(profile),
-        ]);
+    match kind {
+        CompilationKind::Application => super::super::compiler::application_arguments(
+            package,
+            product,
+            source,
+            output,
+            target,
+            standard_library,
+            runtime,
+            profile,
+            linker_map,
+        ),
+        CompilationKind::Library => super::super::compiler::library_arguments(
+            package, product, source, output, target, profile,
+        ),
     }
-
-    if kind == CompilationKind::Application {
-        arguments.extend([
-            "--standard-library-root".to_owned(),
-            crate::path::slash_separated(standard_library),
-        ]);
-    }
-
-    arguments.extend([
-        "build".to_owned(),
-        "--package".to_owned(),
-        match kind {
-            CompilationKind::Application => "bray.performance.application",
-            CompilationKind::Library => "bray.performance.library",
-        }
-        .to_owned(),
-        "--product".to_owned(),
-        match kind {
-            CompilationKind::Application => "application",
-            CompilationKind::Library => "library",
-        }
-        .to_owned(),
-        "--product-kind".to_owned(),
-        match kind {
-            CompilationKind::Application => "executable",
-            CompilationKind::Library => "library",
-        }
-        .to_owned(),
-        "--target".to_owned(),
-        target.as_str().to_owned(),
-        "--release".to_owned(),
-        "--artifact".to_owned(),
-        match kind {
-            CompilationKind::Application => "executable",
-            CompilationKind::Library => "relocatable-object",
-        }
-        .to_owned(),
-    ]);
-
-    if kind == CompilationKind::Application {
-        arguments.extend([
-            "--runtime-artifact".to_owned(),
-            crate::path::slash_separated(runtime),
-        ]);
-    }
-
-    if let Some(linker_map) = linker_map {
-        arguments.extend([
-            "--linker-map-output".to_owned(),
-            crate::path::slash_separated(linker_map),
-        ]);
-    }
-
-    arguments.extend([
-        "--output".to_owned(),
-        crate::path::slash_separated(output),
-        crate::path::slash_separated(source),
-    ]);
-
-    arguments
 }
 
 fn product_identity(package: &str, product: &str) -> Result<bray_symbols::ProductIdentity, String> {

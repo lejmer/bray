@@ -3,6 +3,7 @@
 mod command;
 mod native_link;
 mod partition;
+mod reuse;
 mod smoke;
 
 pub(crate) use command::{

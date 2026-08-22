@@ -1,6 +1,8 @@
 use super::model::{ArtifactKind, ArtifactReport, Observation, WorkloadReport};
 
 pub(super) struct CandidateWinners {
+    pub(super) compilation_process: Option<u64>,
+    pub(super) compiler_work: Option<u64>,
     pub(super) controlled_median: Option<u64>,
     pub(super) controlled_mad: Option<u64>,
     pub(super) process_median: Option<u64>,
@@ -14,6 +16,28 @@ pub(super) struct CandidateWinners {
 impl CandidateWinners {
     pub(super) fn for_workload(workload: &WorkloadReport) -> Self {
         Self {
+            compilation_process: minimum_complete(
+                std::iter::once(Some(
+                    workload.compilation.process_elapsed_nanoseconds,
+                ))
+                .chain(
+                    workload
+                        .peers
+                        .values()
+                        .map(|peer| Some(peer.compilation.process_elapsed_nanoseconds)),
+                ),
+            ),
+            compiler_work: minimum_complete(
+                std::iter::once(Some(
+                    workload.compilation.compiler_elapsed_nanoseconds,
+                ))
+                .chain(
+                    workload
+                        .peers
+                        .values()
+                        .map(|peer| Some(peer.compilation.compiler_elapsed_nanoseconds)),
+                ),
+            ),
             controlled_median: minimum_complete(
                 std::iter::once(Some(workload.bray_execution.median_picoseconds)).chain(
                     workload

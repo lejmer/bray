@@ -4,6 +4,7 @@ mod bundle;
 mod command;
 mod compiler_known;
 mod dependency_audit;
+mod input_identity;
 mod json;
 mod link_map;
 mod native_archive;

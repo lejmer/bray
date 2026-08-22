@@ -8,6 +8,7 @@ use bray_target::{NativeTarget, ObjectFormat};
 
 use super::super::model::{
     PeerBatching, PeerBuildConfiguration, PeerCompilerConfiguration, PeerLanguage, RuntimeLinkage,
+    WorkloadCompilationReport,
 };
 use super::source::{PeerSource, sources};
 
@@ -18,6 +19,7 @@ pub(in crate::performance) struct BuiltPeer {
     pub toolchain: String,
     pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
+    pub compilation: WorkloadCompilationReport,
     pub executable: PathBuf,
     pub linker_map: PathBuf,
     pub timed_executable: PathBuf,
@@ -79,7 +81,45 @@ fn build_rust(
         None,
     )?;
 
-    run_compiler("rustc", &production, "building Rust performance peer")?;
+    let process = super::super::compiler_timing::process(
+        "rustc",
+        &production,
+        "building Rust performance peer",
+    )?;
+
+    let profiled_executable =
+        directory.join(crate::native_toolchain::executable_name("peer-profiled"));
+
+    let profiled_linker_map = directory.join("peer-profiled.map");
+
+    let mut profiled = rust_configuration(
+        &source_path,
+        &profiled_executable,
+        &profiled_linker_map,
+        target,
+        source.selector,
+        &linker,
+        None,
+    )?;
+
+    profiled.arguments.extend([
+        "-Z".to_owned(),
+        "time-passes".to_owned(),
+        "-Z".to_owned(),
+        "time-passes-format=json".to_owned(),
+    ]);
+
+    profiled
+        .environment
+        .insert("RUSTC_BOOTSTRAP".to_owned(), "1".to_owned());
+
+    let compiler = super::super::compiler_timing::rust(
+        "rustc",
+        &profiled,
+        "profiling Rust performance peer compilation",
+    )?;
+
+    let compilation = super::super::compiler_timing::report(process, compiler);
 
     let timed_executable = directory.join(crate::native_toolchain::executable_name("peer-timed"));
     let timed_linker_map = directory.join("peer-timed.map");
@@ -109,6 +149,7 @@ fn build_rust(
             post_link_actions: vec!["rustc strips symbols during linking".to_owned()],
         },
         source_sha256: super::super::compilation::source_digest(source.contents),
+        compilation,
         executable,
         linker_map,
         timed_executable,
@@ -239,7 +280,48 @@ fn build_cpp(
 
     let compiler = crate::path::slash_separated(&clang);
 
-    run_compiler(&compiler, &production, "building C++ performance peer")?;
+    let process = super::super::compiler_timing::process(
+        &compiler,
+        &production,
+        "building C++ performance peer",
+    )?;
+
+    let profiled_executable =
+        directory.join(crate::native_toolchain::executable_name("peer-profiled"));
+
+    let profiled_linker_map = directory.join("peer-profiled.map");
+    let compiler_trace = directory.join("clang.json");
+    let linker_trace = directory.join("lld.json");
+
+    let mut profiled = cpp_configuration(
+        &source_path,
+        &profiled_executable,
+        &profiled_linker_map,
+        target,
+        source.selector,
+        None,
+    )?;
+
+    profiled.arguments.extend([
+        format!(
+            "-ftime-trace={}",
+            crate::path::slash_separated(&compiler_trace)
+        ),
+        format!(
+            "-Wl,--time-trace={}",
+            crate::path::slash_separated(&linker_trace)
+        ),
+    ]);
+
+    let compiler_work = super::super::compiler_timing::cpp(
+        &compiler,
+        &profiled,
+        &compiler_trace,
+        &linker_trace,
+        "profiling C++ performance peer compilation",
+    )?;
+
+    let compilation = super::super::compiler_timing::report(process, compiler_work);
 
     strip_cpp_artifact(root, &executable)?;
 
@@ -272,6 +354,7 @@ fn build_cpp(
             post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
         },
         source_sha256: super::super::compilation::source_digest(source.contents),
+        compilation,
         executable,
         linker_map,
         timed_executable,

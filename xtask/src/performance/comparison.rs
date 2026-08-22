@@ -49,6 +49,18 @@ pub(super) fn compare(
             || baseline_workload.process_execution.scope
                 != candidate_workload.process_execution.scope
             || baseline_workload.bray_execution.scope != candidate_workload.bray_execution.scope
+            || baseline_workload.compilation.process_scope
+                != candidate_workload.compilation.process_scope
+            || baseline_workload.compilation.compiler_scope
+                != candidate_workload.compilation.compiler_scope
+            || baseline_workload
+                .compilation
+                .compiler_components_nanoseconds
+                .keys()
+                .ne(candidate_workload
+                    .compilation
+                    .compiler_components_nanoseconds
+                    .keys())
         {
             return Err(format!(
                 "workload {} does not have equivalent inputs and output",
@@ -80,6 +92,14 @@ pub(super) fn compare(
 
         workloads.push(WorkloadComparison {
             id: candidate_workload.id.clone(),
+            compilation_process: observed_metric(
+                baseline_workload.compilation.process_elapsed_nanoseconds,
+                candidate_workload.compilation.process_elapsed_nanoseconds,
+            ),
+            compiler_work: observed_metric(
+                baseline_workload.compilation.compiler_elapsed_nanoseconds,
+                candidate_workload.compilation.compiler_elapsed_nanoseconds,
+            ),
             process_execution,
             bray_execution,
             compiler_operations: compare_compiler_operations(baseline_workload, candidate_workload),
@@ -199,6 +219,16 @@ fn compare_peers(
                     != candidate.build_configuration.post_link_actions
                 || baseline.process_execution.scope != candidate.process_execution.scope
                 || baseline.controlled_execution.scope != candidate.controlled_execution.scope
+                || baseline.compilation.process_scope != candidate.compilation.process_scope
+                || baseline.compilation.compiler_scope != candidate.compilation.compiler_scope
+                || baseline
+                    .compilation
+                    .compiler_components_nanoseconds
+                    .keys()
+                    .ne(candidate
+                        .compilation
+                        .compiler_components_nanoseconds
+                        .keys())
             {
                 return Err(format!(
                     "workload {} {language:?} peer configurations differ",
@@ -207,6 +237,14 @@ fn compare_peers(
             }
 
             let comparison = PeerComparison {
+                compilation_process: observed_metric(
+                    baseline.compilation.process_elapsed_nanoseconds,
+                    candidate.compilation.process_elapsed_nanoseconds,
+                ),
+                compiler_work: observed_metric(
+                    baseline.compilation.compiler_elapsed_nanoseconds,
+                    candidate.compilation.compiler_elapsed_nanoseconds,
+                ),
                 process_execution: noisy_metric(
                     baseline.process_execution.median_picoseconds,
                     candidate.process_execution.median_picoseconds,

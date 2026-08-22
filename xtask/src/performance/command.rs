@@ -3,10 +3,12 @@ mod compiler;
 mod execution;
 mod identity;
 mod measurement;
+mod optimization_artifacts;
 mod options;
 mod output;
 mod progress;
 mod toolchain;
+mod workload_compilation;
 
 pub(crate) use execution::run;
 pub(super) use identity::expected_output_digest;

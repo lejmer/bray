@@ -287,6 +287,14 @@ fn build_product_bundle(
     output: &Path,
     targets: &[TargetIdentity],
 ) -> Result<PathBuf, BuildError> {
+    let input = super::reuse::input_identity(source)?;
+
+    if super::reuse::current(output, &input, targets)? {
+        crate::progress::message("Reusing standard library bundle");
+
+        return Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME));
+    }
+
     let publication = DirectoryPublication::begin(output, "bray-standard-library-")
         .map_err(BuildError::Publication)?;
 
@@ -308,6 +316,8 @@ fn build_product_bundle(
     fs::write(&manifest_path, manifest_bytes)
         .map_err(|error| BuildError::write(&manifest_path, error))?;
 
+    crate::input_identity::write_digest(bundle, &input).map_err(BuildError::InputIdentity)?;
+
     let published = publication.publish().map_err(BuildError::Publication)?;
 
     Ok(published.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
@@ -328,6 +338,7 @@ fn build_bundle(
         .collect();
 
     let mut built_targets = Vec::new();
+
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let temporal_provenance_path = root.join("third-party/temporal/provenance.json");
 
@@ -384,7 +395,6 @@ fn build_bundle(
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         let file_name = standard_library_archive_name(native)?;
-
         let portable_path = format!("{target_path}/{file_name}");
 
         write_bundle_artifact(bundle, &portable_path, &archive_bytes)?;
@@ -515,7 +525,6 @@ fn build_target(
         .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))?;
 
     let root = workspace::root().map_err(BuildError::Workspace)?;
-
     let output = work.join(target.as_str());
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
@@ -621,9 +630,18 @@ fn build_target(
         ));
     }
 
-    let interface_path = emitted_path(&outcome, ArtifactKind::PackageInterface)?;
-    let implementation_path = emitted_path(&outcome, ArtifactKind::PackageImplementation)?;
-    let archive_path = emitted_path(&outcome, ArtifactKind::StaticLibrary)?;
+    let required_path = |kind| {
+        emitted_paths(&outcome, kind)
+            .into_iter()
+            .next()
+            .ok_or(BuildError::MissingEmittedArtifact(kind))
+    };
+
+    let interface_path = required_path(ArtifactKind::PackageInterface)?;
+
+    let implementation_path = required_path(ArtifactKind::PackageImplementation)?;
+
+    let archive_path = required_path(ArtifactKind::StaticLibrary)?;
     let bitcode_paths = emitted_paths(&outcome, ArtifactKind::BackendBitcode);
 
     let interface_bytes =
@@ -681,25 +699,6 @@ pub(in crate::standard_library) fn standard_library_source_request(
             .with_platform_services(product.platform_services().iter().cloned())
             .with_package_interface_export(interface_export_request(product.identity(), version)?),
     )
-}
-
-fn emitted_path(
-    outcome: &bray_emitter::EmissionOutcome,
-    kind: ArtifactKind,
-) -> Result<PathBuf, BuildError> {
-    outcome
-        .artifacts()
-        .artifacts()
-        .iter()
-        .find(|artifact| artifact.id().kind() == kind)
-        .and_then(|artifact| match artifact.sink() {
-            OutputSink::ManagedFilesystem { .. } => outcome
-                .generation()
-                .and_then(|generation| generation.artifact_path(artifact.id())),
-            OutputSink::Filesystem(path) => Some(path.clone()),
-            OutputSink::Memory { .. } | OutputSink::Stream(_) => None,
-        })
-        .ok_or(BuildError::MissingEmittedArtifact(kind))
 }
 
 fn emitted_paths(outcome: &bray_emitter::EmissionOutcome, kind: ArtifactKind) -> Vec<PathBuf> {

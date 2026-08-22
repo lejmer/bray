@@ -5,9 +5,125 @@ use super::html::{BoundedHtml, escape};
 use super::model::{
     CompilationBuildReport, CompilationComparability, CompilationComparisonReport,
     CompilationIncomparability, CompilationLanguage, LinkerInvocationReport,
-    PeerCompilerConfiguration, ReportIdentity, RuntimeLinkage, ToolInvocationReport,
-    WorkloadBatching,
+    PeerCompilerConfiguration, PeerLanguage, PerformanceReport, ReportIdentity, RuntimeLinkage,
+    ToolInvocationReport, WorkloadBatching, WorkloadCompilationReport,
 };
+
+pub(super) fn workload_compilation_summary(
+    html: &mut BoundedHtml,
+    report: &PerformanceReport,
+) -> Result<(), String> {
+    let rows = [
+        ("Bray", workload_compilation_totals(report, None)?),
+        (
+            "Rust",
+            workload_compilation_totals(report, Some(PeerLanguage::Rust))?,
+        ),
+        (
+            "C++",
+            workload_compilation_totals(report, Some(PeerLanguage::Cpp))?,
+        ),
+    ];
+
+    let process_winner = rows
+        .iter()
+        .map(|(_, (process, _))| *process)
+        .min();
+
+    let compiler_winner = rows
+        .iter()
+        .map(|(_, (_, compiler))| *compiler)
+        .min();
+
+    html.push_str(
+        "<section><h2>Matched workload compilation</h2><p>Totals cover every selected workload.</p>\
+        <div class=\"table-scroll\"><table><thead><tr><th>Language</th><th>Programs</th>\
+        <th>Compiler process</th><th>Compiler work</th></tr></thead><tbody>",
+    );
+
+    for (language, (process, compiler)) in rows {
+        let _ = write!(
+            html,
+            "<tr><th>{language}</th><td>{}</td><td {} {}>{}</td><td {} {}>{}</td></tr>",
+            report.workloads.len(),
+            compilation_winner_class(process, process_winner),
+            nanoseconds_title(process),
+            milliseconds(process),
+            compilation_winner_class(compiler, compiler_winner),
+            nanoseconds_title(compiler),
+            milliseconds(compiler),
+        );
+    }
+
+    html.push_str("</tbody></table></div></section>");
+
+    Ok(())
+}
+
+fn workload_compilation_totals(
+    report: &PerformanceReport,
+    peer: Option<PeerLanguage>,
+) -> Result<(u64, u64), String> {
+    report.workloads.iter().try_fold(
+        (0_u64, 0_u64),
+        |(process_total, compiler_total), workload| {
+            let timing = match peer {
+                Some(language) => {
+                    &workload
+                        .peers
+                        .get(&language)
+                        .ok_or_else(|| {
+                            format!("workload {} is missing {language:?}", workload.id)
+                        })?
+                        .compilation
+                }
+                None => &workload.compilation,
+            };
+
+            let process_total = process_total
+                .checked_add(timing.process_elapsed_nanoseconds)
+                .ok_or_else(|| "compiler process total exceeds the report bound".to_owned())?;
+
+            let compiler_total = compiler_total
+                .checked_add(timing.compiler_elapsed_nanoseconds)
+                .ok_or_else(|| "compiler work total exceeds the report bound".to_owned())?;
+
+            Ok((process_total, compiler_total))
+        },
+    )
+}
+
+pub(super) fn workload_compilation_details(
+    html: &mut BoundedHtml,
+    language: &str,
+    report: &WorkloadCompilationReport,
+) {
+    let _ = write!(
+        html,
+        "<details><summary>{} compilation details</summary><dl>\
+        <dt>Compiler process</dt><dd {}>{}</dd><dt>Compiler work</dt><dd {}>{}</dd>",
+        language,
+        nanoseconds_title(report.process_elapsed_nanoseconds),
+        milliseconds(report.process_elapsed_nanoseconds),
+        nanoseconds_title(report.compiler_elapsed_nanoseconds),
+        milliseconds(report.compiler_elapsed_nanoseconds),
+    );
+
+    for (component, elapsed) in &report.compiler_components_nanoseconds {
+        let _ = write!(
+            html,
+            "<dt>{}</dt><dd {}>{}</dd>",
+            escape(component),
+            nanoseconds_title(*elapsed),
+            milliseconds(*elapsed),
+        );
+    }
+
+    html.push_str("</dl>");
+    tool_invocation(html, "Measured compiler process", &report.process_invocation);
+    tool_invocation(html, "Profiled compiler invocation", &report.profiled_invocation);
+    html.push_str("</details>");
+}
 
 pub(super) fn identity(html: &mut BoundedHtml, label: &str, identity: &ReportIdentity) {
     let _ = write!(

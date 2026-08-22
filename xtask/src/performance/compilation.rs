@@ -600,7 +600,7 @@ fn reuse_is_valid(inputs: &BoundedList<RetainedInput>) -> bool {
         })
 }
 
-fn validate_invocation(invocation: &ToolInvocationReport) -> Result<(), String> {
+pub(super) fn validate_invocation(invocation: &ToolInvocationReport) -> Result<(), String> {
     if invocation.program.is_empty()
         || invocation.arguments.is_empty()
         || invocation.arguments.len() > MAX_TOOL_ARGUMENT_COUNT
