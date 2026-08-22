@@ -38,7 +38,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let operand_type = call
                         .arguments()
                         .first()
-                        .and_then(bray_ir::MirCallArgument::value)
+                        .and_then(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
                         .transpose()?
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;

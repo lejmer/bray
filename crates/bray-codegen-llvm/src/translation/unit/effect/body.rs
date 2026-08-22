@@ -247,29 +247,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         };
 
-        let context = self.types.context();
-
-        Ok(crate::native::source_anchor_type(context)
-            .const_named_struct(&[
-                context
-                    .i32_type()
-                    .const_int(u64::from(source.is_available()), false)
-                    .into(),
-                context
-                    .i32_type()
-                    .const_int(u64::from(source.source()), false)
-                    .into(),
-                context
-                    .i32_type()
-                    .const_int(u64::from(source.start()), false)
-                    .into(),
-                context
-                    .i32_type()
-                    .const_int(u64::from(source.end()), false)
-                    .into(),
-                context.i64_type().const_int(source.version(), false).into(),
-            ])
-            .into())
+        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
     }
 
     fn native_string_view(

@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub(crate) use bray_bound_tree::testing::{checked_expression_types, push_expression};
+pub(crate) use bray_bound_tree::testing::{
+    checked_expression_types, checked_expression_types_from_entries, push_expression,
+};
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
     BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
@@ -124,7 +126,7 @@ impl CheckerRequestContext for TestCheckerContext {
         available_compiler_known_symbols()
     }
 
-    fn selected_target(&self) -> &bray_target::TargetProfile {
+    fn selected_target(&self) -> &TargetProfile {
         self.target_observations.fetch_add(1, Ordering::Relaxed);
 
         self.target
@@ -172,9 +174,9 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn statically_establishes_copyability(
         &self,
-        _context: &crate::SemanticUnitContext,
-        _ty: bray_symbols::TypeId,
-    ) -> crate::CheckerQueryResult<bool> {
+        _context: &SemanticUnitContext,
+        _ty: TypeId,
+    ) -> CheckerQueryResult<bool> {
         Ok(false)
     }
 
@@ -194,7 +196,7 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn source_syntax(
         &self,
-        anchor: bray_declarations::SyntaxAnchor,
+        anchor: SyntaxAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
         let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
         let source = self.source.as_ref().unwrap_or_else(|| source_snapshot());
@@ -278,8 +280,8 @@ pub(crate) fn symbol_graph() -> &'static SymbolGraph {
     })
 }
 
-pub(crate) fn test_target_profile() -> &'static bray_target::TargetProfile {
-    static TARGET: OnceLock<bray_target::TargetProfile> = OnceLock::new();
+pub(crate) fn test_target_profile() -> &'static TargetProfile {
+    static TARGET: OnceLock<TargetProfile> = OnceLock::new();
 
     TARGET.get_or_init(bray_target::test_support::test_target_profile)
 }

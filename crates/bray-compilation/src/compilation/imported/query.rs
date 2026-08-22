@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId,
-    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit,
+    DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId, DiagnosticInterfaceLimit,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolGraphProblem,
     DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference,
     DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticRelatedLocation,
@@ -20,7 +19,8 @@ use bray_package_interface::{
 };
 use bray_symbols::{
     ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity, SemanticValueKind,
-    SemanticValueStoreError, SymbolId, SymbolRootKey, diagnostic_symbol_kind,
+    SemanticValueStoreError, SymbolId, SymbolRootKey, diagnostic_external_symbol_identity,
+    diagnostic_symbol_kind,
 };
 
 use super::diagnostic::{
@@ -774,7 +774,7 @@ fn imported_symbol_diagnostic(
             DiagnosticKind::InterfaceDependencySymbolMissing,
             vec![
                 DiagnosticArg::expected_package_identity(package.as_str()),
-                DiagnosticArg::interface_symbol_identity(external_symbol_identity(&key)),
+                DiagnosticArg::interface_symbol_identity(diagnostic_external_symbol_identity(&key)),
             ],
             Some(importing),
             None,
@@ -850,7 +850,7 @@ fn symbol_identity(key: &bray_symbols::SymbolKey) -> DiagnosticInterfaceSymbolId
             owner: Box::new(symbol_identity(synthesized.subject())),
             identity: synthesized_identity(synthesized.role(), synthesized.ordinal()),
         },
-        SymbolKeyData::External(external) => external_symbol_identity(external),
+        SymbolKeyData::External(external) => diagnostic_external_symbol_identity(external),
     }
 }
 
@@ -898,7 +898,7 @@ fn interface_symbol_graph_problem(
         }
         Error::DuplicateExternalKey { key, .. } => {
             DiagnosticInterfaceSymbolGraphProblem::DuplicateExternalIdentity(
-                external_symbol_identity(&key),
+                diagnostic_external_symbol_identity(&key),
             )
         }
         Error::RelationshipSymbolOutOfBounds { interface, symbol } => {
@@ -957,11 +957,9 @@ fn interface_symbol_graph_problem(
                 kind: diagnostic_symbol_kind(owner.kind()),
             }
         }
-        Error::MissingLookupTarget(key) => {
-            DiagnosticInterfaceSymbolGraphProblem::MissingLookupTarget(external_symbol_identity(
-                &key,
-            ))
-        }
+        Error::MissingLookupTarget(key) => DiagnosticInterfaceSymbolGraphProblem::MissingLookupTarget(
+            diagnostic_external_symbol_identity(&key),
+        ),
         Error::DuplicateLookupName { owner, name } => {
             DiagnosticInterfaceSymbolGraphProblem::DuplicateLookupName {
                 owner: owner.symbol_id().raw(),
@@ -979,48 +977,6 @@ fn interface_symbol_graph_problem(
                 kind: diagnostic_symbol_kind(symbol.kind()),
             }
         }
-    }
-}
-
-fn external_symbol_identity(
-    key: &bray_symbols::ExternalSymbolKey,
-) -> DiagnosticInterfaceSymbolIdentity {
-    use bray_symbols::{ExternalDeclarationIdentity, ExternalSymbolKeyData};
-
-    match key.data() {
-        ExternalSymbolKeyData::Package(package) => {
-            DiagnosticInterfaceSymbolIdentity::Package(package.as_str().to_owned())
-        }
-        ExternalSymbolKeyData::Module { package, path } => {
-            DiagnosticInterfaceSymbolIdentity::Module {
-                owner: Box::new(external_symbol_identity(package)),
-                path: module_path(path),
-            }
-        }
-        ExternalSymbolKeyData::Declaration {
-            owner,
-            kind,
-            identity,
-        } => DiagnosticInterfaceSymbolIdentity::Declaration {
-            owner: Box::new(external_symbol_identity(owner)),
-            kind: diagnostic_symbol_kind(*kind),
-            identity: match identity {
-                ExternalDeclarationIdentity::Name(name) => {
-                    DiagnosticInterfaceDeclarationIdentity::Name(name.as_str().to_owned())
-                }
-                ExternalDeclarationIdentity::Ordinal(ordinal) => {
-                    DiagnosticInterfaceDeclarationIdentity::Ordinal(ordinal.raw())
-                }
-            },
-        },
-        ExternalSymbolKeyData::Synthesized {
-            owner,
-            role,
-            ordinal,
-        } => DiagnosticInterfaceSymbolIdentity::Synthesized {
-            owner: Box::new(external_symbol_identity(owner)),
-            identity: synthesized_identity(*role, *ordinal),
-        },
     }
 }
 
@@ -1086,7 +1042,7 @@ fn interface_symbol_reference(
         InterfaceSymbolReference::Dependency { dependency, key } => {
             DiagnosticInterfaceSymbolReference::Dependency {
                 dependency: dependency.raw(),
-                identity: external_symbol_identity(&key),
+                identity: diagnostic_external_symbol_identity(&key),
             }
         }
         InterfaceSymbolReference::CompilerKnown(reference) => {
@@ -1394,7 +1350,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
 
-        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+        let root = StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));
 
         let package = PackageIdentity::try_new("example.application")
@@ -1565,7 +1521,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
 
-        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+        let root = StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));
 
         let package = PackageIdentity::try_new("example.application")
@@ -2385,7 +2341,7 @@ mod tests {
         compilation: &Compilation,
         package_name: &str,
         product_name: &str,
-    ) -> bray_symbols::ImportedInterfaceId {
+    ) -> ImportedInterfaceId {
         compilation
             .dependency_interface_id(&package(package_name), &product(product_name))
             .unwrap_or_else(|| panic!("selected dependency interface must have an ID"))

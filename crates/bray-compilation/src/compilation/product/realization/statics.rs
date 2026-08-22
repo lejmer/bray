@@ -158,27 +158,9 @@ impl Compilation {
         }
 
         for storage in mir.storages() {
-            let reference = match storage.kind() {
-                MirStorageKind::Static(reference) => reference,
-                MirStorageKind::NativeStatic(reference)
-                    if self
-                        .optional_native_static_contract(reference, cancellation)?
-                        .is_some_and(|contract| {
-                            contract.direction
-                                == bray_symbols::ForeignCallableDirection::Export
-                        }) =>
-                {
-                    reference
-                }
-                MirStorageKind::NativeStatic(_)
-                | MirStorageKind::Parameter(_)
-                | MirStorageKind::Local
-                | MirStorageKind::Temporary
-                | MirStorageKind::Return
-                | MirStorageKind::InactiveFrame
-                | MirStorageKind::CurrentFrame
-                | MirStorageKind::CurrentTask
-                | MirStorageKind::ChildTask => continue,
+            let Some(reference) = self.codegen_static_reference(storage.kind(), cancellation)?
+            else {
+                continue;
             };
 
             let static_realization =
@@ -365,19 +347,9 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for (storage, data) in instance.mir().storages_with_ids() {
-                let reference = match data.kind() {
-                    MirStorageKind::Static(reference) => reference,
-                    MirStorageKind::NativeStatic(reference)
-                        if self
-                            .optional_native_static_contract(reference, cancellation)?
-                            .is_some_and(|contract| {
-                                contract.direction
-                                    == bray_symbols::ForeignCallableDirection::Export
-                            }) =>
-                    {
-                        reference
-                    }
-                    _ => continue,
+                let Some(reference) = self.codegen_static_reference(data.kind(), cancellation)?
+                else {
+                    continue;
                 };
 
                 let realization =

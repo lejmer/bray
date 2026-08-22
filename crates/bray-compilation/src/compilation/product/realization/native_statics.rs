@@ -17,6 +17,24 @@ pub(super) struct NativeStaticContract {
 }
 
 impl Compilation {
+    pub(super) fn codegen_static_reference<'a>(
+        &self,
+        kind: &'a MirStorageKind,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<&'a StaticReferenceSelection>, CodegenPreparationError> {
+        match kind {
+            MirStorageKind::Static(reference) => Ok(Some(reference)),
+            MirStorageKind::NativeStatic(reference) => {
+                let contract = self.optional_native_static_contract(reference, cancellation)?;
+
+                Ok(contract
+                    .is_some_and(|contract| contract.direction == ForeignCallableDirection::Export)
+                    .then_some(reference))
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub(super) fn codegen_native_static_storages(
         &self,
         unit: &CodegenUnit,

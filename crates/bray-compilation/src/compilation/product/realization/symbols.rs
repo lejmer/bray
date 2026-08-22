@@ -123,13 +123,10 @@ impl Compilation {
         }
 
         for reference in codegen_runtime_references(unit, operations, &symbols) {
-            let symbol_name = executable_host
-                .and_then(|host| host.role_binding(reference.role()))
-                .map(|binding| binding.symbol_name().clone())
-                .or_else(|| {
-                    bray_runtime_interface::native_runtime_role_symbol(reference.role())
-                        .and_then(BinarySymbolName::try_new)
-                })
+            let symbol_name = bray_runtime_interface::selected_runtime_role_symbol(
+                executable_host,
+                reference.role(),
+            )
                 .ok_or(CodegenPreparationError::MissingRuntimeRole(
                     reference.role(),
                 ))?;

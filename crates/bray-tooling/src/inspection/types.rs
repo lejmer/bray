@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableParameterMode, GenericArgument, GenericArgumentTemplate,
-    SemanticValueStore, SymbolGraph, TraitApplicationId, TraitApplicationTemplate, TypeData,
-    TypeExpressionTemplate, TypeId,
+    GenericSubstitutionData, SemanticValueStore, SymbolGraph, TraitApplicationId,
+    TraitApplicationTemplate, TypeData, TypeExpressionTemplate, TypeId,
 };
 use serde::Serialize;
 
@@ -218,11 +218,7 @@ impl<'model> TypeFormatter<'model> {
                     .generic_substitution_data(*substitution)
                     .map_err(|_| TypeInspectionError::SemanticValue)?;
 
-                let arguments = substitution
-                    .bindings()
-                    .iter()
-                    .map(|binding| self.argument(binding.argument(), depth + 1))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let arguments = self.substitution_arguments(&substitution, depth)?;
 
                 Ok(format_application(name, arguments))
             }
@@ -341,6 +337,18 @@ impl<'model> TypeFormatter<'model> {
         }
     }
 
+    fn substitution_arguments(
+        &mut self,
+        substitution: &GenericSubstitutionData,
+        depth: usize,
+    ) -> Result<Vec<String>, TypeInspectionError> {
+        substitution
+            .bindings()
+            .iter()
+            .map(|binding| self.argument(binding.argument(), depth + 1))
+            .collect()
+    }
+
     fn trait_template(
         &mut self,
         application: &TraitApplicationTemplate,
@@ -369,11 +377,7 @@ impl<'model> TypeFormatter<'model> {
             .generic_substitution_data(application.substitution())
             .map_err(|_| TypeInspectionError::SemanticValue)?;
 
-        let arguments = substitution
-            .bindings()
-            .iter()
-            .map(|binding| self.argument(binding.argument(), depth + 1))
-            .collect::<Result<Vec<_>, _>>()?;
+        let arguments = self.substitution_arguments(&substitution, depth)?;
 
         Ok(format_application(name, arguments))
     }

@@ -701,23 +701,5 @@ fn native_source_anchor_value<'context>(
         | None => bray_runtime_abi::NativeSourceAnchor::unavailable(),
     };
 
-    crate::native::source_anchor_type(context).const_named_struct(&[
-        context
-            .i32_type()
-            .const_int(u64::from(source.is_available()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.source()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.start()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.end()), false)
-            .into(),
-        context.i64_type().const_int(source.version(), false).into(),
-    ])
+    crate::native::source_anchor_value(context, source)
 }

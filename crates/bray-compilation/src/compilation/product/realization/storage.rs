@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget};
-use bray_ir::MirStorageKind;
 use bray_runtime_interface::{ExecutableEntryResult, ExecutionLaneRequirement};
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
@@ -95,19 +94,10 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let reference = match storage.kind() {
-                    MirStorageKind::Static(reference) => reference,
-                    MirStorageKind::NativeStatic(reference)
-                        if self
-                            .optional_native_static_contract(reference, cancellation)?
-                            .is_some_and(|contract| {
-                                contract.direction
-                                    == bray_symbols::ForeignCallableDirection::Export
-                            }) =>
-                    {
-                        reference
-                    }
-                    _ => continue,
+                let Some(reference) =
+                    self.codegen_static_reference(storage.kind(), cancellation)?
+                else {
+                    continue;
                 };
 
                 let provider =
@@ -154,19 +144,10 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let reference = match storage.kind() {
-                    MirStorageKind::Static(reference) => reference,
-                    MirStorageKind::NativeStatic(reference)
-                        if self
-                            .optional_native_static_contract(reference, cancellation)?
-                            .is_some_and(|contract| {
-                                contract.direction
-                                    == bray_symbols::ForeignCallableDirection::Export
-                            }) =>
-                    {
-                        reference
-                    }
-                    _ => continue,
+                let Some(reference) =
+                    self.codegen_static_reference(storage.kind(), cancellation)?
+                else {
+                    continue;
                 };
 
                 let static_instance =

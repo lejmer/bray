@@ -48,8 +48,8 @@ pub use compiler_known::{
     CompilerKnownTargetProfile,
 };
 pub use diagnostic::{
-    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_symbol_identity,
-    diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
+    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_external_symbol_identity,
+    diagnostic_symbol_identity, diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};

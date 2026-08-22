@@ -503,8 +503,8 @@ pub(super) fn decode_constant_projection(
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
-        CallablePosition, CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData,
+        CallableAbi, CallableConstness, CallableExecution, CallableParameterMode, CallablePosition,
+        CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData,
         ConstantValueKind, ExternalSymbolKey, FunctionSymbolId, InherentImplementationSymbolId,
         IntegerConstant, IntegerSign, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
         PackageSymbolId, SelfTypeContext, SemanticValueStore, StructFieldSymbolId, StructSymbolId,
@@ -514,8 +514,8 @@ mod tests {
 
     use super::super::decode_semantics;
     use super::super::test_support::{
-        OwnedSection, encoded_section_views, interface_surface, local_by_kind as symbol_reference,
-        owned_section_views, owned_sections, record_range,
+        OwnedSection, Resolver, encoded_section_views, interface_surface,
+        local_by_kind as symbol_reference, owned_section_views, owned_sections, record_range,
     };
     use crate::semantic::codec::encode_semantics;
     use crate::test_support::{module_key as test_module_key, named_key};
@@ -526,39 +526,10 @@ mod tests {
         InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericSubstitution,
         InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
         InterfaceSemanticInternError, InterfaceSemantics, InterfaceSourceProvenance,
-        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetPropertyDependency,
+        InterfaceSymbolReference, InterfaceTargetPropertyDependency,
         InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
         InterfaceValidationError, InterfaceValidationLimits,
     };
-
-    struct Resolver {
-        symbols: Vec<AnySymbolId>,
-        keys: Vec<ExternalSymbolKey>,
-    }
-
-    impl InterfaceSymbolResolver for Resolver {
-        fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
-            let InterfaceSymbolReference::Local(id) = reference else {
-                return None;
-            };
-
-            self.symbols.get(id.to_index()?).copied()
-        }
-
-        fn symbol_key(
-            &self,
-            reference: &InterfaceSymbolReference,
-        ) -> Option<bray_symbols::SymbolKey> {
-            let InterfaceSymbolReference::Local(id) = reference else {
-                return None;
-            };
-
-            self.keys
-                .get(id.to_index()?)
-                .cloned()
-                .map(bray_symbols::SymbolKey::external)
-        }
-    }
 
     #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
@@ -906,10 +877,10 @@ mod tests {
             panic!("test function must be local");
         };
 
-        resolver.symbols[function_id
-            .to_index()
-            .unwrap_or_else(|| panic!("test function ID must fit the host index"))] =
-            StructSymbolId::from_symbol_id(SymbolId::new(99)).into();
+        resolver.replace_symbol(
+            function_id,
+            StructSymbolId::from_symbol_id(SymbolId::new(99)).into(),
+        );
 
         assert_eq!(
             semantics.intern(&store, &resolver),
@@ -1304,7 +1275,7 @@ mod tests {
             })
             .collect();
 
-        Resolver { symbols, keys }
+        Resolver::new(symbols, keys)
     }
 
     fn decode_owned(

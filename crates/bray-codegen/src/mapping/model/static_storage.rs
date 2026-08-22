@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_ir::MirStorageKind;
 
 use crate::{
-    CodegenConstantMapping, CodegenInstanceKey, CodegenNativeStaticMapping,
+    CodegenConstantMapping, CodegenInstance, CodegenInstanceKey, CodegenNativeStaticMapping,
     CodegenStaticStorageMapping, CodegenSymbolMapping, CodegenUnit,
 };
 
@@ -52,17 +52,8 @@ pub(super) fn validate_static_storage_mappings(
     let mut realizations = BTreeMap::new();
 
     for mapping in mappings {
-        let Some(owner) = unit
-            .instances()
-            .iter()
-            .find(|instance| instance.key() == mapping.owner())
-        else {
-            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
-        };
-
-        let Some(storage) = owner.mir().storage(mapping.storage()) else {
-            return Err(CodegenMappingsBuildError::InvalidStaticStorage);
-        };
+        let (owner, storage) = mapped_storage(unit, mapping.owner(), mapping.storage())
+            .ok_or(CodegenMappingsBuildError::InvalidStaticStorage)?;
 
         let storage_type_matches = match storage.kind() {
             MirStorageKind::Static(_) => storage.ty() == mapping.ty(),
@@ -183,17 +174,8 @@ pub(super) fn validate_native_static_mappings(
     }
 
     for mapping in mappings {
-        let Some(owner) = unit
-            .instances()
-            .iter()
-            .find(|instance| instance.key() == mapping.owner())
-        else {
-            return Err(CodegenMappingsBuildError::InvalidNativeStaticStorage);
-        };
-
-        let Some(storage) = owner.mir().storage(mapping.storage()) else {
-            return Err(CodegenMappingsBuildError::InvalidNativeStaticStorage);
-        };
+        let (_, storage) = mapped_storage(unit, mapping.owner(), mapping.storage())
+            .ok_or(CodegenMappingsBuildError::InvalidNativeStaticStorage)?;
 
         if !matches!(storage.kind(), MirStorageKind::NativeStatic(_))
             || storage.ty() != mapping.pointer_type()
@@ -205,4 +187,17 @@ pub(super) fn validate_native_static_mappings(
     }
 
     Ok(())
+}
+
+fn mapped_storage<'a>(
+    unit: &'a CodegenUnit,
+    owner: &CodegenInstanceKey,
+    storage: bray_ir::MirStorageId,
+) -> Option<(&'a CodegenInstance, &'a bray_ir::MirStorage)> {
+    let owner = unit
+        .instances()
+        .iter()
+        .find(|instance| instance.key() == owner)?;
+
+    Some((owner, owner.mir().storage(storage)?))
 }

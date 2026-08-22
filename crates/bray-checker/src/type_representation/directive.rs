@@ -557,12 +557,44 @@ where
         span: SourceSpan,
         previous: &[SourceSpan],
     ) -> Diagnostic {
+        self.representation_directive_diagnostic(
+            DiagnosticKind::CheckingInvalidLayoutDirective,
+            DiagnosticArg::layout_problem(problem),
+            DiagnosticNoteKind::TypeLayoutDirectiveForms,
+            span,
+            previous,
+        )
+    }
+
+    fn add_union_tag_diagnostic(
+        &mut self,
+        problem: DiagnosticUnionTagProblem,
+        span: SourceSpan,
+        previous: &[SourceSpan],
+    ) {
+        let diagnostic = self.representation_directive_diagnostic(
+            DiagnosticKind::CheckingInvalidUnionTag,
+            DiagnosticArg::union_tag_problem(problem),
+            DiagnosticNoteKind::UnionTagDirectiveForms,
+            span,
+            previous,
+        );
+
+        self.diagnostics.add(diagnostic);
+    }
+
+    fn representation_directive_diagnostic(
+        &self,
+        kind: DiagnosticKind,
+        argument: DiagnosticArg,
+        note: DiagnosticNoteKind,
+        span: SourceSpan,
+        previous: &[SourceSpan],
+    ) -> Diagnostic {
         let mut diagnostic = self
-            .representation_diagnostic(DiagnosticKind::CheckingInvalidLayoutDirective, span)
-            .with_arg(DiagnosticArg::layout_problem(problem))
-            .with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::TypeLayoutDirectiveForms,
-            ));
+            .representation_diagnostic(kind, span)
+            .with_arg(argument)
+            .with_note(DiagnosticNote::new(note));
 
         for previous in previous
             .iter()
@@ -576,33 +608,6 @@ where
         }
 
         diagnostic
-    }
-
-    fn add_union_tag_diagnostic(
-        &mut self,
-        problem: DiagnosticUnionTagProblem,
-        span: SourceSpan,
-        previous: &[SourceSpan],
-    ) {
-        let mut diagnostic = self
-            .representation_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, span)
-            .with_arg(DiagnosticArg::union_tag_problem(problem))
-            .with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::UnionTagDirectiveForms,
-            ));
-
-        for previous in previous
-            .iter()
-            .copied()
-            .filter(|previous| *previous != span)
-        {
-            diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
-                DiagnosticRelatedLocationKind::FirstDirective,
-                previous,
-            ));
-        }
-
-        self.diagnostics.add(diagnostic);
     }
 
     fn copy_diagnostic(
