@@ -3,7 +3,7 @@ use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimizatio
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
     CodegenFailure, CodegenFieldLayout, CodegenInstance, CodegenParameterMapping, CodegenRequest,
-    CodegenResultMapping, CodegenTypeKind, CodegenTypeMapping,
+    CodegenResultMapping, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping,
 };
 use bray_ir::{
     MirBlockId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
@@ -37,6 +37,12 @@ pub(crate) fn translate_instances<'context, 'request>(
 
         types.select_instance(instance.key());
 
+        let (symbol, function) = instance_function(module, request, instance)
+            .map_err(TranslationError::Failed)?;
+
+        apply_instance_optimization_attributes(function, instance, types)
+            .map_err(TranslationError::Failed)?;
+
         if instance.protected_frame_identity().is_some() {
             super::super::frame::translate_protected_instance(
                 context, module, request, instance, types, debug,
@@ -46,21 +52,20 @@ pub(crate) fn translate_instances<'context, 'request>(
             continue;
         }
 
-        translate_instance(context, module, request, instance, types, debug)
+        translate_instance(
+            context, module, request, instance, symbol, function, types, debug,
+        )
             .map_err(TranslationError::Failed)?;
     }
 
     Ok(())
 }
 
-fn translate_instance<'context, 'request>(
-    context: &'context Context,
+fn instance_function<'context, 'request>(
     module: &Module<'context>,
     request: CodegenRequest<'request>,
-    instance: &'request CodegenInstance,
-    types: &mut LlvmTypeMappings<'context, 'request>,
-    debug: Option<&LlvmDebugInfo<'context>>,
-) -> Result<(), CodegenFailure> {
+    instance: &CodegenInstance,
+) -> Result<(&'request CodegenSymbolMapping, FunctionValue<'context>), CodegenFailure> {
     let symbol = request
         .mappings()
         .instance_symbol(instance.key())
@@ -70,8 +75,19 @@ fn translate_instance<'context, 'request>(
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    apply_instance_optimization_attributes(function, instance, types)?;
+    Ok((symbol, function))
+}
 
+fn translate_instance<'context, 'request>(
+    context: &'context Context,
+    module: &Module<'context>,
+    request: CodegenRequest<'request>,
+    instance: &'request CodegenInstance,
+    symbol: &'request CodegenSymbolMapping,
+    function: FunctionValue<'context>,
+    types: &mut LlvmTypeMappings<'context, 'request>,
+    debug: Option<&LlvmDebugInfo<'context>>,
+) -> Result<(), CodegenFailure> {
     let (function, trampoline) =
         super::callback::prepare(module, request, symbol, function, types)?;
 

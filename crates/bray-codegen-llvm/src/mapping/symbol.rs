@@ -442,11 +442,18 @@ mod tests {
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
-        CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
-        CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
-        CodegenValueAttribute, TargetAddressSpaceKind,
+        CodegenInstance, CodegenLinkage, CodegenMappings, CodegenParameterMapping,
+        CodegenResultMapping, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
+        CodegenTypeMapping, CodegenValueAttribute, TargetAddressSpaceKind,
     };
-    use bray_ir::{MirExecutableTemplateId, MirImportedExecutableKey, MirUnitKey};
+    use bray_ir::{
+        MirBlockKind, MirExecutableTemplateId, MirFrameDescriptor, MirFrameState, MirFrameStateId,
+        MirImportedExecutableKey, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitId,
+        MirUnitKey, MirUnitKind,
+    };
+    use bray_runtime_interface::{
+        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+    };
     use bray_symbols::testing::{intern_type, source_function_key};
     use bray_symbols::{
         CallableAbi, SemanticValueStore, SymbolId, SymbolKey, SymbolKind,
@@ -454,10 +461,14 @@ mod tests {
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use inkwell::DLLStorageClass;
+    use inkwell::attributes::{Attribute, AttributeLoc};
     use inkwell::context::Context;
     use inkwell::module::Linkage;
 
-    use super::{apply_linkage, declare_symbols, is_static_trait_fulfillment};
+    use super::{
+        apply_instance_optimization_attributes, apply_linkage, declare_symbols,
+        is_static_trait_fulfillment,
+    };
     use crate::machine::LlvmTargetMachine;
     use crate::mapping::LlvmTypeMappings;
 
@@ -577,6 +588,67 @@ mod tests {
         let template = source_template(SymbolKind::Function);
 
         assert!(!is_static_trait_fulfillment(&template));
+    }
+
+    #[test]
+    fn protected_trait_fulfillments_receive_inline_hints() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+
+        let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
+            panic!("test target must construct an LLVM machine");
+        };
+
+        let target_data = machine.target_data();
+        let context = Context::create();
+        let module = context.create_module("instance-attributes");
+
+        let types = LlvmTypeMappings::new(
+            &context,
+            request.mappings(),
+            request.target(),
+            &target_data,
+        );
+
+        let fulfillment = protected_trait_fulfillment_instance();
+
+        let fulfillment_function = module.add_function(
+            "trait_fulfillment",
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_instance_optimization_attributes(fulfillment_function, &fulfillment, &types),
+            Ok(())
+        );
+
+        let ordinary = CodegenInstance::non_generic(bray_testing::test_mir_unit(8));
+
+        let ordinary_function = module.add_function(
+            "ordinary",
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_instance_optimization_attributes(ordinary_function, &ordinary, &types),
+            Ok(())
+        );
+
+        let inline_hint = Attribute::get_named_enum_kind_id("inlinehint");
+
+        assert!(
+            fulfillment_function
+                .get_enum_attribute(AttributeLoc::Function, inline_hint)
+                .is_some()
+        );
+
+        assert!(
+            ordinary_function
+                .get_enum_attribute(AttributeLoc::Function, inline_hint)
+                .is_none()
+        );
     }
 
     #[test]
@@ -701,5 +773,51 @@ mod tests {
         };
 
         MirUnitKey::Bound(key)
+    }
+
+    fn protected_trait_fulfillment_instance() -> CodegenInstance {
+        let frame = ProtectedAsyncFrameId::new([7; 32]);
+        let owner = TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(9));
+        let key = MirImportedExecutableKey::new(owner.into(), MirExecutableTemplateId::ROOT);
+
+        let mut builder = MirUnitBuilder::for_imported_executable(
+            MirUnitId::new(9),
+            key,
+            MirUnitKind::ProtectedAsyncFrame(frame),
+            bray_testing::test_mir_target(),
+        );
+
+        let source = MirSourceAnchor::imported_executable(key);
+
+        let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
+            panic!("test protected-frame block must validate");
+        };
+
+        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
+            panic!("test protected-frame terminator must validate");
+        };
+
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let version = RuntimeAbiVersion::new(1, 0);
+
+        let Ok(descriptor) = MirFrameDescriptor::try_new(
+            frame,
+            version,
+            ProtectedFrameAbiVersions::uniform(version),
+            bray_testing::test_mir_type(),
+            [state],
+        ) else {
+            panic!("test protected-frame descriptor must validate");
+        };
+
+        if let Err(error) = builder.set_frame_descriptor(descriptor) {
+            panic!("test protected-frame descriptor must commit: {error:?}");
+        }
+
+        let Ok(unit) = builder.finish(entry) else {
+            panic!("test protected-frame MIR must validate");
+        };
+
+        CodegenInstance::non_generic(unit)
     }
 }
