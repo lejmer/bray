@@ -110,6 +110,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.memory_pointer(pointer).map(|value| Some(value.into()))
             }
+            CheckedMemoryOperationKind::CallableFromPointer { .. }
+            | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
+                let [value] = memory.operands() else {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                };
+
+                self.memory_pointer(value).map(|value| Some(value.into()))
+            }
             CheckedMemoryOperationKind::CallbackState { .. } => {
                 let [context] = memory.operands() else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -1603,7 +1611,7 @@ mod tests {
             baseline.c_abi(),
             address_spaces,
             baseline.alignments(),
-            TargetOperationSupport::new(raw_memory, allocation),
+            TargetOperationSupport::new(raw_memory, allocation, raw_memory),
         );
 
         let profile = TargetProfile::try_new(

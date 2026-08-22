@@ -236,6 +236,7 @@ impl InspectionConversion {
 enum InspectionConversionRule {
     Identity,
     BuiltInScalar,
+    CVariadicPromotion,
     Composite {
         components: Vec<InspectionConversion>,
     },
@@ -256,6 +257,7 @@ impl InspectionConversionRule {
         match self {
             Self::Identity => "identity",
             Self::BuiltInScalar => "built-in scalar",
+            Self::CVariadicPromotion => "C variadic promotion",
             Self::Composite { .. } => "composite",
             Self::Trait { .. } => "trait",
             Self::TraitConstraint { .. } => "trait constraint",
@@ -550,6 +552,7 @@ fn inspection_conversion(
     let rule = match conversion.target() {
         ConversionTarget::Identity => InspectionConversionRule::Identity,
         ConversionTarget::BuiltInScalar => InspectionConversionRule::BuiltInScalar,
+        ConversionTarget::CVariadicPromotion => InspectionConversionRule::CVariadicPromotion,
         ConversionTarget::Composite(components) => InspectionConversionRule::Composite {
             components: components
                 .iter()

@@ -146,6 +146,7 @@ mod tests {
 
         let constructors = declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .type_constructor_member_declarations()
             .collect::<Vec<_>>();
 
@@ -214,7 +215,9 @@ mod tests {
             panic!("expected one struct declaration: {declarations:?}");
         };
 
-        let body = declaration.struct_body();
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
 
         let constructors = body
             .type_constructor_member_declarations()

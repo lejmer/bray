@@ -408,11 +408,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let offset = variants
             .iter()
             .find(|layout| layout.variant() == variant)
-            .and_then(|layout| {
-                layout.fields().iter().find(|layout| {
-                    layout.reference() == Some(bray_ir::MirFieldReference::UnionPayload(field))
-                })
-            })
+            .and_then(|layout| layout.payload_field(field))
             .map(bray_codegen::CodegenFieldLayout::offset_bytes)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

@@ -143,6 +143,11 @@ impl<'model> TypeFormatter<'model> {
 
                 Ok(format!("[{element}; <const>]"))
             }
+            TypeExpressionTemplate::FlexibleArray(element) => {
+                let element = self.template(element, depth + 1)?;
+
+                Ok(format!("[{element}; ..]"))
+            }
             TypeExpressionTemplate::Slice(element) => {
                 let element = self.template(element, depth + 1)?;
 
@@ -250,6 +255,11 @@ impl<'model> TypeFormatter<'model> {
                 let element = self.ty(*element, depth + 1)?;
 
                 Ok(format!("[{element}; <const>]"))
+            }
+            TypeData::FlexibleArray(element) => {
+                let element = self.ty(*element, depth + 1)?;
+
+                Ok(format!("[{element}; ..]"))
             }
             TypeData::Slice(element) => {
                 let element = self.ty(*element, depth + 1)?;
@@ -409,6 +419,7 @@ fn template_kind(template: &TypeExpressionTemplate) -> &'static str {
         }
         TypeExpressionTemplate::Tuple(_) => "tuple",
         TypeExpressionTemplate::Array { .. } => "array",
+        TypeExpressionTemplate::FlexibleArray(_) => "flexible_array",
         TypeExpressionTemplate::Slice(_) => "slice",
         TypeExpressionTemplate::Nullable(_) => "nullable",
         TypeExpressionTemplate::Borrow { .. } => "borrow",
@@ -427,6 +438,7 @@ fn type_data_kind(data: &TypeData) -> &'static str {
         TypeData::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
         TypeData::Tuple(_) => "tuple",
         TypeData::Array { .. } => "array",
+        TypeData::FlexibleArray(_) => "flexible_array",
         TypeData::Slice(_) => "slice",
         TypeData::Generator(_) => "generator",
         TypeData::Nullable(_) => "nullable",

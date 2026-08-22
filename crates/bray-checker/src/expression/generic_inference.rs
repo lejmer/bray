@@ -34,7 +34,11 @@ where
     };
 
     let Some(parameter_indices) =
-        crate::selection::map_argument_parameter_indices(call.arguments(), callable.parameters())
+        crate::selection::map_argument_parameter_indices(
+            call.arguments(),
+            callable.parameters(),
+            callable.is_variadic(),
+        )
     else {
         return Ok(None);
     };
@@ -43,6 +47,10 @@ where
     let mut inference = GenericArgumentInference::new(request, inferable);
 
     for (argument, parameter_index) in call.arguments().iter().zip(parameter_indices) {
+        let Some(parameter_index) = parameter_index else {
+            continue;
+        };
+
         let Some(actual) = types.expression(argument.expression()) else {
             continue;
         };
@@ -192,6 +200,7 @@ where
                 && self.infer_type(*expected_target, *actual_target)?),
             (TypeData::Callable(expected), TypeData::Callable(actual))
                 if expected.parameters().len() == actual.parameters().len()
+                    && expected.is_variadic() == actual.is_variadic()
                     && expected.constness() == actual.constness()
                     && expected.execution() == actual.execution()
                     && expected.trust() == actual.trust()

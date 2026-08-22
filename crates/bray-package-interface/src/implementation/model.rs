@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use bray_runtime_interface::BinarySymbolName;
-use bray_symbols::{ForeignCallableDirection, InterfaceSymbolId};
+use bray_symbols::{
+    ForeignCallableDirection, InterfaceSymbolId, NativeSymbolContract, StaticStorageDuration,
+};
 
 use crate::{InterfaceCheckedTemplate, InterfaceValidationError};
 
@@ -82,7 +83,22 @@ impl InterfaceExecutableTemplate {
 pub struct InterfaceNativeBoundary {
     owner: InterfaceSymbolId,
     direction: ForeignCallableDirection,
-    symbol: BinarySymbolName,
+    kind: InterfaceNativeBoundaryKind,
+    symbol: NativeSymbolContract,
+}
+
+/// The declaration category represented by one native boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum InterfaceNativeBoundaryKind {
+    /// A native callable declaration.
+    Callable,
+    /// A native data declaration with its storage owner domain and mutation contract.
+    Static {
+        /// Product-wide or exact-thread storage.
+        duration: StaticStorageDuration,
+        /// Whether the native contract permits mutation.
+        mutable: bool,
+    },
 }
 
 impl InterfaceNativeBoundary {
@@ -90,11 +106,13 @@ impl InterfaceNativeBoundary {
     pub const fn new(
         owner: InterfaceSymbolId,
         direction: ForeignCallableDirection,
-        symbol: BinarySymbolName,
+        kind: InterfaceNativeBoundaryKind,
+        symbol: NativeSymbolContract,
     ) -> Self {
         Self {
             owner,
             direction,
+            kind,
             symbol,
         }
     }
@@ -109,8 +127,13 @@ impl InterfaceNativeBoundary {
         self.direction
     }
 
+    /// Returns whether this boundary provides callable or data storage.
+    pub const fn kind(&self) -> InterfaceNativeBoundaryKind {
+        self.kind
+    }
+
     /// Returns the exact native symbol spelling.
-    pub const fn symbol(&self) -> &BinarySymbolName {
+    pub const fn symbol(&self) -> &NativeSymbolContract {
         &self.symbol
     }
 }

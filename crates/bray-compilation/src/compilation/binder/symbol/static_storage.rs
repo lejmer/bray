@@ -5,7 +5,7 @@ use bray_binder::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
 };
 use bray_bound_tree::{
-    BoundUnitKey, BoundUnitKind, CheckedTemplateKind, CheckedTemplateOperation, SemanticSelection,
+    BoundUnitKey, CheckedTemplateKind, CheckedTemplateOperation, SemanticSelection,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDependencySubjectKind, DiagnosticId,
@@ -25,9 +25,8 @@ use super::declaration_body::{
     checked_source_body_dependency_contracts, checked_source_expression,
 };
 use super::imported::imported_declaration_template;
+use super::initializer::validate_static_initializer_template;
 use crate::compilation::binder::CompilationBindingContext;
-use crate::compilation::checker::checker_result;
-use crate::compilation::unit::semantic_unit_context_for;
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<StaticInstanceTemplateQuery> for CompilationSymbolSemantics {
@@ -184,6 +183,53 @@ fn static_initializer_behavior(
     Vec<bray_symbols::SymbolKey>,
     Vec<StaticSymbolId>,
 )> {
+    let native = context
+        .compilation()
+        .foreign_static_contract_with_cancellation(declaration, context.cancellation())
+        .map_err(super::binding::binder_error)?;
+
+    diagnostics.add_range(native.diagnostics().iter().cloned());
+
+    if native
+        .value()
+        .as_ref()
+        .is_some_and(|contract| contract.direction() == bray_symbols::ForeignCallableDirection::Import)
+    {
+        let dependency_contract = context
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+        return Ok((
+            source_duration,
+            dependency_contract,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+
+    if let Some(boundary) = context
+        .compilation()
+        .imported_native_boundary_with_cancellation(declaration.into(), context.cancellation())
+        .map_err(super::binding::binder_error)?
+        && let bray_package_interface::InterfaceNativeBoundaryKind::Static { duration, .. } =
+            boundary.kind()
+    {
+        let dependency_contract = context
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+        return Ok((
+            duration,
+            dependency_contract,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+
     if let Some(key) = context
         .compilation()
         .static_initializer_key(declaration)
@@ -690,75 +736,6 @@ fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnos
         SeverityKind::Error,
     )
     .with_primary_span(span)
-}
-
-fn validate_static_initializer_template(
-    context: &CompilationBindingContext<'_>,
-    key: &BoundUnitKey,
-) -> BindingQueryResult<DiagnosticBag> {
-    use bray_checker::{
-        CheckerUnitView, ConstantChecker, ConstantEvaluationInput, DefaultConstantChecker,
-    };
-
-    let bound = context
-        .compilation()
-        .bound_unit_with_cancellation(key.clone(), context.cancellation())
-        .map_err(super::binding::binder_error)?;
-
-    let semantics = context
-        .compilation()
-        .expression_semantics_with_cancellation(key.clone(), context.cancellation())
-        .map_err(super::binding::binder_error)?;
-
-    let checker_context = context
-        .compilation()
-        .checker_context_for(key, context.cancellation())
-        .map_err(super::binding::binder_error)?;
-
-    let semantic_context =
-        semantic_unit_context_for(checker_context.symbols(), bound.result().value())
-            .map_err(super::binding::binder_error)?;
-
-    let references = context
-        .compilation()
-        .symbolic_references(bound.result().value(), &semantics.result().value().1)
-        .map_err(super::binding::binder_error)?;
-
-    let resolver = crate::compilation::constant::CompilationConstantCallResolver::new(
-        context.compilation(),
-        context.cancellation(),
-    );
-
-    let input =
-        ConstantEvaluationInput::new(&semantics.result().value().0, &semantics.result().value().1)
-            .with_references(references)
-            .with_call_resolver(&resolver)
-            .with_static_address_borrows();
-
-    let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &checker_context)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
-
-    let checked = checker_result(DefaultConstantChecker.check_constant_term(unit, &input))
-        .map_err(super::binding::binder_error)?;
-
-    Ok(checked.diagnostics().clone())
-}
-
-impl crate::compilation::Compilation {
-    pub(in crate::compilation) fn static_initializer_key(
-        &self,
-        declaration: StaticSymbolId,
-    ) -> Result<Option<BoundUnitKey>, crate::fact::FactQueryError> {
-        let symbols = self.symbol_graph()?;
-
-        let Some(owner) = symbols.symbol_key(declaration.into()) else {
-            return Ok(None);
-        };
-
-        Ok(self.declared_unit_keys()?.into_iter().find(|key| {
-            key.kind() == BoundUnitKind::ConstantTemplate && key.declared_owner() == owner
-        }))
-    }
 }
 
 #[cfg(test)]

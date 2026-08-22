@@ -438,6 +438,7 @@ pub enum SyntaxKind {
     LessLessEqualsToken,
     GreaterGreaterEqualsToken,
     StarStarEqualsToken,
+    EllipsisToken,
     DotDotToken,
     OpenParenToken,
     CloseParenToken,
@@ -770,6 +771,7 @@ impl SyntaxKind {
                 | Self::LessLessEqualsToken
                 | Self::GreaterGreaterEqualsToken
                 | Self::StarStarEqualsToken
+                | Self::EllipsisToken
                 | Self::DotDotToken
                 | Self::PipePipeToken
                 | Self::AmpersandAmpersandToken
@@ -1093,6 +1095,7 @@ impl SyntaxKind {
             Self::LessLessEqualsToken => "less_less_equals_token",
             Self::GreaterGreaterEqualsToken => "greater_greater_equals_token",
             Self::StarStarEqualsToken => "star_star_equals_token",
+            Self::EllipsisToken => "ellipsis_token",
             Self::DotDotToken => "dot_dot_token",
             Self::OpenParenToken => "open_paren_token",
             Self::CloseParenToken => "close_paren_token",

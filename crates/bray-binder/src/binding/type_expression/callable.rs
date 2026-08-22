@@ -14,6 +14,7 @@ use bray_syntax::{
 
 use super::contract::CallableTypeQualifiers;
 use super::core::{TypeExpressionBinder, token_text};
+use super::diagnostic::source_diagnostic;
 use crate::{BindingQueryError, BindingQueryResult};
 
 impl TypeExpressionBinder<'_> {
@@ -116,6 +117,7 @@ impl TypeExpressionBinder<'_> {
 
         let callable_type = self.make_callable_type_template(
             callable_parameters,
+            parameter_list.ellipsis_token().is_some(),
             result,
             qualifiers.constness,
             qualifiers.trust,
@@ -149,12 +151,42 @@ impl TypeExpressionBinder<'_> {
             .next()
             .map(|result| result.type_expression());
 
-        self.bind_callable_type_surface(
+        let ty = self.bind_callable_type_surface(
             parameters.as_ref(),
             result.as_ref(),
             modifiers.as_ref(),
             directives.as_ref(),
-        )
+        )?;
+
+        let variadic = parameters
+            .as_ref()
+            .is_some_and(|parameters| parameters.ellipsis_token().is_some());
+
+        let abi = callable_template_abi(self.semantic_values, &ty)?;
+
+        let fixed_parameters = parameters
+            .as_ref()
+            .map_or(0, |parameters| parameters.parameters().count());
+
+        if variadic
+            && (fixed_parameters == 0
+                || abi == bray_symbols::CallableAbi::Bray
+                || modifiers.as_ref().is_some_and(|value| {
+                    value.async_token().is_some() || value.const_token().is_some()
+                })
+                || parameters.as_ref().is_some_and(|parameters| {
+                    parameters
+                        .parameters()
+                        .any(|parameter| parameter.equals_token().is_some())
+                }))
+        {
+            self.diagnostics.add(source_diagnostic(
+                syntax,
+                bray_diagnostics::DiagnosticKind::CheckingVariadicCallableContractUnsupported,
+            ));
+        }
+
+        Ok(ty)
     }
 
     fn bind_callable_type_surface(
@@ -164,6 +196,9 @@ impl TypeExpressionBinder<'_> {
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
     ) -> BindingQueryResult<TypeExpressionTemplate> {
+        let variadic = parameters
+            .is_some_and(|parameters| parameters.ellipsis_token().is_some());
+
         let parameters = parameters
             .into_iter()
             .flat_map(ParameterListSyntax::parameters)
@@ -194,7 +229,6 @@ impl TypeExpressionBinder<'_> {
         };
 
         let abi = self.bind_optional_callable_abi(directives);
-
         let dependency_contract = self.empty_dependency_contract()?;
 
         let dependencies = CallableDependencyContracts::for_execution(
@@ -203,12 +237,21 @@ impl TypeExpressionBinder<'_> {
             dependency_contract,
         );
 
-        self.make_callable_type_template(parameters, result, constness, trust, abi, dependencies)
+        self.make_callable_type_template(
+            parameters,
+            variadic,
+            result,
+            constness,
+            trust,
+            abi,
+            dependencies,
+        )
     }
 
     fn make_callable_type_template(
         &self,
         parameters: Vec<CallableParameterTypeTemplate>,
+        variadic: bool,
         result: TypeExpressionTemplate,
         constness: CallableConstness,
         trust: CallableTrust,
@@ -233,22 +276,25 @@ impl TypeExpressionBinder<'_> {
 
             let result = self.require_resolved_type(&result)?;
 
-            let callable =
-                CallableTypeData::new(parameters, result, constness, trust, abi, dependencies);
+            let callable = CallableTypeData::new(
+                parameters,
+                result,
+                constness,
+                trust,
+                abi,
+                dependencies,
+            )
+            .with_variadic(variadic);
 
             return self
                 .intern_type(TypeData::Callable(callable))
                 .map(TypeExpressionTemplate::Resolved);
         }
 
-        Ok(TypeExpressionTemplate::Callable(CallableTypeTemplate::new(
-            parameters,
-            result,
-            constness,
-            trust,
-            abi,
-            dependencies,
-        )))
+        Ok(TypeExpressionTemplate::Callable(
+            CallableTypeTemplate::new(parameters, result, constness, trust, abi, dependencies)
+                .with_variadic(variadic),
+        ))
     }
 
     fn bind_callable_parameter(
@@ -284,5 +330,26 @@ impl TypeExpressionBinder<'_> {
         self.semantic_values
             .empty_dependency_contract_template()
             .map_err(|_| BindingQueryError::DependencyUnavailable)
+    }
+}
+
+fn callable_template_abi(
+    values: &bray_symbols::SemanticValueStore,
+    template: &TypeExpressionTemplate,
+) -> BindingQueryResult<bray_symbols::CallableAbi> {
+    match template {
+        TypeExpressionTemplate::Callable(callable) => Ok(callable.abi()),
+        TypeExpressionTemplate::Resolved(ty) => {
+            let data = values
+                .type_data(*ty)
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+
+            let TypeData::Callable(callable) = data.as_ref() else {
+                return Err(BindingQueryError::DependencyUnavailable);
+            };
+
+            Ok(callable.abi())
+        }
+        _ => Err(BindingQueryError::DependencyUnavailable),
     }
 }

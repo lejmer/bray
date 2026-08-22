@@ -98,18 +98,42 @@ fn declare_static_global<'context>(
         .get_global(name)
         .unwrap_or_else(|| module.add_global(initializer.get_type(), None, name));
 
-    global.set_initializer(&initializer);
-    global.set_alignment(alignment);
-    global.set_linkage(Linkage::WeakODR);
-    global.set_visibility(GlobalVisibility::Hidden);
+    if let Some(binding) = mapping.native_binding() {
+        if mapping.defines_storage() {
+            global.set_initializer(&initializer);
+            global.set_alignment(alignment);
+
+            global.set_linkage(native_static_definition_linkage(binding));
+        } else {
+            global.set_linkage(Linkage::External);
+        }
+
+        global.set_visibility(GlobalVisibility::Default);
+    } else {
+        global.set_initializer(&initializer);
+        global.set_alignment(alignment);
+        global.set_linkage(Linkage::WeakODR);
+        global.set_visibility(GlobalVisibility::Hidden);
+    }
 
     if mapping.instance().duration() == bray_symbols::StaticStorageDuration::ExactThread {
         global.set_thread_local(true);
     }
 
-    global.set_comdat(module.get_or_insert_comdat(name));
+    if mapping.native_binding().is_none() {
+        global.set_comdat(module.get_or_insert_comdat(name));
+    }
 
     global
+}
+
+const fn native_static_definition_linkage(
+    binding: bray_symbols::NativeSymbolBinding,
+) -> Linkage {
+    match binding {
+        bray_symbols::NativeSymbolBinding::Strong => Linkage::External,
+        bray_symbols::NativeSymbolBinding::Weak => Linkage::WeakAny,
+    }
 }
 
 fn declare_static_attachment<'context>(
@@ -552,4 +576,25 @@ pub(super) fn pointer_type<'context>(
     };
 
     Ok(pointer)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::NativeSymbolBinding;
+    use inkwell::module::Linkage;
+
+    use super::native_static_definition_linkage;
+
+    #[test]
+    fn native_static_definitions_preserve_the_selected_binding_strength() {
+        assert_eq!(
+            native_static_definition_linkage(NativeSymbolBinding::Strong),
+            Linkage::External
+        );
+
+        assert_eq!(
+            native_static_definition_linkage(NativeSymbolBinding::Weak),
+            Linkage::WeakAny
+        );
+    }
 }

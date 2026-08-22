@@ -191,10 +191,22 @@ fn body_form_diagnostics(
             Some(ContainerKind::Implementation) => predicate_body_diagnostic(trusted, body),
             _ => None,
         },
-        DeclarationKind::Constant | DeclarationKind::Static
-            if body == DeclarationBodyKind::None =>
-        {
+        DeclarationKind::Constant if body == DeclarationBodyKind::None => {
             Some(DiagnosticKind::DeclarationBodyRequired)
+        }
+        DeclarationKind::Static => {
+            let external = declaration
+                .surface()
+                .modifiers()
+                .contains(&SyntaxKind::ExternKeyword);
+
+            match (external, body) {
+                (true, DeclarationBodyKind::Expression) => {
+                    Some(DiagnosticKind::DeclarationBodyNotAllowed)
+                }
+                (false, DeclarationBodyKind::None) => Some(DiagnosticKind::DeclarationBodyRequired),
+                _ => None,
+            }
         }
         DeclarationKind::TypeCallableMember
         | DeclarationKind::TypeConstructorMember
@@ -266,7 +278,9 @@ fn directive_diagnostics(declaration: &DeclarationRecord) -> Vec<PendingDiagnost
 
         let valid_target = match kind {
             SyntaxKind::LinkDirective => external,
-            SyntaxKind::SymbolDirective => external || has_abi,
+            SyntaxKind::SymbolDirective => {
+                external || has_abi || declaration.kind() == DeclarationKind::Static
+            }
             SyntaxKind::EntrypointDirective | SyntaxKind::TestDirective => !external,
             SyntaxKind::ThreadLocalDirective => declaration.kind() == DeclarationKind::Static,
             _ => true,

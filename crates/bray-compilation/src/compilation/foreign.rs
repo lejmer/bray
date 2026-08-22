@@ -3,6 +3,7 @@ mod directive;
 mod layout;
 mod platform;
 mod query;
+mod static_storage;
 mod validation;
 
 pub(in crate::compilation) use validation::{

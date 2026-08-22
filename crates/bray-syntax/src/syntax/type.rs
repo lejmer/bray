@@ -91,7 +91,13 @@ mod tests {
             SyntaxKind::IdentifierToken
         );
 
-        assert_eq!(declaration.struct_body().full_text(), "{}");
+        assert_eq!(
+            declaration
+                .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
+                .full_text(),
+            "{}"
+        );
     }
 
     #[test]
@@ -495,7 +501,16 @@ define_source_syntax_node! {
                 slot: "struct_declaration.identifier_token";
             }
         ],
-        optional_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the bodyless declaration semicolon token.
+                semicolon_token;
+                /// Appends a bodyless declaration semicolon token.
+                push_semicolon_token;
+                kind: SyntaxKind::SemicolonToken;
+                slot: "struct_declaration.semicolon_token";
+            }
+        ],
         required_children: [
             {
                 /// Returns the type-directives child.
@@ -513,16 +528,16 @@ define_source_syntax_node! {
                 ty: TypeModifiersSyntax;
                 kind: SyntaxKind::TypeModifiers;
             },
+        ],
+        repeated_children: [
             {
-                /// Returns the struct-body child.
-                struct_body;
-                /// Appends the struct-body child.
+                /// Returns struct-body children in source order.
+                struct_bodies;
+                /// Appends a struct-body child.
                 push_struct_body;
                 ty: StructBodySyntax;
                 kind: SyntaxKind::StructBody;
-            }
-        ],
-        repeated_children: [
+            },
             {
                 /// Returns generic parameter lists in source order.
                 generic_parameter_lists;
@@ -544,6 +559,11 @@ define_source_syntax_node! {
 }
 
 impl StructDeclarationSyntax {
+    /// Returns the declaration body when this struct is structurally defined.
+    pub fn struct_body(&self) -> Option<StructBodySyntax> {
+        self.struct_bodies().next()
+    }
+
     /// Returns the generic parameter list child when present.
     pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
         child_nodes(

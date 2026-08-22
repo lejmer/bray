@@ -158,8 +158,27 @@ impl Compilation {
         }
 
         for storage in mir.storages() {
-            let MirStorageKind::Static(reference) = storage.kind() else {
-                continue;
+            let reference = match storage.kind() {
+                MirStorageKind::Static(reference) => reference,
+                MirStorageKind::NativeStatic(reference)
+                    if self
+                        .optional_native_static_contract(reference, cancellation)?
+                        .is_some_and(|contract| {
+                            contract.direction
+                                == bray_symbols::ForeignCallableDirection::Export
+                        }) =>
+                {
+                    reference
+                }
+                MirStorageKind::NativeStatic(_)
+                | MirStorageKind::Parameter(_)
+                | MirStorageKind::Local
+                | MirStorageKind::Temporary
+                | MirStorageKind::Return
+                | MirStorageKind::InactiveFrame
+                | MirStorageKind::CurrentFrame
+                | MirStorageKind::CurrentTask
+                | MirStorageKind::ChildTask => continue,
             };
 
             let static_realization =
@@ -209,6 +228,9 @@ impl Compilation {
 
         let static_storages =
             self.codegen_static_storages(unit, target, reachability, cancellation)?;
+
+        let native_storages =
+            self.codegen_native_static_storages(unit, reachability, cancellation)?;
 
         let mut symbols = self.codegen_symbols(
             unit,
@@ -265,6 +287,12 @@ impl Compilation {
 
         demanded.extend(constants.iter().map(|constant| constant.data().ty()));
 
+        demanded.extend(
+            native_storages
+                .iter()
+                .map(bray_codegen::CodegenNativeStaticMapping::pointee_type),
+        );
+
         for symbol in &symbols {
             demanded.extend(signature_types(symbol.signature()));
         }
@@ -304,7 +332,7 @@ impl Compilation {
             Vec::new()
         };
 
-        CodegenMappings::try_new_with_static_storages(
+        CodegenMappings::try_new_with_storage_mappings(
             unit,
             target,
             types,
@@ -315,6 +343,7 @@ impl Compilation {
             callables,
             operations,
             static_storages,
+            native_storages,
             terminators,
             debug_locations,
         )
@@ -336,19 +365,48 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for (storage, data) in instance.mir().storages_with_ids() {
-                let MirStorageKind::Static(reference) = data.kind() else {
-                    continue;
+                let reference = match data.kind() {
+                    MirStorageKind::Static(reference) => reference,
+                    MirStorageKind::NativeStatic(reference)
+                        if self
+                            .optional_native_static_contract(reference, cancellation)?
+                            .is_some_and(|contract| {
+                                contract.direction
+                                    == bray_symbols::ForeignCallableDirection::Export
+                            }) =>
+                    {
+                        reference
+                    }
+                    _ => continue,
                 };
 
                 let realization =
                     self.concrete_codegen_static(owner, &reference, target, cancellation)?;
 
+                let native_binding = self
+                    .optional_native_static_contract(&reference, cancellation)?
+                    .filter(|contract| {
+                        contract.direction
+                            == bray_symbols::ForeignCallableDirection::Export
+                    })
+                    .map(|contract| contract.symbol.binding());
+
+                let defines_storage = unit
+                    .instances()
+                    .iter()
+                    .any(|candidate| candidate.key() == realization.initializer.key());
+
                 mappings.push(CodegenStaticStorageMapping::new(
                     instance.key().clone(),
                     storage,
-                    data.ty(),
+                    match data.kind() {
+                        MirStorageKind::NativeStatic(_) => realization.ty,
+                        _ => data.ty(),
+                    },
                     realization.key,
                     realization.symbol,
+                    native_binding,
+                    defines_storage,
                     realization.initial_value,
                     realization.relocations,
                     realization.finalization.map(|finalization| {
@@ -436,7 +494,17 @@ impl Compilation {
             template.value().duration(),
         );
 
-        let symbol = generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?;
+        let symbol = match self.optional_native_static_contract(reference, cancellation)? {
+            Some(native) if native.direction == bray_symbols::ForeignCallableDirection::Export => {
+                native
+                    .symbol
+                    .identity()
+                    .name()
+                    .and_then(BinarySymbolName::try_new)
+                    .ok_or(CodegenPreparationError::InvalidSymbolName)?
+            }
+            _ => generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?,
+        };
 
         let ty = self.resolve_codegen_type(
             template.value().declared_type(),

@@ -755,6 +755,8 @@ pub enum MemoryLayoutQueryKind {
     Stride,
     /// Allocation layout for a requested element count.
     Layout,
+    /// Allocation layout for one flexible product prefix and a requested trailing count.
+    Trailing,
 }
 
 /// Integer fetch behavior selected for protected atomic storage.
@@ -839,6 +841,16 @@ pub enum CheckedMemoryOperationKind {
         source: TypeId,
         /// Target element type.
         target: TypeId,
+    },
+    /// Create an ABI-qualified callable from a checked code pointer.
+    CallableFromPointer {
+        /// Exact ABI-qualified callable type.
+        callable: TypeId,
+    },
+    /// Expose an ABI-qualified callable's code pointer.
+    PointerFromCallable {
+        /// Exact ABI-qualified callable type.
+        callable: TypeId,
     },
     /// Read one value from raw storage.
     Read {
@@ -1086,6 +1098,8 @@ impl CheckedMemoryOperationKind {
             | Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
+            | Self::CallableFromPointer { .. }
+            | Self::PointerFromCallable { .. }
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
@@ -1124,7 +1138,7 @@ impl CheckedMemoryOperationKind {
             | Self::ByteBufferFill
             | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
-                kind: MemoryLayoutQueryKind::Layout,
+                kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
                 ..
             } => 1,
             Self::InlineAssembly { .. } => 1,
@@ -1149,6 +1163,8 @@ impl CheckedMemoryOperationKind {
             | Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
+            | Self::CallableFromPointer { .. }
+            | Self::PointerFromCallable { .. }
             | Self::Read { .. }
             | Self::Allocate
             | Self::Deallocate
@@ -1168,7 +1184,7 @@ impl CheckedMemoryOperationKind {
             | Self::ExposeAddress { .. }
             | Self::FromExposedAddress { .. }
             | Self::LayoutQuery {
-                kind: MemoryLayoutQueryKind::Layout,
+                kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
                 ..
             } => {
                 if ordinal == 0 {

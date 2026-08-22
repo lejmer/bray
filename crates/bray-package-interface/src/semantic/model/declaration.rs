@@ -123,7 +123,10 @@ pub struct InterfaceTypeRepresentation {
     pub(crate) layout: DeclaredLayoutMode,
     pub(crate) alignment: Option<u64>,
     pub(crate) packing: Option<u64>,
+    pub(crate) opaque_size: Option<u64>,
+    pub(crate) incomplete: bool,
     pub(crate) union_tag_type: Option<InterfaceTypeId>,
+    pub(crate) tagless_union: bool,
     pub(crate) union_tags: Arc<[InterfaceUnionTag]>,
     pub(crate) storage: InterfaceStorageShape,
     pub(crate) copy: DeclaredCopyContract,
@@ -140,7 +143,10 @@ impl InterfaceTypeRepresentation {
             layout: DeclaredLayoutMode::Default,
             alignment: None,
             packing: None,
+            opaque_size: None,
+            incomplete: false,
             union_tag_type: None,
+            tagless_union: false,
             union_tags: Arc::from([]),
             storage: InterfaceStorageShape::Structure(Arc::from([])),
             copy: DeclaredCopyContract::Absent,
@@ -148,6 +154,25 @@ impl InterfaceTypeRepresentation {
             plain_storage: false,
             finite_size: false,
         }
+    }
+
+    /// Returns this contract with opaque and incomplete storage state.
+    pub const fn with_opaque_storage(
+        mut self,
+        size: Option<u64>,
+        incomplete: bool,
+    ) -> Self {
+        self.opaque_size = size;
+        self.incomplete = incomplete;
+
+        self
+    }
+
+    /// Returns this contract with an unrepresented semantic union tag.
+    pub const fn with_tagless_union(mut self, tagless: bool) -> Self {
+        self.tagless_union = tagless;
+
+        self
     }
 
     /// Returns this contract with its checked layout request.
@@ -223,9 +248,24 @@ impl InterfaceTypeRepresentation {
         self.packing
     }
 
+    /// Returns the exact byte size of complete opaque storage.
+    pub const fn opaque_size(&self) -> Option<u64> {
+        self.opaque_size
+    }
+
+    /// Returns whether the type has no complete storage representation.
+    pub const fn is_incomplete(&self) -> bool {
+        self.incomplete
+    }
+
     /// Returns the integer type used by union tags.
     pub const fn union_tag_type(&self) -> Option<InterfaceTypeId> {
         self.union_tag_type
+    }
+
+    /// Returns whether the union stores no represented discriminant.
+    pub const fn is_tagless_union(&self) -> bool {
+        self.tagless_union
     }
 
     /// Returns union tags in declaration order.

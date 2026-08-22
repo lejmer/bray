@@ -17,6 +17,7 @@ use bray_symbols::{
     StructFieldTypeQuery, StructSymbolId, SymbolProvider, SymbolQueryRequest, TypeId,
     UnionPayloadFieldTypeQuery,
 };
+use bray_syntax::StructDeclarationSyntax;
 
 use super::super::Compilation;
 use super::super::binder::{self, CompilationBindingContext};
@@ -103,6 +104,13 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let has_body = record
+                    .syntax_anchor()
+                    .and_then(|anchor| {
+                        anchor.find_descendant::<StructDeclarationSyntax>(self.syntax_tree())
+                    })
+                    .is_some_and(|syntax| syntax.struct_body().is_some());
+
                 DeclaredTypeDefinition::structure(
                     subject,
                     symbol_span(
@@ -112,6 +120,7 @@ impl Compilation {
                     )?,
                     fields,
                     directives.value().clone(),
+                    has_body,
                     !surface.value().lifecycle_members().is_empty(),
                     !surface.value().generic().parameters().is_empty(),
                     record.is_recovered(),
@@ -380,21 +389,6 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
 
-    fn integer_type(
-        &self,
-        expression: DeclarationExpressionTemplate,
-    ) -> CheckerQueryResult<Option<RepresentationIntegerType>> {
-        let source = self
-            .source(expression.syntax())
-            .map_err(CheckerQueryError::Infrastructure)?;
-
-        let Some(role) = integer_role(source.text()) else {
-            return Ok(None);
-        };
-
-        self.integer_type_for_role(role).map(Some)
-    }
-
     fn integer_constant(
         &self,
         expression: DeclarationExpressionTemplate,
@@ -424,6 +418,21 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         .map_err(checker_query_error)?;
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
+    }
+
+    fn integer_type(
+        &self,
+        expression: DeclarationExpressionTemplate,
+    ) -> CheckerQueryResult<Option<RepresentationIntegerType>> {
+        let source = self
+            .source(expression.syntax())
+            .map_err(CheckerQueryError::Infrastructure)?;
+
+        let Some(role) = integer_role(source.text()) else {
+            return Ok(None);
+        };
+
+        self.integer_type_for_role(role).map(Some)
     }
 
     fn integer_type_for_role(

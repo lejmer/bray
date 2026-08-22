@@ -195,7 +195,7 @@ pub(crate) fn compilation_with_target_operations(
         baseline_properties.c_abi(),
         baseline_properties.address_spaces(),
         baseline_properties.alignments(),
-        bray_target::TargetOperationSupport::new(raw_memory, allocation),
+        bray_target::TargetOperationSupport::new(raw_memory, allocation, raw_memory),
     );
 
     let profile = bray_target::TargetProfile::try_new(

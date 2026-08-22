@@ -22,7 +22,8 @@ const PARAMETER_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::IdentifierToken,
 ];
 
-const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
+const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
+    SyntaxKind::EllipsisToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::ArrowToken,
     SyntaxKind::RequiresKeyword,
@@ -173,6 +174,15 @@ impl Parser {
 
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
         self.parse_separated_list(&mut builder, spec, Parser::parse_parameter);
+
+        if self.at(SyntaxKind::EllipsisToken) {
+            builder.push_ellipsis_token(self.expect(SyntaxKind::EllipsisToken));
+
+            if self.at(SyntaxKind::CommaToken) {
+                builder.push_separator_token(self.expect(SyntaxKind::CommaToken));
+            }
+        }
+
         builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
 
         builder.build()
@@ -343,6 +353,26 @@ mod tests {
         );
 
         assert_eq!(second.type_expression().full_text(), "Bool");
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_preserves_a_variadic_parameter_tail() {
+        let sources = source_store(["(pos format: RawPointer<u8>, ...)"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let list = parser.parse_parameter_list();
+        let diagnostics = parser.finish();
+
+        assert_eq!(list.full_text(), "(pos format: RawPointer<u8>, ...)");
+        assert_eq!(list.parameters().count(), 1);
+
+        assert_eq!(
+            list.ellipsis_token().map(|token| token.kind()),
+            Some(SyntaxKind::EllipsisToken)
+        );
 
         assert!(diagnostics.is_empty());
     }

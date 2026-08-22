@@ -136,6 +136,9 @@ impl SemanticValueStore {
                 element: self.substitute_type_data(*element, substitution)?,
                 length: self.substitute_constant_term_data(*length, substitution)?,
             },
+            TypeData::FlexibleArray(element) => {
+                TypeData::FlexibleArray(self.substitute_type_data(*element, substitution)?)
+            }
             TypeData::Slice(element) => {
                 TypeData::Slice(self.substitute_type_data(*element, substitution)?)
             }
@@ -201,6 +204,7 @@ impl SemanticValueStore {
                         callable.abi(),
                         dependencies,
                     )
+                    .with_variadic(callable.is_variadic())
                     .with_phase_behaviors(phase_behaviors),
                 )
             }

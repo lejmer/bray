@@ -294,11 +294,16 @@ impl Parser {
         if self.at(SyntaxKind::SemicolonToken) {
             builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
-            let mut at_size_boundary =
-                |parser: &mut Parser| parser.at_any(&ARRAY_SIZE_BOUNDARY_KINDS);
+            if self.at(SyntaxKind::DotDotToken) {
+                builder.push_dot_dot_token(self.expect(SyntaxKind::DotDotToken));
+            } else {
+                let mut at_size_boundary =
+                    |parser: &mut Parser| parser.at_any(&ARRAY_SIZE_BOUNDARY_KINDS);
 
-            builder
-                .push_expression(self.parse_non_assignment_expression_until(&mut at_size_boundary));
+                builder.push_expression(
+                    self.parse_non_assignment_expression_until(&mut at_size_boundary),
+                );
+            }
         }
 
         builder.push_close_bracket_token(self.expect(SyntaxKind::CloseBracketToken));

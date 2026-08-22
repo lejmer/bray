@@ -295,7 +295,7 @@ impl CodegenFieldLayout {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnionVariantLayout {
     variant: UnionVariantSymbolId,
-    tag: IntegerConstant,
+    tag: Option<IntegerConstant>,
     fields: Arc<[CodegenFieldLayout]>,
 }
 
@@ -308,7 +308,19 @@ impl CodegenUnionVariantLayout {
     ) -> Self {
         Self {
             variant,
-            tag,
+            tag: Some(tag),
+            fields: shared_slice(fields),
+        }
+    }
+
+    /// Creates one untagged union payload layout.
+    pub fn untagged(
+        variant: UnionVariantSymbolId,
+        fields: impl IntoIterator<Item = CodegenFieldLayout>,
+    ) -> Self {
+        Self {
+            variant,
+            tag: None,
             fields: shared_slice(fields),
         }
     }
@@ -319,13 +331,20 @@ impl CodegenUnionVariantLayout {
     }
 
     /// Returns the checked integer tag value.
-    pub const fn tag(&self) -> &IntegerConstant {
-        &self.tag
+    pub const fn tag(&self) -> Option<&IntegerConstant> {
+        self.tag.as_ref()
     }
 
     /// Returns payload fields in declaration order.
     pub fn fields(&self) -> &[CodegenFieldLayout] {
         &self.fields
+    }
+
+    /// Returns the physical layout of one declared payload field.
+    pub fn payload_field(&self, field: bray_symbols::UnionPayloadFieldSymbolId) -> Option<&CodegenFieldLayout> {
+        self.fields.iter().find(|layout| {
+            layout.reference() == Some(MirFieldReference::UnionPayload(field))
+        })
     }
 }
 
@@ -367,8 +386,8 @@ pub enum CodegenTypeKind {
     UnsizedTraitView,
     /// A tagged union representation.
     Union {
-        /// Integer type used for the active tag.
-        tag: TypeId,
+        /// Integer type used for the represented active tag.
+        tag: Option<TypeId>,
         /// Variant payload layouts in declaration order.
         variants: Arc<[CodegenUnionVariantLayout]>,
     },
@@ -381,6 +400,13 @@ pub enum CodegenTypeKind {
 pub enum CodegenTypeBehavior {
     /// Immutable UTF-8 text with shared owned storage.
     String,
+    /// A C-layout product with one flexible trailing element sequence.
+    FlexibleAggregate {
+        /// Trailing element representation.
+        element: TypeId,
+        /// Byte offset at which the trailing sequence begins.
+        offset: u64,
+    },
 }
 
 impl CodegenTypeKind {
@@ -395,7 +421,17 @@ impl CodegenTypeKind {
         variants: impl IntoIterator<Item = CodegenUnionVariantLayout>,
     ) -> Self {
         Self::Union {
-            tag,
+            tag: Some(tag),
+            variants: shared_slice(variants),
+        }
+    }
+
+    /// Creates an overlapping union representation without a stored tag.
+    pub fn untagged_union(
+        variants: impl IntoIterator<Item = CodegenUnionVariantLayout>,
+    ) -> Self {
+        Self::Union {
+            tag: None,
             variants: shared_slice(variants),
         }
     }

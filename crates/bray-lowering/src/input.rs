@@ -38,6 +38,7 @@ pub struct LoweringInput<'unit> {
     semantic_values: &'unit SemanticValueStore,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
+    native_static_templates: &'unit [bray_symbols::StaticInstanceTemplateId],
     static_owner: Option<(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)>,
     unit_kind: MirUnitKind,
     target: MirTargetContract,
@@ -196,6 +197,7 @@ impl<'unit> LoweringInput<'unit> {
             semantic_values,
             available_compiler_known_symbols,
             constant_reference_values: &[],
+            native_static_templates: &[],
             static_owner: None,
             unit_kind,
             target,
@@ -303,6 +305,21 @@ impl<'unit> LoweringInput<'unit> {
         self.static_owner = Some((reference, ty));
 
         self
+    }
+
+    /// Adds declarations whose source references produce provider-owned native addresses.
+    pub fn with_native_static_templates(
+        mut self,
+        templates: &'unit [bray_symbols::StaticInstanceTemplateId],
+    ) -> Self {
+        self.native_static_templates = templates;
+
+        self
+    }
+
+    /// Returns whether one selected static reference produces a native storage address.
+    pub fn is_native_static(&self, template: bray_symbols::StaticInstanceTemplateId) -> bool {
+        self.native_static_templates.contains(&template)
     }
 
     /// Returns the open self realization carried by a static initializer template.

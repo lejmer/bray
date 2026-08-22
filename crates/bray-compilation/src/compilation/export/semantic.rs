@@ -174,32 +174,63 @@ fn native_boundaries(
     let mut boundaries = Vec::new();
 
     for symbol in selected.iter().copied() {
-        let AnySymbolId::Function(function) = symbol else {
-            continue;
-        };
+        let (direction, kind, native_symbol) = match symbol {
+            AnySymbolId::Function(function) => {
+                let contract = compilation
+                    .foreign_callable_contract(function)
+                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
-        let contract = compilation
-            .foreign_callable_contract(function)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                if contract.diagnostics().has_errors() {
+                    return Err(PackageInterfaceExportError::InvalidCompilation);
+                }
 
-        if contract.diagnostics().has_errors() {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
-        }
+                let Some(contract) = contract.value() else {
+                    continue;
+                };
 
-        let Some(contract) = contract.value() else {
-            continue;
+                (
+                    contract.direction(),
+                    bray_package_interface::InterfaceNativeBoundaryKind::Callable,
+                    contract.symbol().clone(),
+                )
+            }
+            AnySymbolId::Static(declaration) => {
+                let contract = compilation
+                    .foreign_static_contract(declaration)
+                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+                if contract.diagnostics().has_errors() {
+                    return Err(PackageInterfaceExportError::InvalidCompilation);
+                }
+
+                let Some(contract) = contract.value() else {
+                    continue;
+                };
+
+                let template = compilation
+                    .static_instance_template(declaration)
+                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+                (
+                    contract.direction(),
+                    bray_package_interface::InterfaceNativeBoundaryKind::Static {
+                        duration: template.value().duration(),
+                        mutable: contract.is_mutable(),
+                    },
+                    contract.symbol().clone(),
+                )
+            }
+            _ => continue,
         };
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
             return Err(PackageInterfaceExportError::InvalidCompilation);
         };
 
-        let native_symbol = bray_runtime_interface::BinarySymbolName::try_new(contract.symbol())
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
-
         boundaries.push(InterfaceNativeBoundary::new(
             owner,
-            contract.direction(),
+            direction,
+            kind,
             native_symbol,
         ));
     }
@@ -1679,6 +1710,9 @@ impl<'a> SemanticExporter<'a> {
                 element: self.type_id(*element)?,
                 length: self.constant_term_id(*length)?,
             },
+            TypeData::FlexibleArray(element) => {
+                InterfaceType::FlexibleArray(self.type_id(*element)?)
+            }
             TypeData::Slice(element) => InterfaceType::Slice(self.type_id(*element)?),
             TypeData::Generator(element) => InterfaceType::Generator(self.type_id(*element)?),
             TypeData::Nullable(target) => InterfaceType::Nullable(self.type_id(*target)?),
@@ -1730,6 +1764,7 @@ impl<'a> SemanticExporter<'a> {
 
         Ok(InterfaceType::Callable {
             parameters: parameters.into(),
+            variadic: callable.is_variadic(),
             result: self.type_id(callable.result())?,
             constness: callable.constness(),
             trust: callable.trust(),
@@ -2431,6 +2466,11 @@ impl<'a> SemanticExporter<'a> {
                     union_tag_type,
                 )
                 .with_union_tags(union_tags)
+                .with_opaque_storage(
+                    representation.opaque_size(),
+                    representation.is_incomplete(),
+                )
+                .with_tagless_union(representation.is_tagless_union())
                 .with_storage(storage)
                 .with_copy(representation.copy_contract(), copy_dependencies)
                 .with_properties(
@@ -2747,6 +2787,16 @@ fn export_static_semantics(
     semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
     let symbol = AnySymbolId::Static(declaration);
+
+    let native = compilation
+        .foreign_static_contract(declaration)
+        .map_err(|_| incomplete(symbol))?;
+
+    if native.value().as_ref().is_some_and(|contract| {
+        contract.direction() == bray_symbols::ForeignCallableDirection::Import
+    }) {
+        return Ok(());
+    }
 
     let template = binder
         .resolve_symbol_query(SymbolQueryRequest::<StaticInstanceTemplateQuery>::new(

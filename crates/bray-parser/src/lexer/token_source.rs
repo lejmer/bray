@@ -642,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_adjacent_operator_forms_are_single_invalid_tokens() {
+    fn ellipsis_is_distinct_from_invalid_adjacent_operator_forms() {
         let tokens = token_stream("=== ->> +- :: ...");
 
         assert_eq!(
@@ -652,7 +652,7 @@ mod tests {
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
-                SyntaxKind::InvalidToken,
+                SyntaxKind::EllipsisToken,
                 SyntaxKind::EndOfFileToken,
             ]
         );

@@ -495,6 +495,7 @@ impl Compilation {
             | TypeData::TypeValuedMemberProjection { .. }
             | TypeData::Tuple(_)
             | TypeData::Array { .. }
+            | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Generator(_)
             | TypeData::Nullable(_)
@@ -692,6 +693,7 @@ impl Compilation {
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Generator(_)
             | TypeData::Nullable(_)

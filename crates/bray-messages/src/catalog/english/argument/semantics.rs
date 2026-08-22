@@ -58,6 +58,7 @@ const fn format_english_layout_option(option: DiagnosticLayoutOption) -> &'stati
     match option {
         DiagnosticLayoutOption::Alignment => "alignment",
         DiagnosticLayoutOption::Packing => "packing",
+        DiagnosticLayoutOption::Size => "size",
         DiagnosticLayoutOption::Tag => "tag type",
     }
 }
@@ -108,6 +109,21 @@ pub(super) fn format_english_layout_problem(problem: &DiagnosticLayoutProblem) -
         DiagnosticLayoutProblem::CUnionRequiresTag => {
             String::from("C-compatible union layout requires an explicit tag type")
         }
+        DiagnosticLayoutProblem::OpaqueSizeRequiresBodylessStruct => {
+            String::from("an opaque size is valid only for a bodyless struct")
+        }
+        DiagnosticLayoutProblem::BodylessStructRequiresSizeAndAlignment => {
+            String::from("a complete bodyless struct requires both size and alignment")
+        }
+        DiagnosticLayoutProblem::OpaqueStorageRequiresStableOrC => {
+            String::from("opaque storage requires stable or C layout")
+        }
+        DiagnosticLayoutProblem::OpaqueSizeNotAligned { size, alignment } => {
+            format!("opaque size {size} is not a multiple of alignment {alignment}")
+        }
+        DiagnosticLayoutProblem::TaglessUnionRequiresCLayout => {
+            String::from("an unrepresented union tag requires C layout")
+        }
     }
 }
 
@@ -151,6 +167,9 @@ pub(super) fn format_english_union_tag_problem(problem: &DiagnosticUnionTagProbl
         }
         DiagnosticUnionTagProblem::NegativeInferredValue => {
             String::from("inferred union tags include a negative value")
+        }
+        DiagnosticUnionTagProblem::TaglessUnionHasVariantTag => {
+            String::from("a tagless union variant has no represented tag value")
         }
         DiagnosticUnionTagProblem::InferredValueTooWide {
             actual_bits,
@@ -204,6 +223,12 @@ pub(super) fn format_english_copy_contract_problem(
 
 pub(super) fn format_english_stored_type_problem(problem: DiagnosticStoredTypeProblem) -> String {
     match problem {
+        DiagnosticStoredTypeProblem::FlexibleArrayRequiresFinalCStructField => {
+            String::from("a flexible array is the final stored field of a C-layout struct")
+        }
+        DiagnosticStoredTypeProblem::FlexibleArrayElementRequiresPlainCStorage => {
+            String::from("a flexible array element has complete plain C storage")
+        }
         DiagnosticStoredTypeProblem::Slice => {
             String::from("a slice has no finite inline representation")
         }
@@ -347,6 +372,8 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::PointerElementOffset => "pointer element offset",
         DiagnosticMemoryOperation::PointerByteOffset => "pointer byte offset",
         DiagnosticMemoryOperation::PointerReinterpretation => "pointer reinterpretation",
+        DiagnosticMemoryOperation::CallableFromPointer => "callable activation",
+        DiagnosticMemoryOperation::PointerFromCallable => "callable address exposure",
         DiagnosticMemoryOperation::CallbackState => "callback state access",
         DiagnosticMemoryOperation::PointerRead => "pointer read",
         DiagnosticMemoryOperation::PointerWrite => "pointer write",
@@ -356,6 +383,9 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::AlignmentDetermination => "determine a type's alignment",
         DiagnosticMemoryOperation::StrideDetermination => "determine a type's stride",
         DiagnosticMemoryOperation::LayoutDetermination => "determine a type's memory layout",
+        DiagnosticMemoryOperation::TrailingLayoutDetermination => {
+            "determine a flexible product's trailing layout"
+        }
         DiagnosticMemoryOperation::RawAllocation => "raw allocation",
         DiagnosticMemoryOperation::RawDeallocation => "raw deallocation",
         DiagnosticMemoryOperation::Allocation => "allocation",

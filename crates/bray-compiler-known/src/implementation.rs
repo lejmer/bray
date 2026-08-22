@@ -20,6 +20,10 @@ define_catalog_enum! {
         RawPointerByteOffset => "RawPointerByteOffset",
         /// Reinterprets a raw pointer's element type.
         RawPointerReinterpret => "RawPointerReinterpret",
+        /// Creates an ABI-qualified callable from a checked code pointer.
+        CallableFromPointer => "CallableFromPointer",
+        /// Exposes an ABI-qualified callable's code pointer.
+        PointerFromCallable => "PointerFromCallable",
         /// Reads a value from raw storage.
         RawPointerRead => "RawPointerRead",
         /// Writes a value to raw storage.
@@ -52,6 +56,8 @@ define_catalog_enum! {
         MemoryStrideOf => "MemoryStrideOf",
         /// Computes a repeated-value memory layout.
         MemoryLayoutOf => "MemoryLayoutOf",
+        /// Computes a flexible product's complete trailing allocation layout.
+        MemoryTrailingLayoutOf => "MemoryTrailingLayoutOf",
         /// Allocates raw storage from separate byte count and alignment values.
         RawAllocate => "RawAllocate",
         /// Releases raw storage described by separate pointer and layout values.
@@ -227,6 +233,8 @@ impl ImplementationHook {
         Self::RawPointerOffset,
         Self::RawPointerByteOffset,
         Self::RawPointerReinterpret,
+        Self::CallableFromPointer,
+        Self::PointerFromCallable,
         Self::RawPointerRead,
         Self::RawPointerWrite,
         Self::MemoryCopy,
@@ -243,6 +251,7 @@ impl ImplementationHook {
         Self::MemoryAlignOf,
         Self::MemoryStrideOf,
         Self::MemoryLayoutOf,
+        Self::MemoryTrailingLayoutOf,
         Self::RawAllocate,
         Self::RawDeallocate,
         Self::Allocate,

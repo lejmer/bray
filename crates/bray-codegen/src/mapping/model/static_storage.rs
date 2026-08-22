@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_ir::MirStorageKind;
 
 use crate::{
-    CodegenConstantMapping, CodegenInstanceKey, CodegenStaticStorageMapping, CodegenSymbolMapping,
-    CodegenUnit,
+    CodegenConstantMapping, CodegenInstanceKey, CodegenNativeStaticMapping,
+    CodegenStaticStorageMapping, CodegenSymbolMapping, CodegenUnit,
 };
 
 use super::core::CodegenMappingsBuildError;
@@ -15,8 +15,9 @@ pub(super) fn validate_static_storage_mappings(
     symbols: &[CodegenSymbolMapping],
     constants: &[CodegenConstantMapping],
     mappings: &[CodegenStaticStorageMapping],
+    native_mappings: &[CodegenNativeStaticMapping],
 ) -> Result<(), CodegenMappingsBuildError> {
-    let expected: BTreeSet<_> = unit
+    let mut expected: BTreeSet<_> = unit
         .instances()
         .iter()
         .flat_map(|instance| {
@@ -29,6 +30,15 @@ pub(super) fn validate_static_storage_mappings(
                 })
         })
         .collect();
+
+    expected.extend(
+        native_mappings
+            .iter()
+            .filter(|mapping| {
+                mapping.direction() == bray_symbols::ForeignCallableDirection::Export
+            })
+            .map(|mapping| (mapping.owner(), mapping.storage())),
+    );
 
     let actual: BTreeSet<_> = mappings
         .iter()
@@ -54,8 +64,17 @@ pub(super) fn validate_static_storage_mappings(
             return Err(CodegenMappingsBuildError::InvalidStaticStorage);
         };
 
-        if !matches!(storage.kind(), MirStorageKind::Static(_))
-            || storage.ty() != mapping.ty()
+        let storage_type_matches = match storage.kind() {
+            MirStorageKind::Static(_) => storage.ty() == mapping.ty(),
+            MirStorageKind::NativeStatic(_) => native_mappings.iter().any(|native| {
+                native.owner() == mapping.owner()
+                    && native.storage() == mapping.storage()
+                    && native.pointee_type() == mapping.ty()
+            }),
+            _ => false,
+        };
+
+        if !storage_type_matches
             || mapping.instance().target() != owner.key().target()
             || !constants
                 .iter()
@@ -98,6 +117,8 @@ pub(super) fn validate_static_storage_mappings(
             .insert(mapping.instance(), mapping)
             .is_some_and(|previous| {
                 previous.symbol() != mapping.symbol()
+                    || previous.native_binding() != mapping.native_binding()
+                    || previous.defines_storage() != mapping.defines_storage()
                     || previous.initial_value() != mapping.initial_value()
                     || previous.relocations() != mapping.relocations()
                     || previous.finalization() != mapping.finalization()
@@ -128,6 +149,58 @@ pub(super) fn validate_static_storage_mappings(
             if !names.insert(name) {
                 return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
             }
+        }
+    }
+
+    Ok(())
+}
+
+pub(super) fn validate_native_static_mappings(
+    unit: &CodegenUnit,
+    mappings: &[CodegenNativeStaticMapping],
+) -> Result<(), CodegenMappingsBuildError> {
+    let expected: BTreeSet<_> = unit
+        .instances()
+        .iter()
+        .flat_map(|instance| {
+            instance
+                .mir()
+                .storages_with_ids()
+                .filter_map(|(storage, model)| {
+                    matches!(model.kind(), MirStorageKind::NativeStatic(_))
+                        .then_some((instance.key(), storage))
+                })
+        })
+        .collect();
+
+    let actual: BTreeSet<_> = mappings
+        .iter()
+        .map(|mapping| (mapping.owner(), mapping.storage()))
+        .collect();
+
+    if actual != expected {
+        return Err(CodegenMappingsBuildError::NativeStaticStorageCoverageMismatch);
+    }
+
+    for mapping in mappings {
+        let Some(owner) = unit
+            .instances()
+            .iter()
+            .find(|instance| instance.key() == mapping.owner())
+        else {
+            return Err(CodegenMappingsBuildError::InvalidNativeStaticStorage);
+        };
+
+        let Some(storage) = owner.mir().storage(mapping.storage()) else {
+            return Err(CodegenMappingsBuildError::InvalidNativeStaticStorage);
+        };
+
+        if !matches!(storage.kind(), MirStorageKind::NativeStatic(_))
+            || storage.ty() != mapping.pointer_type()
+            || (mapping.direction() == bray_symbols::ForeignCallableDirection::Export
+                && mapping.presence() == bray_symbols::NativeSymbolPresence::Optional)
+        {
+            return Err(CodegenMappingsBuildError::InvalidNativeStaticStorage);
         }
     }
 

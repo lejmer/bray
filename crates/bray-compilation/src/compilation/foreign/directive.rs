@@ -12,9 +12,10 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
-    ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
-    DirectiveKind, DirectiveSurface, DirectiveTemplate, FunctionSymbolId, NamedTypeSymbolId,
-    NativeLinkKind, NativeLinkRequirement, StructSymbolId, TrustedCapabilitySymbolId,
+    AnySymbolId, ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
+    DirectiveKind, DirectiveSurface, DirectiveTemplate, NamedTypeSymbolId, NativeLinkKind,
+    NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
+    NativeSymbolIdentity, NativeSymbolPresence, StructSymbolId, TrustedCapabilitySymbolId,
 };
 
 use super::super::Compilation;
@@ -63,7 +64,7 @@ fn contract_phases(
 
 pub(super) fn foreign_link_requirements(
     compilation: &Compilation,
-    function: FunctionSymbolId,
+    declaration: AnySymbolId,
     declaration_directives: &DirectiveSurface,
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
@@ -73,10 +74,11 @@ pub(super) fn foreign_link_requirements(
     let link_directives = if own_links.is_empty() {
         let module = compilation
             .symbol_graph()?
-            .containing_module(function.into())
+            .containing_module(declaration)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let module_directives = compilation.declaration_directives(module.id().into())?;
+
         diagnostics.add_range(module_directives.diagnostics().iter().cloned());
 
         // Link requirements outlive the module directive query borrowed in this branch.
@@ -88,8 +90,7 @@ pub(super) fn foreign_link_requirements(
     if link_directives.is_empty() {
         let anchor = compilation
             .symbol_graph()?
-            .function(function)
-            .and_then(|record| record.syntax_anchor())
+            .declaration_syntax_anchor(declaration)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         diagnostics.add(missing_directive(
@@ -172,13 +173,16 @@ pub(super) fn foreign_link_requirements(
     Ok(links)
 }
 
-pub(super) fn foreign_symbol_name(
+pub(super) fn foreign_symbol_contract(
     compilation: &Compilation,
     directive: &DirectiveTemplate,
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<NonEmptySharedStr>, FactQueryError> {
-    let arguments = match named_arguments(directive, &["name"]) {
+) -> Result<Option<NativeSymbolContract>, FactQueryError> {
+    let arguments = match named_arguments(
+        directive,
+        &["name", "ordinal", "version", "binding", "presence"],
+    ) {
         Ok(arguments) => arguments,
         Err(error) => {
             diagnostics.add(invalid_native_symbol_directive(
@@ -191,38 +195,226 @@ pub(super) fn foreign_symbol_name(
         }
     };
 
-    let Some(argument) = arguments.get("name") else {
+    let identity = match (arguments.get("name"), arguments.get("ordinal")) {
+        (None, None) => {
+            diagnostics.add(invalid_native_symbol_directive(
+                directive.syntax(),
+                DiagnosticNativeSymbolDirectiveProblem::MissingIdentity,
+                None,
+            ));
+
+            return Ok(None);
+        }
+        (Some(name), Some(ordinal)) => {
+            diagnostics.add(invalid_native_symbol_directive(
+                ordinal.expression().syntax(),
+                DiagnosticNativeSymbolDirectiveProblem::ConflictingIdentity,
+                Some(name.expression().syntax()),
+            ));
+
+            return Ok(None);
+        }
+        (Some(argument), None) => {
+            let name = directive_nonempty_string_argument(
+                compilation,
+                argument,
+                cancellation,
+                diagnostics,
+                "name",
+            )?;
+
+            let Some(name) = name else {
+                return Ok(None);
+            };
+
+            NativeSymbolIdentity::Name(name)
+        }
+        (None, Some(argument)) => {
+            let Some(ordinal) = directive_integer_argument(
+                compilation,
+                argument,
+                cancellation,
+                diagnostics,
+            )?
+            else {
+                return Ok(None);
+            };
+
+            NativeSymbolIdentity::Ordinal(ordinal)
+        }
+    };
+
+    let version = match arguments.get("version") {
+        Some(argument) => directive_nonempty_string_argument(
+            compilation,
+            argument,
+            cancellation,
+            diagnostics,
+            "version",
+        )?,
+        None => None,
+    };
+
+    let binding = match directive_choice(
+        compilation,
+        arguments.get("binding").copied(),
+        "binding",
+        &[("strong", NativeSymbolBinding::Strong), ("weak", NativeSymbolBinding::Weak)],
+        NativeSymbolBinding::Strong,
+        diagnostics,
+    )? {
+        Some(binding) => binding,
+        None => return Ok(None),
+    };
+
+    let presence = match directive_choice(
+        compilation,
+        arguments.get("presence").copied(),
+        "presence",
+        &[
+            ("required", NativeSymbolPresence::Required),
+            ("optional", NativeSymbolPresence::Optional),
+        ],
+        NativeSymbolPresence::Required,
+        diagnostics,
+    )? {
+        Some(presence) => presence,
+        None => return Ok(None),
+    };
+
+    let support = compilation
+        .requested_target()
+        .profile()
+        .properties()
+        .native_symbols();
+
+    let unsupported = match &identity {
+        NativeSymbolIdentity::Ordinal(_) if !support.ordinals() => Some("ordinal"),
+        _ if version.is_some() && !support.versions() => Some("version"),
+        _ if binding == NativeSymbolBinding::Weak && !support.weak_binding() => Some("binding"),
+        _ => None,
+    };
+
+    if let Some(name) = unsupported {
+        let anchor = arguments
+            .get(name)
+            .map_or(directive.syntax(), |argument| argument.expression().syntax());
+
         diagnostics.add(invalid_native_symbol_directive(
-            directive.syntax(),
-            DiagnosticNativeSymbolDirectiveProblem::Argument(
-                DiagnosticDirectiveArgumentProblem::Missing {
-                    name: String::from("name"),
-                },
-            ),
+            anchor,
+            DiagnosticNativeSymbolDirectiveProblem::UnsupportedTargetOption {
+                name: name.to_owned(),
+            },
             None,
         ));
 
         return Ok(None);
-    };
+    }
 
-    let name = match directive_string_argument(compilation, argument, cancellation, diagnostics)? {
+    Ok(Some(NativeSymbolContract::new(
+        identity, version, binding, presence,
+    )))
+}
+
+fn directive_nonempty_string_argument(
+    compilation: &Compilation,
+    argument: &DirectiveArgumentTemplate,
+    cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
+    name: &str,
+) -> Result<Option<NonEmptySharedStr>, FactQueryError> {
+    let value = match directive_string_argument(compilation, argument, cancellation, diagnostics)? {
         DirectiveStringValue::Value(value) => NonEmptySharedStr::try_new(value),
         DirectiveStringValue::Recovered => return Ok(None),
     };
 
-    if name.is_none() {
+    if value.is_none() {
         diagnostics.add(invalid_native_symbol_directive(
             argument.expression().syntax(),
             DiagnosticNativeSymbolDirectiveProblem::Argument(
                 DiagnosticDirectiveArgumentProblem::EmptyString {
-                    name: String::from("name"),
+                    name: name.to_owned(),
                 },
             ),
             None,
         ));
     }
 
-    Ok(name)
+    Ok(value)
+}
+
+fn directive_integer_argument(
+    compilation: &Compilation,
+    argument: &DirectiveArgumentTemplate,
+    cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<Option<u64>, FactQueryError> {
+    let usize_type = compilation
+        .available_compiler_known_symbols()
+        .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarUsize)
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    let usize_type = named_type(
+        compilation.semantic_value_store()?,
+        NamedTypeSymbolId::Struct(usize_type),
+    )?;
+
+    let expression = argument.expression();
+
+    let occurrence = ConstantExpressionOccurrence::new(
+        ConstantExpressionOccurrenceKey::new(expression.owner(), expression.syntax()),
+        ConstantExpressionExpectedType::Resolved(usize_type),
+    );
+
+    let value = compilation.embedded_constant_value_with_cancellation(occurrence, cancellation)?;
+
+    diagnostics.add_range(value.diagnostics().iter().cloned());
+
+    if value.diagnostics().has_errors() {
+        return Ok(None);
+    }
+
+    let data = compilation
+        .semantic_value_store()?
+        .constant_value_data(*value.value())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let bray_symbols::ConstantValueKind::Integer(value) = data.kind() else {
+        return Ok(None);
+    };
+
+    Ok(value.to_u64())
+}
+
+fn directive_choice<T: Copy>(
+    compilation: &Compilation,
+    argument: Option<&DirectiveArgumentTemplate>,
+    name: &str,
+    choices: &[(&str, T)],
+    default: T,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<Option<T>, FactQueryError> {
+    let Some(argument) = argument else {
+        return Ok(Some(default));
+    };
+
+    let syntax = argument.expression().syntax();
+    let provided = directive_source_text(compilation, syntax)?;
+
+    if let Some((_, value)) = choices.iter().find(|(choice, _)| *choice == provided) {
+        return Ok(Some(*value));
+    }
+
+    diagnostics.add(invalid_native_symbol_directive(
+        syntax,
+        DiagnosticNativeSymbolDirectiveProblem::UnsupportedValue {
+            name: name.to_owned(),
+            provided: provided.to_owned(),
+        },
+        None,
+    ));
+
+    Ok(None)
 }
 
 fn directive_string_argument(
@@ -283,7 +475,17 @@ fn directive_link_kind(
     };
 
     let syntax = argument.expression().syntax();
+    let text = directive_source_text(compilation, syntax)?;
 
+    Ok(NativeLinkKind::for_name(text)
+        .map(Some)
+        .ok_or_else(|| (syntax, text.to_owned())))
+}
+
+fn directive_source_text(
+    compilation: &Compilation,
+    syntax: bray_declarations::SyntaxAnchor,
+) -> Result<&str, FactQueryError> {
     let source = compilation
         .source(syntax.source_id())
         .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -293,9 +495,7 @@ fn directive_link_kind(
         .ok_or(FactQueryError::InfrastructureFailure)?
         .trim();
 
-    Ok(NativeLinkKind::for_name(text)
-        .map(Some)
-        .ok_or_else(|| (syntax, text.to_owned())))
+    Ok(text)
 }
 
 fn native_link_requirement(
@@ -415,6 +615,19 @@ fn invalid_native_symbol_directive(
         source_diagnostic(anchor, DiagnosticKind::CheckingInvalidNativeSymbolDirective)
             .with_arg(DiagnosticArg::native_symbol_directive_problem(problem)),
         previous,
+    )
+}
+
+pub(super) fn invalid_symbol_policy(
+    anchor: bray_declarations::SyntaxAnchor,
+    name: &str,
+) -> Diagnostic {
+    invalid_native_symbol_directive(
+        anchor,
+        DiagnosticNativeSymbolDirectiveProblem::IncompatiblePolicy {
+            name: name.to_owned(),
+        },
+        None,
     )
 }
 

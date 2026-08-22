@@ -755,6 +755,25 @@ mod tests {
     }
 
     #[test]
+    fn table_validation_accepts_native_static_declaration_forms() {
+        let sources = source_store([concat!(
+            "module app;\n",
+            "@symbol(name = \"foreign_value\")\n",
+            "extern trusted static FOREIGN_VALUE: i32;\n",
+            "@symbol(name = \"exported_value\")\n",
+            "static EXPORTED_VALUE: i32 = 41;\n",
+        )]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+    }
+
+    #[test]
     fn table_validation_reports_local_lifecycle_slot_conflicts() {
         let sources = source_store([concat!(
             "module app;\n",

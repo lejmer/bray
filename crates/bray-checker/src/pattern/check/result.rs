@@ -33,6 +33,7 @@ where
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
         compatible: bool,
+        trusted_variant: bool,
     ) -> Result<bool, CheckerInfrastructureError> {
         if !compatible {
             return Ok(false);
@@ -56,14 +57,31 @@ where
                     return Ok(false);
                 };
 
-                available_dependency(self.request.union(*union))?
-                    .flatten()
-                    .is_some_and(|record| record.variants() == [variant])
+                trusted_variant && self.tagless_union(subject)?
+                    || available_dependency(self.request.union(*union))?
+                        .flatten()
+                        .is_some_and(|record| record.variants() == [variant])
             }
             _ => false,
         };
 
         Ok(is_total)
+    }
+
+    pub(super) fn tagless_union(
+        &self,
+        subject: &TypeData,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let TypeData::Named {
+            definition: NamedTypeSymbolId::Union(union),
+            ..
+        } = subject
+        else {
+            return Ok(false);
+        };
+
+        Ok(available_dependency(self.request.declared_type_representation((*union).into()))?
+            .is_some_and(|representation| representation.value().is_tagless_union()))
     }
 
     pub(super) fn pattern_predicate(
@@ -98,7 +116,8 @@ where
                 },
             ) => match target {
                 Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))) => {
-                    Some(PatternPredicate::ActiveUnionVariant(variant))
+                    (!self.tagless_union(subject)?)
+                        .then_some(PatternPredicate::ActiveUnionVariant(variant))
                 }
                 _ => None,
             },
@@ -238,6 +257,28 @@ where
                 span,
             ))
             .with_arg(DiagnosticArg::actual_type(actual)),
+        );
+
+        Ok(())
+    }
+
+    pub(super) fn report_tagless_union_pattern(
+        &mut self,
+        pattern: BoundPatternId,
+    ) -> Result<(), CheckerInfrastructureError> {
+        let span = pattern_span(self.request, pattern)?;
+
+        self.diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(self.diagnostics.len()),
+                DiagnosticKind::CheckingTaglessUnionPatternRequiresVariant,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PatternFailure,
+                span,
+            )),
         );
 
         Ok(())

@@ -56,6 +56,9 @@ impl SemanticValueStore {
                 element: self.substitute_contextual_self(*element, context, replacement)?,
                 length: *length,
             },
+            TypeData::FlexibleArray(element) => TypeData::FlexibleArray(
+                self.substitute_contextual_self(*element, context, replacement)?,
+            ),
             TypeData::Slice(element) => {
                 TypeData::Slice(self.substitute_contextual_self(*element, context, replacement)?)
             }
@@ -103,6 +106,7 @@ impl SemanticValueStore {
                         callable.abi(),
                         callable.dependency_contracts(),
                     )
+                    .with_variadic(callable.is_variadic())
                     .with_phase_behaviors(callable.phase_behaviors().clone()),
                 )
             }

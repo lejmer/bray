@@ -1418,7 +1418,7 @@ mod tests {
             CodegenTypeKind::Union { variants, .. }
                 if variants
                     .iter()
-                    .map(|variant| variant.tag().to_u64())
+                    .map(|variant| variant.tag().and_then(|tag| tag.to_u64()))
                     .collect::<Vec<_>>()
                     == [Some(3), Some(7)]
         ));
@@ -2054,7 +2054,7 @@ mod tests {
         assert_eq!(
             variants
                 .iter()
-                .map(|variant| variant.tag().to_u64())
+                .map(|variant| variant.tag().and_then(|tag| tag.to_u64()))
                 .collect::<Vec<_>>(),
             [Some(0), Some(1), Some(2)]
         );
@@ -2073,10 +2073,9 @@ mod tests {
             [vec![], vec![8], vec![8, 16]]
         );
 
-        assert_eq!(
-            mappings[&tag].layout().map(TargetValueLayout::size),
-            Some(1)
-        );
+        let tag = tag.unwrap_or_else(|| panic!("Choice must include tag storage"));
+
+        assert_eq!(mappings[&tag].layout().map(TargetValueLayout::size), Some(1));
 
         assert_eq!(mapping.layout().map(TargetValueLayout::size), Some(24));
     }

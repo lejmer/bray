@@ -1091,6 +1091,58 @@ const CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED: &[MessageTemplatePart] = 
     MessageTemplatePart::Text(" ABI boundary"),
 ];
 
+const CHECKING_VARIADIC_CALLABLE_CONTRACT_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "variadic calls require one or more fixed parameters and a synchronous foreign ABI contract",
+    ),
+];
+
+const CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "callable address operations require an ABI-qualified callable type",
+    ),
+];
+
+const CHECKING_EXTERN_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "extern static declarations use trusted concrete storage with a type and no initializer",
+    ),
+];
+
+const CHECKING_EXPORTED_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "exported static declarations use one concrete Bray-owned storage definition",
+    ),
+];
+
+const CHECKING_NATIVE_STATIC_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "native static storage uses a complete foreign data representation or an incomplete pointee type",
+    ),
+];
+
+const CHECKING_FIXED_LAYOUT_QUERY_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" requires a complete fixed-size type"),
+];
+
+const CHECKING_TRAILING_LAYOUT_QUERY_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "trailing layout determination requires a C-layout product with one final flexible field",
+    ),
+];
+
+const CHECKING_MEMORY_POINTEE_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" requires a complete fixed-size pointee type"),
+];
+
+const CHECKING_TAGLESS_UNION_PATTERN_REQUIRES_VARIANT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "tagless union patterns require the subject's exact active variant to be known or explicitly trusted",
+    ),
+];
+
 const CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
     MessageTemplatePart::Text(" cannot cross the "),
@@ -2356,6 +2408,24 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingForeignCallableExecutionUnsupported => {
             MessageTemplate::new(CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED)
         }
+        DiagnosticKind::CheckingVariadicCallableContractUnsupported => {
+            MessageTemplate::new(CHECKING_VARIADIC_CALLABLE_CONTRACT_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingCallableAddressTypeUnsupported => {
+            MessageTemplate::new(CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingFixedLayoutQueryTypeUnsupported => {
+            MessageTemplate::new(CHECKING_FIXED_LAYOUT_QUERY_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingTrailingLayoutQueryTypeUnsupported => {
+            MessageTemplate::new(CHECKING_TRAILING_LAYOUT_QUERY_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingMemoryPointeeTypeUnsupported => {
+            MessageTemplate::new(CHECKING_MEMORY_POINTEE_TYPE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingTaglessUnionPatternRequiresVariant => {
+            MessageTemplate::new(CHECKING_TAGLESS_UNION_PATTERN_REQUIRES_VARIANT)
+        }
         DiagnosticKind::CheckingForeignAbiTypeUnsupported => {
             MessageTemplate::new(CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED)
         }
@@ -2502,6 +2572,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingStaticConstraintUnsatisfied => {
             MessageTemplate::new(CHECKING_STATIC_CONSTRAINT_UNSATISFIED)
+        }
+        DiagnosticKind::CheckingExternStaticSurfaceUnsupported => {
+            MessageTemplate::new(CHECKING_EXTERN_STATIC_SURFACE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingExportedStaticSurfaceUnsupported => {
+            MessageTemplate::new(CHECKING_EXPORTED_STATIC_SURFACE_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingNativeStaticTypeUnsupported => {
+            MessageTemplate::new(CHECKING_NATIVE_STATIC_TYPE_UNSUPPORTED)
         }
         DiagnosticKind::CheckingInvalidTargetControlContract => {
             MessageTemplate::new(CHECKING_INVALID_TARGET_CONTROL_CONTRACT)

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bray_binder::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
 };
@@ -5,16 +7,19 @@ use bray_bound_tree::{
     BoundReferenceTarget, BoundUnitKind, BoundUnitRoot, DeclaredValueTypeConstraintKind,
     DeclaredValueTypeTerm,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, CallableSignatureQuery, CallableSignatureTemplate,
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
     ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateQuery, StaticDeclaredTypeQuery, StructFieldTypeQuery,
-    SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+    GenericArgumentTemplate, GenericParameterSymbolId, PredicateSignatureTemplateQuery,
+    StaticDeclaredTypeQuery, StructFieldTypeQuery, SymbolQueryRequest,
+    SymbolProvider,
+    TraitConstantFulfillmentDeclaredTypeQuery,
     TraitConstantMemberDeclaredTypeQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
-use bray_syntax::LambdaExpressionSyntax;
+use bray_syntax::{LambdaExpressionSyntax, StaticDeclarationSyntax};
 use bray_target::TargetPropertyKind;
 
 use super::CompilationBindingContext;
@@ -376,7 +381,7 @@ impl DeclaredValueTypeBinding<'_> {
         &self,
         owner: AnySymbolId,
     ) -> BindingQueryResult<
-        std::sync::Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>,
+        Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>,
     > {
         let callable = CallableSymbolId::try_from_any(owner)
             .ok_or(BindingQueryError::DependencyUnavailable)?;
@@ -426,12 +431,15 @@ impl DeclaredValueTypeBinding<'_> {
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         match owner {
             AnySymbolId::Constant(constant) => self.constant_type(constant),
-            AnySymbolId::Static(static_symbol) => self
-                .context
-                .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(
-                    static_symbol,
-                ))
-                .map(|result| owned_template(result.value())),
+            AnySymbolId::Static(static_symbol) => {
+                let declared = self
+                    .context
+                    .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(
+                        static_symbol,
+                    ))?;
+
+                self.static_reference_type(static_symbol, owned_template(declared.value()))
+            }
             AnySymbolId::TraitConstantMember(member) => self
                 .context
                 .resolve_symbol_query(
@@ -446,6 +454,74 @@ impl DeclaredValueTypeBinding<'_> {
                 .map(|result| owned_template(result.value())),
             _ => Err(BindingQueryError::DependencyUnavailable),
         }
+    }
+
+    fn static_reference_type(
+        &self,
+        declaration: bray_symbols::StaticSymbolId,
+        declared: TypeExpressionTemplate,
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
+        let record = self
+            .context
+            .symbols()
+            .static_symbol(declaration)
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+        let exposes_address = match record.syntax_anchor() {
+            Some(anchor) => {
+                let syntax = anchor
+                    .find_descendant::<StaticDeclarationSyntax>(
+                        self.context.compilation().syntax_tree(),
+                    )
+                    .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+                syntax.static_declaration_modifiers().extern_token().is_some()
+                    || (syntax.mut_token().is_some()
+                        && syntax.static_directives().symbol_directives().next().is_some())
+            }
+            None => self
+                .context
+                .compilation()
+                .imported_native_boundary_with_cancellation(
+                    declaration.into(),
+                    self.context.cancellation(),
+                )
+                .map_err(|_| BindingQueryError::DependencyUnavailable)?
+                .is_some_and(|boundary| {
+                    matches!(
+                        boundary.kind(),
+                        bray_package_interface::InterfaceNativeBoundaryKind::Static { .. }
+                    )
+                }),
+        };
+
+        if !exposes_address {
+            return Ok(declared);
+        }
+
+        let available = self
+            .context
+            .compilation()
+            .available_compiler_known_symbols();
+
+        let raw_pointer = available
+            .representation_symbol::<bray_symbols::StructSymbolId>(RepresentationRole::RawPointer)
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+        let raw_pointer = available
+            .provider()
+            .symbol(raw_pointer)
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+        let [parameter] = raw_pointer.generic_type_parameters() else {
+            return Err(BindingQueryError::DependencyUnavailable);
+        };
+
+        Ok(TypeExpressionTemplate::Named {
+            definition: NamedTypeSymbolId::Struct(raw_pointer.id()),
+            parameters: Arc::from([GenericParameterSymbolId::Type(*parameter)]),
+            arguments: Arc::from([GenericArgumentTemplate::Type(declared)]),
+        })
     }
 
     pub(super) fn bind_surface_reference_type(

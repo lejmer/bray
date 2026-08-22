@@ -120,14 +120,68 @@ impl TargetAlignmentLimits {
 pub struct TargetOperationSupport {
     raw_memory: bool,
     allocation: bool,
+    callable_addresses: bool,
+}
+
+/// Native symbol identity and resolution policies available on one target.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TargetNativeSymbolSupport {
+    ordinals: bool,
+    versions: bool,
+    weak_binding: bool,
+    optional_data: bool,
+}
+
+impl TargetNativeSymbolSupport {
+    /// Creates target native-symbol capability properties.
+    pub const fn new(
+        ordinals: bool,
+        versions: bool,
+        weak_binding: bool,
+        optional_data: bool,
+    ) -> Self {
+        Self {
+            ordinals,
+            versions,
+            weak_binding,
+            optional_data,
+        }
+    }
+
+    /// Returns whether native symbols can be selected by ordinal.
+    pub const fn ordinals(self) -> bool {
+        self.ordinals
+    }
+
+    /// Returns whether native symbols can select a version.
+    pub const fn versions(self) -> bool {
+        self.versions
+    }
+
+    /// Returns whether weak native symbol binding is available.
+    pub const fn weak_binding(self) -> bool {
+        self.weak_binding
+    }
+
+    /// Returns whether an unresolved imported data symbol can produce a null address.
+    pub const fn optional_data(self) -> bool {
+        self.optional_data
+    }
+}
+
+impl Default for TargetNativeSymbolSupport {
+    fn default() -> Self {
+        Self::new(false, false, false, false)
+    }
 }
 
 impl TargetOperationSupport {
     /// Creates target operation capability properties.
-    pub const fn new(raw_memory: bool, allocation: bool) -> Self {
+    pub const fn new(raw_memory: bool, allocation: bool, callable_addresses: bool) -> Self {
         Self {
             raw_memory,
             allocation,
+            callable_addresses,
         }
     }
 
@@ -139,6 +193,11 @@ impl TargetOperationSupport {
     /// Returns whether compiler-known allocation operations are available.
     pub const fn allocation(self) -> bool {
         self.allocation
+    }
+
+    /// Returns whether ABI-qualified callables use address-compatible code pointers.
+    pub const fn callable_addresses(self) -> bool {
+        self.callable_addresses
     }
 }
 
@@ -153,6 +212,7 @@ pub struct TargetProperties {
     address_spaces: TargetAddressSpaces,
     alignments: TargetAlignmentLimits,
     operations: TargetOperationSupport,
+    native_symbols: TargetNativeSymbolSupport,
     dynamic_loading: bool,
     native_threads: bool,
 }
@@ -178,6 +238,7 @@ impl TargetProperties {
             address_spaces,
             alignments,
             operations,
+            native_symbols: TargetNativeSymbolSupport::new(false, false, false, false),
             dynamic_loading: false,
             native_threads: false,
         }
@@ -202,6 +263,7 @@ impl TargetProperties {
             true,
             true,
             true,
+            true,
             maximum_alignment,
         );
 
@@ -220,6 +282,13 @@ impl TargetProperties {
     /// Returns these properties with the supplied compiler-provided operation capabilities.
     pub const fn with_operations(mut self, operations: TargetOperationSupport) -> Self {
         self.operations = operations;
+
+        self
+    }
+
+    /// Returns these properties with the supplied native-symbol capabilities.
+    pub const fn with_native_symbols(mut self, symbols: TargetNativeSymbolSupport) -> Self {
+        self.native_symbols = symbols;
 
         self
     }
@@ -283,6 +352,11 @@ impl TargetProperties {
     /// Returns compiler-known operation capability properties.
     pub const fn operations(&self) -> TargetOperationSupport {
         self.operations
+    }
+
+    /// Returns native symbol identity and resolution capabilities.
+    pub const fn native_symbols(&self) -> TargetNativeSymbolSupport {
+        self.native_symbols
     }
 
     /// Returns whether the complete dynamic-library platform role family is available.

@@ -25,6 +25,7 @@ pub use identity::{
 };
 pub use model::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceNativeBoundaryKind,
     PackageImplementationArtifactBuildError,
 };
 pub use specialization::{

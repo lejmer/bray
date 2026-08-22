@@ -291,7 +291,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let signature = request
             .mappings()
             .instance_symbol(instance.key())
-            .map(bray_codegen::CodegenSymbolMapping::signature)
+            .map(CodegenSymbolMapping::signature)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let unit = instance.mir();
@@ -587,6 +587,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?;
 
                 self.storages.insert(id, storage);
+
+                if matches!(self.unit.storage(id).map(bray_ir::MirStorage::kind), Some(MirStorageKind::NativeStatic(_))) {
+                    self.initialize_native_static_storage(id, storage)?;
+                }
             }
 
             return Ok(());
@@ -609,33 +613,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )?;
 
             self.storages.insert(id, pointer);
+
+            if matches!(storage.kind(), MirStorageKind::NativeStatic(_)) {
+                self.initialize_native_static_storage(id, pointer)?;
+            }
         }
 
         Ok(())
-    }
-
-    pub(super) fn static_storage_pointer(
-        &mut self,
-        storage: MirStorageId,
-    ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let mapping = self
-            .request
-            .mappings()
-            .static_storage(self.instance.key(), storage)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let accessor = self
-            .module
-            .get_function(&mapping.accessor_name())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let pointer = llvm(self.builder.build_call(accessor, &[], "static.access"))?
-            .try_as_basic_value()
-            .basic()
-            .and_then(pointer_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        Ok(pointer)
     }
 
     pub(super) fn bind_parameters(&mut self) -> Result<(), CodegenFailure> {

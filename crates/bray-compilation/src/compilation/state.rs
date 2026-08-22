@@ -27,13 +27,14 @@ use bray_symbols::{
     AnyConstantDefinitionId, AvailableCompilerKnownSymbols, CallableDefinitionId,
     CallableTypeDirectiveKey, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
-    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract, FunctionSymbolId,
+    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract, ForeignStaticContract,
+    FunctionSymbolId,
     GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
     ImplementationSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
     PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
     SemanticValueStoreCreateError, SymbolGraph, TraitImplementationConformanceQuery,
-    TypeAssociatedSurface, TypeId,
+    StaticSymbolId, TypeAssociatedSurface, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
@@ -130,7 +131,7 @@ pub(super) struct CompilationState {
     pub(super) implementation_participation: FactCellMap<
         ImplementationCoherenceDomainKey,
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <ImplementationParticipationQuery as bray_symbols::SemanticQueryContract>::Value,
             >,
         >,
@@ -139,6 +140,8 @@ pub(super) struct CompilationState {
     pub(super) callable_overload_validation: FactCell<DiagnosticBag>,
     pub(super) foreign_callable_contracts:
         FactCellMap<FunctionSymbolId, Arc<DiagnosticResult<Option<ForeignCallableContract>>>>,
+    pub(super) foreign_static_contracts:
+        FactCellMap<StaticSymbolId, Arc<DiagnosticResult<Option<ForeignStaticContract>>>>,
     pub(super) foreign_callable_validation: FactCell<DiagnosticBag>,
     pub(super) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
@@ -157,7 +160,7 @@ pub(super) struct CompilationState {
     pub(super) trait_implementation_conformance: FactCellMap<
         ImplementationSymbolId,
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
             >,
         >,
@@ -397,6 +400,7 @@ impl Compilation {
                 implementation_coherence: FactCell::new(),
                 callable_overload_validation: FactCell::new(),
                 foreign_callable_contracts: FactCellMap::new(),
+                foreign_static_contracts: FactCellMap::new(),
                 foreign_callable_validation: FactCell::new(),
                 type_associated_surfaces: FactCellMap::new(),
                 declared_type_representations: FactCellMap::new(),

@@ -285,7 +285,11 @@ fn declare_static_finalizer_resolver<'context>(
         return Err(CodegenFailure::GeneratedModuleInvariant);
     };
 
-    let BasicTypeEnum::IntType(tag_type) = types.map(*tag)? else {
+    let Some(tag) = *tag else {
+        return Err(CodegenFailure::GeneratedModuleInvariant);
+    };
+
+    let BasicTypeEnum::IntType(tag_type) = types.map(tag)? else {
         return Err(CodegenFailure::GeneratedModuleInvariant);
     };
 
@@ -297,7 +301,7 @@ fn declare_static_finalizer_resolver<'context>(
     let success = variants
         .iter()
         .find(|variant| variant.variant() == success_variant)
-        .map(bray_codegen::CodegenUnionVariantLayout::tag)
+        .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let success = crate::translation::integer_constant(tag_type, success);

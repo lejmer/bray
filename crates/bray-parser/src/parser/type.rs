@@ -39,7 +39,12 @@ impl Parser {
         let mut builder = StructDeclarationSyntax::builder(self.syntax_source(), start);
 
         self.parse_type_declaration_header(&mut builder, SyntaxKind::StructKeyword);
-        builder.push_struct_body(self.parse_struct_body());
+
+        if self.at(SyntaxKind::SemicolonToken) {
+            builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
+        } else {
+            builder.push_struct_body(self.parse_struct_body());
+        }
 
         builder.build()
     }
@@ -279,7 +284,14 @@ mod tests {
             Some(SyntaxKind::PublicKeyword)
         );
 
-        assert_eq!(declaration.struct_body().full_text(), "{}");
+        assert_eq!(
+            declaration
+                .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
+                .full_text(),
+            "{}"
+        );
+
         assert!(result.diagnostics().is_empty());
     }
 
@@ -368,7 +380,10 @@ mod tests {
             panic!("expected one struct declaration: {declarations:?}");
         };
 
-        let body = declaration.struct_body();
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
+
         let fields = body.struct_field_declarations().collect::<Vec<_>>();
 
         let [field] = fields.as_slice() else {
@@ -389,7 +404,14 @@ mod tests {
         assert_eq!(field.type_expression().full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
         assert_eq!(field.identifier_token().kind(), SyntaxKind::IdentifierToken);
-        assert_eq!(declaration.struct_body().full_text(), "{ value: T; }");
+
+        assert_eq!(
+            declaration
+                .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
+                .full_text(),
+            "{ value: T; }"
+        );
 
         assert!(result.diagnostics().is_empty());
     }
@@ -483,6 +505,7 @@ mod tests {
 
         let members = declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .type_callable_member_declarations()
             .collect::<Vec<_>>();
 
@@ -552,6 +575,7 @@ mod tests {
 
         let struct_constants = struct_declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .constant_declarations()
             .collect::<Vec<_>>();
 
@@ -604,6 +628,42 @@ mod tests {
     }
 
     #[test]
+    fn parser_preserves_bodyless_and_flexible_struct_forms() {
+        let source = concat!(
+            "module main; ",
+            "struct FILE; ",
+            "@layout(c) struct Packet { length: usize; bytes: [u8; ..]; }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let declarations = result.syntax_tree().root().source_units()[0]
+            .struct_declarations()
+            .collect::<Vec<_>>();
+
+        let [incomplete, flexible] = declarations.as_slice() else {
+            panic!("expected two struct declarations: {declarations:?}");
+        };
+
+        assert!(incomplete.semicolon_token().is_some());
+        assert!(incomplete.struct_body().is_none());
+
+        let body = flexible
+            .struct_body()
+            .unwrap_or_else(|| panic!("flexible struct must have a body"));
+
+        let fields = body.struct_field_declarations().collect::<Vec<_>>();
+
+        let [_, trailing] = fields.as_slice() else {
+            panic!("expected two fields: {fields:?}");
+        };
+
+        assert!(trailing.type_expression().dot_dot_token().is_some());
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
     fn parser_struct_body_missing_open_brace_does_not_consume_following_item() {
         let source = "module main; struct Point\nusing core;";
         let sources = source_store([source]);
@@ -617,7 +677,10 @@ mod tests {
         };
 
         let insertion = marker_offset(source, "using");
-        let body = declaration.struct_body();
+
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(source_unit.using_declarations().count(), 1);

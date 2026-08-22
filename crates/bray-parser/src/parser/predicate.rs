@@ -396,6 +396,7 @@ mod tests {
         assert_eq!(
             struct_declaration
                 .struct_body()
+                .unwrap_or_else(|| panic!("test struct must have a body"))
                 .predicate_declarations()
                 .count(),
             1

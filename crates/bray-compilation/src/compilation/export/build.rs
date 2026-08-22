@@ -1113,7 +1113,9 @@ mod tests {
 
             let template = consumer
                 .static_instance_template(declaration)
-                .unwrap_or_else(|error| panic!("imported static must resolve: {error:?}"));
+                .unwrap_or_else(|error| {
+                    panic!("imported {duration:?} static must resolve: {error:?}")
+                });
 
             assert!(
                 template.diagnostics().is_empty(),

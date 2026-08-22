@@ -291,6 +291,9 @@ impl InternState {
                         union_tag_type,
                     )
                     .with_union_tags(union_tags)
+                    .with_opaque_size(input.opaque_size())
+                    .with_incomplete(input.is_incomplete())
+                    .with_tagless_union(input.is_tagless_union())
                     .with_storage(storage)
                     .with_properties(
                         input.copy_contract(),

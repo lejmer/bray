@@ -99,6 +99,14 @@ pub(super) fn product_preservation_roots<'plan>(
         .filter(|symbol| is_preservation_root(symbol.linkage()))
         .map(bray_codegen::CodegenSymbolMapping::name);
 
+    let native_data = mappings
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::native_storages)
+        .filter(|mapping| {
+            mapping.direction() == bray_symbols::ForeignCallableDirection::Export
+        })
+        .map(bray_codegen::CodegenNativeStaticMapping::symbol);
+
     let lifecycle = product_host.into_iter().flat_map(|host| {
         [host.descriptor_symbol(), host.control_symbol()]
             .into_iter()
@@ -109,7 +117,7 @@ pub(super) fn product_preservation_roots<'plan>(
             )
     });
 
-    definitions.chain(lifecycle)
+    definitions.chain(native_data).chain(lifecycle)
 }
 
 const fn is_preservation_root(linkage: bray_codegen::CodegenLinkage) -> bool {

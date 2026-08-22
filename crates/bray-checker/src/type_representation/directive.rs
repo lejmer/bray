@@ -42,6 +42,7 @@ where
         let mut mode_span = None;
         let mut alignment_spans = Vec::new();
         let mut packing_spans = Vec::new();
+        let mut size_spans = Vec::new();
         let mut tag_spans = Vec::new();
 
         for argument in directive.arguments() {
@@ -91,12 +92,28 @@ where
                     )?;
                 }
                 DirectiveArgumentName::Named(name)
+                    if name.as_str() == "size" && size_spans.is_empty() =>
+                {
+                    size_spans.push(expression_span(argument.expression()));
+
+                    layout.size = self.check_nonnegative_integer(
+                        argument.expression(),
+                        DiagnosticLayoutOption::Size,
+                        recovered,
+                    )?;
+                }
+                DirectiveArgumentName::Named(name)
                     if name.as_str() == "tag" && tag_spans.is_empty() =>
                 {
                     tag_spans.push(expression_span(argument.expression()));
-                    layout.tag_type = self.context.integer_type(argument.expression())?;
 
-                    if layout.tag_type.is_none() {
+                    if self.argument_text(argument.expression())? == "none" {
+                        layout.tagless = true;
+                    } else {
+                        layout.tag_type = self.context.integer_type(argument.expression())?;
+                    }
+
+                    if layout.tag_type.is_none() && !layout.tagless {
                         self.add_union_tag_diagnostic(
                             DiagnosticUnionTagProblem::UnsupportedType(
                                 self.argument_text(argument.expression())?.to_owned(),
@@ -131,6 +148,10 @@ where
                             ),
                             &mut packing_spans,
                         ),
+                        "size" => (
+                            DiagnosticLayoutProblem::DuplicateOption(DiagnosticLayoutOption::Size),
+                            &mut size_spans,
+                        ),
                         "tag" => (
                             DiagnosticLayoutProblem::DuplicateOption(DiagnosticLayoutOption::Tag),
                             &mut tag_spans,
@@ -160,62 +181,9 @@ where
             }
         }
 
-        let is_union = matches!(definition.subject(), NamedTypeSymbolId::Union(_));
-
         let directive_span = directive_span(directive.syntax());
-        let mut problems = Vec::new();
 
-        if mode_span.is_none() {
-            problems.push(DiagnosticLayoutProblem::MissingMode);
-        }
-
-        if layout.mode == DeclaredLayoutMode::Transparent {
-            if is_union {
-                problems.push(DiagnosticLayoutProblem::TransparentUnion);
-            }
-
-            if definition.fields().len() != 1 {
-                problems.push(DiagnosticLayoutProblem::TransparentFieldCount {
-                    actual: u64::try_from(definition.fields().len()).unwrap_or(u64::MAX),
-                });
-            }
-
-            if layout.alignment.is_some() {
-                problems.push(DiagnosticLayoutProblem::TransparentOption(
-                    DiagnosticLayoutOption::Alignment,
-                ));
-            }
-
-            if layout.packing.is_some() {
-                problems.push(DiagnosticLayoutProblem::TransparentOption(
-                    DiagnosticLayoutOption::Packing,
-                ));
-            }
-
-            if layout.tag_type.is_some() {
-                problems.push(DiagnosticLayoutProblem::TransparentOption(
-                    DiagnosticLayoutOption::Tag,
-                ));
-            }
-        }
-
-        if layout.packing.is_some() && layout.mode != DeclaredLayoutMode::Stable {
-            problems.push(DiagnosticLayoutProblem::PackingRequiresStable);
-        }
-
-        if layout.packing.is_some() && !members.plain {
-            problems.push(DiagnosticLayoutProblem::PackingRequiresPlainStorage);
-        }
-
-        if layout.tag_type.is_some() && !is_union {
-            problems.push(DiagnosticLayoutProblem::TagRequiresUnion);
-        }
-
-        if is_union && layout.mode == DeclaredLayoutMode::C && layout.tag_type.is_none() {
-            problems.push(DiagnosticLayoutProblem::CUnionRequiresTag);
-        }
-
-        for problem in problems {
+        for problem in layout_problems(definition, members, layout, mode_span.is_some()) {
             let mut diagnostic = self.layout_diagnostic(problem, directive_span, &[]);
 
             if layout.mode == DeclaredLayoutMode::Transparent {
@@ -277,17 +245,68 @@ where
         }
     }
 
+    fn check_nonnegative_integer(
+        &mut self,
+        expression: DeclarationExpressionTemplate,
+        option: DiagnosticLayoutOption,
+        recovered: &mut bool,
+    ) -> CheckerQueryResult<Option<u64>> {
+        let result = self.context.unsigned_integer(expression)?;
+
+        self.diagnostics
+            .add_range(result.diagnostics().iter().cloned());
+
+        match result.value() {
+            Some(value) => Ok(Some(*value)),
+            None => {
+                if result.diagnostics().is_empty() {
+                    self.add_layout_diagnostic(
+                        DiagnosticLayoutProblem::OptionNotConstant(option),
+                        expression_span(expression),
+                        &[],
+                    );
+                }
+
+                *recovered = true;
+
+                Ok(None)
+            }
+        }
+    }
+
     pub(super) fn check_union_tags(
         &mut self,
         definition: &DeclaredTypeDefinition,
         layout: DeclaredLayoutMode,
         tag_type: Option<RepresentationIntegerType>,
+        tagless: bool,
         recovered: &mut bool,
     ) -> CheckerQueryResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
         if matches!(
             definition.subject(),
-            bray_symbols::NamedTypeSymbolId::Struct(_)
+            NamedTypeSymbolId::Struct(_)
         ) {
+            return Ok((Vec::new(), None));
+        }
+
+        if tagless {
+            for variant in definition.variants() {
+                if let Some(directive) = variant
+                    .directives()
+                    .directives()
+                    .iter()
+                    .find(|directive| directive.kind() == DirectiveKind::Tag)
+                {
+                    self.add_union_tag_diagnostic(
+                        DiagnosticUnionTagProblem::TaglessUnionHasVariantTag,
+                        directive_span(directive.syntax()),
+                        &[],
+                    );
+
+                    *recovered = true;
+                }
+            }
+
             return Ok((Vec::new(), None));
         }
 
@@ -652,12 +671,99 @@ fn tag_value_outside_type_problem(
     }
 }
 
+fn layout_problems(
+    definition: &DeclaredTypeDefinition,
+    members: &MemberRepresentation,
+    layout: RequestedLayout,
+    has_mode: bool,
+) -> Vec<DiagnosticLayoutProblem> {
+    let is_union = matches!(definition.subject(), NamedTypeSymbolId::Union(_));
+    let mut problems = Vec::new();
+
+    if !has_mode {
+        problems.push(DiagnosticLayoutProblem::MissingMode);
+    }
+
+    if layout.mode == DeclaredLayoutMode::Transparent {
+        if is_union {
+            problems.push(DiagnosticLayoutProblem::TransparentUnion);
+        }
+
+        if definition.fields().len() != 1 {
+            problems.push(DiagnosticLayoutProblem::TransparentFieldCount {
+                actual: u64::try_from(definition.fields().len()).unwrap_or(u64::MAX),
+            });
+        }
+
+        for (present, option) in [
+            (layout.alignment.is_some(), DiagnosticLayoutOption::Alignment),
+            (layout.packing.is_some(), DiagnosticLayoutOption::Packing),
+            (layout.size.is_some(), DiagnosticLayoutOption::Size),
+            (layout.tag_type.is_some(), DiagnosticLayoutOption::Tag),
+        ] {
+            if present {
+                problems.push(DiagnosticLayoutProblem::TransparentOption(option));
+            }
+        }
+    }
+
+    if layout.packing.is_some() && layout.mode != DeclaredLayoutMode::Stable {
+        problems.push(DiagnosticLayoutProblem::PackingRequiresStable);
+    }
+
+    if layout.packing.is_some() && !members.plain {
+        problems.push(DiagnosticLayoutProblem::PackingRequiresPlainStorage);
+    }
+
+    if layout.tag_type.is_some() && !is_union {
+        problems.push(DiagnosticLayoutProblem::TagRequiresUnion);
+    }
+
+    if is_union
+        && layout.mode == DeclaredLayoutMode::C
+        && layout.tag_type.is_none()
+        && !layout.tagless
+    {
+        problems.push(DiagnosticLayoutProblem::CUnionRequiresTag);
+    }
+
+    if layout.tagless && (!is_union || layout.mode != DeclaredLayoutMode::C) {
+        problems.push(DiagnosticLayoutProblem::TaglessUnionRequiresCLayout);
+    }
+
+    if layout.size.is_some() && (is_union || definition.has_body()) {
+        problems.push(DiagnosticLayoutProblem::OpaqueSizeRequiresBodylessStruct);
+    }
+
+    if !definition.has_body() {
+        if layout.size.is_none() != layout.alignment.is_none() {
+            problems.push(DiagnosticLayoutProblem::BodylessStructRequiresSizeAndAlignment);
+        }
+
+        if layout.size.is_some()
+            && !matches!(layout.mode, DeclaredLayoutMode::Stable | DeclaredLayoutMode::C)
+        {
+            problems.push(DiagnosticLayoutProblem::OpaqueStorageRequiresStableOrC);
+        }
+
+        if let (Some(size), Some(alignment)) = (layout.size, layout.alignment)
+            && size % alignment != 0
+        {
+            problems.push(DiagnosticLayoutProblem::OpaqueSizeNotAligned { size, alignment });
+        }
+    }
+
+    problems
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct RequestedLayout {
     pub(super) mode: DeclaredLayoutMode,
     pub(super) alignment: Option<u64>,
     pub(super) packing: Option<u64>,
+    pub(super) size: Option<u64>,
     pub(super) tag_type: Option<RepresentationIntegerType>,
+    pub(super) tagless: bool,
 }
 
 fn expression_span(expression: DeclarationExpressionTemplate) -> SourceSpan {

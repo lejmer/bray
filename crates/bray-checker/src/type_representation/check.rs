@@ -57,6 +57,8 @@ pub(super) enum Copyability {
 pub(super) struct MemberRepresentation {
     pub(super) finite: bool,
     pub(super) plain: bool,
+    c_compatible: bool,
+    flexible: bool,
     pub(super) copyable: Copyability,
     pub(super) copy_dependencies: BTreeSet<GenericTypeParameterSymbolId>,
     pub(super) non_copyable_members: BTreeSet<bray_source::SourceSpan>,
@@ -88,6 +90,8 @@ impl MemberRepresentation {
     const SCALAR: Self = Self {
         finite: true,
         plain: true,
+        c_compatible: true,
+        flexible: false,
         copyable: Copyability::Always,
         copy_dependencies: BTreeSet::new(),
         non_copyable_members: BTreeSet::new(),
@@ -100,6 +104,8 @@ impl MemberRepresentation {
         Self {
             finite: false,
             plain: false,
+            c_compatible: false,
+            flexible: false,
             copyable: Copyability::Never,
             copy_dependencies: BTreeSet::new(),
             non_copyable_members: BTreeSet::new(),
@@ -113,6 +119,8 @@ impl MemberRepresentation {
         Self {
             finite: false,
             plain: false,
+            c_compatible: false,
+            flexible: false,
             copyable: Copyability::Never,
             copy_dependencies: BTreeSet::new(),
             non_copyable_members: BTreeSet::new(),
@@ -126,6 +134,8 @@ impl MemberRepresentation {
         values.into_iter().fold(Self::SCALAR, |mut result, value| {
             result.finite &= value.finite;
             result.plain &= value.plain;
+            result.c_compatible &= value.c_compatible;
+            result.flexible |= value.flexible;
             result.copyable = combine_copyability(result.copyable, value.copyable);
             result.copy_dependencies.extend(value.copy_dependencies);
 
@@ -294,7 +304,14 @@ where
             .map(|member| self.check_member(member))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut member_representation = MemberRepresentation::aggregate(members);
+        let flexible_members = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| member.flexible)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+
+        let mut member_representation = MemberRepresentation::aggregate(members.iter().cloned());
         let mut recovered = definition.is_recovered() || member_representation.recovered;
 
         let mut owned_cycles = Vec::new();
@@ -316,8 +333,53 @@ where
 
         let layout = self.check_layout(definition, &member_representation, &mut recovered)?;
 
-        let (tags, tag_type) =
-            self.check_union_tags(definition, layout.mode, layout.tag_type, &mut recovered)?;
+        if !flexible_members.is_empty() {
+            let valid_position = matches!(definition.subject(), NamedTypeSymbolId::Struct(_))
+                && flexible_members.as_slice()
+                    == [definition.fields().len().saturating_sub(1)];
+
+            let valid_element = flexible_members
+                .iter()
+                .all(|index| members[*index].plain && members[*index].c_compatible);
+
+            if !valid_position || layout.mode != bray_symbols::DeclaredLayoutMode::C {
+                for index in &flexible_members {
+                    self.add_invalid_stored_type_diagnostic(
+                        definition
+                            .fields()
+                            .get(*index)
+                            .map_or(definition.span(), DeclaredStorageMember::span),
+                        DiagnosticStoredTypeProblem::FlexibleArrayRequiresFinalCStructField,
+                    );
+                }
+
+                recovered = true;
+            }
+
+            if !valid_element {
+                for index in &flexible_members {
+                    if !members[*index].plain || !members[*index].c_compatible {
+                        self.add_invalid_stored_type_diagnostic(
+                            definition
+                                .fields()
+                                .get(*index)
+                                .map_or(definition.span(), DeclaredStorageMember::span),
+                            DiagnosticStoredTypeProblem::FlexibleArrayElementRequiresPlainCStorage,
+                        );
+                    }
+                }
+
+                recovered = true;
+            }
+        }
+
+        let (tags, tag_type) = self.check_union_tags(
+            definition,
+            layout.mode,
+            layout.tag_type,
+            layout.tagless,
+            &mut recovered,
+        )?;
 
         let copy = self.check_copy(definition, &member_representation, &mut recovered);
 
@@ -331,8 +393,14 @@ where
             Vec::new()
         };
 
-        let plain_storage = !definition.has_lifecycle() && member_representation.plain;
-        let finite_size = member_representation.finite;
+        let opaque = !definition.has_body() && layout.size.is_some() && layout.alignment.is_some();
+        let incomplete = !definition.has_body() && !opaque;
+
+        let plain_storage = opaque
+            || (!incomplete && !definition.has_lifecycle() && member_representation.plain);
+
+        let flexible = !flexible_members.is_empty();
+        let finite_size = opaque || (!incomplete && !flexible && member_representation.finite);
         let storage = storage_shape(definition);
 
         Ok(CheckedRepresentation {
@@ -344,6 +412,9 @@ where
                     tag_type.map(|tag_type| tag_type.ty()),
                 )
                 .with_union_tags(tags)
+                .with_tagless_union(layout.tagless)
+                .with_opaque_size(layout.size)
+                .with_incomplete(incomplete)
                 .with_storage(storage)
                 .with_properties(copy, plain_storage, finite_size, recovered)
                 .with_copy_dependencies(copy_dependencies),
@@ -364,6 +435,7 @@ where
         result.recovered |= member.is_recovered();
 
         if !result.finite
+            && !result.flexible
             && result.recursive_cycles.is_empty()
             && result.stored_type_problems.is_empty()
         {
@@ -394,6 +466,8 @@ where
             TypeExpressionTemplate::TypeValuedMemberProjection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Conditional,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -408,6 +482,15 @@ where
                 .map(MemberRepresentation::aggregate),
             TypeExpressionTemplate::Array { element, .. }
             | TypeExpressionTemplate::Nullable(element) => self.check_template(element, origin),
+            TypeExpressionTemplate::FlexibleArray(element) => {
+                let mut representation = self.check_template(element, origin)?;
+
+                representation.flexible = true;
+                representation.finite = false;
+                representation.copyable = Copyability::Never;
+
+                Ok(representation)
+            }
             TypeExpressionTemplate::Slice(_) => Ok(MemberRepresentation::invalid(
                 DiagnosticStoredTypeProblem::Slice,
             )),
@@ -417,6 +500,8 @@ where
             TypeExpressionTemplate::Borrow { kind, .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: match kind {
                     bray_symbols::BorrowKind::Shared => Copyability::Always,
                     bray_symbols::BorrowKind::Mutable => Copyability::Never,
@@ -430,6 +515,8 @@ where
             TypeExpressionTemplate::OwnedIndirection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Never,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -440,6 +527,8 @@ where
             TypeExpressionTemplate::Callable(_) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Always,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -605,6 +694,8 @@ where
             TypeData::TypeParameter(parameter) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Conditional,
                 copy_dependencies: BTreeSet::from([*parameter]),
                 non_copyable_members: BTreeSet::new(),
@@ -618,6 +709,8 @@ where
             TypeData::TypeValuedMemberProjection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Conditional,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -633,6 +726,15 @@ where
             TypeData::Array { element, .. } | TypeData::Nullable(element) => {
                 self.check_type(*element, origin)
             }
+            TypeData::FlexibleArray(element) => {
+                let mut representation = self.check_type(*element, origin)?;
+
+                representation.flexible = true;
+                representation.finite = false;
+                representation.copyable = Copyability::Never;
+
+                Ok(representation)
+            }
             TypeData::Slice(_) => Ok(MemberRepresentation::invalid(
                 DiagnosticStoredTypeProblem::Slice,
             )),
@@ -645,6 +747,8 @@ where
             TypeData::Borrow { kind, .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: match kind {
                     bray_symbols::BorrowKind::Shared => Copyability::Always,
                     bray_symbols::BorrowKind::Mutable => Copyability::Never,
@@ -658,6 +762,8 @@ where
             TypeData::OwnedIndirection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Never,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -668,6 +774,8 @@ where
             TypeData::Callable(_) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
+                c_compatible: false,
+                flexible: false,
                 copyable: Copyability::Always,
                 copy_dependencies: BTreeSet::new(),
                 non_copyable_members: BTreeSet::new(),
@@ -739,7 +847,7 @@ where
     fn add_limit_diagnostic(
         &mut self,
         kind: DiagnosticKind,
-        span: bray_source::SourceSpan,
+        span: SourceSpan,
         actual: usize,
         maximum: usize,
     ) {
@@ -909,6 +1017,11 @@ fn member_representation(checked: &CheckedRepresentation) -> MemberRepresentatio
     MemberRepresentation {
         finite: representation.has_finite_size(),
         plain: representation.is_plain_storage(),
+        c_compatible: matches!(
+            representation.layout(),
+            bray_symbols::DeclaredLayoutMode::C | bray_symbols::DeclaredLayoutMode::Transparent
+        ),
+        flexible: false,
         copyable: match representation.copy_contract() {
             DeclaredCopyContract::Absent => Copyability::Never,
             DeclaredCopyContract::Unconditional => Copyability::Always,
@@ -938,6 +1051,11 @@ fn apply_copy_dependencies(
     MemberRepresentation {
         finite: representation.has_finite_size(),
         plain: representation.is_plain_storage(),
+        c_compatible: matches!(
+            representation.layout(),
+            bray_symbols::DeclaredLayoutMode::C | bray_symbols::DeclaredLayoutMode::Transparent
+        ),
+        flexible: false,
         copyable: match representation.copy_contract() {
             DeclaredCopyContract::Absent => Copyability::Never,
             DeclaredCopyContract::Unconditional => Copyability::Always,
@@ -990,6 +1108,8 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         | RepresentationRole::DevicePointer => MemberRepresentation {
             finite: true,
             plain: false,
+            c_compatible: false,
+            flexible: false,
             copyable: Copyability::Always,
             copy_dependencies: BTreeSet::new(),
             non_copyable_members: BTreeSet::new(),
@@ -1004,6 +1124,8 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         | RepresentationRole::PanicReport => MemberRepresentation {
             finite: true,
             plain: false,
+            c_compatible: false,
+            flexible: false,
             copyable: Copyability::Never,
             copy_dependencies: BTreeSet::new(),
             non_copyable_members: BTreeSet::new(),
@@ -1016,6 +1138,8 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         | RepresentationRole::ConversionError => MemberRepresentation {
             finite: true,
             plain: false,
+            c_compatible: false,
+            flexible: false,
             copyable: Copyability::Conditional,
             copy_dependencies: BTreeSet::new(),
             non_copyable_members: BTreeSet::new(),

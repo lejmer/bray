@@ -201,7 +201,7 @@ impl PackageImplementationArtifact {
         }
 
         for boundary in &boundaries {
-            validate_native_boundary_owner(surface, boundary.owner())?;
+            validate_native_boundary_owner(surface, boundary)?;
         }
 
         let mut pre_specialized_mir = pre_specialized_mir.into_iter().collect::<Vec<_>>();
@@ -447,7 +447,7 @@ impl PackageImplementationArtifact {
     pub fn executable_template(
         &self,
         owner: InterfaceSymbolId,
-        identity: bray_ir::MirExecutableTemplateId,
+        identity: MirExecutableTemplateId,
     ) -> Result<Option<InterfaceExecutableTemplate>, InterfaceValidationError> {
         let Some((index, entry)) = self.entry(
             owner,
@@ -690,13 +690,20 @@ fn validate_executable_owner(
 
 fn validate_native_boundary_owner(
     surface: &PackageInterfaceSurface,
-    owner: InterfaceSymbolId,
+    boundary: &InterfaceNativeBoundary,
 ) -> Result<(), PackageImplementationArtifactBuildError> {
+    let owner = boundary.owner();
+
     let Some(owner_symbol) = surface.symbols().symbol(owner) else {
         return Err(PackageImplementationArtifactBuildError::InvalidNativeBoundaryOwner(owner));
     };
 
-    if owner_symbol.kind() != bray_symbols::SymbolKind::Function {
+    let expected = match boundary.kind() {
+        super::InterfaceNativeBoundaryKind::Callable => bray_symbols::SymbolKind::Function,
+        super::InterfaceNativeBoundaryKind::Static { .. } => bray_symbols::SymbolKind::Static,
+    };
+
+    if owner_symbol.kind() != expected {
         return Err(PackageImplementationArtifactBuildError::InvalidNativeBoundaryOwner(owner));
     }
 
@@ -727,10 +734,10 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_runtime_interface::BinarySymbolName;
+    use bray_base::NonEmptySharedStr;
     use bray_symbols::{
         ExternalSymbolKey, ForeignCallableDirection, ImportedInterfaceId, InterfaceSymbolId,
-        PackageIdentity, SemanticValueStore, SymbolId, SymbolKind,
+        NativeSymbolContract, PackageIdentity, SemanticValueStore, SymbolId, SymbolKind,
     };
 
     use super::{
@@ -788,7 +795,7 @@ mod tests {
         let fixture = artifact_fixture();
 
         let second_owner =
-            bray_symbols::InterfaceSymbolId::new(fixture.body.owner().raw().saturating_add(100));
+            InterfaceSymbolId::new(fixture.body.owner().raw().saturating_add(100));
 
         let second =
             InterfaceConstantCallableBody::new(second_owner, fixture.body.template().clone());
@@ -801,7 +808,7 @@ mod tests {
         );
 
         let encoded =
-            super::encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
+            encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
                 .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
         let pristine = PackageImplementationArtifact::try_from_bytes(
@@ -1049,11 +1056,15 @@ mod tests {
         let fixture = artifact_fixture();
         let owner = generic_callable_owner(&fixture.bundle);
 
-        let symbol = BinarySymbolName::try_new("native_operation")
+        let symbol = NonEmptySharedStr::try_new("native_operation")
             .unwrap_or_else(|| panic!("test symbol must be nonempty"));
 
-        let boundary =
-            InterfaceNativeBoundary::new(owner, ForeignCallableDirection::Import, symbol);
+        let boundary = InterfaceNativeBoundary::new(
+            owner,
+            ForeignCallableDirection::Import,
+            crate::InterfaceNativeBoundaryKind::Callable,
+            NativeSymbolContract::required_name(symbol),
+        );
 
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,

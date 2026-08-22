@@ -19,8 +19,9 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         match conversion.target() {
             ConversionTarget::Identity => Ok(operand),
-            ConversionTarget::BuiltInScalar | ConversionTarget::Composite(_) => self
-                .push_converted_value(
+            ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion
+            | ConversionTarget::Composite(_) => self.push_converted_value(
                     expression,
                     current,
                     source,

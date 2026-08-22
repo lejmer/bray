@@ -361,13 +361,18 @@ where
     }
 
     pub(super) const fn subject(&self, ty: TypeId, is_recovered: bool) -> PatternSubject {
-        PatternSubject { ty, is_recovered }
+        PatternSubject {
+            ty,
+            is_recovered,
+            trusted_variant: false,
+        }
     }
 
     pub(super) const fn recovered_subject(&self) -> PatternSubject {
         PatternSubject {
             ty: self.error_type,
             is_recovered: true,
+            trusted_variant: false,
         }
     }
 }

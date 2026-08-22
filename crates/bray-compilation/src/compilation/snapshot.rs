@@ -297,6 +297,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::ForeignCallableContract(*key)
     });
 
+    reuse!(foreign_static_contracts, |key| {
+        CompilationFactKey::ForeignStaticContract(*key)
+    });
+
     reuse!(imported_semantics, |key| {
         CompilationFactKey::ImportedSemanticRecord(*key)
     });

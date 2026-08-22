@@ -189,7 +189,8 @@ impl Compilation {
             .flat_map(|instance| instance.mir().storages())
             .filter_map(|storage| match storage.kind() {
                 bray_ir::MirStorageKind::Static(reference) => Some(reference),
-                bray_ir::MirStorageKind::Parameter(_)
+                bray_ir::MirStorageKind::NativeStatic(_)
+                | bray_ir::MirStorageKind::Parameter(_)
                 | bray_ir::MirStorageKind::Local
                 | bray_ir::MirStorageKind::Temporary
                 | bray_ir::MirStorageKind::Return

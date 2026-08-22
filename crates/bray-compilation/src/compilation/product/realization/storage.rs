@@ -95,8 +95,19 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
-                    continue;
+                let reference = match storage.kind() {
+                    MirStorageKind::Static(reference) => reference,
+                    MirStorageKind::NativeStatic(reference)
+                        if self
+                            .optional_native_static_contract(reference, cancellation)?
+                            .is_some_and(|contract| {
+                                contract.direction
+                                    == bray_symbols::ForeignCallableDirection::Export
+                            }) =>
+                    {
+                        reference
+                    }
+                    _ => continue,
                 };
 
                 let provider =
@@ -143,8 +154,19 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             for storage in instance.mir().storages() {
-                let MirStorageKind::Static(reference) = storage.kind() else {
-                    continue;
+                let reference = match storage.kind() {
+                    MirStorageKind::Static(reference) => reference,
+                    MirStorageKind::NativeStatic(reference)
+                        if self
+                            .optional_native_static_contract(reference, cancellation)?
+                            .is_some_and(|contract| {
+                                contract.direction
+                                    == bray_symbols::ForeignCallableDirection::Export
+                            }) =>
+                    {
+                        reference
+                    }
+                    _ => continue,
                 };
 
                 let static_instance =

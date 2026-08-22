@@ -855,7 +855,10 @@ impl DiagnosticKind {
             ),
             Self::CheckingStaticLifecycleCycle
             | Self::CheckingStaticSpecializationDivergence
-            | Self::CheckingStaticConstraintUnsatisfied => {
+            | Self::CheckingStaticConstraintUnsatisfied
+            | Self::CheckingExternStaticSurfaceUnsupported
+            | Self::CheckingExportedStaticSurfaceUnsupported
+            | Self::CheckingNativeStaticTypeUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
             Self::CheckingTargetAbiRepresentationUnsupported => Self::quality_source(
@@ -1114,6 +1117,26 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableRequiresTrusted
             | Self::CheckingForeignCallableExecutionUnsupported => {
                 Self::quality_source(&[CallableAbi], primary_components!(&[CallableAbi]))
+            }
+            Self::CheckingVariadicCallableContractUnsupported => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
+            Self::CheckingCallableAddressTypeUnsupported => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
+            Self::CheckingFixedLayoutQueryTypeUnsupported => Self::quality_source(
+                &[MemoryOperation],
+                primary_components!(&[MemoryOperation]),
+            ),
+            Self::CheckingTrailingLayoutQueryTypeUnsupported => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
+            Self::CheckingMemoryPointeeTypeUnsupported => Self::quality_source(
+                &[MemoryOperation],
+                primary_components!(&[MemoryOperation]),
+            ),
+            Self::CheckingTaglessUnionPatternRequiresVariant => {
+                Self::quality_source(&[], primary_components!(&[]))
             }
             Self::CheckingPlatformServiceSignatureMismatch => Self::quality_source(
                 &[PlatformServiceSignatureProblem],

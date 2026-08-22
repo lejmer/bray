@@ -1,12 +1,12 @@
 use bray_bound_tree::MemoryLayoutQueryKind;
-use bray_codegen::{CodegenFailure, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{MirMemoryOperation, MirOperation};
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::{insert_value, int_value, integer_constant, llvm};
+use super::super::support::{insert_value, int_value, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_layout_query(
@@ -28,6 +28,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MemoryLayoutQueryKind::Layout => {
                 self.translate_allocation_layout(operation, memory, layout)
             }
+            MemoryLayoutQueryKind::Trailing => {
+                self.translate_trailing_layout(operation, memory, ty, layout)
+            }
         }
     }
 
@@ -45,15 +48,56 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(result.const_int(value, false).into())
     }
 
-    #[expect(
-        clippy::manual_checked_ops,
-        reason = "LLVM IR emits a runtime zero-stride guard before unsigned division"
-    )]
     fn translate_allocation_layout(
         &mut self,
         operation: &MirOperation,
         memory: &MirMemoryOperation,
         layout: bray_target::TargetValueLayout,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        self.translate_layout_components(
+            operation,
+            memory,
+            0,
+            layout.size(),
+            layout.alignment().get(),
+        )
+    }
+
+    fn translate_trailing_layout(
+        &mut self,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+        ty: bray_symbols::TypeId,
+        layout: bray_target::TargetValueLayout,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let Some(CodegenTypeBehavior::FlexibleAggregate { element, offset }) =
+            self.type_mapping(ty).and_then(|mapping| mapping.behavior())
+        else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let stride = self.memory_layout(element)?.size();
+
+        self.translate_layout_components(
+            operation,
+            memory,
+            offset,
+            stride,
+            layout.alignment().get(),
+        )
+    }
+
+    #[expect(
+        clippy::manual_checked_ops,
+        reason = "LLVM IR emits runtime multiplication and addition overflow guards"
+    )]
+    fn translate_layout_components(
+        &mut self,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+        base: u64,
+        stride: u64,
+        alignment: u64,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [count] = memory.operands() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -76,29 +120,34 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .max_allocation()
             .get();
 
-        if layout.alignment().get() > maximum_alignment {
+        if alignment > maximum_alignment {
             return self.allocation_layout_error(result, 1);
         }
 
-        let stride = layout.size();
-
-        let bytes = llvm(self.builder.build_int_mul(
+        let tail = llvm(self.builder.build_int_mul(
             count,
             integer.const_int(stride, false),
-            "memory.layout.bytes",
+            "memory.layout.tail",
         ))?;
 
-        let overflow = if stride == 0 {
+        let width = integer.get_bit_width();
+
+        if width > 64 {
+            return Err(CodegenFailure::UnsupportedTarget);
+        }
+
+        let maximum = u64::MAX >> (64 - width);
+
+        let base_overflow = self
+            .types
+            .context()
+            .bool_type()
+            .const_int(u64::from(base > maximum), false);
+
+        let multiply_overflow = if stride == 0 {
             self.types.context().bool_type().const_zero()
         } else {
-            let width = integer.get_bit_width();
-
-            if width > 64 {
-                return Err(CodegenFailure::UnsupportedTarget);
-            }
-
-            let maximum = u64::MAX >> (64 - width);
-            let limit = integer.const_int(maximum / stride, false);
+            let limit = integer.const_int(maximum.saturating_sub(base) / stride, false);
 
             llvm(self.builder.build_int_compare(
                 IntPredicate::UGT,
@@ -108,13 +157,38 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ))?
         };
 
+        let bytes = llvm(self.builder.build_int_add(
+            tail,
+            integer.const_int(base, false),
+            "memory.layout.bytes",
+        ))?;
+
+        let addition_overflow = llvm(self.builder.build_int_compare(
+            IntPredicate::ULT,
+            bytes,
+            tail,
+            "memory.layout.addition_overflow",
+        ))?;
+
+        let arithmetic_overflow = llvm(self.builder.build_or(
+            multiply_overflow,
+            addition_overflow,
+            "memory.layout.overflow",
+        ))?;
+
+        let overflow = llvm(self.builder.build_or(
+            arithmetic_overflow,
+            base_overflow,
+            "memory.layout.representable",
+        ))?;
+
         let layout_type = self.union_payload_type(result, 0)?;
 
         let layout_value = self.construct_positional_product(
             layout_type,
             &[
                 bytes.into(),
-                integer.const_int(layout.alignment().get(), false).into(),
+                integer.const_int(alignment, false).into(),
             ],
         )?;
 
@@ -219,14 +293,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
 
-        let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        llvm(
-            self.builder
-                .build_store(storage, integer_constant(tag_type, variant.tag())),
-        )?;
+        self.store_union_tag(storage, tag, variant.tag())?;
 
         for (field, value) in variant.fields().iter().zip(values.iter().copied()) {
             let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;

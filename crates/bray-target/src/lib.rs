@@ -31,6 +31,6 @@ pub use properties::{
     TargetAbiScalars, TargetAbiSupport, TargetAddressSpaces, TargetAlignmentLimits,
     TargetAtomicOperations, TargetAtomicRepresentation, TargetAtomicRepresentationSupport,
     TargetAtomicSupport, TargetCDataModel, TargetCScalarKind, TargetForeignAbiContract,
-    TargetOperationSupport, TargetPlatformIdentity, TargetProperties, TargetPropertyKind,
-    TargetPropertyValue, TargetScalarKind, TargetScalarSupport,
+    TargetNativeSymbolSupport, TargetOperationSupport, TargetPlatformIdentity, TargetProperties,
+    TargetPropertyKind, TargetPropertyValue, TargetScalarKind, TargetScalarSupport,
 };

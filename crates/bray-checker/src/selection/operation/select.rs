@@ -1,6 +1,7 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
-    ExpressionTypeResult, SelectedConstruction, SelectedOperation, SelectionKind,
+    ConstructionTarget, ExpressionTypeResult, SelectedConstruction, SelectedOperation,
+    SelectionKind,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -232,6 +233,22 @@ where
         } => {
             if kind != SelectionKind::Construction {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+
+            if let ConstructionTarget::Struct(structure) = target {
+                let representation = match request.declared_type_representation(structure.into()) {
+                    Ok(representation) => representation,
+                    Err(crate::CheckerQueryError::Cancelled) => {
+                        return Ok(CandidateCheck::Recovered);
+                    }
+                    Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
+                };
+
+                if representation.value().has_flexible_trailing_member() {
+                    return Ok(CandidateCheck::Incompatible(
+                        SelectionCandidateRejectionReason::ExpressionForm,
+                    ));
+                }
             }
 
             let inputs = match map_construction_inputs(request, types, expression, target, &inputs)?

@@ -1071,6 +1071,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 requirement: self.implementation_requirement()?,
                 dispatch: self.trait_dispatch()?,
             },
+            5 => ConversionTarget::CVariadicPromotion,
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -1233,6 +1234,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 source: self.ty()?,
                 target: self.ty()?,
             }),
+            54 => Ok(Kind::CallableFromPointer {
+                callable: self.ty()?,
+            }),
+            55 => Ok(Kind::PointerFromCallable {
+                callable: self.ty()?,
+            }),
             5 => Ok(Kind::Read {
                 pointee: self.ty()?,
                 kind: match read_u32(&mut self.reader)? {
@@ -1259,6 +1266,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     1 => bray_bound_tree::MemoryLayoutQueryKind::Alignment,
                     2 => bray_bound_tree::MemoryLayoutQueryKind::Stride,
                     3 => bray_bound_tree::MemoryLayoutQueryKind::Layout,
+                    4 => bray_bound_tree::MemoryLayoutQueryKind::Trailing,
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 },
             }),
@@ -2045,7 +2053,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             5 => Ok(MirStorageKind::CurrentFrame),
             6 => Ok(MirStorageKind::CurrentTask),
             7 => Ok(MirStorageKind::ChildTask),
-            8 => {
+            tag @ (8 | 9) => {
                 let declaration = self.exact_symbol::<bray_symbols::StaticSymbolId>()?;
                 let substitution = self.substitution()?;
                 let witness_count = self.count()?;
@@ -2055,14 +2063,18 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     witnesses.push(self.implementation()?);
                 }
 
-                Ok(MirStorageKind::Static(
-                    bray_symbols::StaticReferenceSelection::open(
-                        bray_symbols::StaticInstanceTemplateId::new(declaration),
-                        substitution,
-                        witnesses,
-                        self.target.clone(),
-                    ),
-                ))
+                let reference = bray_symbols::StaticReferenceSelection::open(
+                    bray_symbols::StaticInstanceTemplateId::new(declaration),
+                    substitution,
+                    witnesses,
+                    self.target.clone(),
+                );
+
+                Ok(if tag == 8 {
+                    MirStorageKind::Static(reference)
+                } else {
+                    MirStorageKind::NativeStatic(reference)
+                })
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }

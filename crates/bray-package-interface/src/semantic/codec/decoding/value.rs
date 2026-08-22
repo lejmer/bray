@@ -192,6 +192,9 @@ pub(super) fn decode_type(
         13 => Ok(InterfaceType::Generator(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
+        14 => Ok(InterfaceType::FlexibleArray(InterfaceTypeId::new(read_u32(
+            reader,
+        )?))),
         7 => Ok(InterfaceType::Nullable(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
@@ -234,6 +237,11 @@ pub(super) fn decode_callable_type(
 
     Ok(InterfaceType::Callable {
         parameters: parameters.into(),
+        variadic: match read_u32(reader)? {
+            0 => false,
+            1 => true,
+            _ => return Err(InterfaceValidationError::Malformed),
+        },
         result: InterfaceTypeId::new(read_u32(reader)?),
         constness: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
@@ -1141,6 +1149,7 @@ mod tests {
                             InterfaceTypeId::new(0),
                         )]
                         .into(),
+                        variadic: false,
                         result: InterfaceTypeId::new(0),
                         constness: CallableConstness::Runtime,
                         trust: CallableTrust::Safe,

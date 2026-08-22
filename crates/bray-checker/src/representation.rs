@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
@@ -5,7 +7,117 @@ use bray_symbols::{
     TypeData, TypeId, UnionSymbolId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+
+pub(crate) fn type_supports_complete_fixed_layout<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<bool, CheckerQueryError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    type_supports_complete_fixed_layout_inner(request, ty, &mut BTreeSet::new())
+}
+
+fn type_supports_complete_fixed_layout_inner<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    pending: &mut BTreeSet<TypeId>,
+) -> Result<bool, CheckerQueryError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if !pending.insert(ty) {
+        return Ok(false);
+    }
+
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let complete = match data.as_ref() {
+        TypeData::Named { definition, .. } => {
+            match type_representation(request, ty)? {
+                Some(RepresentationRole::Uninit) => {
+                    let element = request
+                        .available_compiler_known_symbols()
+                        .unary_representation_argument(
+                            request.semantic_values(),
+                            RepresentationRole::Uninit,
+                            ty,
+                        )
+                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+                    type_supports_complete_fixed_layout_inner(request, element, pending)?
+                }
+                Some(_) => true,
+                None => {
+                    let representation = request.declared_type_representation(*definition)?;
+
+                    !representation.value().is_incomplete()
+                        && representation.value().has_finite_size()
+                }
+            }
+        }
+        TypeData::Tuple(elements) => {
+            let mut complete = true;
+
+            for element in elements.iter().copied() {
+                complete &= type_supports_complete_fixed_layout_inner(request, element, pending)?;
+            }
+
+            complete
+        }
+        TypeData::Array { element, .. }
+        | TypeData::Generator(element)
+        | TypeData::Nullable(element) => {
+            type_supports_complete_fixed_layout_inner(request, *element, pending)?
+        }
+        TypeData::Borrow { .. }
+        | TypeData::OwnedIndirection { .. }
+        | TypeData::Callable(_) => true,
+        TypeData::TypeParameter(_)
+        | TypeData::ContextualSelf(_)
+        | TypeData::TypeValuedMemberProjection { .. }
+        | TypeData::Error => true,
+        TypeData::FlexibleArray(_) | TypeData::Slice(_) | TypeData::TraitView(_) => false,
+    };
+
+    pending.remove(&ty);
+
+    Ok(complete)
+}
+
+pub(crate) fn type_supports_flexible_c_layout<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<bool, CheckerQueryError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Named { definition, .. } = data.as_ref() else {
+        return Ok(matches!(
+            data.as_ref(),
+            TypeData::TypeParameter(_)
+                | TypeData::ContextualSelf(_)
+                | TypeData::TypeValuedMemberProjection { .. }
+                | TypeData::Error
+        ));
+    };
+
+    let representation = request.declared_type_representation(*definition)?;
+    let representation = representation.value();
+
+    Ok(representation.layout() == bray_symbols::DeclaredLayoutMode::C
+        && !representation.is_incomplete()
+        && representation.has_flexible_trailing_member())
+}
 
 pub(crate) fn type_representation<C>(
     request: CheckerUnitView<'_, C>,
@@ -146,7 +258,7 @@ where
 }
 
 pub(crate) fn intern_named_type(
-    values: &bray_symbols::SemanticValueStore,
+    values: &SemanticValueStore,
     definition: NamedTypeSymbolId,
 ) -> Result<TypeId, CheckerInfrastructureError> {
     values

@@ -194,7 +194,7 @@ impl<'values> SemanticUnifier<'values> {
                             GenericArgumentTemplate::Resolved(right),
                         ) if left != right => return Ok(false),
                         (
-                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
                                 left,
                             )),
                             GenericArgumentTemplate::Type(right),
@@ -207,7 +207,7 @@ impl<'values> SemanticUnifier<'values> {
                         }
                         (
                             GenericArgumentTemplate::Type(left),
-                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
                                 right,
                             )),
                         ) if !self.type_templates_may_overlap(
@@ -230,27 +230,27 @@ impl<'values> SemanticUnifier<'values> {
                             GenericArgumentTemplate::Type(_),
                         )
                         | (
-                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
                                 _,
                             )),
                             GenericArgumentTemplate::Constant(_),
                         )
                         | (
                             GenericArgumentTemplate::Constant(_),
-                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
                                 _,
                             )),
                         )
                         | (
                             GenericArgumentTemplate::Resolved(
-                                bray_symbols::GenericArgument::Constant(_),
+                                GenericArgument::Constant(_),
                             ),
                             GenericArgumentTemplate::Type(_),
                         )
                         | (
                             GenericArgumentTemplate::Type(_),
                             GenericArgumentTemplate::Resolved(
-                                bray_symbols::GenericArgument::Constant(_),
+                                GenericArgument::Constant(_),
                             ),
                         ) => return Ok(false),
                         _ => {}
@@ -336,7 +336,9 @@ impl<'values> SemanticUnifier<'values> {
                 self.type_templates_may_overlap(left_target, right_target)
             }
             (TypeExpressionTemplate::Callable(left), TypeExpressionTemplate::Callable(right)) => {
-                if left.parameters().len() != right.parameters().len() {
+                if left.parameters().len() != right.parameters().len()
+                    || left.is_variadic() != right.is_variadic()
+                {
                     return Ok(false);
                 }
 
@@ -552,6 +554,7 @@ impl<'values> SemanticUnifier<'values> {
             || left.trust() != right.trust()
             || left.abi() != right.abi()
             || left.dependency_contracts() != right.dependency_contracts()
+            || left.is_variadic() != right.is_variadic()
             || left.parameters().len() != right.parameters().len()
         {
             return Ok(false);

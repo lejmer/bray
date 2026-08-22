@@ -503,6 +503,7 @@ define_profile_query_kinds! {
     SymbolGraph = 1069 => "symbol_graph",
     Symbol = 1070 => "symbol",
     SyntaxTree = 1071 => "syntax_tree",
+    ForeignStaticContract = 1072 => "foreign_static_contract",
 }
 
 impl ProfileQueryKind {
@@ -582,6 +583,7 @@ impl ProfileQueryKind {
             CompilationFactKey::ImplementationCoherence => Self::ImplementationCoherence,
             CompilationFactKey::CallableOverloadValidation => Self::CallableOverloadValidation,
             CompilationFactKey::ForeignCallableContract(_) => Self::ForeignCallableContract,
+            CompilationFactKey::ForeignStaticContract(_) => Self::ForeignStaticContract,
             CompilationFactKey::ForeignCallableValidation => Self::ForeignCallableValidation,
             CompilationFactKey::TypeAssociatedSurface(_) => Self::TypeAssociatedSurface,
             CompilationFactKey::DeclaredTypeRepresentation(_) => Self::DeclaredTypeRepresentation,
@@ -640,7 +642,7 @@ mod tests {
                 1_025, 1_026, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036,
                 1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048,
                 1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060,
-                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071,
+                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
             ]
         );
     }

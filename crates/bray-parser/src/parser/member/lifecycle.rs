@@ -715,7 +715,9 @@ mod tests {
             panic!("expected one struct declaration: {declarations:?}");
         };
 
-        let body = declaration.struct_body();
+        let body = declaration
+            .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"));
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(body.finalizer_member_declarations().count(), 1);
@@ -749,6 +751,7 @@ struct Resource
 
         let declarations = declaration
             .struct_body()
+            .unwrap_or_else(|| panic!("test struct must have a body"))
             .scope_enter_member_declarations()
             .collect::<Vec<_>>();
 

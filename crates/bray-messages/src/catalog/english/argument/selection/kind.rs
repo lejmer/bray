@@ -22,6 +22,7 @@ pub(crate) const fn format_english_target_representation(
     kind: DiagnosticTargetRepresentation,
 ) -> &'static str {
     match kind {
+        DiagnosticTargetRepresentation::Unsupported => "value without a foreign ABI representation",
         DiagnosticTargetRepresentation::Bool => "bool",
         DiagnosticTargetRepresentation::Char => "char",
         DiagnosticTargetRepresentation::I8 => "i8",

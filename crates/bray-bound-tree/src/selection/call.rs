@@ -97,13 +97,13 @@ impl SelectedImplementationWitness {
 /// One explicit or defaulted value in call evaluation order.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SelectedArgument {
-    /// A source argument mapped to its exact parameter.
+    /// A source argument mapped to a fixed parameter or the variadic tail.
     Explicit {
         /// The argument expression occurrence.
         expression: BoundExpressionId,
-        /// The exact declaration parameter, when the target is declaration-backed.
+        /// The exact declaration parameter, when one exists.
         parameter: Option<CallableParameterSymbolId>,
-        /// The selected parameter's declaration-order ordinal.
+        /// The parameter ordinal, or the source ordinal for a variadic argument.
         ordinal: u32,
         /// The checked conversion into the parameter type.
         conversion: SelectedConversion,

@@ -29,9 +29,22 @@ pub(crate) fn format_english_native_link_directive_problem(
 pub(crate) fn format_english_native_symbol_directive_problem(
     problem: &bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem,
 ) -> String {
+    use bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem as Problem;
+
     match problem {
-        bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem::Argument(problem) => {
+        Problem::Argument(problem) => {
             format_english_directive_argument_problem(problem)
+        }
+        Problem::MissingIdentity => String::from("one of name or ordinal is required"),
+        Problem::ConflictingIdentity => String::from("name and ordinal select different identities"),
+        Problem::UnsupportedValue { name, provided } => {
+            format!("argument {name} has unsupported value {provided}")
+        }
+        Problem::UnsupportedTargetOption { name } => {
+            format!("the selected target does not support argument {name}")
+        }
+        Problem::IncompatiblePolicy { name } => {
+            format!("argument {name} is unavailable for this native boundary")
         }
     }
 }

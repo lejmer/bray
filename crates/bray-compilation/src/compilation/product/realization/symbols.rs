@@ -321,7 +321,13 @@ impl Compilation {
         let contract = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
 
         if let Some(contract) = contract.value() {
-            return native_boundary_mapping(contract.symbol(), contract.direction()).map(Some);
+            let name = contract
+                .symbol()
+                .identity()
+                .name()
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            return native_boundary_mapping(name, contract.direction()).map(Some);
         }
 
         let boundary =
@@ -329,7 +335,13 @@ impl Compilation {
 
         boundary
             .map(|boundary| {
-                native_boundary_mapping(boundary.symbol().as_str(), boundary.direction())
+                let name = boundary
+                    .symbol()
+                    .identity()
+                    .name()
+                    .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+                native_boundary_mapping(name, boundary.direction())
             })
             .transpose()
     }

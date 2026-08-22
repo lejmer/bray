@@ -581,7 +581,9 @@ fn push_conversion_dependencies(
                 });
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion => {}
         }
     }
 

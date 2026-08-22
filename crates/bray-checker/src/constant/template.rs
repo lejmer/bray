@@ -135,6 +135,13 @@ pub fn resolve_type_expression_template(
 
             TypeData::Array { element, length }
         }
+        TypeExpressionTemplate::FlexibleArray(element) => {
+            let Some(element) = resolve_type_expression_template(values, element, constants)? else {
+                return Ok(None);
+            };
+
+            TypeData::FlexibleArray(element)
+        }
         TypeExpressionTemplate::Slice(target) => {
             let Some(target) = resolve_type_expression_template(values, target, constants)? else {
                 return Ok(None);
@@ -214,6 +221,7 @@ pub fn resolve_type_expression_template(
                     callable.abi(),
                     callable.dependencies(),
                 )
+                .with_variadic(callable.is_variadic())
                 // The instantiated callable owns the compiler-known template's phase snapshot.
                 .with_phase_behaviors(callable.phase_behaviors().clone()),
             )

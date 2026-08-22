@@ -101,9 +101,7 @@ pub fn partition_codegen_units(
         current_work = current_work.saturating_add(group.work);
         current.extend(group.instances.into_iter().cloned());
 
-        if current_work >= policy.lower_bound()
-            && is_content_boundary(policy, group.anchor, group.work)
-        {
+        if is_content_boundary(policy, group.anchor, group.work) {
             finish_unit(
                 policy,
                 &mut current,
@@ -483,7 +481,7 @@ mod tests {
 
     #[test]
     fn unrelated_additions_preserve_distant_unit_membership() {
-        let instances: Vec<_> = (0..256).map(partition_test_instance).collect();
+        let instances: Vec<_> = (0..1024).map(partition_test_instance).collect();
         let added = partition_test_instance(10_000);
 
         let baseline = partitions(locality_policy(), instances.iter().cloned(), |_| {

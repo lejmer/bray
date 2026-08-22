@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, shared_slice};
 
-use crate::{CallableAbi, FunctionSymbolId};
+use crate::{CallableAbi, FunctionSymbolId, StaticSymbolId};
 
 /// Whether a native symbol enters or leaves the current Bray product.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -11,6 +11,107 @@ pub enum ForeignCallableDirection {
     Import,
     /// The callable body is supplied by the current Bray product.
     Export,
+}
+
+/// One native symbol identity selected independently of its resolution policy.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeSymbolIdentity {
+    /// An exact target symbol spelling.
+    Name(NonEmptySharedStr),
+    /// A target-supported symbol ordinal.
+    Ordinal(u64),
+}
+
+impl NativeSymbolIdentity {
+    /// Returns the exact target symbol spelling when this identity is name based.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name.as_str()),
+            Self::Ordinal(_) => None,
+        }
+    }
+
+    /// Returns the target symbol ordinal when this identity is ordinal based.
+    pub const fn ordinal(&self) -> Option<u64> {
+        match self {
+            Self::Name(_) => None,
+            Self::Ordinal(ordinal) => Some(*ordinal),
+        }
+    }
+}
+
+/// Native link-selection strength for one symbol.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeSymbolBinding {
+    /// Ordinary strong symbol selection.
+    Strong,
+    /// Target weak symbol selection.
+    Weak,
+}
+
+/// Whether native product formation requires one imported symbol to resolve.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeSymbolPresence {
+    /// Product formation requires the symbol.
+    Required,
+    /// An unresolved imported data symbol produces a null address.
+    Optional,
+}
+
+/// Target symbol identity and resolution policy selected by `@symbol(...)`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeSymbolContract {
+    identity: NativeSymbolIdentity,
+    version: Option<NonEmptySharedStr>,
+    binding: NativeSymbolBinding,
+    presence: NativeSymbolPresence,
+}
+
+impl NativeSymbolContract {
+    /// Creates one validated native symbol contract.
+    pub const fn new(
+        identity: NativeSymbolIdentity,
+        version: Option<NonEmptySharedStr>,
+        binding: NativeSymbolBinding,
+        presence: NativeSymbolPresence,
+    ) -> Self {
+        Self {
+            identity,
+            version,
+            binding,
+            presence,
+        }
+    }
+
+    /// Creates the ordinary strong and required contract for one exact name.
+    pub const fn required_name(name: NonEmptySharedStr) -> Self {
+        Self::new(
+            NativeSymbolIdentity::Name(name),
+            None,
+            NativeSymbolBinding::Strong,
+            NativeSymbolPresence::Required,
+        )
+    }
+
+    /// Returns the exact target symbol identity.
+    pub const fn identity(&self) -> &NativeSymbolIdentity {
+        &self.identity
+    }
+
+    /// Returns the optional target symbol version.
+    pub fn version(&self) -> Option<&str> {
+        self.version.as_ref().map(NonEmptySharedStr::as_str)
+    }
+
+    /// Returns the native link-selection strength.
+    pub const fn binding(&self) -> NativeSymbolBinding {
+        self.binding
+    }
+
+    /// Returns whether product formation requires the symbol to resolve.
+    pub const fn presence(&self) -> NativeSymbolPresence {
+        self.presence
+    }
 }
 
 /// A language-defined native link-input category.
@@ -79,7 +180,7 @@ pub struct ForeignCallableContract {
     callable: FunctionSymbolId,
     direction: ForeignCallableDirection,
     abi: CallableAbi,
-    symbol: NonEmptySharedStr,
+    symbol: NativeSymbolContract,
     links: Arc<[NativeLinkRequirement]>,
 }
 
@@ -89,7 +190,7 @@ impl ForeignCallableContract {
         callable: FunctionSymbolId,
         direction: ForeignCallableDirection,
         abi: CallableAbi,
-        symbol: NonEmptySharedStr,
+        symbol: NativeSymbolContract,
         links: impl IntoIterator<Item = NativeLinkRequirement>,
     ) -> Self {
         Self {
@@ -116,9 +217,63 @@ impl ForeignCallableContract {
         self.abi
     }
 
-    /// Returns the exact native symbol spelling.
-    pub fn symbol(&self) -> &str {
-        self.symbol.as_str()
+    /// Returns the exact native symbol identity and resolution policy.
+    pub const fn symbol(&self) -> &NativeSymbolContract {
+        &self.symbol
+    }
+
+    /// Returns native artifact requirements in source order.
+    pub fn links(&self) -> &[NativeLinkRequirement] {
+        &self.links
+    }
+}
+
+/// The validated native boundary contract of one static declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ForeignStaticContract {
+    declaration: StaticSymbolId,
+    direction: ForeignCallableDirection,
+    symbol: NativeSymbolContract,
+    mutable: bool,
+    links: Arc<[NativeLinkRequirement]>,
+}
+
+impl ForeignStaticContract {
+    /// Creates one complete native data boundary contract.
+    pub fn new(
+        declaration: StaticSymbolId,
+        direction: ForeignCallableDirection,
+        symbol: NativeSymbolContract,
+        mutable: bool,
+        links: impl IntoIterator<Item = NativeLinkRequirement>,
+    ) -> Self {
+        Self {
+            declaration,
+            direction,
+            symbol,
+            mutable,
+            links: shared_slice(links),
+        }
+    }
+
+    /// Returns the static declaration that owns this boundary contract.
+    pub const fn declaration(&self) -> StaticSymbolId {
+        self.declaration
+    }
+
+    /// Returns whether the native data symbol is imported or exported.
+    pub const fn direction(&self) -> ForeignCallableDirection {
+        self.direction
+    }
+
+    /// Returns the exact native symbol identity and resolution policy.
+    pub const fn symbol(&self) -> &NativeSymbolContract {
+        &self.symbol
+    }
+
+    /// Returns whether the native storage contract permits mutation.
+    pub const fn is_mutable(&self) -> bool {
+        self.mutable
     }
 
     /// Returns native artifact requirements in source order.
@@ -152,14 +307,14 @@ mod tests {
             callable,
             ForeignCallableDirection::Import,
             CallableAbi::C,
-            symbol,
+            super::NativeSymbolContract::required_name(symbol),
             [NativeLinkRequirement::new(library, NativeLinkKind::Dynamic)],
         );
 
         assert_eq!(contract.callable(), callable);
         assert_eq!(contract.direction(), ForeignCallableDirection::Import);
         assert_eq!(contract.abi(), CallableAbi::C);
-        assert_eq!(contract.symbol(), "native_run");
+        assert_eq!(contract.symbol().identity().name(), Some("native_run"));
         assert_eq!(contract.links()[0].name(), "runtime");
         assert_eq!(contract.links()[0].kind(), NativeLinkKind::Dynamic);
     }

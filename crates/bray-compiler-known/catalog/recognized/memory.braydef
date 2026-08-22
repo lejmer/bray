@@ -72,6 +72,31 @@ scope StandardMemory at std.memory {
         }
     }
 
+    declaration StandardMemoryCallableFromPointer {
+        identity name callable_from_pointer;
+        availability RawMemory;
+        implementation CallableFromPointer;
+
+        surface {
+            trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+                requires(
+                    trusted core.memory.callable_address_valid<F>(pointer = pointer),
+                )
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration StandardMemoryPointerFromCallable {
+        identity name pointer_from_callable;
+        availability RawMemory;
+        implementation PointerFromCallable;
+
+        surface {
+            trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+                uses(layout_reinterpret);
+        }
+    }
+
     declaration StandardMemoryRead {
         identity name read;
         availability RawMemory;
@@ -350,6 +375,17 @@ scope StandardMemory at std.memory {
 
         surface {
             const func layout_of<T>(
+                count: usize,
+            ) -> Result<MemoryLayout, MemoryLayoutError>;
+        }
+    }
+
+    declaration StandardMemoryTrailingLayoutOf {
+        identity name trailing_layout_of;
+        implementation MemoryTrailingLayoutOf;
+
+        surface {
+            const func trailing_layout_of<T>(
                 count: usize,
             ) -> Result<MemoryLayout, MemoryLayoutError>;
         }

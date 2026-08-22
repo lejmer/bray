@@ -169,6 +169,11 @@ impl Compilation {
             cancellation,
         )?;
 
+        let native_static_templates = self.native_static_templates(
+            selections.result().value(),
+            cancellation,
+        )?;
+
         let input = LoweringInput::try_new(
             unit.result().value(),
             control_flow.result().value(),
@@ -190,6 +195,8 @@ impl Compilation {
         )
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let input = input.with_native_static_templates(&native_static_templates);
 
         let input = match static_owner {
             Some((reference, ty)) => input.with_static_owner(reference, ty),
@@ -230,6 +237,53 @@ impl Compilation {
             DiagnosticResult::new(Some(LoweredUnit::Mir(Box::new(mir))), diagnostics),
             Box::new([]),
         ))
+    }
+
+    fn native_static_templates(
+        &self,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<StaticInstanceTemplateId>, FactQueryError> {
+        let mut templates = Vec::new();
+
+        for entry in selections.entries() {
+            let bray_bound_tree::SemanticSelection::StaticReference(reference) = entry.selection()
+            else {
+                continue;
+            };
+
+            let declaration = reference.template().declaration();
+
+            let native = self
+                .foreign_static_contract_with_cancellation(declaration, cancellation)?;
+
+            let source_address = native.value().as_ref().is_some_and(|contract| {
+                contract.direction() == bray_symbols::ForeignCallableDirection::Import
+                    || contract.is_mutable()
+            });
+
+            let imported_address = self
+                .imported_native_boundary_with_cancellation(declaration.into(), cancellation)?
+                .is_some_and(|boundary| {
+                    matches!(
+                        boundary.kind(),
+                        bray_package_interface::InterfaceNativeBoundaryKind::Static {
+                            mutable: true,
+                            ..
+                        }
+                    ) || boundary.direction()
+                        == bray_symbols::ForeignCallableDirection::Import
+                });
+
+            if source_address || imported_address {
+                templates.push(reference.template());
+            }
+        }
+
+        templates.sort_unstable();
+        templates.dedup();
+
+        Ok(templates)
     }
 
     fn constant_reference_values(

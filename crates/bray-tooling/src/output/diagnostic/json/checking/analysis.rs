@@ -132,13 +132,21 @@ pub(in crate::output::diagnostic::json) fn layout_problem_json(
         Problem::TransparentFieldCount { actual } => {
             vec![problem_count_u64("actual", *actual)]
         }
+        Problem::OpaqueSizeNotAligned { size, alignment } => vec![
+            problem_count_u64("size", *size),
+            problem_count_u64("alignment", *alignment),
+        ],
         Problem::MissingMode
         | Problem::UnexpectedPositionalArgument
         | Problem::TransparentUnion
         | Problem::PackingRequiresStable
         | Problem::PackingRequiresPlainStorage
         | Problem::TagRequiresUnion
-        | Problem::CUnionRequiresTag => Vec::new(),
+        | Problem::CUnionRequiresTag
+        | Problem::OpaqueSizeRequiresBodylessStruct
+        | Problem::BodylessStructRequiresSizeAndAlignment
+        | Problem::OpaqueStorageRequiresStableOrC
+        | Problem::TaglessUnionRequiresCLayout => Vec::new(),
     };
 
     DiagnosticProblemJson {
@@ -187,7 +195,8 @@ pub(in crate::output::diagnostic::json) fn union_tag_problem_json(
         Problem::RequiresExplicitLayout
         | Problem::ValueNotConstant
         | Problem::DuplicateValue
-        | Problem::NegativeInferredValue => Vec::new(),
+        | Problem::NegativeInferredValue
+        | Problem::TaglessUnionHasVariantTag => Vec::new(),
     };
 
     DiagnosticProblemJson {

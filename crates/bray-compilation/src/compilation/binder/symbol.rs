@@ -8,6 +8,7 @@ mod declaration_body;
 mod directive;
 mod environment;
 mod imported;
+mod initializer;
 mod module_surface;
 mod static_storage;
 mod surface;

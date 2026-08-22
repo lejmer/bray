@@ -340,7 +340,9 @@ where
             CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::LayoutQuery { .. } => {}
             CheckedMemoryOperationKind::Offset { .. }
-            | CheckedMemoryOperationKind::Reinterpret { .. } => {
+            | CheckedMemoryOperationKind::Reinterpret { .. }
+            | CheckedMemoryOperationKind::CallableFromPointer { .. }
+            | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
                 let Some(source) = arguments
                     .first()
                     .and_then(|argument| self.argument_storage(*argument))

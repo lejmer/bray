@@ -140,6 +140,8 @@ pub struct CodegenStaticStorageMapping {
     ty: bray_symbols::TypeId,
     instance: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
+    native_binding: Option<bray_symbols::NativeSymbolBinding>,
+    defines_storage: bool,
     initial_value: ConstantValueId,
     relocations: Arc<[CodegenStaticRelocation]>,
     finalization: Option<CodegenStaticFinalization>,
@@ -216,6 +218,8 @@ impl CodegenStaticStorageMapping {
         ty: bray_symbols::TypeId,
         instance: CodegenStaticInstanceKey,
         symbol: BinarySymbolName,
+        native_binding: Option<bray_symbols::NativeSymbolBinding>,
+        defines_storage: bool,
         initial_value: ConstantValueId,
         relocations: impl IntoIterator<Item = CodegenStaticRelocation>,
         finalization: Option<CodegenStaticFinalization>,
@@ -227,6 +231,8 @@ impl CodegenStaticStorageMapping {
             ty,
             instance,
             symbol,
+            native_binding,
+            defines_storage,
             initial_value,
             relocations: bray_base::shared_slice(relocations),
             finalization,
@@ -257,6 +263,16 @@ impl CodegenStaticStorageMapping {
     /// Returns the deterministic internal realization symbol.
     pub const fn symbol(&self) -> &BinarySymbolName {
         &self.symbol
+    }
+
+    /// Returns the native export strength selected for this storage.
+    pub const fn native_binding(&self) -> Option<bray_symbols::NativeSymbolBinding> {
+        self.native_binding
+    }
+
+    /// Returns whether this unit owns the storage definition.
+    pub const fn defines_storage(&self) -> bool {
+        self.defines_storage
     }
 
     /// Returns the product-formed constant value stored before execution begins.

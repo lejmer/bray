@@ -102,6 +102,7 @@ impl InternState {
 
                 Some(TypeData::Array { element, length })
             }
+            InterfaceType::FlexibleArray(id) => self.type_id(*id).map(TypeData::FlexibleArray),
             InterfaceType::Slice(id) => self.type_id(*id).map(TypeData::Slice),
             InterfaceType::Generator(id) => self.type_id(*id).map(TypeData::Generator),
             InterfaceType::Nullable(id) => self.type_id(*id).map(TypeData::Nullable),
@@ -122,6 +123,7 @@ impl InternState {
             }
             InterfaceType::Callable {
                 parameters,
+                variadic,
                 result,
                 constness,
                 trust,
@@ -180,6 +182,7 @@ impl InternState {
                         *abi,
                         dependencies,
                     )
+                    .with_variadic(*variadic)
                     .with_phase_behaviors(phase_behaviors),
                 ))
             }

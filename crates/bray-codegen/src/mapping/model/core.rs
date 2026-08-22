@@ -8,11 +8,12 @@ use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 use crate::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
     CodegenDebugLocation, CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenOperationMapping,
-    CodegenProductHostMapping, CodegenStaticStorageMapping, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTarget, CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenNativeStaticMapping, CodegenProductHostMapping, CodegenStaticStorageMapping,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
+    CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
-use super::static_storage::validate_static_storage_mappings;
+use super::static_storage::{validate_native_static_mappings, validate_static_storage_mappings};
 use super::table_validation::{
     compare_callables, compare_constant_terms, compare_operations, compare_terminators,
     validate_callable_mappings, validate_constant_mappings, validate_operation_mappings,
@@ -37,6 +38,7 @@ pub struct CodegenMappings {
     callables: Arc<[CodegenCallableMapping]>,
     operations: Arc<[CodegenOperationMapping]>,
     static_storages: Arc<[CodegenStaticStorageMapping]>,
+    native_storages: Arc<[CodegenNativeStaticMapping]>,
     product_host: Option<CodegenProductHostMapping>,
     terminators: Arc<[CodegenTerminatorMapping]>,
     debug_locations: Arc<[CodegenDebugLocation]>,
@@ -97,6 +99,43 @@ impl CodegenMappings {
         terminators: impl IntoIterator<Item = CodegenTerminatorMapping>,
         debug_locations: impl IntoIterator<Item = CodegenDebugLocation>,
     ) -> Result<Self, CodegenMappingsBuildError> {
+        Self::try_new_with_storage_mappings(
+            unit,
+            target,
+            types,
+            instance_types,
+            symbols,
+            constants,
+            constant_terms,
+            callables,
+            operations,
+            static_storages,
+            [],
+            terminators,
+            debug_locations,
+        )
+    }
+
+    /// Validates every demanded mapping table, including Bray-owned and native static storage.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the constructor validates each independent canonical mapping table explicitly"
+    )]
+    pub fn try_new_with_storage_mappings(
+        unit: &CodegenUnit,
+        target: &CodegenTarget,
+        types: impl IntoIterator<Item = CodegenTypeMapping>,
+        instance_types: impl IntoIterator<Item = CodegenInstanceTypeMapping>,
+        symbols: impl IntoIterator<Item = CodegenSymbolMapping>,
+        constants: impl IntoIterator<Item = CodegenConstantMapping>,
+        constant_terms: impl IntoIterator<Item = CodegenConstantTermMapping>,
+        callables: impl IntoIterator<Item = CodegenCallableMapping>,
+        operations: impl IntoIterator<Item = CodegenOperationMapping>,
+        static_storages: impl IntoIterator<Item = CodegenStaticStorageMapping>,
+        native_storages: impl IntoIterator<Item = CodegenNativeStaticMapping>,
+        terminators: impl IntoIterator<Item = CodegenTerminatorMapping>,
+        debug_locations: impl IntoIterator<Item = CodegenDebugLocation>,
+    ) -> Result<Self, CodegenMappingsBuildError> {
         if !target.matches_mir_target(unit.target()) {
             return Err(CodegenMappingsBuildError::TargetMismatch);
         }
@@ -109,6 +148,7 @@ impl CodegenMappings {
         let mut callables: Vec<_> = callables.into_iter().collect();
         let mut operations: Vec<_> = operations.into_iter().collect();
         let mut static_storages: Vec<_> = static_storages.into_iter().collect();
+        let mut native_storages: Vec<_> = native_storages.into_iter().collect();
         let mut terminators: Vec<_> = terminators.into_iter().collect();
         let mut debug_locations: Vec<_> = debug_locations.into_iter().collect();
 
@@ -120,6 +160,7 @@ impl CodegenMappings {
         callables.sort_unstable_by(compare_callables);
         operations.sort_unstable_by(compare_operations);
         static_storages.sort_unstable();
+        native_storages.sort_unstable();
         terminators.sort_unstable_by(compare_terminators);
         debug_locations.sort_unstable_by(|left, right| left.anchor().cmp(right.anchor()));
 
@@ -165,6 +206,12 @@ impl CodegenMappings {
             pair[0].owner() == pair[1].owner() && pair[0].storage() == pair[1].storage()
         }) {
             return Err(CodegenMappingsBuildError::DuplicateStaticStorage);
+        }
+
+        if native_storages.windows(2).any(|pair| {
+            pair[0].owner() == pair[1].owner() && pair[0].storage() == pair[1].storage()
+        }) {
+            return Err(CodegenMappingsBuildError::DuplicateNativeStaticStorage);
         }
 
         if terminators
@@ -221,8 +268,10 @@ impl CodegenMappings {
             &symbols,
             &constants,
             &static_storages,
+            &native_storages,
         )?;
 
+        validate_native_static_mappings(unit, &native_storages)?;
         validate_callable_mappings(unit, &expected_instances, &symbols, &callables)?;
         validate_operation_mappings(unit, &symbols, &operations)?;
         validate_terminator_mappings(unit, &terminators)?;
@@ -287,6 +336,7 @@ impl CodegenMappings {
             callables: callables.into(),
             operations: operations.into(),
             static_storages: static_storages.into(),
+            native_storages: native_storages.into(),
             product_host: None,
             terminators: terminators.into(),
             debug_locations: debug_locations.into(),
@@ -341,6 +391,11 @@ impl CodegenMappings {
     /// Returns static-storage uses in canonical instance and storage order.
     pub fn static_storages(&self) -> &[CodegenStaticStorageMapping] {
         &self.static_storages
+    }
+
+    /// Returns native data-symbol uses in canonical instance and storage order.
+    pub fn native_storages(&self) -> &[CodegenNativeStaticMapping] {
+        &self.native_storages
     }
 
     /// Returns the loaded-product host mapping shared by every unit in this product.
@@ -519,6 +574,18 @@ impl CodegenMappings {
             .map(|index| &self.static_storages[index])
     }
 
+    /// Returns the native data-symbol mapping for one exact MIR storage use.
+    pub fn native_static_storage(
+        &self,
+        owner: &CodegenInstanceKey,
+        storage: bray_ir::MirStorageId,
+    ) -> Option<&CodegenNativeStaticMapping> {
+        self.native_storages
+            .binary_search_by(|mapping| (mapping.owner(), mapping.storage()).cmp(&(owner, storage)))
+            .ok()
+            .and_then(|index| self.native_storages.get(index))
+    }
+
     /// Returns extra realization inputs for one block terminator.
     pub fn terminator(
         &self,
@@ -580,10 +647,16 @@ pub enum CodegenMappingsBuildError {
     DuplicateOperation,
     /// One concrete MIR static storage root appears more than once.
     DuplicateStaticStorage,
+    /// One concrete MIR native static storage root appears more than once.
+    DuplicateNativeStaticStorage,
     /// Concrete MIR static storage roots do not have exact realization coverage.
     StaticStorageCoverageMismatch,
     /// One static storage realization does not match its MIR use or concrete dependencies.
     InvalidStaticStorage,
+    /// Concrete MIR native static roots do not have exact mapping coverage.
+    NativeStaticStorageCoverageMismatch,
+    /// One native static mapping does not match its MIR storage contract.
+    InvalidNativeStaticStorage,
     /// One MIR block terminator appears more than once.
     DuplicateTerminator,
     /// Two semantic symbols select the same binary spelling.

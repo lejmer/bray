@@ -134,6 +134,15 @@ where
             return Ok(false);
         };
 
+        let representation =
+            available_dependency(self.request.declared_type_representation((*structure).into()))?;
+
+        if representation.is_some_and(|representation| {
+            representation.value().has_flexible_trailing_member()
+        }) {
+            return Ok(false);
+        }
+
         let Some(structure) = available_dependency(self.request.structure(*structure))?.flatten()
         else {
             return Ok(false);

@@ -317,7 +317,15 @@ mod tests {
         );
 
         let abi =
-            TargetForeignAbiContract::new(TargetAbiScalars::all(), true, true, true, true, maximum);
+            TargetForeignAbiContract::new(
+                TargetAbiScalars::all(),
+                true,
+                true,
+                true,
+                true,
+                true,
+                maximum,
+            );
 
         let properties = properties_with(
             TargetScalarSupport::default(),
@@ -341,6 +349,7 @@ mod tests {
 
         let abi = TargetForeignAbiContract::new(
             TargetAbiScalars::required(),
+            true,
             true,
             true,
             true,

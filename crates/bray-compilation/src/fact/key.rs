@@ -469,6 +469,8 @@ pub(crate) enum CompilationFactKey {
     CallableOverloadValidation,
     /// The validated native boundary contract of one source function.
     ForeignCallableContract(FunctionSymbolId),
+    /// The validated native boundary contract of one source static.
+    ForeignStaticContract(bray_symbols::StaticSymbolId),
     /// Whole-package native symbol identity validity.
     ForeignCallableValidation,
     /// The complete declaration-level member surface of one named type.
@@ -511,6 +513,7 @@ impl CompilationFactKey {
                 | Self::ImplementationSelection(_)
                 | Self::ImplementationParticipation(_)
                 | Self::ForeignCallableContract(_)
+                | Self::ForeignStaticContract(_)
                 | Self::TypeAssociatedSurface(_)
                 | Self::DeclaredTypeRepresentation(_)
                 | Self::Symbol(_)
@@ -577,6 +580,7 @@ impl CompilationFactKey {
             | Self::ImplementationCoherence
             | Self::CallableOverloadValidation
             | Self::ForeignCallableContract(_)
+            | Self::ForeignStaticContract(_)
             | Self::ForeignCallableValidation
             | Self::TypeAssociatedSurface(_)
             | Self::DeclaredTypeRepresentation(_)

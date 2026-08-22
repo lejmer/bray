@@ -135,9 +135,23 @@ impl Compilation {
 
         let imported_symbols = mappings
             .iter()
-            .flat_map(bray_codegen::CodegenMappings::symbols)
-            .filter(|symbol| symbol.linkage() == bray_codegen::CodegenLinkage::Import)
-            .map(|symbol| symbol.name().as_str())
+            .flat_map(|mappings| {
+                mappings
+                    .symbols()
+                    .iter()
+                    .filter(|symbol| symbol.linkage() == bray_codegen::CodegenLinkage::Import)
+                    .map(|symbol| symbol.name().as_str())
+                    .chain(
+                        mappings
+                            .native_storages()
+                            .iter()
+                            .filter(|storage| {
+                                storage.direction()
+                                    == bray_symbols::ForeignCallableDirection::Import
+                            })
+                            .map(|storage| storage.symbol().as_str()),
+                    )
+            })
             .collect();
 
         let platform_overrides = runtime
@@ -212,6 +226,18 @@ impl Compilation {
         }
 
         inputs = inputs.with_retained_symbols(preservation_roots);
+
+        let native_exports = mappings
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::native_storages)
+            .filter(|mapping| {
+                mapping.direction() == bray_symbols::ForeignCallableDirection::Export
+            })
+            .map(bray_codegen::CodegenNativeStaticMapping::symbol)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        inputs = inputs.with_exported_symbols(native_exports);
 
         if let Some(product_host) = product_host {
             if kind == ProductKind::Library {

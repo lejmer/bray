@@ -1,15 +1,31 @@
 trusted module std.memory;
 
+@layout(c)
+struct Packet
+{
+    length: u32;
+    payload: [u8;..];
+}
+
 func main() -> i32
 {
     let size: usize = size_of<i32>();
     let align: usize = align_of<i32>();
     let stride: usize = stride_of<i32>();
     let layout: Result<MemoryLayout, MemoryLayoutError> = layout_of<i32>(count = 3);
+    let trailing: Result<MemoryLayout, MemoryLayoutError> = trailing_layout_of<Packet>(count = 3);
     let size_ok = size == 4;
     let align_ok = align == 4;
     let stride_ok = stride == 4;
-    let valid = size_ok && align_ok && stride_ok;
+    let mut trailing_ok = false;
+
+    match trailing
+    {
+        case Ok(value) { trailing_ok = value.bytes == 7 && value.align == 4; }
+        case Error(_) {}
+    }
+
+    let valid = size_ok && align_ok && stride_ok && trailing_ok;
 
     if valid
     {

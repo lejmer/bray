@@ -208,6 +208,7 @@ impl Compilation {
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::TraitView(_) => Err(CodegenPreparationError::UnsupportedType(place.ty())),
             TypeData::Named { .. } | TypeData::Tuple(_) | TypeData::Array { .. } => {
