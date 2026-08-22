@@ -133,7 +133,6 @@ trusted func resize(
         destination = pointer,
         value = fill,
         count = new_length - current_length,
-
     );
 
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = new_length);
@@ -158,15 +157,25 @@ func clear(pos buffer: &mut Buffer) -> unit
 
 trusted func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    try reserve(additional = 1, buffer = &mut buffer);
+    let current_length: usize = buffer.storage.initialized;
 
+    if current_length == buffer.storage.capacity
+    {
+        try trusted internal std.memory.grow_byte_buffer(&mut buffer.storage);
+    }
+
+    trusted internal initialize_spare_byte(buffer = buffer, value = value);
+
+    return Ok(unit);
+}
+
+trusted internal func initialize_spare_byte(pos buffer: &mut Buffer, value: u8) -> unit
+{
     let current_length: usize = buffer.storage.initialized;
     let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = 1);
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + 1);
-
-    return Ok(unit);
 }
 
 trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
