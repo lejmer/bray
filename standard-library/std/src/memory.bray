@@ -254,7 +254,7 @@ internal union CapacityGrowth
     Exact;
 }
 
-internal func checked_capacity(
+internal func growth_capacity(
     pos current_length: usize,
     pos current_capacity: usize,
     additional: usize,
@@ -262,11 +262,6 @@ internal func checked_capacity(
 ) -> Result<usize, MemoryLayoutError>
 {
     let maximum: usize = ~0;
-
-    if additional <= current_capacity - current_length
-    {
-        return Ok(current_capacity);
-    }
 
     if additional > maximum - current_length
     {
@@ -346,22 +341,24 @@ struct RawBuffer<T>
             return Ok(buffer);
         }
 
+        if size_of<T>() == 1 && align_of<T>() == 1
+        {
+            let buffer: RawBuffer<T> = trusted internal allocate_buffer<T>(
+                capacity = capacity,
+                bytes = capacity,
+                align = 1,
+            );
+
+            return Ok(buffer);
+        }
+
         let layout: MemoryLayout = try layout_of<T>(count = capacity);
 
-        let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(
+        let buffer: RawBuffer<T> = trusted internal allocate_buffer<T>(
+            capacity = capacity,
             bytes = layout.bytes,
             align = layout.align,
-
         );
-
-        let storage_pointer: RawPointer<T> = trusted reinterpret<T, u8>(allocation_pointer);
-
-        let buffer: RawBuffer<T> =
-        {
-            pointer = storage_pointer,
-            capacity = capacity,
-            initialized = 0,
-        };
 
         return Ok(buffer);
     }
@@ -370,6 +367,20 @@ struct RawBuffer<T>
     {
         trusted raw_buffer_release<T>(&mut self);
     }
+}
+
+trusted internal func allocate_buffer<T>(capacity: usize, bytes: usize, align: usize) -> RawBuffer<T>
+    uses(manual_alloc)
+{
+    let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = align);
+    let storage_pointer: RawPointer<T> = trusted reinterpret<T, u8>(allocation_pointer);
+
+    return
+    {
+        pointer = storage_pointer,
+        capacity = capacity,
+        initialized = 0,
+    };
 }
 
 extern func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
@@ -432,22 +443,36 @@ trusted internal func reserve_raw_buffer<T>(
 {
     let current_length: usize = buffer.initialized;
 
-    let replacement_capacity: usize = try checked_capacity(
+    if additional <= buffer.capacity - current_length
+    {
+        return Ok(unit);
+    }
+
+    let replacement_capacity: usize = try growth_capacity(
         current_length = current_length,
         current_capacity = buffer.capacity,
         additional = additional,
         growth = growth,
     );
 
-    if replacement_capacity == buffer.capacity
+    let mut replacement_bytes: usize = replacement_capacity;
+    let mut replacement_align: usize = 1;
+
+    if size_of<T>() != 1 || align_of<T>() != 1
     {
-        return Ok(unit);
+        let layout: MemoryLayout = try layout_of<T>(count = replacement_capacity);
+
+        replacement_bytes = layout.bytes;
+        replacement_align = layout.align;
     }
 
-    let mut replacement: RawBuffer<T> = try trusted RawBuffer<T>(capacity = replacement_capacity);
+    let mut replacement: RawBuffer<T> = trusted internal allocate_buffer<T>(
+        capacity = replacement_capacity,
+        bytes = replacement_bytes,
+        align = replacement_align,
+    );
 
     trusted raw_buffer_relocate<T>(source = &mut buffer, destination = &mut replacement);
-
     trusted raw_buffer_replace<T>(destination = &mut buffer, source = &mut replacement);
 
     return Ok(unit);
