@@ -1,5 +1,5 @@
 use super::support::{llvm, physical_aggregate_element, pointer_value};
-use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
+use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
     CodegenFailure, CodegenFieldLayout, CodegenInstance, CodegenParameterMapping, CodegenRequest,
@@ -69,6 +69,8 @@ fn translate_instance<'context, 'request>(
     let function = module
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    apply_instance_optimization_attributes(function, instance, types)?;
 
     let (function, trampoline) =
         super::callback::prepare(module, request, symbol, function, types)?;

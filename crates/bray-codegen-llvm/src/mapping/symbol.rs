@@ -1,8 +1,10 @@
 use bray_codegen::{
-    CodegenFailure, CodegenIndirectParameterKind, CodegenIntegerExtension, CodegenLinkage,
-    CodegenMappings, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolMapping,
-    CodegenTarget, CodegenValueAttribute,
+    CodegenFailure, CodegenIndirectParameterKind, CodegenInstance, CodegenIntegerExtension,
+    CodegenLinkage, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
+    CodegenSymbolMapping, CodegenTarget, CodegenValueAttribute,
 };
+use bray_ir::MirUnitKey;
+use bray_symbols::SymbolKind;
 use inkwell::DLLStorageClass;
 use inkwell::GlobalVisibility;
 use inkwell::attributes::{Attribute, AttributeLoc};
@@ -50,6 +52,33 @@ pub(crate) fn declare_symbol<'context>(
     }
 
     Ok(function)
+}
+
+pub(crate) fn apply_instance_optimization_attributes(
+    function: FunctionValue<'_>,
+    instance: &CodegenInstance,
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    if is_static_trait_fulfillment(instance.key().template()) {
+        apply_enum_attribute(function, AttributeLoc::Function, "inlinehint", 0, types)?;
+    }
+
+    Ok(())
+}
+
+fn is_static_trait_fulfillment(template: &MirUnitKey) -> bool {
+    match template {
+        MirUnitKey::Bound(key) => {
+            key.declared_owner().kind() == SymbolKind::TraitCallableFulfillment
+        }
+        MirUnitKey::ImportedExecutable(key) => {
+            key.owner().kind() == SymbolKind::TraitCallableFulfillment
+        }
+        MirUnitKey::ExecutableHost(_)
+        | MirUnitKey::GeneratedLifecycle(_)
+        | MirUnitKey::ExternalCallable(_)
+        | MirUnitKey::ExternalRuntimeDefault(_) => false,
+    }
 }
 
 fn apply_native_attributes(
@@ -409,6 +438,7 @@ pub(crate) fn call_convention(
 mod tests {
     use std::num::{NonZeroU16, NonZeroU64};
 
+    use bray_bound_tree::BoundUnitKey;
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
@@ -416,14 +446,18 @@ mod tests {
         CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
         CodegenValueAttribute, TargetAddressSpaceKind,
     };
-    use bray_symbols::testing::intern_type;
-    use bray_symbols::{CallableAbi, SemanticValueStore, TypeData};
+    use bray_ir::{MirExecutableTemplateId, MirImportedExecutableKey, MirUnitKey};
+    use bray_symbols::testing::{intern_type, source_function_key};
+    use bray_symbols::{
+        CallableAbi, SemanticValueStore, SymbolId, SymbolKey, SymbolKind,
+        TraitCallableFulfillmentSymbolId, TypeData,
+    };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use inkwell::DLLStorageClass;
     use inkwell::context::Context;
     use inkwell::module::Linkage;
 
-    use super::{apply_linkage, declare_symbols};
+    use super::{apply_linkage, declare_symbols, is_static_trait_fulfillment};
     use crate::machine::LlvmTargetMachine;
     use crate::mapping::LlvmTypeMappings;
 
@@ -517,6 +551,32 @@ mod tests {
             function.as_global_value().get_dll_storage_class(),
             DLLStorageClass::Default
         );
+    }
+
+    #[test]
+    fn local_trait_fulfillments_are_static_dispatch_candidates() {
+        let template = source_template(SymbolKind::TraitCallableFulfillment);
+
+        assert!(is_static_trait_fulfillment(&template));
+    }
+
+    #[test]
+    fn imported_trait_fulfillments_are_inlining_candidates() {
+        let owner = TraitCallableFulfillmentSymbolId::from_symbol_id(SymbolId::new(7));
+
+        let template = MirUnitKey::ImportedExecutable(MirImportedExecutableKey::new(
+            owner.into(),
+            MirExecutableTemplateId::ROOT,
+        ));
+
+        assert!(is_static_trait_fulfillment(&template));
+    }
+
+    #[test]
+    fn ordinary_functions_keep_the_target_inlining_policy() {
+        let template = source_template(SymbolKind::Function);
+
+        assert!(!is_static_trait_fulfillment(&template));
     }
 
     #[test]
@@ -621,5 +681,25 @@ mod tests {
 
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {
         TargetValueLayout::new(size, alignment, TargetLayoutContract::Default)
+    }
+
+    fn source_template(kind: SymbolKind) -> MirUnitKey {
+        let source_function = source_function_key();
+
+        let Some(declaration) = source_function.source_declaration_id() else {
+            panic!("test source function must retain its declaration identity");
+        };
+
+        let Some(owner) = SymbolKey::source_declaration(source_function, kind, declaration) else {
+            panic!("test callable owner kind must support source declarations");
+        };
+
+        let source = bray_testing::test_bound_unit(0).key().source();
+
+        let Some(key) = BoundUnitKey::callable_body(owner, source) else {
+            panic!("test callable owner must admit a body");
+        };
+
+        MirUnitKey::Bound(key)
     }
 }
