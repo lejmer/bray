@@ -14,6 +14,7 @@ pub(in crate::standard_library) enum BuildError {
     MissingValue(&'static str),
     BuildOptions(NativeBuildOptionsError),
     Workspace(String),
+    InputIdentity(String),
     Publication(DirectoryPublicationError),
     Project(String),
     Source(String),
@@ -146,6 +147,7 @@ impl fmt::Display for BuildError {
             Self::MissingValue(option) => write!(formatter, "missing value for {option}"),
             Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
+            Self::InputIdentity(error) => formatter.write_str(error),
             Self::Publication(error) => write!(formatter, "{error}"),
             Self::Project(error) => {
                 write!(formatter, "standard library project is invalid: {error}")

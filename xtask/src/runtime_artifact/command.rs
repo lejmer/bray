@@ -141,14 +141,65 @@ fn build(
     profile: &str,
     memory_observation: MemoryObservation,
 ) -> Result<Package, CommandError> {
+    let root = workspace::root().map_err(CommandError::Workspace)?;
+
+    let sources = crate::input_identity::WorkspaceSources::load(&root)
+        .map_err(CommandError::InputIdentity)?;
+
+    let component = match memory_observation {
+        MemoryObservation::Disabled => crate::input_identity::Component::Runtime,
+        MemoryObservation::Enabled => crate::input_identity::Component::ObservationRuntime,
+    };
+
+    let input = crate::input_identity::input_digest(
+        &root,
+        Some(target),
+        component,
+        &[profile],
+        &[],
+        &sources,
+    )
+        .map_err(CommandError::InputIdentity)?;
+
+    let existing_package = package(output, target);
+
+    let expected_archives = existing_package
+        .components
+        .iter()
+        .map(|component| component.archive.clone())
+        .collect::<Vec<_>>();
+
+    if super::reuse::current(
+        output,
+        &existing_package.metadata,
+        &expected_archives,
+        &input,
+    )
+        .map_err(CommandError::InputIdentity)?
+    {
+        crate::progress::message(match memory_observation {
+            MemoryObservation::Disabled => "Reusing native runtime artifacts",
+            MemoryObservation::Enabled => "Reusing performance observation runtime artifacts",
+        });
+
+        return Ok(existing_package);
+    }
+
     let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
         .map_err(CommandError::Publication)?;
 
     build_contents(target, publication.contents(), profile, memory_observation)?;
 
+    crate::input_identity::write_digest(publication.contents(), &input)
+        .map_err(CommandError::InputIdentity)?;
+
     let output = publication.publish().map_err(CommandError::Publication)?;
 
-    Ok(Package {
+    Ok(package(&output, target))
+}
+
+fn package(output: &Path, target: NativeTarget) -> Package {
+    Package {
         metadata: output.join(METADATA_FILE_NAME),
         components: RuntimeArchiveKind::ALL
             .into_iter()
@@ -157,7 +208,7 @@ fn build(
                 archive: output.join(archive_file_name(target, kind)),
             })
             .collect(),
-    })
+    }
 }
 
 fn build_contents(
@@ -761,6 +812,7 @@ pub(super) enum CommandError {
     BuildOptions(NativeBuildOptionsError),
     Publication(DirectoryPublicationError),
     Workspace(String),
+    InputIdentity(String),
     DependencyAudit(crate::dependency_audit::DependencyAuditError),
     NativeArchive(crate::native_archive::BuildError),
     Read {
@@ -829,6 +881,7 @@ impl fmt::Display for CommandError {
             Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Publication(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
+            Self::InputIdentity(error) => formatter.write_str(error),
             Self::DependencyAudit(error) => write!(formatter, "{error}"),
             Self::NativeArchive(error) => write!(formatter, "{error}"),
             Self::Read { path, error } => {

@@ -11,9 +11,7 @@ use bray_compilation::{
 };
 use bray_emitter::{ArtifactKind as EmittedArtifactKind, resolve_published_artifact};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-use bray_standard_library::{
-    StandardLibraryArtifactKind, StandardLibraryRoot, decode_standard_library_manifest,
-};
+use bray_standard_library::StandardLibraryRoot;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_tooling::load_llvm_compilation;
 
@@ -22,8 +20,8 @@ use super::super::corpus::{
     BatchingPolicy, CALIBRATION_SEED_INNER_ITERATIONS, WORKLOADS, Workload,
 };
 use super::super::model::{
-    ArtifactKind, Observation, OptimizationArtifactReport, PeerLanguage, PeerReport,
-    PerformanceReport, SCHEMA_REVISION, WorkloadBatching, WorkloadReport,
+    ArtifactKind, Observation, PeerLanguage, PeerReport, PerformanceReport, SCHEMA_REVISION,
+    WorkloadBatching, WorkloadReport,
 };
 use super::super::{report, retention, statistics};
 use super::comparison_build;
@@ -85,6 +83,7 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     let timer_resolution_nanoseconds = statistics::timer_resolution_nanoseconds()?;
     let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
+
     progress::phase("Building matched application peers");
 
     let application_compilation = comparison_build::build(
@@ -93,7 +92,7 @@ fn execute(mut options: Options) -> Result<(), String> {
         &compiler,
         &options.output,
         options.target,
-        prepared.toolchain(),
+        prepared.standard_library(),
         prepared.runtime(),
     )?;
 
@@ -105,7 +104,7 @@ fn execute(mut options: Options) -> Result<(), String> {
         &compiler,
         &options.output,
         options.target,
-        prepared.toolchain(),
+        prepared.standard_library(),
         prepared.runtime(),
     )?;
 
@@ -119,15 +118,19 @@ fn execute(mut options: Options) -> Result<(), String> {
         workloads.push(run_workload(
             &options,
             workload,
-            prepared.toolchain(),
+            &compiler,
+            prepared.standard_library(),
             prepared.runtime(),
             prepared.observation_runtime(),
             timer_resolution_nanoseconds,
         )?);
     }
 
-    let optimization_artifacts =
-        optimization_artifacts(prepared.standard_library(), options.target, &workloads)?;
+    let optimization_artifacts = super::optimization_artifacts::inspect(
+        prepared.standard_library(),
+        options.target,
+        &workloads,
+    )?;
 
     let candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,
@@ -172,95 +175,6 @@ fn execute(mut options: Options) -> Result<(), String> {
     Ok(())
 }
 
-fn optimization_artifacts(
-    root: &Path,
-    target: bray_target::NativeTarget,
-    workloads: &[WorkloadReport],
-) -> Result<Vec<OptimizationArtifactReport>, String> {
-    let manifest_path = root.join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME);
-
-    let bytes = fs::read(&manifest_path)
-        .map_err(|error| format!("could not read {}: {error}", manifest_path.display()))?;
-
-    let manifest = decode_standard_library_manifest(&bytes)
-        .map_err(|error| format!("performance standard library is invalid: {error:?}"))?;
-
-    let selected = manifest
-        .targets()
-        .iter()
-        .find(|candidate| candidate.target().as_str() == target.as_str())
-        .ok_or_else(|| "performance standard library does not contain the target".to_owned())?;
-
-    selected
-        .artifacts()
-        .iter()
-        .filter(|artifact| artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
-        .map(|artifact| {
-            let optimization = artifact.optimization().ok_or_else(|| {
-                "validated optimization archive has no selection metadata".to_owned()
-            })?;
-
-            let fallback = optimization.fallback().path();
-
-            let mut selected_by_workloads = workloads
-                .iter()
-                .filter(|workload| {
-                    workload_selects_optimization(
-                        workload,
-                        optimization.partition(),
-                        fallback,
-                    )
-                })
-                .map(|workload| workload.id.clone())
-                .collect::<Vec<_>>();
-
-            selected_by_workloads.sort();
-
-            Ok(OptimizationArtifactReport {
-                partition: optimization.partition().to_owned(),
-                path: artifact.path().to_owned(),
-                bytes: artifact.byte_len(),
-                fallback: fallback.to_owned(),
-                selected_by_workloads,
-            })
-        })
-        .collect()
-}
-
-fn workload_selects_optimization(
-    workload: &WorkloadReport,
-    partition: &str,
-    fallback: &str,
-) -> bool {
-    workload.artifacts.iter().any(|artifact| {
-        artifact
-            .dependencies
-            .static_archives
-            .entries
-            .iter()
-            .any(|archive| archive_matches_fallback(archive, fallback))
-            || artifact
-                .dependencies
-                .static_inputs
-                .entries
-                .iter()
-                .any(|input| {
-                    input.artifact.contains(partition)
-                        || input
-                            .member
-                            .as_deref()
-                            .is_some_and(|member| member.contains(partition))
-                })
-    })
-}
-
-fn archive_matches_fallback(archive: &str, fallback: &str) -> bool {
-    let archive = Path::new(archive).file_name();
-    let fallback = Path::new(fallback);
-
-    archive == fallback.file_name() || archive == fallback.file_stem()
-}
-
 fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("could not read baseline {}: {error}", path.display()))?;
@@ -289,7 +203,8 @@ fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
 fn run_workload(
     options: &Options,
     workload: &Workload,
-    toolchain: &Path,
+    compiler: &Path,
+    standard_library: &Path,
     runtime: &Path,
     observation_runtime: &Path,
     timer_resolution_nanoseconds: u64,
@@ -308,6 +223,19 @@ fn run_workload(
 
     let product = ProductIdentity::try_new(package.clone(), product_name)
         .ok_or_else(|| format!("invalid workload product identity: {}", workload.id))?;
+
+    progress::workload_phase("Measuring compiler performance");
+
+    let compilation_timing = super::workload_compilation::measure(
+        compiler,
+        workload,
+        &package_name,
+        product_name,
+        options.target,
+        standard_library,
+        runtime,
+        &output,
+    )?;
 
     let selected = SelectedTarget::for_native(options.target);
 
@@ -328,9 +256,7 @@ fn run_workload(
     ))
     .with_profile_product(product.clone());
 
-    let standard_library_path = toolchain.join("lib").join("bray").join("standard-library");
-
-    let standard_library = StandardLibraryRoot::try_new(standard_library_path.clone())
+    let standard_library = StandardLibraryRoot::try_new(standard_library.to_path_buf())
         .ok_or_else(|| "invalid benchmark standard-library root".to_owned())?;
 
     let request = request.with_standard_library_root(standard_library);
@@ -488,6 +414,7 @@ fn run_workload(
         units: workload.units.to_owned(),
         expected_output_sha256: output_digest,
         batching: controlled.batching,
+        compilation: compilation_timing,
         compiler_profile,
         process_execution: bray.process,
         bray_execution: bray.controlled,
@@ -640,6 +567,7 @@ fn peer_reports(
                 toolchain: built.toolchain,
                 build_configuration: built.build_configuration,
                 source_sha256: built.source_sha256,
+                compilation: built.compilation,
                 process_execution: measured.process,
                 controlled_execution: measured.controlled,
                 artifacts,

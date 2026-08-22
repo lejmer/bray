@@ -46,27 +46,6 @@ pub(crate) fn assemble(
     install_runtime(runtime, target, &library_root)
 }
 
-pub(crate) fn assemble_in_publication(
-    root: &Path,
-    target: NativeTarget,
-    runtime: &Path,
-    work: &Path,
-    toolchain: &Path,
-) -> Result<(), String> {
-    let committed_standard_library = work.join("standard-library");
-
-    crate::progress::run("Building the standard library bundle", || {
-        build_standard_library(root, target, &committed_standard_library)
-    })?;
-
-    let library_root = toolchain.join("lib").join("bray");
-    let standard_library = library_root.join("standard-library");
-
-    install_committed_directory(&committed_standard_library, &standard_library)?;
-
-    install_runtime(runtime, target, &library_root)
-}
-
 fn build_standard_library(root: &Path, target: NativeTarget, output: &Path) -> Result<(), String> {
     crate::standard_library::build_target_bundle(&root.join("standard-library"), output, target)
         .map(|_| ())
@@ -114,23 +93,6 @@ pub(crate) fn runtime_artifact_metadata(runtime: &Path) -> Result<RuntimeArtifac
         .map_err(|error| format!("could not decode runtime artifact metadata: {error:?}"))
 }
 
-fn install_committed_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "toolchain component destination has no parent directory".to_owned())?;
-
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("could not create toolchain component directory: {error}"))?;
-
-    crate::bundle::rename_directory(source, destination).map_err(|error| {
-        format!(
-            "could not install committed toolchain component {} at {}: {error}",
-            source.display(),
-            destination.display()
-        )
-    })
-}
-
 pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     fs::copy(source, destination).map(|_| ()).map_err(|error| {
         format!(
@@ -146,57 +108,5 @@ pub(crate) fn executable_name(name: &str) -> std::ffi::OsString {
         format!("{name}.exe").into()
     } else {
         name.into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::install_committed_directory;
-
-    #[test]
-    fn outer_publication_installs_only_committed_component_directories() {
-        let temporary = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary publication root must exist: {error}"));
-
-        let destination = temporary.path().join("published");
-
-        let publication = crate::bundle::DirectoryPublication::begin(&destination, "outer-")
-            .unwrap_or_else(|error| panic!("outer publication must begin: {error}"));
-
-        let component_destination = publication.work().join("component");
-
-        let component =
-            crate::bundle::DirectoryPublication::begin(&component_destination, "component-")
-                .unwrap_or_else(|error| panic!("component publication must begin: {error}"));
-
-        std::fs::write(component.contents().join("manifest.json"), b"committed")
-            .unwrap_or_else(|error| panic!("component manifest must write: {error}"));
-
-        let committed = component
-            .publish()
-            .unwrap_or_else(|error| panic!("component publication must complete: {error}"));
-
-        let installed = publication.contents().join("toolchain/component");
-
-        install_committed_directory(&committed, &installed)
-            .unwrap_or_else(|error| panic!("committed component must install: {error}"));
-
-        assert!(!committed.exists());
-
-        assert_eq!(
-            std::fs::read(installed.join("manifest.json"))
-                .unwrap_or_else(|error| panic!("installed component must be readable: {error}")),
-            b"committed"
-        );
-
-        let published = publication
-            .publish()
-            .unwrap_or_else(|error| panic!("outer publication must complete: {error}"));
-
-        assert_eq!(
-            std::fs::read(published.join("toolchain/component/manifest.json"))
-                .unwrap_or_else(|error| panic!("published component must be readable: {error}")),
-            b"committed"
-        );
     }
 }

@@ -21,7 +21,8 @@ use super::model::{
     CompilationKind, CompilationLanguage, CompilationReuseEvidence, LibraryReuse,
     LinkerInvocationReport, LinkerMapReport, Observation, OptimizationArtifactReport, PeerBatching,
     PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
-    ToolInvocationReport, WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
+    ToolInvocationReport, WorkloadBatching, WorkloadCategory, WorkloadCompilationReport,
+    WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -729,6 +730,8 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
     let workload = &comparison.workloads[0];
     let artifact = &workload.artifacts[0];
 
+    assert_eq!(workload.compilation_process.delta, 20);
+    assert_eq!(workload.compiler_work.delta, 20);
     assert_eq!(workload.compiler_operations["compile"].delta, 20);
 
     assert_eq!(
@@ -865,6 +868,13 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             toolchain: "peer compiler".to_owned(),
             build_configuration: configuration,
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
+            compilation: workload_compilation(
+                median,
+                match language {
+                    PeerLanguage::Rust => "rustc",
+                    PeerLanguage::Cpp => "cpp",
+                },
+            ),
             process_execution: process_execution.clone(),
             controlled_execution: bray_execution.clone(),
             artifacts: vec![ArtifactReport {
@@ -1038,6 +1048,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 cpp_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
                 selected_inner_iterations: inner_iterations,
             },
+            compilation: workload_compilation(median, "brayc"),
             compiler_profile: profile(median),
             process_execution,
             bray_execution,
@@ -1071,6 +1082,36 @@ const fn peer_language_name(language: PeerLanguage) -> &'static str {
     match language {
         PeerLanguage::Rust => "rust",
         PeerLanguage::Cpp => "cpp",
+    }
+}
+
+fn workload_compilation(elapsed_nanoseconds: u64, compiler: &str) -> WorkloadCompilationReport {
+    let invocation = ToolInvocationReport {
+        program: compiler.to_owned(),
+        arguments: vec!["source".to_owned()],
+        environment: BTreeMap::new(),
+        response_files: Vec::new(),
+    };
+
+    let compiler_components_nanoseconds = if compiler == "cpp" {
+        let clang = elapsed_nanoseconds / 2;
+
+        BTreeMap::from([
+            ("clang".to_owned(), clang),
+            ("lld".to_owned(), elapsed_nanoseconds - clang),
+        ])
+    } else {
+        BTreeMap::from([(compiler.to_owned(), elapsed_nanoseconds)])
+    };
+
+    WorkloadCompilationReport {
+        process_scope: super::model::COMPILER_PROCESS_SCOPE.to_owned(),
+        process_elapsed_nanoseconds: elapsed_nanoseconds,
+        compiler_scope: super::model::COMPILER_WORK_SCOPE.to_owned(),
+        compiler_elapsed_nanoseconds: elapsed_nanoseconds,
+        compiler_components_nanoseconds,
+        process_invocation: invocation.clone(),
+        profiled_invocation: invocation,
     }
 }
 

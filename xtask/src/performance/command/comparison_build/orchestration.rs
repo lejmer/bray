@@ -13,7 +13,7 @@ pub(in crate::performance::command) fn build(
     compiler: &Path,
     output: &Path,
     target: NativeTarget,
-    toolchain: &Path,
+    standard_library: &Path,
     runtime: &Path,
 ) -> Result<crate::performance::model::CompilationComparisonReport, String> {
     let (directory, contract) = match kind {
@@ -29,7 +29,14 @@ pub(in crate::performance::command) fn build(
     let builds = [
         (
             CompilationLanguage::Bray,
-            super::bray::build(compiler, &output, kind, target, toolchain, runtime)?,
+            super::bray::build(
+                compiler,
+                &output,
+                kind,
+                target,
+                standard_library,
+                runtime,
+            )?,
         ),
         (
             CompilationLanguage::Rust,

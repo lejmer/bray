@@ -24,7 +24,9 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
 
     html.push_str(
         "<section><h2>How to read this report</h2>\
-        <p>The primary duration is the language-controlled workload execution. Process duration also includes \
+        <p>Compiler process duration includes compiler startup and teardown. Compiler work uses each compiler's \
+        own timing and excludes compiler process startup and teardown.</p>\
+        <p>The primary execution duration is the language-controlled workload execution. Process duration also includes \
         executable startup and teardown. Throughput uses the controlled duration. Very small workloads repeat \
         inside one controlled interval, and the reported duration is adjusted to one workload execution.</p>\
         <p>Bray, Rust, and C++ embed their application and language runtimes in each executable. \
@@ -69,9 +71,12 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
 
     html.push_str("</tbody></table></div></section>");
 
+    super::presentation::workload_compilation_summary(&mut html, report)?;
+
     html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
-        <th>Workload</th><th>Language</th><th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
+        <th>Workload</th><th>Language</th><th>Compiler process</th><th>Compiler work</th>\
+        <th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
         <th>Throughput</th><th>Executable</th><th>Allocations</th><th>Allocated</th><th>Copied</th>
         </tr></thead><tbody>",
     );
@@ -84,6 +89,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
             workload,
             "Bray",
             true,
+            &workload.compilation,
             &workload.bray_execution,
             &workload.process_execution,
             &workload.artifacts,
@@ -97,6 +103,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
                 workload,
                 peer_language(*language),
                 false,
+                &peer.compilation,
                 &peer.controlled_execution,
                 &peer.process_execution,
                 &peer.artifacts,
@@ -124,6 +131,7 @@ fn candidate_row(
     workload: &super::model::WorkloadReport,
     language: &str,
     is_bray: bool,
+    compilation: &super::model::WorkloadCompilationReport,
     controlled: &super::model::ExecutionStatistics,
     process: &super::model::ExecutionStatistics,
     artifacts: &[super::model::ArtifactReport],
@@ -138,10 +146,23 @@ fn candidate_row(
 
     let _ = write!(
         html,
-        "<tr{row_class}><th>{}</th><td>{}</td><td {} {}>{}</td><td {} {}>{}</td><td {} {}>{}</td>\
+        "<tr{row_class}><th>{}</th><td>{}</td><td {} {}>{}</td><td {} {}>{}</td>\
+        <td {} {}>{}</td><td {} {}>{}</td><td {} {}>{}</td>\
         <td {}>{} {}/s</td><td {}>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td></tr>",
         escape(&workload.id),
         language,
+        winner_class(
+            Some(compilation.process_elapsed_nanoseconds),
+            winners.compilation_process
+        ),
+        super::format::nanoseconds_title(compilation.process_elapsed_nanoseconds),
+        milliseconds(compilation.process_elapsed_nanoseconds),
+        winner_class(
+            Some(compilation.compiler_elapsed_nanoseconds),
+            winners.compiler_work
+        ),
+        super::format::nanoseconds_title(compilation.compiler_elapsed_nanoseconds),
+        milliseconds(compilation.compiler_elapsed_nanoseconds),
         winner_class(
             Some(controlled.median_picoseconds),
             winners.controlled_median
@@ -229,7 +250,8 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
     html.push_str(
         "<section><h2>Changes</h2><p>Negative duration and size changes are improvements. \
         Timing changes within the noise boundary are marked indeterminate.</p><div class=\"table-scroll\">\
-        <table><thead><tr><th>Workload</th><th>Language</th><th>Controlled duration</th><th>Process duration</th>\
+        <table><thead><tr><th>Workload</th><th>Language</th><th>Compiler process</th><th>Compiler work</th>\
+        <th>Controlled duration</th><th>Process duration</th>\
         <th>Executable size</th><th>Retained inputs</th></tr></thead><tbody>",
     );
 
@@ -252,8 +274,10 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
 
         let _ = write!(
             html,
-            "<tr class=\"bray-row\"><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            "<tr class=\"bray-row\"><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             escape(&workload.id),
+            comparison_metric(workload.compilation_process, MetricUnit::Duration),
+            comparison_metric(workload.compiler_work, MetricUnit::Duration),
             comparison_metric(workload.bray_execution, MetricUnit::PicosecondsDuration),
             comparison_metric(workload.process_execution, MetricUnit::PicosecondsDuration),
             executable.map_or_else(
@@ -268,6 +292,8 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
                 &mut html,
                 &workload.id,
                 peer_language(*language),
+                peer.compilation_process,
+                peer.compiler_work,
                 peer.controlled_execution,
                 peer.process_execution,
                 &peer.artifacts,
@@ -288,6 +314,8 @@ fn comparison_row(
     html: &mut BoundedHtml,
     workload: &str,
     language: &str,
+    compilation_process: MetricComparison,
+    compiler_work: MetricComparison,
     controlled: MetricComparison,
     process: MetricComparison,
     artifacts: &[super::model::ArtifactComparison],
@@ -309,9 +337,11 @@ fn comparison_row(
 
     let _ = write!(
         html,
-        "<tr><th>{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+        "<tr><th>{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
         escape(workload),
         language,
+        comparison_metric(compilation_process, MetricUnit::Duration),
+        comparison_metric(compiler_work, MetricUnit::Duration),
         comparison_metric(controlled, MetricUnit::PicosecondsDuration),
         comparison_metric(process, MetricUnit::PicosecondsDuration),
         executable.map_or_else(
@@ -503,6 +533,7 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     );
 
     measurement_detail(html, "Bray", &workload.bray_execution);
+    super::presentation::workload_compilation_details(html, "Bray", &workload.compilation);
     super::presentation::batching_detail(html, &workload.batching);
 
     let _ = write!(
@@ -542,6 +573,7 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
         );
 
         measurement_detail(html, language, &peer.controlled_execution);
+        super::presentation::workload_compilation_details(html, language, &peer.compilation);
 
         let configuration = &peer.build_configuration;
 
@@ -784,7 +816,7 @@ mod tests {
         assert!(first.contains("C++ execution details"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(first.contains("<tr class=\"bray-row\">"));
-        assert_eq!(first.matches("class=\"metric-best\"").count(), 20);
+        assert_eq!(first.matches("class=\"metric-best\"").count(), 32);
         assert!(!first.contains("<artifact>"));
     }
 

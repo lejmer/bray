@@ -7,4 +7,4 @@ mod optimization;
 mod os_constants;
 mod provider_retention;
 
-pub(crate) use command::{build_target_bundle, run};
+pub(crate) use command::{build_target_bundle, current_target_bundle, run};

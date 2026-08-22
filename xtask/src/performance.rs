@@ -1,6 +1,7 @@
 mod command;
 mod comparison;
 mod compilation;
+mod compiler_timing;
 mod corpus;
 mod format;
 mod html;

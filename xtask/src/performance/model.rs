@@ -14,6 +14,10 @@ pub(super) const MAX_TOOL_ENVIRONMENT_COUNT: usize = 256;
 pub(super) const MAX_RESPONSE_FILE_COUNT: usize = 16;
 pub(super) const PROCESS_EXECUTION_SCOPE: &str =
     "wall-clock process execution including startup and teardown";
+pub(super) const COMPILER_PROCESS_SCOPE: &str =
+    "wall-clock compiler process execution including startup and teardown";
+pub(super) const COMPILER_WORK_SCOPE: &str =
+    "compiler-reported work excluding compiler process startup and teardown";
 pub(super) const BRAY_EXECUTION_SCOPE: &str =
     "language-controlled workload execution excluding harness process startup and teardown";
 pub(super) const STORAGE_OBSERVATION_SCOPE: &str =
@@ -63,6 +67,7 @@ pub(super) struct WorkloadReport {
     pub units: String,
     pub expected_output_sha256: String,
     pub batching: WorkloadBatching,
+    pub compilation: WorkloadCompilationReport,
     pub compiler_profile: bray_compilation::CompilationProfileReport,
     pub process_execution: ExecutionStatistics,
     pub bray_execution: ExecutionStatistics,
@@ -83,10 +88,22 @@ pub(super) struct PeerReport {
     pub toolchain: String,
     pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
+    pub compilation: WorkloadCompilationReport,
     pub process_execution: ExecutionStatistics,
     pub controlled_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
     pub observations: WorkloadObservations,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct WorkloadCompilationReport {
+    pub process_scope: String,
+    pub process_elapsed_nanoseconds: u64,
+    pub compiler_scope: String,
+    pub compiler_elapsed_nanoseconds: u64,
+    pub compiler_components_nanoseconds: BTreeMap<String, u64>,
+    pub process_invocation: ToolInvocationReport,
+    pub profiled_invocation: ToolInvocationReport,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -352,6 +369,8 @@ pub(super) struct ComparisonReport {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct WorkloadComparison {
     pub id: String,
+    pub compilation_process: MetricComparison,
+    pub compiler_work: MetricComparison,
     pub process_execution: MetricComparison,
     pub bray_execution: MetricComparison,
     pub compiler_operations: BTreeMap<String, MetricComparison>,
@@ -363,6 +382,8 @@ pub(super) struct WorkloadComparison {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct PeerComparison {
+    pub compilation_process: MetricComparison,
+    pub compiler_work: MetricComparison,
     pub process_execution: MetricComparison,
     pub controlled_execution: MetricComparison,
     pub artifacts: Vec<ArtifactComparison>,

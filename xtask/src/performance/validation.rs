@@ -183,6 +183,8 @@ fn validate_workload(
         )
     })?;
 
+    validate_workload_compilation(&workload.compilation, &["brayc"])?;
+
     if profile.context.target != report.identity.target {
         return Err(format!(
             "workload {} compiler target differs from the report",
@@ -444,6 +446,13 @@ fn validate_peers(
     }
 
     for (language, report) in &workload.peers {
+        let expected_components: &[&str] = match language {
+            PeerLanguage::Rust => &["rustc"],
+            PeerLanguage::Cpp => &["clang", "lld"],
+        };
+
+        validate_workload_compilation(&report.compilation, expected_components)?;
+
         if report.artifacts.len() != 1 {
             return Err(format!(
                 "workload {} {language:?} peer report has an invalid artifact count",
@@ -497,6 +506,39 @@ fn validate_peers(
     }
 
     Ok(())
+}
+
+fn validate_workload_compilation(
+    report: &super::model::WorkloadCompilationReport,
+    expected_components: &[&str],
+) -> Result<(), String> {
+    if report.process_scope != super::model::COMPILER_PROCESS_SCOPE
+        || report.compiler_scope != super::model::COMPILER_WORK_SCOPE
+        || report.process_elapsed_nanoseconds == 0
+        || report.compiler_elapsed_nanoseconds == 0
+        || report.compiler_components_nanoseconds.is_empty()
+        || report.compiler_components_nanoseconds.len() > 2
+        || !report
+            .compiler_components_nanoseconds
+            .keys()
+            .map(String::as_str)
+            .eq(expected_components.iter().copied())
+        || report
+            .compiler_components_nanoseconds
+            .iter()
+            .any(|(name, elapsed)| name.is_empty() || *elapsed == 0)
+        || report
+            .compiler_components_nanoseconds
+            .values()
+            .try_fold(0_u64, |total, elapsed| total.checked_add(*elapsed))
+            != Some(report.compiler_elapsed_nanoseconds)
+    {
+        return Err("workload compilation timing is invalid".to_owned());
+    }
+
+    super::compilation::validate_invocation(&report.process_invocation)?;
+
+    super::compilation::validate_invocation(&report.profiled_invocation)
 }
 
 fn validate_runtime_dependencies(
