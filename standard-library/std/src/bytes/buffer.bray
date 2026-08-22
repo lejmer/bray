@@ -161,29 +161,17 @@ trusted func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory
 
     if current_length == buffer.storage.capacity
     {
-        return trusted internal grow_and_push(buffer = buffer, value = value, current_length = current_length);
+        try trusted internal std.memory.grow_byte_buffer(&mut buffer.storage);
     }
 
-    trusted internal initialize_spare_byte(buffer = buffer, value = value, current_length = current_length);
+    trusted internal initialize_spare_byte(buffer = buffer, value = value);
 
     return Ok(unit);
 }
 
-trusted internal func grow_and_push(
-    pos buffer: &mut Buffer,
-    value: u8,
-    current_length: usize,
-) -> Result<unit, std.memory.MemoryLayoutError>
+trusted internal func initialize_spare_byte(pos buffer: &mut Buffer, value: u8) -> unit
 {
-    try reserve(additional = 1, buffer = &mut buffer);
-
-    trusted internal initialize_spare_byte(buffer = buffer, value = value, current_length = current_length);
-
-    return Ok(unit);
-}
-
-trusted internal func initialize_spare_byte(pos buffer: &mut Buffer, value: u8, current_length: usize) -> unit
-{
+    let current_length: usize = buffer.storage.initialized;
     let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = 1);

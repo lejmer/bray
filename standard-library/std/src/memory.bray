@@ -478,6 +478,11 @@ trusted internal func reserve_raw_buffer<T>(
     return Ok(unit);
 }
 
+trusted internal func grow_byte_buffer(pos buffer: &mut RawBuffer<u8>) -> Result<unit, MemoryLayoutError>
+{
+    return trusted internal reserve_raw_buffer<u8>(buffer = buffer, additional = 1, growth = CapacityGrowth.Amortized);
+}
+
 extern trusted internal func byte_buffer_fill(pos destination: RawPointer<u8>, value: u8, count: usize) -> unit
     uses(raw_memory, unchecked_init);
 
