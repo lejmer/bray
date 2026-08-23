@@ -26,6 +26,138 @@
           "value": 524288
         },
         {
+          "name": "ERROR_ACCESS_DENIED",
+          "native": "ERROR_ACCESS_DENIED",
+          "type": "u32",
+          "value": 5
+        },
+        {
+          "name": "ERROR_ALREADY_EXISTS",
+          "native": "ERROR_ALREADY_EXISTS",
+          "type": "u32",
+          "value": 183
+        },
+        {
+          "name": "ERROR_BROKEN_PIPE",
+          "native": "ERROR_BROKEN_PIPE",
+          "type": "u32",
+          "value": 109
+        },
+        {
+          "name": "ERROR_CALL_NOT_IMPLEMENTED",
+          "native": "ERROR_CALL_NOT_IMPLEMENTED",
+          "type": "u32",
+          "value": 120
+        },
+        {
+          "name": "ERROR_FILE_EXISTS",
+          "native": "ERROR_FILE_EXISTS",
+          "type": "u32",
+          "value": 80
+        },
+        {
+          "name": "ERROR_FILE_NOT_FOUND",
+          "native": "ERROR_FILE_NOT_FOUND",
+          "type": "u32",
+          "value": 2
+        },
+        {
+          "name": "ERROR_HANDLE_EOF",
+          "native": "ERROR_HANDLE_EOF",
+          "type": "u32",
+          "value": 38
+        },
+        {
+          "name": "ERROR_INVALID_DATA",
+          "native": "ERROR_INVALID_DATA",
+          "type": "u32",
+          "value": 13
+        },
+        {
+          "name": "ERROR_INVALID_PARAMETER",
+          "native": "ERROR_INVALID_PARAMETER",
+          "type": "u32",
+          "value": 87
+        },
+        {
+          "name": "ERROR_MOD_NOT_FOUND",
+          "native": "ERROR_MOD_NOT_FOUND",
+          "type": "u32",
+          "value": 126
+        },
+        {
+          "name": "ERROR_NOT_ENOUGH_MEMORY",
+          "native": "ERROR_NOT_ENOUGH_MEMORY",
+          "type": "u32",
+          "value": 8
+        },
+        {
+          "name": "ERROR_NOT_SUPPORTED",
+          "native": "ERROR_NOT_SUPPORTED",
+          "type": "u32",
+          "value": 50
+        },
+        {
+          "name": "ERROR_NO_DATA",
+          "native": "ERROR_NO_DATA",
+          "type": "u32",
+          "value": 232
+        },
+        {
+          "name": "ERROR_NO_SYSTEM_RESOURCES",
+          "native": "ERROR_NO_SYSTEM_RESOURCES",
+          "type": "u32",
+          "value": 1450
+        },
+        {
+          "name": "ERROR_OPERATION_ABORTED",
+          "native": "ERROR_OPERATION_ABORTED",
+          "type": "u32",
+          "value": 995
+        },
+        {
+          "name": "ERROR_OUTOFMEMORY",
+          "native": "ERROR_OUTOFMEMORY",
+          "type": "u32",
+          "value": 14
+        },
+        {
+          "name": "ERROR_PATH_NOT_FOUND",
+          "native": "ERROR_PATH_NOT_FOUND",
+          "type": "u32",
+          "value": 3
+        },
+        {
+          "name": "ERROR_PRIVILEGE_NOT_HELD",
+          "native": "ERROR_PRIVILEGE_NOT_HELD",
+          "type": "u32",
+          "value": 1314
+        },
+        {
+          "name": "ERROR_PROC_NOT_FOUND",
+          "native": "ERROR_PROC_NOT_FOUND",
+          "type": "u32",
+          "value": 127
+        },
+        {
+          "name": "ERROR_SEM_TIMEOUT",
+          "native": "ERROR_SEM_TIMEOUT",
+          "type": "u32",
+          "value": 121
+        },
+        {
+          "name": "ERROR_TIMEOUT",
+          "native": "ERROR_TIMEOUT",
+          "type": "u32",
+          "value": 1460
+        },
+        {
+          "name": "ERROR_TOO_MANY_OPEN_FILES",
+          "native": "ERROR_TOO_MANY_OPEN_FILES",
+          "type": "u32",
+          "value": 4
+        },
+        {
           "name": "FILE_APPEND_DATA",
           "native": "FILE_APPEND_DATA",
           "type": "u32",

@@ -40,9 +40,13 @@ pub(super) fn decode_directory_entry(
     let discriminator = reader.read_array::<32>().map_err(map_wire_error)?;
     let family_size = reader.read_u32().map_err(map_wire_error)?;
 
-    if reader.read_u32().map_err(map_wire_error)? != 0 {
-        return Err(InterfaceValidationError::Malformed);
-    }
+    let platform_service = match reader.read_u32().map_err(map_wire_error)? {
+        0 => None,
+        id => Some(
+            bray_runtime_interface::PlatformServiceRole::from_id(id)
+                .ok_or(InterfaceValidationError::Malformed)?,
+        ),
+    };
 
     let offset = reader.read_u64().map_err(map_wire_error)?;
     let encoded_length = reader.read_u64().map_err(map_wire_error)?;
@@ -81,7 +85,14 @@ pub(super) fn decode_directory_entry(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    validate_payload_address(kind, owner, discriminator, family_size, limits)?;
+    validate_payload_address(
+        kind,
+        owner,
+        discriminator,
+        family_size,
+        platform_service,
+        limits,
+    )?;
 
     let encoding = crate::InterfaceSectionEncoding::from_wire_value(raw_encoding)
         .ok_or(InterfaceValidationError::Malformed)?;
@@ -106,6 +117,7 @@ pub(super) fn decode_directory_entry(
         encoding,
         discriminator,
         family_size,
+        platform_service,
         decoded_length,
         record_count,
         checksum,
@@ -153,6 +165,7 @@ fn validate_payload_address(
     owner: InterfaceSymbolId,
     discriminator: [u8; 32],
     family_size: u32,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
     match kind {
@@ -174,18 +187,22 @@ fn validate_payload_address(
             }
         }
         Some(ImplementationPayloadKind::Identity) => {
-            if owner.raw() != 0 || discriminator != [0; 32] || family_size != 0 {
+            if owner.raw() != 0
+                || discriminator != [0; 32]
+                || family_size != 0
+                || platform_service.is_some()
+            {
                 return Err(InterfaceValidationError::Malformed);
             }
         }
         Some(ImplementationPayloadKind::ConstantCallableBody)
         | Some(ImplementationPayloadKind::NativeBoundary) => {
-            if discriminator != [0; 32] || family_size != 0 {
+            if discriminator != [0; 32] || family_size != 0 || platform_service.is_some() {
                 return Err(InterfaceValidationError::Malformed);
             }
         }
         Some(ImplementationPayloadKind::PreSpecializedMir) => {
-            if owner.raw() != 0 || family_size != 0 {
+            if owner.raw() != 0 || family_size != 0 || platform_service.is_some() {
                 return Err(InterfaceValidationError::Malformed);
             }
         }

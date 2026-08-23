@@ -1,6 +1,7 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.fs;
 
+@abi(c)
 trusted internal func platform_file_read(
     pos handle: u64,
     pos destination: RawPointer<u8>,
@@ -17,6 +18,7 @@ trusted internal func platform_file_read(
     );
 }
 
+@abi(c)
 trusted internal func platform_file_write(
     pos handle: u64,
     pos source: RawPointer<u8>,
@@ -33,6 +35,7 @@ trusted internal func platform_file_write(
     );
 }
 
+@abi(c)
 trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -46,6 +49,7 @@ trusted internal func platform_file_flush(pos handle: u64) -> std.platform.Platf
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_file_seek(
     pos handle: u64,
     pos offset_bits: u64,
@@ -101,6 +105,7 @@ trusted internal func platform_file_seek(
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -112,6 +117,7 @@ trusted internal func platform_file_close(pos handle: u64) -> std.platform.Platf
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
@@ -183,6 +189,7 @@ trusted internal func platform_file_open(
     }
 }
 
+@abi(c)
 trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -204,6 +211,7 @@ trusted internal func platform_path_create_directory(pos path: PlatformPath) -> 
     }
 }
 
+@abi(c)
 trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -222,6 +230,7 @@ trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.p
     }
 }
 
+@abi(c)
 trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -242,6 +251,7 @@ trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> 
     }
 }
 
+@abi(c)
 trusted internal func platform_path_rename(
     pos source: PlatformPath,
     pos destination: PlatformPath,

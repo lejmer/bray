@@ -1,6 +1,7 @@
 @target(target.platform.dynamic_loading && target.identity.SYSTEM == "darwin")
 trusted module std.dynamic;
 
+@abi(c)
 trusted internal func platform_dynamic_library_open_system(
     pos identity: u32,
     pos policy: u32,

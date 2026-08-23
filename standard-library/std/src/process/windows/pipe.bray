@@ -1,6 +1,7 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.process;
 
+@abi(c)
 trusted internal func platform_process_pipe_read(
     pos handle: u64,
     pos destination: RawPointer<u8>,
@@ -8,15 +9,23 @@ trusted internal func platform_process_pipe_read(
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
 {
-    return trusted internal std.platform.handle_transfer(
+    let status: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer(
         trusted internal std.platform.handle_pointer(handle),
         bytes = destination,
         length = length,
         transferred = transferred,
         read_operation = true,
     );
+
+    if status.native_code == std.os.windows.ERROR_BROKEN_PIPE as i64
+    {
+        return internal std.platform.success_status();
+    }
+
+    return status;
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_write(
     pos handle: u64,
     pos source: RawPointer<u8>,
@@ -33,6 +42,7 @@ trusted internal func platform_process_pipe_write(
     );
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
@@ -44,6 +54,7 @@ trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platfo
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_close(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {

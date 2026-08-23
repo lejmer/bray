@@ -353,7 +353,7 @@ mod tests {
             &source,
             r#"{"groups":[{"name":"shared","targets":["first","second"]}]}"#,
         )
-            .unwrap_or_else(|error| panic!("source must be written: {error}"));
+        .unwrap_or_else(|error| panic!("source must be written: {error}"));
 
         assert!(read_input(&manifest).is_err());
     }

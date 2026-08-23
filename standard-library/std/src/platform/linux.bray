@@ -49,6 +49,7 @@ trusted internal func clear_unix_error() -> unit
     trusted std.memory.write<i32>(trusted internal std.os.linux.errno_location(), value = 0);
 }
 
+@abi(c)
 trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
     uses(foreign_call)
 {
@@ -84,6 +85,7 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
     return success_status();
 }
 
+@abi(c)
 trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
     uses(foreign_call)
 {
@@ -112,6 +114,7 @@ trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanosecon
     return success_status();
 }
 
+@abi(c)
 trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
     uses(foreign_call)
 {
@@ -148,6 +151,7 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
     return success_status();
 }
 
+@abi(c)
 trusted internal func entropy_fill(
     pos destination: RawPointer<u8>,
     pos length: u64,

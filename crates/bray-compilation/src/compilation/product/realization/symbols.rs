@@ -36,6 +36,7 @@ impl Compilation {
         unit: &CodegenUnit,
         operations: &[CodegenOperationMapping],
         executable_host: Option<&ExecutableHostContract>,
+        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         target: &CodegenTarget,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         reachability: &ConcreteCodegenReachability,
@@ -53,21 +54,25 @@ impl Compilation {
                 MirUnitKind::GeneratedLifecycle(reference) => {
                     let name = generated_instance_symbol_name(
                         target,
-                        CodegenLinkage::Internal,
+                        CodegenLinkage::LinkOnce,
                         instance.key(),
                     )?;
 
                     let signature = self.generated_lifecycle_signature(reference, cancellation)?;
 
-                    (name, CodegenLinkage::Internal, signature)
+                    (name, CodegenLinkage::LinkOnce, signature)
                 }
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
                     let realization = reachability
                         .instance(instance.key())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let (boundary, linkage) =
-                        self.codegen_instance_boundary(instance, roots, cancellation)?;
+                    let (boundary, linkage) = self.codegen_instance_boundary(
+                        instance,
+                        roots,
+                        platform_overrides,
+                        cancellation,
+                    )?;
 
                     let name = match boundary {
                         Some(name) => name,
@@ -98,7 +103,8 @@ impl Compilation {
                 .instance(instance)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let boundary = self.codegen_native_boundary(instance, cancellation)?;
+            let boundary =
+                self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
 
             let linkage = boundary
                 .as_ref()
@@ -193,7 +199,8 @@ impl Compilation {
         let package =
             self.codegen_instance_package(instance.key(), product_package, cancellation)?;
 
-        let (_, linkage) = self.codegen_instance_boundary(instance, roots, cancellation)?;
+        let (_, linkage) =
+            self.codegen_instance_boundary(instance, roots, &BTreeSet::new(), cancellation)?;
 
         let visibility = match linkage {
             CodegenLinkage::Private => CodegenDefinitionVisibility::Unit,
@@ -202,6 +209,7 @@ impl Compilation {
             }
             CodegenLinkage::External
             | CodegenLinkage::Weak
+            | CodegenLinkage::Fallback
             | CodegenLinkage::Import
             | CodegenLinkage::Export => CodegenDefinitionVisibility::Public,
         };
@@ -215,13 +223,15 @@ impl Compilation {
         &self,
         instance: &CodegenInstance,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         cancellation: &CancellationToken,
     ) -> Result<(Option<BinarySymbolName>, CodegenLinkage), CodegenPreparationError> {
         match instance.mir().kind() {
             MirUnitKind::ExecutableHost(_) => Ok((None, CodegenLinkage::Export)),
-            MirUnitKind::GeneratedLifecycle(_) => Ok((None, CodegenLinkage::Internal)),
+            MirUnitKind::GeneratedLifecycle(_) => Ok((None, CodegenLinkage::LinkOnce)),
             MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
-                let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
+                let boundary =
+                    self.codegen_native_boundary(instance.key(), platform_overrides, cancellation)?;
 
                 if let Some((name, linkage)) = boundary {
                     return Ok((Some(name), linkage));
@@ -278,6 +288,7 @@ impl Compilation {
     pub(super) fn codegen_native_boundary(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,
+        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         cancellation: &CancellationToken,
     ) -> Result<Option<(BinarySymbolName, CodegenLinkage)>, CodegenPreparationError> {
         if matches!(
@@ -330,6 +341,32 @@ impl Compilation {
                 contract.symbol().binding(),
             )
             .map(Some);
+        }
+
+        let platform_service = match instance.template() {
+            MirUnitKey::Bound(_) => {
+                crate::compilation::foreign::platform::platform_service_role(self, function)?
+            }
+            MirUnitKey::ImportedExecutable(key) => key.platform_service(),
+            MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ExecutableHost(_)
+            | MirUnitKey::ExternalCallable(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => None,
+        };
+
+        if let Some(role) = platform_service {
+            let name = BinarySymbolName::try_new(
+                bray_runtime_interface::native_platform_service_role_symbol(role),
+            )
+            .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            let linkage = if platform_overrides.contains(&role) {
+                CodegenLinkage::Import
+            } else {
+                CodegenLinkage::Fallback
+            };
+
+            return Ok(Some((name, linkage)));
         }
 
         let boundary =

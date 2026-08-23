@@ -72,6 +72,7 @@ impl DriverOptions {
             self.compilation.product_kind(),
             bray_compilation::SelectedTarget::for_native(self.compilation.target()),
         )
+        .with_native_link_inputs(self.compilation.native_link_inputs().iter().cloned())
     }
 
     /// Returns the exact package-product compilation context.

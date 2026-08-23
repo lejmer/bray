@@ -171,7 +171,7 @@ func current_directory() -> std.path.Path
 
 trusted internal func context_table(pos storage: std.memory.RawBuffer<u8>, environment: bool) -> ProcessContextTable
 {
-    let width: usize = trusted internal std.platform.native_text_width();
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
     let bytes: usize = std.memory.initialized_count<u8>(&storage);
 
     if width == 0 || bytes % width != 0
@@ -245,6 +245,7 @@ trusted internal func context_entry_count(pos storage: &std.memory.RawBuffer<u8>
 {
     let pointer: RawPointer<u8> = std.memory.pointer<u8>(storage);
     let bytes: usize = std.memory.initialized_count<u8>(storage);
+
     let mut count: usize = 0;
     let mut index: usize = 0;
 

@@ -159,8 +159,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
         self.push_startup_inputs()?;
         self.push_staged_inputs()?;
         self.validate_native_inputs()?;
-        self.push_native_inputs_matching(is_ordinary_archive_input)?;
         self.push_runtime_input()?;
+        self.push_native_inputs_matching(is_ordinary_archive_input)?;
         self.push_native_inputs_matching(is_platform_provider_input)?;
         self.push_native_inputs_matching(is_native_library_input)?;
         self.push_termination_inputs()?;
@@ -729,12 +729,29 @@ mod tests {
             [
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::RelocatableObject,
-                LinkInputKind::Archive,
                 LinkInputKind::RuntimeComponent,
+                LinkInputKind::Archive,
                 LinkInputKind::Archive,
                 LinkInputKind::NativeLibrary,
             ]
         );
+
+        let runtime_input = link_plan
+            .inputs()
+            .iter()
+            .position(|input| matches!(input.provenance(), LinkInputProvenance::Runtime(_)))
+            .unwrap_or_else(|| panic!("runtime input must be present"));
+
+        let standard_library = link_plan
+            .inputs()
+            .iter()
+            .position(|input| {
+                matches!(input.provenance(), LinkInputProvenance::HostConfiguration)
+                    && input.kind() == LinkInputKind::Archive
+            })
+            .unwrap_or_else(|| panic!("standard-library input must be present"));
+
+        assert!(runtime_input < standard_library);
 
         assert!(matches!(
             link_plan.inputs()[4].provenance(),

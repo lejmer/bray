@@ -33,6 +33,10 @@
           "kind": "system"
         },
         {
+          "name": "Mincore",
+          "kind": "system"
+        },
+        {
           "name": "Shell32",
           "kind": "system"
         }
@@ -606,7 +610,7 @@
           ],
           "result": "unit",
           "native_result": "VOID",
-          "link": "Kernel32",
+          "link": "Mincore",
           "initialization": "initializes the supplied unbiased interrupt-time count",
           "dependencies": [
             "foreign_call",

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use bray_base::NonEmptySharedStr;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     DiagnosticNote, DiagnosticNoteKind, DiagnosticProjectSelectionProblem, SeverityKind,
@@ -9,7 +10,10 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
 };
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
-use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
+use bray_symbols::{
+    NativeLinkKind, NativeLinkRequirement, PackageIdentity, PackageVersion, ProductIdentity,
+    ProductKind,
+};
 use bray_target::NativeTarget;
 use clap::{Args, ValueEnum};
 
@@ -132,6 +136,7 @@ pub struct DriverCompilationConfiguration {
     target: NativeTarget,
     dependencies: Vec<DriverDependencyInterface>,
     platform_services: Vec<PlatformServiceBinding>,
+    native_link_inputs: Vec<NativeLinkRequirement>,
 }
 
 impl DriverCompilationConfiguration {
@@ -144,6 +149,7 @@ impl DriverCompilationConfiguration {
         target: NativeTarget,
         mut dependencies: Vec<DriverDependencyInterface>,
         mut platform_services: Vec<PlatformServiceBinding>,
+        mut native_link_inputs: Vec<NativeLinkRequirement>,
     ) -> Self {
         dependencies.sort_by(|left, right| {
             left.package()
@@ -152,6 +158,8 @@ impl DriverCompilationConfiguration {
         });
 
         platform_services.sort_unstable();
+        native_link_inputs.sort_unstable();
+        native_link_inputs.dedup();
 
         Self {
             product,
@@ -161,6 +169,7 @@ impl DriverCompilationConfiguration {
             target,
             dependencies,
             platform_services,
+            native_link_inputs,
         }
     }
 
@@ -197,6 +206,11 @@ impl DriverCompilationConfiguration {
     /// Returns private platform-service declaration bindings in role order.
     pub fn platform_services(&self) -> &[PlatformServiceBinding] {
         &self.platform_services
+    }
+
+    /// Returns native libraries made available by the build host.
+    pub fn native_link_inputs(&self) -> &[NativeLinkRequirement] {
+        &self.native_link_inputs
     }
 }
 
@@ -272,6 +286,14 @@ pub(crate) struct CliCompilationOptions {
         hide = true
     )]
     platform_services: Vec<String>,
+    #[arg(
+        long = "native-link-input",
+        global = true,
+        value_name = "NAME=KIND",
+        value_parser = parse_native_link_input,
+        hide = true
+    )]
+    native_link_inputs: Vec<NativeLinkRequirement>,
 }
 
 impl CliCompilationOptions {
@@ -365,8 +387,24 @@ impl CliCompilationOptions {
             self.target.into(),
             dependencies,
             platform_services,
+            self.native_link_inputs,
         ))
     }
+}
+
+fn parse_native_link_input(value: &str) -> Result<NativeLinkRequirement, String> {
+    let (name, kind) = value
+        .split_once('=')
+        .ok_or_else(|| "native link inputs require NAME=KIND".to_owned())?;
+
+    let name = NonEmptySharedStr::try_new(name)
+        .ok_or_else(|| "native link input names must be nonempty".to_owned())?;
+
+    let kind = NativeLinkKind::for_name(kind).ok_or_else(|| {
+        "native link input kinds must be dynamic, static, system, or framework".to_owned()
+    })?;
+
+    Ok(NativeLinkRequirement::new(name, kind))
 }
 
 fn parse_platform_service_binding(value: &str) -> Option<PlatformServiceBinding> {

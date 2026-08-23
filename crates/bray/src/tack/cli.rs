@@ -323,6 +323,7 @@ impl CliCommand {
                     selection: test.selection.into(),
                     configuration,
                     batch_request: test.batch_request,
+                    native_link_inputs: test.native_link_inputs,
                     options: crate::tack::model::TackTestOptions::new(
                         test.filters,
                         maximum_concurrency,
@@ -492,6 +493,8 @@ struct CliTest {
         ]
     )]
     batch_request: Option<PathBuf>,
+    #[arg(long = "native-link-input", value_name = "NAME=KIND", hide = true)]
+    native_link_inputs: Vec<String>,
     #[arg(value_name = "FILTER", help = help::TEST_FILTER)]
     filters: Vec<String>,
 }
@@ -806,6 +809,28 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn hidden_test_native_link_inputs_are_retained() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "test",
+            "--native-link-input",
+            "Kernel32=system",
+        ])
+        .unwrap_or_else(|error| panic!("native link input should parse: {error:?}"));
+
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Test {
+            native_link_inputs, ..
+        } = command
+        else {
+            panic!("expected test command");
+        };
+
+        assert_eq!(native_link_inputs, ["Kernel32=system"]);
     }
 
     #[test]

@@ -187,6 +187,7 @@ fn configure_c_toolchain(
         let flags = thin_lto_flags(root);
 
         command
+            .env("CARGO_ENCODED_RUSTFLAGS", "-Clinker-plugin-lto")
             .env(
                 target_environment("CC", target),
                 bray_llvm_toolchain::tool_path(root, tools.compiler),

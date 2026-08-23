@@ -37,41 +37,49 @@ trusted internal func release_stream_lock(pos lock: &core.atomic.Atomic<u32>) ->
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_standard_input_lock() -> std.platform.PlatformStatus
 {
     return trusted internal acquire_stream_lock(&INPUT_LOCK);
 }
 
+@abi(c)
 trusted internal func platform_standard_input_unlock() -> std.platform.PlatformStatus
 {
     return trusted internal release_stream_lock(&INPUT_LOCK);
 }
 
+@abi(c)
 trusted internal func platform_standard_output_flush() -> std.platform.PlatformStatus
 {
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_standard_output_lock() -> std.platform.PlatformStatus
 {
     return trusted internal acquire_stream_lock(&OUTPUT_LOCK);
 }
 
+@abi(c)
 trusted internal func platform_standard_output_unlock() -> std.platform.PlatformStatus
 {
     return trusted internal release_stream_lock(&OUTPUT_LOCK);
 }
 
+@abi(c)
 trusted internal func platform_standard_error_flush() -> std.platform.PlatformStatus
 {
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_standard_error_lock() -> std.platform.PlatformStatus
 {
     return trusted internal acquire_stream_lock(&ERROR_LOCK);
 }
 
+@abi(c)
 trusted internal func platform_standard_error_unlock() -> std.platform.PlatformStatus
 {
     return trusted internal release_stream_lock(&ERROR_LOCK);

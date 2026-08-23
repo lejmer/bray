@@ -19,6 +19,35 @@ struct StandardLibraryLinkSelection {
     optimization_bytes: u64,
 }
 
+pub(super) fn runtime_platform_services(
+    runtime: Option<&RuntimeArtifactSelection>,
+) -> BTreeSet<bray_runtime_interface::PlatformServiceRole> {
+    runtime
+        .into_iter()
+        .flat_map(RuntimeArtifactSelection::components)
+        .flat_map(|component| component.metadata().platform_services())
+        .copied()
+        .collect()
+}
+
+pub(super) fn runtime_platform_symbols(
+    runtime: Option<&RuntimeArtifactSelection>,
+) -> Result<BTreeSet<bray_runtime_interface::BinarySymbolName>, NativeProductPlanningError> {
+    runtime_platform_services(runtime)
+        .into_iter()
+        .map(platform_symbol)
+        .collect()
+}
+
+fn platform_symbol(
+    role: bray_runtime_interface::PlatformServiceRole,
+) -> Result<bray_runtime_interface::BinarySymbolName, NativeProductPlanningError> {
+    bray_runtime_interface::BinarySymbolName::try_new(
+        bray_runtime_interface::native_platform_service_role_symbol(role),
+    )
+    .ok_or(NativeProductPlanningError::InvalidSymbolName)
+}
+
 impl Compilation {
     pub(super) fn product_link_inputs(
         &self,
@@ -154,16 +183,8 @@ impl Compilation {
             })
             .collect();
 
-        let platform_overrides = runtime
-            .iter()
-            .flat_map(|runtime| {
-                runtime
-                    .components()
-                    .iter()
-                    .flat_map(|component| component.metadata().platform_services())
-            })
-            .copied()
-            .collect();
+        let platform_overrides = runtime_platform_services(runtime.as_ref());
+        let platform_override_symbols = runtime_platform_symbols(runtime.as_ref())?;
 
         let standard_library = self.standard_library_link_selection(
             kind,
@@ -189,6 +210,8 @@ impl Compilation {
             super::plan::product_preservation_roots(mappings, product_host)
                 .cloned()
                 .collect::<BTreeSet<_>>();
+
+        preservation_roots.extend(platform_override_symbols);
 
         if let Some(host) = host {
             preservation_roots.insert(host.native_entry().clone());

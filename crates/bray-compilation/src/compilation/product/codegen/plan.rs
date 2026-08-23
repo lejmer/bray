@@ -123,6 +123,7 @@ const fn is_preservation_root(linkage: bray_codegen::CodegenLinkage) -> bool {
         linkage,
         bray_codegen::CodegenLinkage::External
             | bray_codegen::CodegenLinkage::Weak
+            | bray_codegen::CodegenLinkage::Fallback
             | bray_codegen::CodegenLinkage::Export
     )
 }
@@ -137,6 +138,7 @@ mod tests {
     fn preservation_roots_include_only_public_definitions() {
         assert!(is_preservation_root(CodegenLinkage::External));
         assert!(is_preservation_root(CodegenLinkage::Weak));
+        assert!(is_preservation_root(CodegenLinkage::Fallback));
         assert!(is_preservation_root(CodegenLinkage::Export));
 
         assert!(!is_preservation_root(CodegenLinkage::Private));

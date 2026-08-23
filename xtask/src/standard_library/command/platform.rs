@@ -101,3 +101,36 @@ pub(super) fn inventory_matches(bindings: &[PlatformServiceBinding]) -> bool {
         && provided.len() == ROLES.len()
         && provided.is_subset(&required)
 }
+
+pub(super) fn is_required(bindings: &[PlatformServiceBinding]) -> bool {
+    bindings
+        .iter()
+        .any(|binding| ROLES.contains(&binding.role()))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
+
+    use super::{ROLES, inventory_matches, is_required};
+
+    #[test]
+    fn temporal_provider_requires_its_complete_role_inventory() {
+        let unrelated = binding(PlatformServiceRole::StandardOutputWrite);
+        let partial = binding(ROLES[0]);
+        let complete = ROLES.iter().copied().map(binding).collect::<Vec<_>>();
+
+        assert!(!is_required(&[]));
+        assert!(!is_required(&[unrelated]));
+        assert!(is_required(std::slice::from_ref(&partial)));
+        assert!(!inventory_matches(std::slice::from_ref(&partial)));
+        assert!(inventory_matches(&complete));
+    }
+
+    fn binding(role: PlatformServiceRole) -> PlatformServiceBinding {
+        let declaration = format!("std.time.platform_service_{}", role.id());
+
+        PlatformServiceBinding::try_new(role, &declaration)
+            .unwrap_or_else(|| panic!("platform service binding must validate"))
+    }
+}

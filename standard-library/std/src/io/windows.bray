@@ -3,6 +3,7 @@ trusted module std.io;
 
 using std.os.windows;
 
+@abi(c)
 trusted internal func platform_standard_input_read(
     pos destination: RawPointer<u8>,
     pos length: u64,
@@ -19,6 +20,7 @@ trusted internal func platform_standard_input_read(
     );
 }
 
+@abi(c)
 trusted internal func platform_standard_output_write(
     pos source: RawPointer<u8>,
     pos length: u64,
@@ -35,6 +37,7 @@ trusted internal func platform_standard_output_write(
     );
 }
 
+@abi(c)
 trusted internal func platform_standard_error_write(
     pos source: RawPointer<u8>,
     pos length: u64,

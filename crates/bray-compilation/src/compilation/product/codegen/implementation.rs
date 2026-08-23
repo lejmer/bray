@@ -362,6 +362,17 @@ impl Compilation {
             cancellation,
         )?;
 
+        let platform_overrides = match (runtime, host.as_ref()) {
+            (Some(runtime), Some(host)) if host.requirements().requires_implementation() => {
+                let selection = runtime
+                    .select(runtime_artifact_purpose(kind), host.requirements())
+                    .map_err(NativeProductPlanningError::InvalidRuntimeSelection)?;
+
+                super::link::runtime_platform_services(Some(&selection))
+            }
+            (Some(_) | None, Some(_) | None) => BTreeSet::new(),
+        };
+
         let reachability = match host.as_ref() {
             Some(host) => {
                 // Generated host MIR owns its target and host contracts after this query returns.
@@ -442,6 +453,7 @@ impl Compilation {
                 self.codegen_mappings_for_product(
                     unit,
                     host.as_ref(),
+                    &platform_overrides,
                     target,
                     &roots,
                     &reachability,
@@ -479,10 +491,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let purpose = match kind {
-            ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
-            ProductKind::Executable | ProductKind::Library => RuntimeArtifactPurpose::Product,
-        };
+        let purpose = runtime_artifact_purpose(kind);
 
         let requirements = match host {
             Some(host) if host.requirements().requires_implementation() => {
@@ -737,6 +746,13 @@ impl Compilation {
     }
 }
 
+const fn runtime_artifact_purpose(kind: ProductKind) -> RuntimeArtifactPurpose {
+    match kind {
+        ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
+        ProductKind::Executable | ProductKind::Library => RuntimeArtifactPurpose::Product,
+    }
+}
+
 fn bound_template(
     key: &CodegenInstanceKey,
 ) -> Result<bray_bound_tree::BoundUnitKey, NativeProductPlanningError> {
@@ -781,11 +797,12 @@ mod tests {
     };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
-        ProtectedFrameAbiVersions, ProtectedFrameOperation, RootExecution, RuntimeAbiRole,
-        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactComponentMetadata,
-        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose,
-        RuntimeCapability, RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity,
-        RuntimeRoleBinding, RuntimeRoleImplementation,
+        PlatformServiceBinding, PlatformServiceRole, ProtectedFrameAbiVersions,
+        ProtectedFrameOperation, RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
+        RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
+        RuntimeRoleImplementation,
     };
     use bray_standard_library::{
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
@@ -2222,6 +2239,7 @@ mod tests {
                 .codegen_mappings_for_product(
                     unit,
                     None,
+                    &BTreeSet::new(),
                     &target,
                     &reachability.graph().roots().iter().cloned().collect(),
                     &reachability,
@@ -2571,6 +2589,7 @@ mod tests {
                 .codegen_mappings_for_product(
                     unit,
                     None,
+                    &BTreeSet::new(),
                     &target,
                     &roots,
                     &reachability,
@@ -2997,15 +3016,62 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
     ) {
-        let (backend, compilation) = codegen_compilation_for_sources_target(
+        runtime_native_plan_for_sources_target_with_platform_services(
             sources,
             product_kind,
             target,
             native_link_inputs,
+            [],
+        )
+    }
+
+    fn runtime_native_plan_for_sources_target_with_platform_services(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        runtime_native_plan_for_sources_target_with_platform_overrides(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+            platform_services,
+            [],
+        )
+    }
+
+    fn runtime_native_plan_for_sources_target_with_platform_overrides(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+        runtime_platform_services: impl IntoIterator<Item = PlatformServiceRole>,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        let (backend, compilation) = codegen_compilation_for_sources_target_with_platform_services(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+            platform_services,
         );
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
-        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let runtime = runtime_artifact_with_roles_and_platform_services(
+            &compilation,
+            archive.path(),
+            RuntimeAbiRole::ALL,
+            runtime_platform_services,
+        );
 
         let product = test_product_identity();
 
@@ -3449,6 +3515,34 @@ mod tests {
 
         assert!(mapping.finalization().is_some());
         assert!(mapping.destroy().is_some());
+
+        let lifecycle_symbols = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .filter(|symbol| {
+                matches!(
+                    symbol.key(),
+                    bray_codegen::CodegenSymbolKey::Instance(instance)
+                        if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_))
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!lifecycle_symbols.is_empty());
+
+        assert!(
+            lifecycle_symbols
+                .iter()
+                .any(|symbol| symbol.linkage() == CodegenLinkage::LinkOnce)
+        );
+
+        assert!(lifecycle_symbols.iter().all(|symbol| {
+            matches!(
+                symbol.linkage(),
+                CodegenLinkage::LinkOnce | CodegenLinkage::Import
+            )
+        }));
     }
 
     #[test]
@@ -3592,8 +3686,8 @@ mod tests {
             "@symbol(name = \"native_mutex\")\n",
             "extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;\n",
             "@link(name = \"native\")\n",
-            "@symbol(name = \"native_environ\")\n",
-            "extern trusted static mut NATIVE_ENVIRON: RawPointer<RawPointer<u8>>;\n",
+            "@symbol(name = \"native_pointer\")\n",
+            "extern trusted static mut NATIVE_POINTER: RawPointer<u8>;\n",
             "@symbol(name = \"unused_export\")\n",
             "static UNUSED_EXPORT: i32 = 7;\n",
             "@symbol(name = \"weak_export\", binding = weak)\n",
@@ -3605,7 +3699,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
-            "    let environment: RawPointer<RawPointer<u8>> = NATIVE_ENVIRON;\n",
+            "    let pointer_storage: RawPointer<RawPointer<u8>> = NATIVE_POINTER;\n",
             "}\n",
         );
 
@@ -3667,6 +3761,100 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bray_platform_service_implementations_are_native_fallbacks() {
+        let source = concat!(
+            "trusted module app;\n",
+            "@layout(c)\n",
+            "internal struct PlatformStatus\n",
+            "{\n",
+            "    category: u32;\n",
+            "    reserved: u32;\n",
+            "    native_code: i64;\n",
+            "}\n",
+            "@abi(c)\n",
+            "trusted internal func flush() -> PlatformStatus\n",
+            "{\n",
+            "    return { category = 0, reserved = 0, native_code = 0 };\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let status: PlatformStatus = trusted flush();\n",
+            "}\n",
+            "@test\n",
+            "func platform_service_test()\n",
+            "{\n",
+            "    let status: PlatformStatus = trusted flush();\n",
+            "}\n",
+        );
+
+        let binding =
+            PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
+                .unwrap_or_else(|| panic!("platform service binding must validate"));
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+            &[source],
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+            &[],
+            [binding.clone()],
+        );
+
+        let symbol = bray_runtime_interface::native_platform_service_role_symbol(
+            PlatformServiceRole::StandardOutputFlush,
+        );
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Fallback
+            })
+        }));
+
+        assert!(
+            plan.preservation_roots()
+                .any(|root| root.as_str() == symbol)
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_overrides(
+            &[source],
+            ProductKind::Test,
+            SelectedTarget::baseline(),
+            &[],
+            [binding],
+            [PlatformServiceRole::StandardOutputFlush],
+        );
+
+        let backend_ir =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+                .into_iter()
+                .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
+                .collect::<String>();
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Import
+            })
+        }));
+
+        assert!(
+            backend_ir
+                .lines()
+                .any(|line| line.starts_with("declare ") && line.contains(symbol))
+        );
+
+        assert!(
+            !backend_ir
+                .lines()
+                .any(|line| line.starts_with("define ") && line.contains(symbol))
+        );
+    }
+
     fn codegen_compilation_for_product(
         source: &str,
         product_kind: ProductKind,
@@ -3693,6 +3881,25 @@ mod tests {
         product_kind: ProductKind,
         target: SelectedTarget,
         native_link_inputs: &[NativeLinkRequirement],
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_sources_target_with_platform_services(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+            [],
+        )
+    }
+
+    fn codegen_compilation_for_sources_target_with_platform_services(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
@@ -3724,7 +3931,8 @@ mod tests {
                 .collect(),
             CompilationOptions::new(WorkerBudget::serial(), product_kind, target)
                 .with_native_link_inputs(native_link_inputs.iter().cloned()),
-        );
+        )
+        .with_platform_services(platform_services);
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
@@ -3749,6 +3957,15 @@ mod tests {
         compilation: &crate::Compilation,
         archive: &std::path::Path,
         roles: impl IntoIterator<Item = RuntimeAbiRole>,
+    ) -> RuntimeArtifact {
+        runtime_artifact_with_roles_and_platform_services(compilation, archive, roles, [])
+    }
+
+    fn runtime_artifact_with_roles_and_platform_services(
+        compilation: &crate::Compilation,
+        archive: &std::path::Path,
+        roles: impl IntoIterator<Item = RuntimeAbiRole>,
+        platform_services: impl IntoIterator<Item = PlatformServiceRole>,
     ) -> RuntimeArtifact {
         let target = compilation
             .selected_target()
@@ -3822,7 +4039,8 @@ mod tests {
                 "libbray_runtime_test.a",
                 digest,
             )
-            .unwrap_or_else(|error| panic!("test component must validate: {error:?}")),
+            .unwrap_or_else(|error| panic!("test component must validate: {error:?}"))
+            .with_platform_services(platform_services),
         ];
 
         let metadata = RuntimeArtifactMetadata::try_new(contract, components)

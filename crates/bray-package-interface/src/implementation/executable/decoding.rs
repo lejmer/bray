@@ -85,7 +85,10 @@ pub fn decode_executable_template(
 
     let kind = decoder.unit_kind()?;
     let entry_slot = read_u32(&mut decoder.reader)?;
-    let key = MirImportedExecutableKey::new(owner, template.identity());
+
+    let key = MirImportedExecutableKey::new(owner, template.identity())
+        .with_platform_service(template.platform_service());
+
     let source = MirSourceAnchor::imported_executable(key);
     let mut builder = MirUnitBuilder::for_imported_executable(unit, key, kind, target);
 

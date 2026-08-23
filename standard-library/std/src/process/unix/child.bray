@@ -176,6 +176,7 @@ trusted internal func platform_child_spawn(
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_child_wait(
     pos child: u64,
     pos terminal: RawPointer<u32>,
@@ -212,6 +213,7 @@ trusted internal func platform_child_wait(
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) -> std.platform.PlatformStatus
 {
     if mode > 1
@@ -233,6 +235,7 @@ trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) ->
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_child_reap(
     pos child: u64,
     pos status: RawPointer<PlatformExitStatus>,
@@ -252,6 +255,7 @@ trusted internal func platform_child_reap(
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
 {
     let process: i32 = match internal std.platform.checked_descriptor(child)

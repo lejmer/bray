@@ -5,7 +5,7 @@ use bray_symbols::FunctionSymbolId;
 use super::super::Compilation;
 use crate::fact::FactQueryError;
 
-pub(super) fn platform_service_role(
+pub(in crate::compilation) fn platform_service_role(
     compilation: &Compilation,
     function: FunctionSymbolId,
 ) -> Result<Option<PlatformServiceRole>, FactQueryError> {

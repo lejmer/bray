@@ -4,6 +4,7 @@
 )
 trusted module std.dynamic;
 
+@abi(c)
 trusted internal func platform_dynamic_library_open_path(
     pos path: std.fs.PlatformPath,
     pos policy: u32,
@@ -39,6 +40,7 @@ trusted internal func platform_dynamic_library_open_path(
     }
 }
 
+@abi(c)
 trusted internal func platform_dynamic_library_open_system(
     pos identity: u32,
     pos policy: u32,
@@ -89,6 +91,7 @@ trusted internal func load_windows_library(
     return internal std.platform.success_status();
 }
 
+@abi(c)
 trusted internal func platform_dynamic_library_symbol(
     pos handle: u64,
     pos name: RawPointer<u8>,
@@ -125,6 +128,7 @@ trusted internal func platform_dynamic_library_symbol(
     }
 }
 
+@abi(c)
 trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.platform.PlatformStatus
     requires(blocking_execution())
     uses(foreign_call)

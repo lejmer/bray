@@ -392,6 +392,7 @@ fn execute_invocation_with_progress(
             selection,
             configuration,
             batch_request,
+            native_link_inputs,
             options,
         } => run_tests(
             &workspace_root,
@@ -401,6 +402,7 @@ fn execute_invocation_with_progress(
             &selection,
             configuration,
             batch_request.as_deref(),
+            native_link_inputs,
             options,
             profile.as_ref(),
             output_format,
@@ -646,6 +648,7 @@ fn run_tests(
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
     batch_request: Option<&Path>,
+    native_link_inputs: Vec<String>,
     options: crate::tack::model::TackTestOptions,
     profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
@@ -670,7 +673,8 @@ fn run_tests(
         output_format,
         profile,
         executor,
-    );
+    )
+    .with_native_link_inputs(native_link_inputs);
 
     let mut outputs = Vec::new();
     let mut hosts = Vec::new();

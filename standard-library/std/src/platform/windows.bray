@@ -283,9 +283,40 @@ trusted internal func current_thread_identity() -> u64
 trusted internal func windows_error_status() -> PlatformStatus
     uses(foreign_call)
 {
-    return native_error_status(trusted std.os.windows.get_last_error() as i64);
+    let code: u32 = trusted std.os.windows.get_last_error();
+
+    return native_status(category = windows_error_category(code), code = code as i64);
 }
 
+internal func windows_error_category(pos code: u32) -> u32
+{
+    return match code
+    {
+        case std.os.windows.ERROR_CALL_NOT_IMPLEMENTED | std.os.windows.ERROR_NOT_SUPPORTED { yield 1; }
+        case std.os.windows.ERROR_ACCESS_DENIED | std.os.windows.ERROR_PRIVILEGE_NOT_HELD { yield 2; }
+        case std.os.windows.ERROR_FILE_NOT_FOUND | std.os.windows.ERROR_MOD_NOT_FOUND |
+            std.os.windows.ERROR_PATH_NOT_FOUND | std.os.windows.ERROR_PROC_NOT_FOUND
+        {
+            yield 3;
+        }
+        case std.os.windows.ERROR_ALREADY_EXISTS | std.os.windows.ERROR_FILE_EXISTS { yield 4; }
+        case std.os.windows.ERROR_INVALID_DATA | std.os.windows.ERROR_INVALID_PARAMETER { yield 5; }
+        case std.os.windows.ERROR_OPERATION_ABORTED { yield 6; }
+        case std.os.windows.ERROR_NOT_ENOUGH_MEMORY | std.os.windows.ERROR_NO_SYSTEM_RESOURCES |
+            std.os.windows.ERROR_OUTOFMEMORY | std.os.windows.ERROR_TOO_MANY_OPEN_FILES
+        {
+            yield 7;
+        }
+        case std.os.windows.ERROR_BROKEN_PIPE | std.os.windows.ERROR_HANDLE_EOF | std.os.windows.ERROR_NO_DATA
+        {
+            yield 8;
+        }
+        case std.os.windows.ERROR_SEM_TIMEOUT | std.os.windows.ERROR_TIMEOUT { yield 9; }
+        case _ { yield 10; }
+    };
+}
+
+@abi(c)
 trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
     uses(foreign_call)
 {
@@ -303,6 +334,7 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
     return success_status();
 }
 
+@abi(c)
 trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
     uses(foreign_call)
 {
@@ -371,6 +403,7 @@ trusted internal func windows_file_time(
     return success_status();
 }
 
+@abi(c)
 trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
     uses(foreign_call)
 {
@@ -402,6 +435,7 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
     return success_status();
 }
 
+@abi(c)
 trusted internal func entropy_fill(
     pos destination: RawPointer<u8>,
     pos length: u64,

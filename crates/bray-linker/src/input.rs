@@ -402,6 +402,8 @@ mod tests {
                     .unwrap_or_else(|| panic!("artifact identity must be valid"))
             )
         );
+
+        assert_eq!(input.mode(), LinkInputMode::Ordinary);
     }
 
     fn runtime_artifact() -> RuntimeArtifact {

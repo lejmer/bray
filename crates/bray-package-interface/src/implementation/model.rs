@@ -36,6 +36,7 @@ pub struct InterfaceExecutableTemplate {
     owner: InterfaceSymbolId,
     identity: bray_ir::MirExecutableTemplateId,
     family_size: u32,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
     payload: Arc<[u8]>,
 }
 
@@ -53,8 +54,19 @@ impl InterfaceExecutableTemplate {
             owner,
             identity,
             family_size,
+            platform_service: None,
             payload,
         })
+    }
+
+    /// Returns a template associated with one private platform-service implementation.
+    pub const fn with_platform_service(
+        mut self,
+        role: Option<bray_runtime_interface::PlatformServiceRole>,
+    ) -> Self {
+        self.platform_service = role;
+
+        self
     }
 
     /// Returns the declaration that owns this template.
@@ -70,6 +82,11 @@ impl InterfaceExecutableTemplate {
     /// Returns the number of independently addressable templates in this declaration's family.
     pub const fn family_size(&self) -> u32 {
         self.family_size
+    }
+
+    /// Returns the private platform-service role implemented by this template.
+    pub const fn platform_service(&self) -> Option<bray_runtime_interface::PlatformServiceRole> {
+        self.platform_service
     }
 
     /// Returns the canonical source-independent executable payload.
@@ -145,7 +162,7 @@ pub enum PackageImplementationArtifactBuildError {
     DuplicateCallableBody(InterfaceSymbolId),
     /// Two executable templates claim the same declaration identity.
     DuplicateExecutableTemplate(InterfaceSymbolId),
-    /// Executable templates for one declaration do not start at the root or contain a gap.
+    /// Executable templates contain invalid family membership or role metadata.
     InvalidExecutableTemplateFamily(InterfaceSymbolId),
     /// Two native boundaries claim the same declaration identity.
     DuplicateNativeBoundary(InterfaceSymbolId),

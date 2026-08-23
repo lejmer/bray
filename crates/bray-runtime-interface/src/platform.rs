@@ -200,6 +200,75 @@ impl PlatformServiceRole {
         }
     }
 
+    /// Returns the role with an exact stable numeric identity.
+    pub const fn from_id(id: u32) -> Option<Self> {
+        match id {
+            0x0001 => Some(Self::ContextIdentity),
+            0x0002 => Some(Self::ContextNativeTextWidth),
+            0x0003 => Some(Self::ContextWorkingDirectory),
+            0x0004 => Some(Self::ContextArgumentCount),
+            0x0005 => Some(Self::ContextArgument),
+            0x0006 => Some(Self::ContextEnvironmentCount),
+            0x0007 => Some(Self::ContextEnvironmentEntry),
+            0x0008 => Some(Self::ContextEnvironmentKeyEquals),
+            0x0101 => Some(Self::StandardInputRead),
+            0x0102 => Some(Self::StandardInputLock),
+            0x0103 => Some(Self::StandardInputUnlock),
+            0x0111 => Some(Self::StandardOutputWrite),
+            0x0112 => Some(Self::StandardOutputFlush),
+            0x0113 => Some(Self::StandardOutputLock),
+            0x0114 => Some(Self::StandardOutputUnlock),
+            0x0121 => Some(Self::StandardErrorWrite),
+            0x0122 => Some(Self::StandardErrorFlush),
+            0x0123 => Some(Self::StandardErrorLock),
+            0x0124 => Some(Self::StandardErrorUnlock),
+            0x0201 => Some(Self::FileRead),
+            0x0202 => Some(Self::FileWrite),
+            0x0203 => Some(Self::FileFlush),
+            0x0204 => Some(Self::FileSeek),
+            0x0205 => Some(Self::FileClose),
+            0x0211 => Some(Self::FileOpen),
+            0x0212 => Some(Self::FileMetadata),
+            0x0213 => Some(Self::PathMetadata),
+            0x0221 => Some(Self::DirectoryOpen),
+            0x0222 => Some(Self::DirectoryNext),
+            0x0223 => Some(Self::DirectoryClose),
+            0x0230 => Some(Self::PathCreateDirectory),
+            0x0231 => Some(Self::PathRemoveFile),
+            0x0232 => Some(Self::PathRemoveDirectory),
+            0x0233 => Some(Self::PathRename),
+            0x0301 => Some(Self::ProcessPipeRead),
+            0x0302 => Some(Self::ProcessPipeWrite),
+            0x0303 => Some(Self::ProcessPipeFlush),
+            0x0304 => Some(Self::ProcessPipeClose),
+            0x0311 => Some(Self::ChildSpawn),
+            0x0312 => Some(Self::ChildWait),
+            0x0313 => Some(Self::ChildTerminate),
+            0x0314 => Some(Self::ChildReap),
+            0x0315 => Some(Self::ChildDispose),
+            0x0401 => Some(Self::ClockMonotonicNow),
+            0x0402 => Some(Self::ClockWallNow),
+            0x0403 => Some(Self::ClockSleep),
+            0x0501 => Some(Self::EntropyFill),
+            0x0701 => Some(Self::TimeDateValidate),
+            0x0702 => Some(Self::TimeDateAdd),
+            0x0710 => Some(Self::TimeZoneLoad),
+            0x0711 => Some(Self::TimeZoneLocal),
+            0x0712 => Some(Self::TimeZoneRetain),
+            0x0713 => Some(Self::TimeZoneClose),
+            0x0714 => Some(Self::TimeZoneName),
+            0x0720 => Some(Self::TimeObserve),
+            0x0721 => Some(Self::TimeResolve),
+            0x0730 => Some(Self::TimeParse),
+            0x0731 => Some(Self::TimeFormat),
+            0x0801 => Some(Self::DynamicLibraryOpenPath),
+            0x0802 => Some(Self::DynamicLibraryOpenSystem),
+            0x0803 => Some(Self::DynamicLibrarySymbol),
+            0x0804 => Some(Self::DynamicLibraryClose),
+            _ => None,
+        }
+    }
+
     /// Returns the canonical role name used by product metadata.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -649,6 +718,7 @@ mod tests {
 
         assert_eq!(role.id(), 0x0111);
         assert_eq!(role.as_str(), "platform.standard_output.write");
+        assert_eq!(PlatformServiceRole::from_id(role.id()), Some(role));
         assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
 
         assert_eq!(
@@ -666,12 +736,19 @@ mod tests {
         assert_eq!(input_lock.as_str(), "platform.standard_input.lock");
 
         assert_eq!(
+            PlatformServiceRole::from_id(input_lock.id()),
+            Some(input_lock)
+        );
+
+        assert_eq!(
             PlatformServiceRole::from_name(input_lock.as_str()),
             Some(input_lock)
         );
 
         assert!(input_lock.signature().parameters().is_empty());
         assert_eq!(input_lock.signature().result(), PlatformAbiType::Status);
+        assert_eq!(PlatformServiceRole::from_id(0), None);
+        assert_eq!(PlatformServiceRole::from_id(u32::MAX), None);
     }
 
     #[test]

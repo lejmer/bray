@@ -532,7 +532,7 @@ fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildErr
     let mut bitcode = Vec::new();
 
     for member in members.lines().filter(|member| !member.is_empty()) {
-        if member.contains(".rcgu.") {
+        if !is_optimization_member(member) {
             continue;
         }
 
@@ -555,6 +555,10 @@ fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildErr
     }
 
     Ok(bitcode)
+}
+
+fn is_optimization_member(member: &str) -> bool {
+    !member.contains(".rcgu.") || member.starts_with("bray_")
 }
 
 fn is_llvm_bitcode(bytes: &[u8]) -> bool {
@@ -676,8 +680,8 @@ mod tests {
     use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
 
     use super::{
-        contains_checkout_path, is_llvm_bitcode, lifecycle_roots_for_line, quoted_assignment,
-        remap_checkout_path,
+        contains_checkout_path, is_llvm_bitcode, is_optimization_member, lifecycle_roots_for_line,
+        quoted_assignment, remap_checkout_path,
     };
 
     #[test]
@@ -685,6 +689,17 @@ mod tests {
         assert!(is_llvm_bitcode(b"BC\xc0\xdepayload"));
         assert!(is_llvm_bitcode(b"\xde\xc0\x17\x0bpayload"));
         assert!(!is_llvm_bitcode(b"native object"));
+    }
+
+    #[test]
+    fn native_optimization_keeps_native_and_first_party_rust_modules() {
+        assert!(is_optimization_member("provider.o"));
+
+        assert!(is_optimization_member(
+            "bray_platform_abi_temporal.hash-cgu.0.rcgu.o"
+        ));
+
+        assert!(!is_optimization_member("std.hash-cgu.0.rcgu.o"));
     }
 
     #[test]

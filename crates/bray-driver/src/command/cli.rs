@@ -427,7 +427,7 @@ mod tests {
     use bray_compilation::WorkerBudget;
     use bray_diagnostics::DiagnosticKind;
     use bray_runtime_interface::{PlatformServiceRole, RuntimeCapability};
-    use bray_symbols::ProductKind;
+    use bray_symbols::{NativeLinkKind, ProductKind};
     use bray_target::{NativeTarget, TargetOutputKind};
     use bray_tooling::OutputFormat;
     use clap::CommandFactory;
@@ -670,6 +670,27 @@ mod tests {
 
         assert_eq!(binding.role(), PlatformServiceRole::ContextIdentity);
         assert_eq!(binding.dotted_path(), "std.platform.context_identity");
+    }
+
+    #[test]
+    fn parses_native_link_inputs() {
+        let invocation = DriverInvocation::try_from_arguments([
+            "brayc",
+            "--native-link-input",
+            "Kernel32=system",
+            "check",
+            "main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("native link input should parse: {error:?}"));
+
+        let inputs = invocation.options().compilation().native_link_inputs();
+
+        let [input] = inputs else {
+            panic!("one native link input should be retained: {inputs:#?}");
+        };
+
+        assert_eq!(input.name(), "Kernel32");
+        assert_eq!(input.kind(), NativeLinkKind::System);
     }
 
     #[test]

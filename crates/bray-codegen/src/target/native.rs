@@ -115,6 +115,7 @@ fn symbol_convention() -> TargetSymbolConvention {
             CodegenLinkage::Internal,
             CodegenLinkage::External,
             CodegenLinkage::Weak,
+            CodegenLinkage::Fallback,
             CodegenLinkage::LinkOnce,
             CodegenLinkage::Common,
             CodegenLinkage::Import,

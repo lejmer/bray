@@ -1,6 +1,7 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted module std.process;
 
+@abi(c)
 trusted internal func platform_process_pipe_read(
     pos handle: u64,
     pos destination: RawPointer<u8>,
@@ -23,6 +24,7 @@ trusted internal func platform_process_pipe_read(
     );
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_write(
     pos handle: u64,
     pos source: RawPointer<u8>,
@@ -45,6 +47,7 @@ trusted internal func platform_process_pipe_write(
     );
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platform.PlatformStatus
 {
     match internal std.platform.checked_descriptor(handle)
@@ -54,6 +57,7 @@ trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platfo
     }
 }
 
+@abi(c)
 trusted internal func platform_process_pipe_close(pos handle: u64) -> std.platform.PlatformStatus
 {
     let descriptor: i32 = match internal std.platform.checked_descriptor(handle)
