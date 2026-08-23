@@ -37,8 +37,8 @@ pub(crate) fn translate_instances<'context, 'request>(
 
         types.select_instance(instance.key());
 
-        let (symbol, function) = instance_function(module, request, instance)
-            .map_err(TranslationError::Failed)?;
+        let (symbol, function) =
+            instance_function(module, request, instance).map_err(TranslationError::Failed)?;
 
         apply_instance_optimization_attributes(function, instance, types)
             .map_err(TranslationError::Failed)?;
@@ -55,7 +55,7 @@ pub(crate) fn translate_instances<'context, 'request>(
         translate_instance(
             context, module, request, instance, symbol, function, types, debug,
         )
-            .map_err(TranslationError::Failed)?;
+        .map_err(TranslationError::Failed)?;
     }
 
     Ok(())
@@ -588,7 +588,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.storages.insert(id, storage);
 
-                if matches!(self.unit.storage(id).map(bray_ir::MirStorage::kind), Some(MirStorageKind::NativeStatic(_))) {
+                if matches!(
+                    self.unit.storage(id).map(bray_ir::MirStorage::kind),
+                    Some(MirStorageKind::NativeStatic(_))
+                ) {
                     self.initialize_native_static_storage(id, storage)?;
                 }
             }

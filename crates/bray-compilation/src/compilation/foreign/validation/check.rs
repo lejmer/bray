@@ -39,14 +39,12 @@ pub(in crate::compilation::foreign) fn callable_surface(
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let (abi, trust, execution, variadic) = match signature.callable_type() {
-        TypeExpressionTemplate::Callable(callable) => {
-            (
-                callable.abi(),
-                callable.trust(),
-                callable.execution(),
-                callable.is_variadic(),
-            )
-        }
+        TypeExpressionTemplate::Callable(callable) => (
+            callable.abi(),
+            callable.trust(),
+            callable.execution(),
+            callable.is_variadic(),
+        ),
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
                 .type_data(*ty)

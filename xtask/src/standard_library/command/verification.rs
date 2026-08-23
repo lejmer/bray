@@ -6,9 +6,7 @@ use super::core::{standard_library_product, standard_library_version};
 use super::error::BuildError;
 use crate::workspace;
 
-pub(super) fn verify(
-    mut arguments: impl Iterator<Item = String>,
-) -> Result<(), BuildError> {
+pub(super) fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError> {
     if let Some(argument) = arguments.next() {
         return Err(BuildError::UnexpectedArgument(argument));
     }
@@ -18,9 +16,10 @@ pub(super) fn verify(
     })
     .map_err(BuildError::OsBindings)?;
 
-    crate::progress::run("Checking standard library source for every native target", || {
-        verify_source_targets()
-    })?;
+    crate::progress::run(
+        "Checking standard library source for every native target",
+        || verify_source_targets(),
+    )?;
 
     let directory = tempfile::Builder::new()
         .prefix("bray-standard-library-verification-")

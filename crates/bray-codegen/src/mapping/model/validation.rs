@@ -93,8 +93,7 @@ pub fn mapped_runtime_references(
         matches!(
             symbol.linkage(),
             CodegenLinkage::Export | CodegenLinkage::Weak
-        )
-            && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
+        ) && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
     }) {
         references.extend(
             [

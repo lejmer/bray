@@ -22,15 +22,15 @@ impl Lowerer<'_> {
             ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion
             | ConversionTarget::Composite(_) => self.push_converted_value(
-                    expression,
-                    current,
-                    source,
-                    MirOperationKind::Convert {
-                        operand,
-                        conversion: conversion.clone(),
-                    },
-                    conversion.target_type(),
-                ),
+                expression,
+                current,
+                source,
+                MirOperationKind::Convert {
+                    operand,
+                    conversion: conversion.clone(),
+                },
+                conversion.target_type(),
+            ),
             ConversionTarget::Trait {
                 fulfillment,
                 requirement,

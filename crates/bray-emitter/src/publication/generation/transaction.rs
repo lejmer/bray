@@ -12,8 +12,8 @@ use tempfile::{Builder, TempDir};
 
 use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
 use super::layout::{STAGING_DIRECTORY, product_store_relative};
-use super::lock::ProductPublicationLock;
 use super::locator::GenerationLocator;
+use super::lock::ProductPublicationLock;
 use super::manifest::{
     GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
     ManifestProduct, permission_key,
@@ -589,13 +589,11 @@ fn commit_generation(
 
                 Ok(locator)
             }
-            Err(error) => {
-                Err(artifact_failure(
-                    planned,
-                    PublicationErrorKind::Commit(error.kind()),
-                ))
-            }
-        }
+            Err(error) => Err(artifact_failure(
+                planned,
+                PublicationErrorKind::Commit(error.kind()),
+            )),
+        };
     }
 
     Err(artifact_failure(

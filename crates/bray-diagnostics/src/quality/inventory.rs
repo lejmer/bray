@@ -192,17 +192,16 @@ impl DiagnosticKind {
             FilePath, ImplementationOverloadProblem, InputIndex, InterfaceLimit,
             InterfaceRecordIndex, InterfaceSection, InterfaceSemanticProblem,
             InterfaceSymbolGraphProblem, InterfaceSymbolIdentity, IoErrorKind, LayoutProblem,
-            LinkOptimizationReportProblem, LinkRequirement, LinkerDriverIdentity,
-            MaximumAlignment, MaximumCount, MemoryOperation,
-            NativeLinkDirectiveProblem, NativeProductFailureKind, NativeSymbolDirectiveProblem,
-            PatternCoverage, PatternUnreachability, PlatformServiceSignatureProblem,
-            ProjectCommandFailure, ProjectDependencyCycleMember, ProjectManifestField, ProjectPath,
-            ProjectSelectionProblem, PropagationProblem, ReferencedName, RefinementCapacity,
-            RequiredAlignment, RuntimeArtifactProblem, SelectionCandidates, SelectionKind,
-            SelectionRejections, SourceCount, SourceInput, StandardLibraryManifestProblem,
-            StorageAccess, StoredTypeProblem, TargetRepresentation, TargetTriple, TextOffset,
-            TokenText, TraitFulfillmentMismatch, TraitMemberName, UnionTagProblem,
-            UnsupportedEmissionReason, WorkerCount,
+            LinkOptimizationReportProblem, LinkRequirement, LinkerDriverIdentity, MaximumAlignment,
+            MaximumCount, MemoryOperation, NativeLinkDirectiveProblem, NativeProductFailureKind,
+            NativeSymbolDirectiveProblem, PatternCoverage, PatternUnreachability,
+            PlatformServiceSignatureProblem, ProjectCommandFailure, ProjectDependencyCycleMember,
+            ProjectManifestField, ProjectPath, ProjectSelectionProblem, PropagationProblem,
+            ReferencedName, RefinementCapacity, RequiredAlignment, RuntimeArtifactProblem,
+            SelectionCandidates, SelectionKind, SelectionRejections, SourceCount, SourceInput,
+            StandardLibraryManifestProblem, StorageAccess, StoredTypeProblem, TargetRepresentation,
+            TargetTriple, TextOffset, TokenText, TraitFulfillmentMismatch, TraitMemberName,
+            UnionTagProblem, UnsupportedEmissionReason, WorkerCount,
         };
 
         use DiagnosticNoteKind::{
@@ -1128,17 +1127,15 @@ impl DiagnosticKind {
             Self::CheckingCallableAddressTypeUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
-            Self::CheckingFixedLayoutQueryTypeUnsupported => Self::quality_source(
-                &[MemoryOperation],
-                primary_components!(&[MemoryOperation]),
-            ),
+            Self::CheckingFixedLayoutQueryTypeUnsupported => {
+                Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
+            }
             Self::CheckingTrailingLayoutQueryTypeUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
-            Self::CheckingMemoryPointeeTypeUnsupported => Self::quality_source(
-                &[MemoryOperation],
-                primary_components!(&[MemoryOperation]),
-            ),
+            Self::CheckingMemoryPointeeTypeUnsupported => {
+                Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
+            }
             Self::CheckingTaglessUnionPatternRequiresVariant => {
                 Self::quality_source(&[], primary_components!(&[]))
             }

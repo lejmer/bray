@@ -1097,23 +1097,20 @@ const CHECKING_VARIADIC_CALLABLE_CONTRACT_UNSUPPORTED: &[MessageTemplatePart] = 
     ),
 ];
 
-const CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "callable address operations require an ABI-qualified callable type",
-    ),
-];
+    )];
 
-const CHECKING_EXTERN_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_EXTERN_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "extern static declarations use trusted concrete storage with a type and no initializer",
-    ),
-];
+    )];
 
-const CHECKING_EXPORTED_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_EXPORTED_STATIC_SURFACE_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "exported static declarations use one concrete Bray-owned storage definition",
-    ),
-];
+    )];
 
 const CHECKING_NATIVE_STATIC_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(
@@ -1126,11 +1123,10 @@ const CHECKING_FIXED_LAYOUT_QUERY_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" requires a complete fixed-size type"),
 ];
 
-const CHECKING_TRAILING_LAYOUT_QUERY_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
+const CHECKING_TRAILING_LAYOUT_QUERY_TYPE_UNSUPPORTED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
         "trailing layout determination requires a C-layout product with one final flexible field",
-    ),
-];
+    )];
 
 const CHECKING_MEMORY_POINTEE_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),

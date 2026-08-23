@@ -25,15 +25,9 @@ pub(super) fn workload_compilation_summary(
         ),
     ];
 
-    let process_winner = rows
-        .iter()
-        .map(|(_, (process, _))| *process)
-        .min();
+    let process_winner = rows.iter().map(|(_, (process, _))| *process).min();
 
-    let compiler_winner = rows
-        .iter()
-        .map(|(_, (_, compiler))| *compiler)
-        .min();
+    let compiler_winner = rows.iter().map(|(_, (_, compiler))| *compiler).min();
 
     html.push_str(
         "<section><h2>Matched workload compilation</h2><p>Totals cover every selected workload.</p>\
@@ -72,9 +66,7 @@ fn workload_compilation_totals(
                     &workload
                         .peers
                         .get(&language)
-                        .ok_or_else(|| {
-                            format!("workload {} is missing {language:?}", workload.id)
-                        })?
+                        .ok_or_else(|| format!("workload {} is missing {language:?}", workload.id))?
                         .compilation
                 }
                 None => &workload.compilation,
@@ -120,8 +112,19 @@ pub(super) fn workload_compilation_details(
     }
 
     html.push_str("</dl>");
-    tool_invocation(html, "Measured compiler process", &report.process_invocation);
-    tool_invocation(html, "Profiled compiler invocation", &report.profiled_invocation);
+
+    tool_invocation(
+        html,
+        "Measured compiler process",
+        &report.process_invocation,
+    );
+
+    tool_invocation(
+        html,
+        "Profiled compiler invocation",
+        &report.profiled_invocation,
+    );
+
     html.push_str("</details>");
 }
 

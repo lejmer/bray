@@ -98,10 +98,7 @@ impl Parser {
                 continue;
             }
 
-            self.recover_unsupported_directive(
-                &mut builder,
-                &STATIC_DECLARATION_START_KINDS,
-            );
+            self.recover_unsupported_directive(&mut builder, &STATIC_DECLARATION_START_KINDS);
         }
 
         builder.build()
@@ -263,7 +260,11 @@ mod tests {
         assert!(declaration.expression().is_none());
 
         assert_eq!(declaration.static_directives().link_directives().count(), 1);
-        assert_eq!(declaration.static_directives().symbol_directives().count(), 1);
+
+        assert_eq!(
+            declaration.static_directives().symbol_directives().count(),
+            1
+        );
 
         assert_eq!(
             declaration

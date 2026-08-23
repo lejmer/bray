@@ -376,9 +376,7 @@ mod tests {
         push_expression, tuple_type,
     };
 
-    use super::{
-        ScalarShape, c_variadic_promotion_target, scalar_shape, validate_conversion,
-    };
+    use super::{ScalarShape, c_variadic_promotion_target, scalar_shape, validate_conversion};
 
     #[test]
     fn c_variadic_arguments_use_the_default_scalar_promotions() {
@@ -391,7 +389,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("variadic promotion request must validate: {error:?}"));
 
         for (source, target) in [
-            (RepresentationRole::ScalarBool, RepresentationRole::ScalarI32),
+            (
+                RepresentationRole::ScalarBool,
+                RepresentationRole::ScalarI32,
+            ),
             (RepresentationRole::ScalarI8, RepresentationRole::ScalarI32),
             (RepresentationRole::ScalarI16, RepresentationRole::ScalarI32),
             (RepresentationRole::ScalarU8, RepresentationRole::ScalarI32),

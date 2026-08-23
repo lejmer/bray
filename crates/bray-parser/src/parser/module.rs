@@ -205,10 +205,7 @@ impl Parser {
     }
 
     fn recover_unknown_module_directive(&mut self, builder: &mut ModuleDirectivesSyntaxBuilder) {
-        self.recover_unsupported_directive(
-            builder,
-            &MODULE_DECLARATION_START_KINDS,
-        );
+        self.recover_unsupported_directive(builder, &MODULE_DECLARATION_START_KINDS);
     }
 
     fn parse_module_modifiers(&mut self) -> ModuleModifiersSyntax {
@@ -454,9 +451,7 @@ impl Parser {
                     SyntaxKind::TargetDirective
                     | SyntaxKind::TestDirective
                     | SyntaxKind::LinkDirective,
-                ) => {
-                    DirectiveScanKind::ArgumentList
-                }
+                ) => DirectiveScanKind::ArgumentList,
                 _ => DirectiveScanKind::Unknown,
             }
         });

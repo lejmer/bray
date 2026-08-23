@@ -563,9 +563,8 @@ mod tests {
         LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkStartupMode,
         LinkSubsystem, LinkTarget, LinkTimeOptimizationPolicy, LinkedArtifactKind,
         LinkedProductKind, Linker, LinkerDriver, LinkerDriverCapabilities, LinkerDriverIdentity,
-        LinkerDriverKind,
-        LinkerOperationalCapabilities, LinkerTargetCapabilities, SectionGarbageCollectionPolicy,
-        StagingPathKey,
+        LinkerDriverKind, LinkerOperationalCapabilities, LinkerTargetCapabilities,
+        SectionGarbageCollectionPolicy, StagingPathKey,
     };
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
@@ -899,11 +898,12 @@ mod tests {
             jobs: NonZeroUsize::MIN,
         };
 
-        let policy = product_link_inputs()
-            .policy
-            .with_optimization(optimization);
+        let policy = product_link_inputs().policy.with_optimization(optimization);
 
-        assert_eq!(link_policy(policy, &BTreeMap::new()).optimization(), optimization);
+        assert_eq!(
+            link_policy(policy, &BTreeMap::new()).optimization(),
+            optimization
+        );
     }
 
     #[test]

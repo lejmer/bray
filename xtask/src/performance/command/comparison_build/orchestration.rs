@@ -29,14 +29,7 @@ pub(in crate::performance::command) fn build(
     let builds = [
         (
             CompilationLanguage::Bray,
-            super::bray::build(
-                compiler,
-                &output,
-                kind,
-                target,
-                standard_library,
-                runtime,
-            )?,
+            super::bray::build(compiler, &output, kind, target, standard_library, runtime)?,
         ),
         (
             CompilationLanguage::Rust,

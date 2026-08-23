@@ -335,8 +335,7 @@ where
 
         if !flexible_members.is_empty() {
             let valid_position = matches!(definition.subject(), NamedTypeSymbolId::Struct(_))
-                && flexible_members.as_slice()
-                    == [definition.fields().len().saturating_sub(1)];
+                && flexible_members.as_slice() == [definition.fields().len().saturating_sub(1)];
 
             let valid_element = flexible_members
                 .iter()
@@ -396,8 +395,8 @@ where
         let opaque = !definition.has_body() && layout.size.is_some() && layout.alignment.is_some();
         let incomplete = !definition.has_body() && !opaque;
 
-        let plain_storage = opaque
-            || (!incomplete && !definition.has_lifecycle() && member_representation.plain);
+        let plain_storage =
+            opaque || (!incomplete && !definition.has_lifecycle() && member_representation.plain);
 
         let flexible = !flexible_members.is_empty();
         let finite_size = opaque || (!incomplete && !flexible && member_representation.finite);

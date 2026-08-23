@@ -770,7 +770,11 @@ mod tests {
 
         let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
 
-        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:#?}",
+            result.diagnostics()
+        );
     }
 
     #[test]

@@ -14,8 +14,7 @@ pub use model::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
     StandardLibraryManifestError, StandardLibraryOptimizationMetadataProblem,
-    StandardLibraryTargetArtifacts,
-    standard_library_target_artifact_directory,
+    StandardLibraryTargetArtifacts, standard_library_target_artifact_directory,
 };
 pub use optimization::{
     StandardLibraryOptimizationCompatibility, StandardLibraryOptimizationDependency,

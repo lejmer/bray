@@ -6494,7 +6494,12 @@ func other()
         );
 
         assert!(!analysis.value().is_recovered(), "{analysis:?}");
-        assert!(analysis.diagnostics().is_empty(), "{:#?}", analysis.diagnostics());
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:#?}",
+            analysis.diagnostics()
+        );
     }
 
     #[test]

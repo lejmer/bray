@@ -194,9 +194,7 @@ impl<'values> SemanticUnifier<'values> {
                             GenericArgumentTemplate::Resolved(right),
                         ) if left != right => return Ok(false),
                         (
-                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
-                                left,
-                            )),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(left)),
                             GenericArgumentTemplate::Type(right),
                         ) if !self.type_templates_may_overlap(
                             &TypeExpressionTemplate::Resolved(*left),
@@ -207,9 +205,7 @@ impl<'values> SemanticUnifier<'values> {
                         }
                         (
                             GenericArgumentTemplate::Type(left),
-                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
-                                right,
-                            )),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(right)),
                         ) if !self.type_templates_may_overlap(
                             left,
                             &TypeExpressionTemplate::Resolved(*right),
@@ -230,28 +226,20 @@ impl<'values> SemanticUnifier<'values> {
                             GenericArgumentTemplate::Type(_),
                         )
                         | (
-                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
-                                _,
-                            )),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(_)),
                             GenericArgumentTemplate::Constant(_),
                         )
                         | (
                             GenericArgumentTemplate::Constant(_),
-                            GenericArgumentTemplate::Resolved(GenericArgument::Type(
-                                _,
-                            )),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Type(_)),
                         )
                         | (
-                            GenericArgumentTemplate::Resolved(
-                                GenericArgument::Constant(_),
-                            ),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Constant(_)),
                             GenericArgumentTemplate::Type(_),
                         )
                         | (
                             GenericArgumentTemplate::Type(_),
-                            GenericArgumentTemplate::Resolved(
-                                GenericArgument::Constant(_),
-                            ),
+                            GenericArgumentTemplate::Resolved(GenericArgument::Constant(_)),
                         ) => return Ok(false),
                         _ => {}
                     }

@@ -1,6 +1,6 @@
 mod aggregate;
-mod lifecycle;
 mod known;
+mod lifecycle;
 mod names;
 mod native_statics;
 mod operations;

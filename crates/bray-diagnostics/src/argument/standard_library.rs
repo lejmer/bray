@@ -113,25 +113,17 @@ impl DiagnosticStandardLibraryOptimizationMetadataProblem {
                 "optimization_metadata_missing_producer_implementation_revision"
             }
             Self::MissingToolchain => "optimization_metadata_missing_toolchain",
-            Self::MissingToolchainRevision => {
-                "optimization_metadata_missing_toolchain_revision"
-            }
+            Self::MissingToolchainRevision => "optimization_metadata_missing_toolchain_revision",
             Self::MissingTargetTriple => "optimization_metadata_missing_target_triple",
             Self::MissingDataLayout => "optimization_metadata_missing_data_layout",
             Self::UnsupportedRelocationModel => {
                 "optimization_metadata_unsupported_relocation_model"
             }
             Self::UnsupportedCodeModel => "optimization_metadata_unsupported_code_model",
-            Self::NonCanonicalFallbackPath => {
-                "optimization_metadata_non_canonical_fallback_path"
-            }
+            Self::NonCanonicalFallbackPath => "optimization_metadata_non_canonical_fallback_path",
             Self::ZeroModuleCount => "optimization_metadata_zero_module_count",
-            Self::InvalidPreservationRoot => {
-                "optimization_metadata_invalid_preservation_root"
-            }
-            Self::UnsupportedLifecycleRoot => {
-                "optimization_metadata_unsupported_lifecycle_root"
-            }
+            Self::InvalidPreservationRoot => "optimization_metadata_invalid_preservation_root",
+            Self::UnsupportedLifecycleRoot => "optimization_metadata_unsupported_lifecycle_root",
             Self::UnknownPlatformService => "optimization_metadata_unknown_platform_service",
             Self::NonCanonicalDependencyPath => {
                 "optimization_metadata_non_canonical_dependency_path"
@@ -142,9 +134,7 @@ impl DiagnosticStandardLibraryOptimizationMetadataProblem {
             Self::TargetMismatch => "optimization_metadata_target_mismatch",
             Self::CompatibilityMismatch => "optimization_metadata_compatibility_mismatch",
             Self::ToolchainMismatch => "optimization_metadata_toolchain_mismatch",
-            Self::MissingDependencyArtifact => {
-                "optimization_metadata_missing_dependency_artifact"
-            }
+            Self::MissingDependencyArtifact => "optimization_metadata_missing_dependency_artifact",
             Self::MissingBrayPartition => "optimization_metadata_missing_bray_partition",
         }
     }

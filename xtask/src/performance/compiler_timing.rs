@@ -134,8 +134,9 @@ pub(in crate::performance) fn bray(
     let profile_bytes = std::fs::read(profile)
         .map_err(|error| format!("could not read {}: {error}", profile.display()))?;
 
-    let profile: bray_compilation::CompilationProfileReport = serde_json::from_slice(&profile_bytes)
-        .map_err(|error| format!("could not decode compiler profile: {error}"))?;
+    let profile: bray_compilation::CompilationProfileReport =
+        serde_json::from_slice(&profile_bytes)
+            .map_err(|error| format!("could not decode compiler profile: {error}"))?;
 
     profile
         .validate()
@@ -189,11 +190,7 @@ fn invocation(
     arguments: &[String],
     environment: &BTreeMap<String, String>,
 ) -> ToolInvocationReport {
-    external_invocation(
-        program.to_owned(),
-        arguments.to_vec(),
-        environment.clone(),
-    )
+    external_invocation(program.to_owned(), arguments.to_vec(), environment.clone())
 }
 
 #[derive(Deserialize)]
@@ -293,8 +290,12 @@ fn read_llvm_trace(path: &Path) -> Result<LlvmTrace, String> {
     let bytes = std::fs::read(path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
 
-    serde_json::from_slice(&bytes)
-        .map_err(|error| format!("could not decode LLVM timing trace {}: {error}", path.display()))
+    serde_json::from_slice(&bytes).map_err(|error| {
+        format!(
+            "could not decode LLVM timing trace {}: {error}",
+            path.display()
+        )
+    })
 }
 
 #[cfg(test)]
@@ -317,9 +318,8 @@ mod tests {
         for name in ["COFF", "ELF", "Mach-O"] {
             let path = directory.path().join(format!("{name}.json"));
 
-            let contents = format!(
-                "{{\"traceEvents\":[{{\"name\":\"Total {name} link\",\"dur\":123}}]}}"
-            );
+            let contents =
+                format!("{{\"traceEvents\":[{{\"name\":\"Total {name} link\",\"dur\":123}}]}}");
 
             std::fs::write(&path, contents)
                 .unwrap_or_else(|error| panic!("timing trace must be writable: {error}"));

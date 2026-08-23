@@ -5,8 +5,8 @@ use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use serde::Deserialize;
 
 use super::layout::product_store;
-use super::lock::open_lock_file;
 use super::locator::GenerationLocator;
+use super::lock::open_lock_file;
 use super::manifest::{GenerationManifest, GenerationReference, permission_key};
 use super::transaction::{GENERATION_MANIFEST, MANIFEST_REVISION, PUBLISHED_REFERENCE};
 use crate::artifact::content::validate_staged_content;

@@ -1187,9 +1187,7 @@ impl DiagnosticKind {
             Self::CheckingExportedStaticSurfaceUnsupported => {
                 "checking_exported_static_surface_unsupported"
             }
-            Self::CheckingNativeStaticTypeUnsupported => {
-                "checking_native_static_type_unsupported"
-            }
+            Self::CheckingNativeStaticTypeUnsupported => "checking_native_static_type_unsupported",
             Self::CheckingInvalidTargetControlContract => {
                 "checking_invalid_target_control_contract"
             }

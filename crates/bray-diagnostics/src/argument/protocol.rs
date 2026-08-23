@@ -11,12 +11,11 @@ use super::{
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
     DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
-    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
-    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
-    DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticTargetRepresentation, DiagnosticType,
-    DiagnosticVisibility,
+    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind, DiagnosticModuleTrust,
+    DiagnosticNameKind, DiagnosticNativeProductFailureKind, DiagnosticOutputSink,
+    DiagnosticProductKind, DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem,
+    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticVisibility,
 };
 use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
 

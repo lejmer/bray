@@ -6,10 +6,10 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableContractSymbolId, ConstantTermData, GenericArgument,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, SelfTypeContext,
-    SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
-    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
+    SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData,
+    TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,

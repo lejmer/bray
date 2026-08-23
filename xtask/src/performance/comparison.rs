@@ -225,10 +225,7 @@ fn compare_peers(
                     .compilation
                     .compiler_components_nanoseconds
                     .keys()
-                    .ne(candidate
-                        .compilation
-                        .compiler_components_nanoseconds
-                        .keys())
+                    .ne(candidate.compilation.compiler_components_nanoseconds.keys())
             {
                 return Err(format!(
                     "workload {} {language:?} peer configurations differ",

@@ -88,10 +88,7 @@ pub(crate) fn invalid_directive_target(
     name: &SyntaxToken,
     directive_kind: SyntaxKind,
 ) -> Diagnostic {
-    let span = SourceSpan::new(
-        snapshot.source_id(),
-        marker.range().cover(name.range()),
-    );
+    let span = SourceSpan::new(snapshot.source_id(), marker.range().cover(name.range()));
 
     diagnostic(span, DiagnosticKind::SyntaxInvalidDirectiveTarget)
         .with_arg(DiagnosticArg::directive_kind(directive_kind))

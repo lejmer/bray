@@ -62,16 +62,9 @@ fn fetch() -> Result<(), ToolchainError> {
 
     let archive = root.join(DOWNLOAD_DIRECTORY).join(&package.archive);
 
-    let source_archive = root
-        .join(DOWNLOAD_DIRECTORY)
-        .join(&manifest.source.archive);
+    let source_archive = root.join(DOWNLOAD_DIRECTORY).join(&manifest.source.archive);
 
-    acquire_archive(
-        &package.url,
-        package.size,
-        &package.sha256,
-        &archive,
-    )?;
+    acquire_archive(&package.url, package.size, &package.sha256, &archive)?;
 
     acquire_archive(
         &manifest.source.url,
@@ -362,14 +355,8 @@ fn prepare_staging(
 
     let identity = crate::instrumentation::identity(version, &source.sha256);
 
-    crate::instrumentation::install(
-        staging,
-        source_archive,
-        version,
-        &identity,
-        native_sources,
-    )
-    .map_err(ToolchainError::Instrumentation)?;
+    crate::instrumentation::install(staging, source_archive, version, &identity, native_sources)
+        .map_err(ToolchainError::Instrumentation)?;
 
     write_marker(staging, version, package, source)
 }
@@ -541,9 +528,7 @@ impl ToolchainManifest {
         let mut hosts = BTreeSet::new();
 
         for package in &self.hosts {
-            if package.host.is_empty()
-                || !hosts.insert(&package.host)
-            {
+            if package.host.is_empty() || !hosts.insert(&package.host) {
                 return Err(ToolchainError::InvalidManifest);
             }
 
@@ -574,10 +559,8 @@ fn validate_archive(
     sha256: &str,
     version: &str,
 ) -> Result<(), ToolchainError> {
-    let unsafe_archive = archive == "."
-        || archive == ".."
-        || archive.contains('/')
-        || archive.contains('\\');
+    let unsafe_archive =
+        archive == "." || archive == ".." || archive.contains('/') || archive.contains('\\');
 
     if archive.is_empty()
         || unsafe_archive
@@ -900,12 +883,7 @@ mod tests {
             panic!("temporary directory must be available");
         };
 
-        if let Err(error) = write_marker(
-            directory.path(),
-            "0.0.0",
-            package,
-            &manifest.source,
-        ) {
+        if let Err(error) = write_marker(directory.path(), "0.0.0", package, &manifest.source) {
             panic!("test marker must be written: {error}");
         }
 

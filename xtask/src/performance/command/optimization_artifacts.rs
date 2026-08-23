@@ -37,11 +37,7 @@ pub(super) fn inspect(
             let mut selected_by_workloads = workloads
                 .iter()
                 .filter(|workload| {
-                    workload_selects_optimization(
-                        workload,
-                        optimization.partition(),
-                        fallback,
-                    )
+                    workload_selects_optimization(workload, optimization.partition(), fallback)
                 })
                 .map(|workload| workload.id.clone())
                 .collect::<Vec<_>>();

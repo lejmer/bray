@@ -196,8 +196,7 @@ impl TypeExpressionBinder<'_> {
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
     ) -> BindingQueryResult<TypeExpressionTemplate> {
-        let variadic = parameters
-            .is_some_and(|parameters| parameters.ellipsis_token().is_some());
+        let variadic = parameters.is_some_and(|parameters| parameters.ellipsis_token().is_some());
 
         let parameters = parameters
             .into_iter()
@@ -276,15 +275,9 @@ impl TypeExpressionBinder<'_> {
 
             let result = self.require_resolved_type(&result)?;
 
-            let callable = CallableTypeData::new(
-                parameters,
-                result,
-                constness,
-                trust,
-                abi,
-                dependencies,
-            )
-            .with_variadic(variadic);
+            let callable =
+                CallableTypeData::new(parameters, result, constness, trust, abi, dependencies)
+                    .with_variadic(variadic);
 
             return self
                 .intern_type(TypeData::Callable(callable))

@@ -42,14 +42,7 @@ where
         return Ok(Some(kind));
     }
 
-    classify_core_operation(
-        request,
-        hook,
-        &types,
-        expression,
-        read_kinds,
-        diagnostics,
-    )
+    classify_core_operation(request, hook, &types, expression, read_kinds, diagnostics)
 }
 
 fn memory_type_arguments(
@@ -374,11 +367,12 @@ where
         return Ok(true);
     }
 
-    let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
-        CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        )
-    })?;
+    let operation =
+        crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
+            CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            )
+        })?;
 
     let span = crate::diagnostic::expression_span(request, expression)
         .map_err(CheckerOutcome::InfrastructureFailure)?;
@@ -446,13 +440,12 @@ where
     .with_primary_span(span);
 
     if kind != MemoryLayoutQueryKind::Trailing {
-        let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(
-            || {
+        let operation =
+            crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
                 CheckerOutcome::InfrastructureFailure(
                     CheckerInfrastructureError::InvalidSemanticSelectionInput,
                 )
-            },
-        )?;
+            })?;
 
         diagnostic = diagnostic.with_arg(DiagnosticArg::memory_operation(operation));
     }
@@ -462,9 +455,7 @@ where
     Ok(false)
 }
 
-const fn query_outcome(
-    error: crate::CheckerQueryError,
-) -> CheckerOutcome<CheckedMemoryOperations> {
+const fn query_outcome(error: crate::CheckerQueryError) -> CheckerOutcome<CheckedMemoryOperations> {
     match error {
         crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
         crate::CheckerQueryError::Infrastructure(error) => {
@@ -489,9 +480,14 @@ where
         ));
     };
 
-    let data = request.semantic_values().type_data(*callable).map_err(|_| {
-        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
-    })?;
+    let data = request
+        .semantic_values()
+        .type_data(*callable)
+        .map_err(|_| {
+            CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::SemanticValueUnavailable,
+            )
+        })?;
 
     let valid_type = matches!(
         data.as_ref(),
@@ -521,13 +517,12 @@ where
         .operations()
         .callable_addresses()
     {
-        let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(
-            || {
+        let operation =
+            crate::memory_diagnostics::diagnostic_memory_operation(hook).ok_or_else(|| {
                 CheckerOutcome::InfrastructureFailure(
                     CheckerInfrastructureError::InvalidSemanticSelectionInput,
                 )
-            },
-        )?;
+            })?;
 
         crate::memory_diagnostics::add_target_memory_operation_unavailable(
             span,
@@ -705,9 +700,7 @@ mod tests {
     };
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
-    use bray_symbols::{
-        GenericArgument, GenericTypeParameterSymbolId, SymbolId, TypeData,
-    };
+    use bray_symbols::{GenericArgument, GenericTypeParameterSymbolId, SymbolId, TypeData};
 
     use super::classify_operation;
     use crate::CheckerUnitView;

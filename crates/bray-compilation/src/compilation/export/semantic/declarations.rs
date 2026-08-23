@@ -1,25 +1,19 @@
-
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{
-    BoundUnitKey, CheckedTemplateKind,
-};
+use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
-    InterfaceCallableContract,
-    InterfaceCallableParameterDefault,
-    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceConstraint,
+    InterfaceCallableContract, InterfaceCallableParameterDefault, InterfaceCallableSignature,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceConstraint,
     InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceGenericDeclaration,
-    InterfacePredicateDefinition,
-    InterfaceSupportEntity, InterfaceTypeRepresentation,
+    InterfacePredicateDefinition, InterfaceSupportEntity, InterfaceTypeRepresentation,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplate,
-    CallableContractTemplateQuery, CallableContractsQuery,
-    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
-    CallableSignatureQuery, CallableSymbolId, CheckedConstraintKind, DeclarationPredicateClauseKind, GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, InterfaceSupportEntityId,
-    NamedTypeSymbolId,
-    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
-    RuntimeDefaultTemplateReference, StructFieldDefaultValue, SymbolQueryRequest,
-    UnionPayloadDefaultValue,
+    AnySymbolId, CallableContractTemplate, CallableContractTemplateQuery, CallableContractsQuery,
+    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallableSignatureQuery,
+    CallableSymbolId, CheckedConstraintKind, DeclarationPredicateClauseKind,
+    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
+    InterfaceSupportEntityId, NamedTypeSymbolId, RuntimeDefaultGenericContext,
+    RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
+    StructFieldDefaultValue, SymbolQueryRequest, UnionPayloadDefaultValue,
 };
 
 use super::super::PackageInterfaceExportError;

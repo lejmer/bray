@@ -51,10 +51,7 @@ where
                     definition: NamedTypeSymbolId::Union(_),
                     ..
                 },
-            ) => {
-                trusted_variant && self.tagless_union(subject)?
-                    || only_union_variant
-            }
+            ) => trusted_variant && self.tagless_union(subject)? || only_union_variant,
             _ => false,
         };
 
@@ -94,8 +91,10 @@ where
             return Ok(false);
         };
 
-        Ok(available_dependency(self.request.declared_type_representation((*union).into()))?
-            .is_some_and(|representation| representation.value().is_tagless_union()))
+        Ok(
+            available_dependency(self.request.declared_type_representation((*union).into()))?
+                .is_some_and(|representation| representation.value().is_tagless_union()),
+        )
     }
 
     pub(super) fn pattern_predicate(
@@ -129,10 +128,9 @@ where
                     ..
                 },
             ) => match target {
-                Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))) => {
-                    (!self.tagless_union(subject)?)
-                        .then_some(PatternPredicate::ActiveUnionVariant(variant))
-                }
+                Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))) => (!self
+                    .tagless_union(subject)?)
+                .then_some(PatternPredicate::ActiveUnionVariant(variant)),
                 _ => None,
             },
             (

@@ -192,9 +192,9 @@ pub(super) fn decode_type(
         13 => Ok(InterfaceType::Generator(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
-        14 => Ok(InterfaceType::FlexibleArray(InterfaceTypeId::new(read_u32(
-            reader,
-        )?))),
+        14 => Ok(InterfaceType::FlexibleArray(InterfaceTypeId::new(
+            read_u32(reader)?,
+        ))),
         7 => Ok(InterfaceType::Nullable(InterfaceTypeId::new(read_u32(
             reader,
         )?))),
@@ -504,12 +504,12 @@ pub(super) fn decode_constant_projection(
 mod tests {
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableExecution, CallableParameterMode, CallablePosition,
-        CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData,
-        ConstantValueKind, ExternalSymbolKey, FunctionSymbolId, InherentImplementationSymbolId,
-        IntegerConstant, IntegerSign, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
-        PackageSymbolId, SelfTypeContext, SemanticValueStore, StructFieldSymbolId, StructSymbolId,
-        SymbolId, SymbolKind, SymbolName, SymbolOrdinal, TargetSizedIntegerType, TraitSymbolId,
-        TypeData, UnionPayloadFieldSymbolId, UnionSymbolId, UnionVariantSymbolId,
+        CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData, ConstantValueKind,
+        ExternalSymbolKey, FunctionSymbolId, InherentImplementationSymbolId, IntegerConstant,
+        IntegerSign, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, PackageSymbolId,
+        SelfTypeContext, SemanticValueStore, StructFieldSymbolId, StructSymbolId, SymbolId,
+        SymbolKind, SymbolName, SymbolOrdinal, TargetSizedIntegerType, TraitSymbolId, TypeData,
+        UnionPayloadFieldSymbolId, UnionSymbolId, UnionVariantSymbolId,
     };
 
     use super::super::decode_semantics;
@@ -526,9 +526,9 @@ mod tests {
         InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericSubstitution,
         InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
         InterfaceSemanticInternError, InterfaceSemantics, InterfaceSourceProvenance,
-        InterfaceSymbolReference, InterfaceTargetPropertyDependency,
-        InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits,
+        InterfaceSymbolReference, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
+        InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, InterfaceValidationError,
+        InterfaceValidationLimits,
     };
 
     #[test]

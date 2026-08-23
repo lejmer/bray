@@ -1,19 +1,15 @@
-
 use bray_package_interface::{
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceDependencyContract,
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
-    InterfaceDependencyRequirement, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument,
-    InterfaceGenericBinding, InterfaceGenericSubstitution,
+    InterfaceDependencyRequirement, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
+    InterfaceGenericArgument, InterfaceGenericBinding, InterfaceGenericSubstitution,
     InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
-    InterfaceImplementationInstanceId,
-    InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceImplementationInstanceId, InterfaceTraitApplication, InterfaceTraitApplicationId,
 };
 use bray_symbols::{
-    CallableInstanceId, DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
-    GenericArgument, GenericSubstitutionId,
-    ImplementationInstanceId,
-    TraitApplicationId,
+    CallableInstanceId, DependencyGuard, DependencyProjection, DependencyRequirement,
+    DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionId,
+    ImplementationInstanceId, TraitApplicationId,
 };
 
 use super::super::PackageInterfaceExportError;

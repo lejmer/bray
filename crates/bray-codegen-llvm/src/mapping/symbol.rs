@@ -127,10 +127,7 @@ fn apply_linkage(
         (CodegenLinkage::Weak | CodegenLinkage::LinkOnce, false) => Linkage::External,
         (CodegenLinkage::Private, _) => Linkage::Private,
         (CodegenLinkage::Internal, _) => Linkage::External,
-        (
-            CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export,
-            _,
-        ) => {
+        (CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export, _) => {
             Linkage::External
         }
         (CodegenLinkage::Weak, true) => Linkage::WeakAny,
@@ -454,8 +451,8 @@ mod tests {
     use bray_bound_tree::BoundUnitKey;
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
-        CodegenCallableSignature, CodegenIndirectParameterKind, CodegenIntegerExtension,
-        CodegenInstance, CodegenLinkage, CodegenMappings, CodegenParameterMapping,
+        CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance,
+        CodegenIntegerExtension, CodegenLinkage, CodegenMappings, CodegenParameterMapping,
         CodegenResultMapping, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
         CodegenTypeMapping, CodegenValueAttribute, TargetAddressSpaceKind,
     };
@@ -635,12 +632,8 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("instance-attributes");
 
-        let types = LlvmTypeMappings::new(
-            &context,
-            request.mappings(),
-            request.target(),
-            &target_data,
-        );
+        let types =
+            LlvmTypeMappings::new(&context, request.mappings(), request.target(), &target_data);
 
         let fulfillment = protected_trait_fulfillment_instance();
 
@@ -657,11 +650,8 @@ mod tests {
 
         let ordinary = CodegenInstance::non_generic(bray_testing::test_mir_unit(8));
 
-        let ordinary_function = module.add_function(
-            "ordinary",
-            context.void_type().fn_type(&[], false),
-            None,
-        );
+        let ordinary_function =
+            module.add_function("ordinary", context.void_type().fn_type(&[], false), None);
 
         assert_eq!(
             apply_instance_optimization_attributes(ordinary_function, &ordinary, &types),

@@ -357,9 +357,7 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    if let BoundCallableTarget::Declaration(callable) =
-        candidate.resolution().target()
-    {
+    if let BoundCallableTarget::Declaration(callable) = candidate.resolution().target() {
         request
             .semantic_values()
             .intern_callable_instance(callable)
@@ -717,15 +715,14 @@ fn map_arguments(
 ) -> Result<ArgumentMapping, CheckerInfrastructureError> {
     let parameters = callable.parameters();
 
-    let parameter_indices =
-        match map_argument_parameter_indices_for_diagnostic(
-            arguments,
-            parameters,
-            callable.is_variadic(),
-        )? {
-            Ok(indices) => indices,
-            Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
-        };
+    let parameter_indices = match map_argument_parameter_indices_for_diagnostic(
+        arguments,
+        parameters,
+        callable.is_variadic(),
+    )? {
+        Ok(indices) => indices,
+        Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
+    };
 
     let mut supplied = vec![None; parameters.len()];
     let mut recovered = false;
@@ -862,8 +859,10 @@ fn map_argument_parameter_indices_for_diagnostic(
     arguments: &[BoundArgument],
     parameters: &[bray_symbols::CallableParameterData],
     variadic: bool,
-) -> Result<Result<Vec<Option<usize>>, SelectionCallableArgumentRejection>, CheckerInfrastructureError>
-{
+) -> Result<
+    Result<Vec<Option<usize>>, SelectionCallableArgumentRejection>,
+    CheckerInfrastructureError,
+> {
     let mut supplied = vec![false; parameters.len()];
     let mut positional_index = 0;
     let mut saw_named = false;

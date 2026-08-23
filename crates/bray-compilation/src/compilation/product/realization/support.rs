@@ -18,8 +18,8 @@ use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
-    ImplementationSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext,
-    SemanticValueStore, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
+    ImplementationSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext, SemanticValueStore,
+    SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -2080,7 +2080,10 @@ mod tests {
 
         let tag = tag.unwrap_or_else(|| panic!("Choice must include tag storage"));
 
-        assert_eq!(mappings[&tag].layout().map(TargetValueLayout::size), Some(1));
+        assert_eq!(
+            mappings[&tag].layout().map(TargetValueLayout::size),
+            Some(1)
+        );
 
         assert_eq!(mapping.layout().map(TargetValueLayout::size), Some(24));
     }

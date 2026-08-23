@@ -7,8 +7,8 @@ use super::response::{SystemLinkerInvocationBuildError, invocation};
 use super::{SystemLinkerConfiguration, SystemLinkerFamily};
 use crate::capability::system_driver_capabilities;
 use crate::command::system_arguments_for;
-use crate::outcome::failed_outcome;
 use crate::optimization::OptimizationReportRequest;
+use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkerDriver, LinkerDriverCapabilities,
@@ -279,8 +279,8 @@ fn outcome_from_invocation_error(
 mod tests {
     use std::ffi::{OsStr, OsString};
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_diagnostics::DiagnosticKind;
     use bray_target::{ObjectFormat, TargetArchitecture};
@@ -519,12 +519,9 @@ mod tests {
             .try_with_thin_lto_cache("cache")
             .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
 
-        let driver = SystemLinkerDriver::try_new(
-            identity,
-            configuration,
-            host as Arc<dyn ExternalToolHost>,
-        )
-        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+        let driver =
+            SystemLinkerDriver::try_new(identity, configuration, host as Arc<dyn ExternalToolHost>)
+                .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
 
         let outcome = driver.link(&plan, &|| false);
 
@@ -564,12 +561,9 @@ mod tests {
             .try_with_thin_lto_cache("cache")
             .unwrap_or_else(|error| panic!("test ThinLTO cache must be valid: {error:?}"));
 
-        let driver = SystemLinkerDriver::try_new(
-            identity,
-            configuration,
-            host as Arc<dyn ExternalToolHost>,
-        )
-        .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
+        let driver =
+            SystemLinkerDriver::try_new(identity, configuration, host as Arc<dyn ExternalToolHost>)
+                .unwrap_or_else(|error| panic!("test ThinLTO driver must be valid: {error:?}"));
 
         assert!(matches!(
             driver.link(&plan, &|| false).status(),
@@ -619,7 +613,10 @@ mod tests {
         let checks = AtomicUsize::new(0);
         let cancellation = || checks.fetch_add(1, Ordering::SeqCst) > 0;
 
-        assert_eq!(driver.link(&plan, &cancellation).status(), &LinkStatus::Cancelled);
+        assert_eq!(
+            driver.link(&plan, &cancellation).status(),
+            &LinkStatus::Cancelled
+        );
 
         let invocation = host.only_invocation();
 

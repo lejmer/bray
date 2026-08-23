@@ -11,9 +11,7 @@ use bray_syntax::StaticDeclarationSyntax;
 
 use super::super::Compilation;
 use super::diagnostic::{missing_directive, source_diagnostic};
-use super::directive::{
-    foreign_link_requirements, foreign_symbol_contract, invalid_symbol_policy,
-};
+use super::directive::{foreign_link_requirements, foreign_symbol_contract, invalid_symbol_policy};
 use super::validation::foreign_type_is_supported;
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::directive::first_directive;
@@ -80,7 +78,11 @@ impl Compilation {
         let directives = self.declaration_directives(declaration.into())?;
         let mut diagnostics = directives.diagnostics().clone();
         let symbol_directive = first_directive(directives.value(), DirectiveKind::Symbol);
-        let is_extern = syntax.static_declaration_modifiers().extern_token().is_some();
+
+        let is_extern = syntax
+            .static_declaration_modifiers()
+            .extern_token()
+            .is_some();
 
         let direction = match (is_extern, symbol_directive.is_some()) {
             (true, _) => Some(ForeignCallableDirection::Import),
@@ -92,13 +94,7 @@ impl Compilation {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         };
 
-        validate_static_surface(
-            record,
-            &syntax,
-            direction,
-            anchor,
-            &mut diagnostics,
-        );
+        validate_static_surface(record, &syntax, direction, anchor, &mut diagnostics);
 
         let symbol = match symbol_directive {
             Some(directive) => {
@@ -126,11 +122,7 @@ impl Compilation {
                         "binding",
                     ));
                 }
-                (
-                    ForeignCallableDirection::Import,
-                    _,
-                    NativeSymbolPresence::Optional,
-                )
+                (ForeignCallableDirection::Import, _, NativeSymbolPresence::Optional)
                     if !self
                         .requested_target()
                         .profile()
@@ -143,11 +135,7 @@ impl Compilation {
                         "presence",
                     ));
                 }
-                (
-                    ForeignCallableDirection::Export,
-                    _,
-                    NativeSymbolPresence::Optional,
-                ) => {
+                (ForeignCallableDirection::Export, _, NativeSymbolPresence::Optional) => {
                     diagnostics.add(invalid_symbol_policy(
                         symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax),
                         "presence",
@@ -158,17 +146,14 @@ impl Compilation {
         }
 
         let declared_type = binder
-            .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(declaration))
+            .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(
+                declaration,
+            ))
             .map_err(binding_query_error)?;
 
         diagnostics.add_range(declared_type.diagnostics().iter().cloned());
 
-        if !native_static_type_is_supported(
-            self,
-            declared_type.value(),
-            direction,
-            cancellation,
-        )? {
+        if !native_static_type_is_supported(self, declared_type.value(), direction, cancellation)? {
             diagnostics.add(source_diagnostic(
                 anchor,
                 DiagnosticKind::CheckingNativeStaticTypeUnsupported,
@@ -218,22 +203,34 @@ fn validate_static_surface(
 
     let valid = match direction {
         ForeignCallableDirection::Import => {
-            syntax.static_declaration_modifiers().trusted_token().is_some()
+            syntax
+                .static_declaration_modifiers()
+                .trusted_token()
+                .is_some()
                 && syntax.expression().is_none()
                 && !has_generics
         }
         ForeignCallableDirection::Export => {
             syntax.expression().is_some()
                 && !has_generics
-                && syntax.static_directives().thread_local_directives().next().is_none()
+                && syntax
+                    .static_directives()
+                    .thread_local_directives()
+                    .next()
+                    .is_none()
                 && (syntax.mut_token().is_none()
-                    || syntax.static_declaration_modifiers().trusted_token().is_some())
+                    || syntax
+                        .static_declaration_modifiers()
+                        .trusted_token()
+                        .is_some())
         }
     };
 
     if !valid {
         let kind = match direction {
-            ForeignCallableDirection::Import => DiagnosticKind::CheckingExternStaticSurfaceUnsupported,
+            ForeignCallableDirection::Import => {
+                DiagnosticKind::CheckingExternStaticSurfaceUnsupported
+            }
             ForeignCallableDirection::Export => {
                 DiagnosticKind::CheckingExportedStaticSurfaceUnsupported
             }
@@ -320,7 +317,12 @@ mod tests {
             .foreign_static_contract(declaration)
             .unwrap_or_else(|error| panic!("foreign static contract must be available: {error:?}"));
 
-        assert!(contract.diagnostics().is_empty(), "{:#?}", contract.diagnostics());
+        assert!(
+            contract.diagnostics().is_empty(),
+            "{:#?}",
+            contract.diagnostics()
+        );
+
         assert!(contract.value().is_some());
     }
 

@@ -4,8 +4,7 @@ use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
 use crate::{
-    LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity,
-    StagingDestinationId,
+    LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity, StagingDestinationId,
 };
 
 /// Complete canonically ordered staging records for one link plan.

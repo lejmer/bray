@@ -288,12 +288,11 @@ where
         let Some(operand) = self.term_value(operand)? else {
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
-                ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
-                    self.intern_term(ConstantTermData::Conversion {
+                ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => self
+                    .intern_term(ConstantTermData::Conversion {
                         operand,
                         target: conversion.target_type(),
-                    })
-                }
+                    }),
                 ConversionTarget::Composite(_) => self.intern_term(ConstantTermData::Conversion {
                     operand,
                     target: conversion.target_type(),

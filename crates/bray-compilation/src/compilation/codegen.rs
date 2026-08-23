@@ -360,13 +360,11 @@ fn codegen_mappings(
     }
 
     for reference in demanded_runtime_references(unit) {
-        let symbol_name = bray_runtime_interface::selected_runtime_role_symbol(
-            executable_host,
-            reference.role(),
-        )
-            .ok_or(CodegenPreparationError::MissingRuntimeRole(
-                reference.role(),
-            ))?;
+        let symbol_name =
+            bray_runtime_interface::selected_runtime_role_symbol(executable_host, reference.role())
+                .ok_or(CodegenPreparationError::MissingRuntimeRole(
+                    reference.role(),
+                ))?;
 
         // The mapping owns the selected runtime spelling past the host-contract borrow.
         symbols.push(symbol_mapping(

@@ -55,13 +55,8 @@ fn target_compilation(
 ) -> Result<(SelectedTarget, Compilation), BuildError> {
     let selected = SelectedTarget::for_native(target);
 
-    let request = standard_library_source_request(
-        product,
-        version,
-        source_paths,
-        &selected,
-        worker_budget,
-    )?;
+    let request =
+        standard_library_source_request(product, version, source_paths, &selected, worker_budget)?;
 
     let compilation = Compilation::load(request).map_err(|error| {
         BuildError::conformance(

@@ -1244,10 +1244,7 @@ mod tests {
 
         for (template_index, template) in semantics.checked_templates().iter().enumerate() {
             for (node_index, node) in template.nodes().iter().enumerate() {
-                let InterfaceCheckedTemplateOperation::Borrow {
-                    kind,
-                    operand,
-                } = node.operation()
+                let InterfaceCheckedTemplateOperation::Borrow { kind, operand } = node.operation()
                 else {
                     continue;
                 };

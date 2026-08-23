@@ -256,10 +256,7 @@ pub(crate) fn input_digest(
         hash_text(&mut digest, &value);
     }
 
-    for input in COMMON_SOURCE_INPUTS
-        .iter()
-        .chain(component.source_inputs())
-    {
+    for input in COMMON_SOURCE_INPUTS.iter().chain(component.source_inputs()) {
         hash_path(&mut digest, root, &root.join(input))?;
     }
 
@@ -322,7 +319,10 @@ fn hash_path(digest: &mut Sha256, root: &Path, path: &Path) -> Result<(), String
         return hash_file(digest, root, path);
     }
 
-    Err(format!("cache input is neither a file nor a directory: {}", path.display()))
+    Err(format!(
+        "cache input is neither a file nor a directory: {}",
+        path.display()
+    ))
 }
 
 fn hash_directory(digest: &mut Sha256, root: &Path, directory: &Path) -> Result<(), String> {

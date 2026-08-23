@@ -378,8 +378,8 @@ mod tests {
 
     use super::super::decode_semantics;
     use super::super::test_support::{
-        Resolver, interface_surface, key_by_kind as symbol_key,
-        local_by_kind as symbol_reference, owned_section_views, owned_sections, record_range,
+        Resolver, interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
+        owned_section_views, owned_sections, record_range,
     };
     use crate::semantic::codec::encode_semantics;
     use crate::test_support::{module_key as test_module_key, named_key};

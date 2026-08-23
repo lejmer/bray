@@ -1,3 +1,7 @@
+use crate::{
+    ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation, ExternalToolStream,
+    LinkInputId, LinkPlan, LinkedArtifact, StagingDestinationId, UnsupportedLinkRequirement,
+};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolExit,
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticId,
@@ -5,10 +9,6 @@ use bray_diagnostics::{
     DiagnosticNoteKind, SeverityKind,
 };
 use bray_platform::{PlatformErrorKind, PlatformOperation};
-use crate::{
-    ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation, ExternalToolStream,
-    LinkInputId, LinkPlan, LinkedArtifact, StagingDestinationId, UnsupportedLinkRequirement,
-};
 
 use super::artifact::{LinkedArtifactSet, LinkedArtifactSetBuildError};
 use super::diagnostics::{diagnostic_driver_identity, optimization_report_diagnostic};

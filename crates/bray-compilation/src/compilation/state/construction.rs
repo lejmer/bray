@@ -13,17 +13,16 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider,
-    PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph,
+    AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, PackageIdentity, ProductIdentity,
+    SemanticValueStore, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey, FactCell, FactCellMap, FactQueryError, FactRuntime, PublishedUnitResult, UnitQueryCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey, FactCell,
+    FactCellMap, FactQueryError, FactRuntime, PublishedUnitResult, UnitQueryCache,
 };
-use crate::request::{
-    CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-};
+use crate::request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
 use crate::worker::WorkerBudget;
 
 use crate::compilation::binder::CompilationSymbolSemantics;
@@ -510,7 +509,9 @@ impl Compilation {
         .map_err(Clone::clone)
     }
 
-    pub(in crate::compilation) fn discovery_symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
+    pub(in crate::compilation) fn discovery_symbol_graph(
+        &self,
+    ) -> Result<&SymbolGraph, FactQueryError> {
         self.evaluate_query(
             CompilationFactKey::DiscoverySymbolGraph,
             &self.state.discovery_symbol_graph,

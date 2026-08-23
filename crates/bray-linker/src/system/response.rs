@@ -131,12 +131,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test configuration must be valid: {error:?}"));
 
-        let invocation = invocation(
-            &configuration,
-            &plan,
-            vec![OsString::from("main.o")],
-            &[],
-        )
+        let invocation = invocation(&configuration, &plan, vec![OsString::from("main.o")], &[])
             .unwrap_or_else(|error| panic!("test invocation must be valid: {error:?}"));
 
         assert_eq!(

@@ -7,7 +7,9 @@ use bray_symbols::{
     TypeData, TypeId, UnionSymbolId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(
     request: CheckerUnitView<'_, C>,
@@ -37,29 +39,26 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let complete = match data.as_ref() {
-        TypeData::Named { definition, .. } => {
-            match type_representation(request, ty)? {
-                Some(RepresentationRole::Uninit) => {
-                    let element = request
-                        .available_compiler_known_symbols()
-                        .unary_representation_argument(
-                            request.semantic_values(),
-                            RepresentationRole::Uninit,
-                            ty,
-                        )
-                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        TypeData::Named { definition, .. } => match type_representation(request, ty)? {
+            Some(RepresentationRole::Uninit) => {
+                let element = request
+                    .available_compiler_known_symbols()
+                    .unary_representation_argument(
+                        request.semantic_values(),
+                        RepresentationRole::Uninit,
+                        ty,
+                    )
+                    .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-                    type_supports_complete_fixed_layout_inner(request, element, pending)?
-                }
-                Some(_) => true,
-                None => {
-                    let representation = request.declared_type_representation(*definition)?;
-
-                    !representation.value().is_incomplete()
-                        && representation.value().has_finite_size()
-                }
+                type_supports_complete_fixed_layout_inner(request, element, pending)?
             }
-        }
+            Some(_) => true,
+            None => {
+                let representation = request.declared_type_representation(*definition)?;
+
+                !representation.value().is_incomplete() && representation.value().has_finite_size()
+            }
+        },
         TypeData::Tuple(elements) => {
             let mut complete = true;
 
@@ -74,9 +73,7 @@ where
         | TypeData::Nullable(element) => {
             type_supports_complete_fixed_layout_inner(request, *element, pending)?
         }
-        TypeData::Borrow { .. }
-        | TypeData::OwnedIndirection { .. }
-        | TypeData::Callable(_) => true,
+        TypeData::Borrow { .. } | TypeData::OwnedIndirection { .. } | TypeData::Callable(_) => true,
         TypeData::TypeParameter(_)
         | TypeData::ContextualSelf(_)
         | TypeData::TypeValuedMemberProjection { .. }
@@ -114,9 +111,11 @@ where
     let representation = request.declared_type_representation(*definition)?;
     let representation = representation.value();
 
-    Ok(representation.layout() == bray_symbols::DeclaredLayoutMode::C
-        && !representation.is_incomplete()
-        && representation.has_flexible_trailing_member())
+    Ok(
+        representation.layout() == bray_symbols::DeclaredLayoutMode::C
+            && !representation.is_incomplete()
+            && representation.has_flexible_trailing_member(),
+    )
 }
 
 pub(crate) fn type_representation<C>(

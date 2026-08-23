@@ -1,28 +1,24 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{
-    CheckedTemplateConstantUsage, CheckedTemplateKind,
-    CheckedTemplateNodeId,
-};
+use bray_bound_tree::{CheckedTemplateConstantUsage, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_checker::resolve_type_expression_template;
 use bray_package_interface::{
-    InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter, InterfaceCallablePhaseBehavior, InterfaceCallableReceiver,
-    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-    InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateNode,
-    InterfaceCheckedTemplateOperation,
-    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-    InterfaceConstantValueId, InterfaceConstraint, InterfaceDependencyContract,
-    InterfaceDependencyContractId, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
-    InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
-    InterfaceImplementationInstanceId, InterfacePredicateSummary,
-    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, PackageInterfaceSurface,
+    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallableInstance,
+    InterfaceCallableInstanceId, InterfaceCallableParameter, InterfaceCallablePhaseBehavior,
+    InterfaceCallableReceiver, InterfaceCallableSignature, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
+    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceConstantTerm,
+    InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstraint,
+    InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericDeclaration,
+    InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
+    InterfaceImplementationInstanceId, InterfacePredicateSummary, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
+    InterfaceTypeId, PackageInterfaceSurface,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractClauseValue, CallableInstanceId, CallablePhaseBehavior, CheckedConstraintKind, ConstantTermId,
-    ConstantValueId, CurrentRunCancellation, ExternalSymbolKey, GenericSubstitutionId,
-    ImplementationInstanceId, SemanticValueStore,
+    AnySymbolId, CallableContractClauseValue, CallableInstanceId, CallablePhaseBehavior,
+    CheckedConstraintKind, ConstantTermId, ConstantValueId, CurrentRunCancellation,
+    ExternalSymbolKey, GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore,
     TraitApplicationId, TypeData, TypeExpressionTemplate, TypeId,
 };
 

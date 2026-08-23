@@ -957,9 +957,11 @@ fn interface_symbol_graph_problem(
                 kind: diagnostic_symbol_kind(owner.kind()),
             }
         }
-        Error::MissingLookupTarget(key) => DiagnosticInterfaceSymbolGraphProblem::MissingLookupTarget(
-            diagnostic_external_symbol_identity(&key),
-        ),
+        Error::MissingLookupTarget(key) => {
+            DiagnosticInterfaceSymbolGraphProblem::MissingLookupTarget(
+                diagnostic_external_symbol_identity(&key),
+            )
+        }
         Error::DuplicateLookupName { owner, name } => {
             DiagnosticInterfaceSymbolGraphProblem::DuplicateLookupName {
                 owner: owner.symbol_id().raw(),

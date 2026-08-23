@@ -52,10 +52,12 @@ pub(crate) fn install(
     let build = toolchain.join(BUILD_DIRECTORY);
 
     if build.exists() {
-        fs::remove_dir_all(&build).map_err(|error| InstrumentationError::io("remove", &build, error))?;
+        fs::remove_dir_all(&build)
+            .map_err(|error| InstrumentationError::io("remove", &build, error))?;
     }
 
-    fs::create_dir_all(&build).map_err(|error| InstrumentationError::io("create", &build, error))?;
+    fs::create_dir_all(&build)
+        .map_err(|error| InstrumentationError::io("create", &build, error))?;
 
     let result = prepare_sources(&build, source_archive, version)
         .and_then(|source| build_linker(toolchain, &source, native_sources, &build, identity));
@@ -111,7 +113,12 @@ fn build_linker(
     let include = toolchain.join("include");
 
     for candidate in HostFlavor::ALL {
-        instrument_lto_source(&source.join("lld").join(candidate.source_directory()).join("LTO.cpp"))?;
+        instrument_lto_source(
+            &source
+                .join("lld")
+                .join(candidate.source_directory())
+                .join("LTO.cpp"),
+        )?;
     }
 
     run(
@@ -163,8 +170,8 @@ fn build_linker(
 }
 
 fn instrument_lto_source(path: &Path) -> Result<(), InstrumentationError> {
-    let source = fs::read_to_string(path)
-        .map_err(|error| InstrumentationError::io("read", path, error))?;
+    let source =
+        fs::read_to_string(path).map_err(|error| InstrumentationError::io("read", path, error))?;
 
     let source = replace_once(
         source,
@@ -253,11 +260,7 @@ fn compile(
     Ok(object)
 }
 
-fn include_directories(
-    toolchain: &Path,
-    source: &Path,
-    native_sources: &Path,
-) -> [PathBuf; 4] {
+fn include_directories(toolchain: &Path, source: &Path, native_sources: &Path) -> [PathBuf; 4] {
     [
         native_sources.to_path_buf(),
         source.join("lld"),
@@ -317,9 +320,7 @@ fn link(
 
     publish_linker(
         &output,
-        &toolchain
-            .join("bin")
-            .join(executable(flavor.executable())),
+        &toolchain.join("bin").join(executable(flavor.executable())),
     )
 }
 

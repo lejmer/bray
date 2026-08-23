@@ -127,9 +127,9 @@ impl Compilation {
                 executable_host,
                 reference.role(),
             )
-                .ok_or(CodegenPreparationError::MissingRuntimeRole(
-                    reference.role(),
-                ))?;
+            .ok_or(CodegenPreparationError::MissingRuntimeRole(
+                reference.role(),
+            ))?;
 
             let signature = self.codegen_runtime_signature(reference.role())?;
 
@@ -343,11 +343,7 @@ impl Compilation {
                     .name()
                     .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
-                native_boundary_mapping(
-                    name,
-                    boundary.direction(),
-                    boundary.symbol().binding(),
-                )
+                native_boundary_mapping(name, boundary.direction(), boundary.symbol().binding())
             })
             .transpose()
     }

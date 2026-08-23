@@ -34,9 +34,7 @@ pub(super) fn validate_static_storage_mappings(
     expected.extend(
         native_mappings
             .iter()
-            .filter(|mapping| {
-                mapping.direction() == bray_symbols::ForeignCallableDirection::Export
-            })
+            .filter(|mapping| mapping.direction() == bray_symbols::ForeignCallableDirection::Export)
             .map(|mapping| (mapping.owner(), mapping.storage())),
     );
 

@@ -517,8 +517,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(global.as_pointer_value().into())
             }
             CodegenTypeKind::Aggregate(fields)
-                if fields.len() == 3
-                    && mapping.behavior() == Some(CodegenTypeBehavior::String) =>
+                if fields.len() == 3 && mapping.behavior() == Some(CodegenTypeBehavior::String) =>
             {
                 self.string_value_constant(representation, global.as_pointer_value(), text.len())
                     .map(Into::into)
@@ -551,9 +550,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        if fields.len() != 3
-            || mapping.behavior() != Some(CodegenTypeBehavior::String)
-        {
+        if fields.len() != 3 || mapping.behavior() != Some(CodegenTypeBehavior::String) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 

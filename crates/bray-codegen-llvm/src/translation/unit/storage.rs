@@ -30,8 +30,7 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
                             .add_global(pointee, None, mapping.symbol().as_str())
                     });
 
-                let optional =
-                    mapping.presence() == bray_symbols::NativeSymbolPresence::Optional;
+                let optional = mapping.presence() == bray_symbols::NativeSymbolPresence::Optional;
 
                 global.set_linkage(if optional {
                     Linkage::ExternalWeak
@@ -51,7 +50,10 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
         };
 
-        llvm(self.builder.build_store(destination, global.as_pointer_value()))?;
+        llvm(
+            self.builder
+                .build_store(destination, global.as_pointer_value()),
+        )?;
 
         Ok(())
     }

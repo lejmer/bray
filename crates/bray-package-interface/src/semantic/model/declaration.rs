@@ -157,11 +157,7 @@ impl InterfaceTypeRepresentation {
     }
 
     /// Returns this contract with opaque and incomplete storage state.
-    pub const fn with_opaque_storage(
-        mut self,
-        size: Option<u64>,
-        incomplete: bool,
-    ) -> Self {
+    pub const fn with_opaque_storage(mut self, size: Option<u64>, incomplete: bool) -> Self {
         self.opaque_size = size;
         self.incomplete = incomplete;
 

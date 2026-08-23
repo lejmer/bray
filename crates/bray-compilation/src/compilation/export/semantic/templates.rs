@@ -7,16 +7,12 @@ use bray_checker::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_package_interface::{
-    InterfaceConstantTermId,
-    InterfaceConstantValueId,
-    InterfaceDependencyContractId,
-    InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstanceId, InterfaceSymbolReference, InterfaceTraitApplicationId, InterfaceTypeId,
+    InterfaceConstantTermId, InterfaceConstantValueId, InterfaceDependencyContractId,
+    InterfaceGenericSubstitutionId, InterfaceImplementationInstanceId, InterfaceSymbolReference,
+    InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use bray_symbols::{
-    AnySymbolId, ConstantTermId,
-    ConstantValueId, GenericSubstitutionId,
-    ImplementationInstanceId,
+    AnySymbolId, ConstantTermId, ConstantValueId, GenericSubstitutionId, ImplementationInstanceId,
     TraitApplicationId, TypeId,
 };
 

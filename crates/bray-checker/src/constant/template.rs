@@ -167,7 +167,8 @@ pub fn resolve_type_expression_template(
             TypeData::Array { element, length }
         }
         TypeExpressionTemplate::FlexibleArray(element) => {
-            let Some(element) = resolve_type_expression_template(values, element, constants)? else {
+            let Some(element) = resolve_type_expression_template(values, element, constants)?
+            else {
                 return Ok(None);
             };
 

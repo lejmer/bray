@@ -518,8 +518,8 @@ impl Compilation {
                 }
 
                 // Runtime selection owns the Arc-backed identities used after planning.
-                let capabilities = transfers_cleanup_incident
-                    .then_some(RuntimeCapability::MemoryOperations);
+                let capabilities =
+                    transfers_cleanup_incident.then_some(RuntimeCapability::MemoryOperations);
 
                 bray_runtime_interface::RuntimeRequirements::new(
                     Some(runtime.contract().identity().clone()),
@@ -3225,9 +3225,7 @@ mod tests {
 
         let thread_instances = instances
             .iter()
-            .filter(|instance| {
-                instance.duration() == StaticStorageDuration::ExactThread
-            })
+            .filter(|instance| instance.duration() == StaticStorageDuration::ExactThread)
             .count();
 
         assert_eq!(product_instances, 2);
@@ -3633,21 +3631,20 @@ mod tests {
 
         assert!(plan.mappings().iter().any(|mappings| {
             mappings.types().iter().any(|mapping| {
-                mapping.layout().is_some_and(|layout| {
-                    layout.size() == 40 && layout.alignment().get() == 8
-                })
+                mapping
+                    .layout()
+                    .is_some_and(|layout| layout.size() == 40 && layout.alignment().get() == 8)
             })
         }));
 
-        let backend_ir = generated_artifacts_of_kind(
-            &backend,
-            &plan,
-            BackendArtifactKind::BackendIr,
-        );
+        let backend_ir =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
 
-        assert!(backend_ir.iter().any(|artifact| {
-            String::from_utf8_lossy(artifact).contains("@unused_export =")
-        }));
+        assert!(
+            backend_ir
+                .iter()
+                .any(|artifact| { String::from_utf8_lossy(artifact).contains("@unused_export =") })
+        );
 
         assert!(
             generated_artifacts(&backend, &plan)

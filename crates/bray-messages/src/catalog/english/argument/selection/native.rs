@@ -32,11 +32,11 @@ pub(crate) fn format_english_native_symbol_directive_problem(
     use bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem as Problem;
 
     match problem {
-        Problem::Argument(problem) => {
-            format_english_directive_argument_problem(problem)
-        }
+        Problem::Argument(problem) => format_english_directive_argument_problem(problem),
         Problem::MissingIdentity => String::from("one of name or ordinal is required"),
-        Problem::ConflictingIdentity => String::from("name and ordinal select different identities"),
+        Problem::ConflictingIdentity => {
+            String::from("name and ordinal select different identities")
+        }
         Problem::UnsupportedValue { name, provided } => {
             format!("argument {name} has unsupported value {provided}")
         }

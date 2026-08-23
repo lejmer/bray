@@ -47,10 +47,8 @@ pub(super) fn audit(
     let first_misses = profile_metric(&first.profile, "compiler.optimization.cache_misses");
     let first_writes = profile_metric(&first.profile, "compiler.optimization.cache_writes");
 
-    let first_peak_memory = profile_metric(
-        &first.profile,
-        "compiler.optimization.peak_resident_bytes",
-    );
+    let first_peak_memory =
+        profile_metric(&first.profile, "compiler.optimization.peak_resident_bytes");
 
     let first_active_workers =
         profile_metric(&first.profile, "compiler.optimization.active_workers");
@@ -73,10 +71,8 @@ pub(super) fn audit(
     let repeated_misses = profile_metric(&repeated.profile, "compiler.optimization.cache_misses");
     let repeated_writes = profile_metric(&repeated.profile, "compiler.optimization.cache_writes");
 
-    let repeated_reuse = profile_metric(
-        &repeated.profile,
-        "compiler.optimization.reused_partitions",
-    );
+    let repeated_reuse =
+        profile_metric(&repeated.profile, "compiler.optimization.reused_partitions");
 
     if repeated.executable != first.executable
         || repeated_hits == 0
@@ -393,8 +389,7 @@ fn emit_fixture(
 
     let native_output = output.join("native");
 
-    fs::create_dir_all(&native_output)
-        .map_err(|error| BuildError::write(&native_output, error))?;
+    fs::create_dir_all(&native_output).map_err(|error| BuildError::write(&native_output, error))?;
 
     crate::native_product::emit_executable(
         &compilation,
@@ -582,5 +577,4 @@ mod tests {
             0
         );
     }
-
 }
