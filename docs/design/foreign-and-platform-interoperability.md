@@ -297,6 +297,9 @@ source bytes participate in the ordinary package source and artifact digests, so
 use the same target constants even when the host operating system differs. Target metadata may validate a value but
 never supplies an alternate constant definition.
 
+Each target's generated module provides exact constants, C scalar mappings, layouts, callbacks, functions, imported
+storage, and dynamic-symbol helpers for that target.
+
 Target modules may expose typed raw values needed to call operating-system APIs, but ownership remains in explicit owner
 types. Constants do not create resources, integer conversion does not transfer ownership, and matching numerical values
 across operating systems do not make their types interchangeable.

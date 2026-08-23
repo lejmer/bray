@@ -583,16 +583,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         llvm(
-            self.builder
-                .build_store(
-                    storage,
-                    integer_constant(
-                        tag_type,
-                        variant
-                            .tag()
-                            .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-                    ),
+            self.builder.build_store(
+                storage,
+                integer_constant(
+                    tag_type,
+                    variant
+                        .tag()
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
                 ),
+            ),
         )?;
 
         if let Some(payload) = payload {

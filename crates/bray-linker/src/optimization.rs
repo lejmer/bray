@@ -238,9 +238,7 @@ impl RawReport {
             return Err(LinkOptimizationReportProblem::InconsistentCacheOutcomes);
         }
 
-        if self.peak_resident_bytes == 0
-            || (self.cache_misses > 0 && self.active_workers == 0)
-        {
+        if self.peak_resident_bytes == 0 || (self.cache_misses > 0 && self.active_workers == 0) {
             return Err(LinkOptimizationReportProblem::MissingResourceMeasurement);
         }
 

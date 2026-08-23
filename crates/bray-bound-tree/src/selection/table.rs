@@ -541,8 +541,8 @@ mod tests {
         BoundConversionExpression, BoundErrorExpression, BoundExpression, BoundExpressionId,
         BoundMemberAccessExpression, BoundMemberSelector, BoundOperator, BoundUnit, BoundUnitId,
         CheckedExpressionTypes, ConversionTarget, ExpressionTypeResult, ExpressionTypeStatus,
-        MemberTarget, OperatorTarget, SelectedConversion,
-        SelectedImplementationWitness, SelectedOperation,
+        MemberTarget, OperatorTarget, SelectedConversion, SelectedImplementationWitness,
+        SelectedOperation,
     };
 
     #[test]

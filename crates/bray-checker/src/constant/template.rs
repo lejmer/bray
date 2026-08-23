@@ -90,6 +90,37 @@ pub fn resolve_type_expression_template(
                 substitution,
             }
         }
+        TypeExpressionTemplate::CallableContract {
+            definition,
+            target,
+            parameters,
+            arguments,
+        } => {
+            let Some(target) = resolve_type_expression_template(values, target, constants)? else {
+                return Ok(None);
+            };
+
+            let Some(arguments) = resolve_arguments(values, arguments, constants)? else {
+                return Ok(None);
+            };
+
+            let Some(owner) = GenericOwnerId::try_new((*definition).into()) else {
+                return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+            };
+
+            let substitution =
+                GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+            let substitution = values
+                .intern_generic_substitution(substitution)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+            return values
+                .substitute_type(target, substitution)
+                .map(Some)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable);
+        }
         TypeExpressionTemplate::TypeValuedMemberProjection {
             subject,
             application,
@@ -136,7 +167,8 @@ pub fn resolve_type_expression_template(
             TypeData::Array { element, length }
         }
         TypeExpressionTemplate::FlexibleArray(element) => {
-            let Some(element) = resolve_type_expression_template(values, element, constants)? else {
+            let Some(element) = resolve_type_expression_template(values, element, constants)?
+            else {
                 return Ok(None);
             };
 

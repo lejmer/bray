@@ -15,10 +15,10 @@ mod runtime;
 #[cfg(feature = "analysis")]
 mod source;
 mod status;
-#[cfg(feature = "compiler")]
-mod toolchain;
 #[cfg(test)]
 mod test_support;
+#[cfg(feature = "compiler")]
+mod toolchain;
 
 #[cfg(feature = "analysis")]
 pub use inspection::{

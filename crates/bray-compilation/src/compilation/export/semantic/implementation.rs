@@ -3,14 +3,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
-    InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord, InterfacePredicateDefinitionState, InterfaceSymbolReference, InterfaceTraitApplicationId, InterfaceTypeId,
+    InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord,
+    InterfacePredicateDefinitionState, InterfaceSymbolReference, InterfaceTraitApplicationId,
+    InterfaceTypeId,
 };
 use bray_symbols::{
-    AnySymbolId, ConstantDefinitionState,
-    DependencyRequirementKind, ImplementationCoherenceQuery, ImplementationSymbolId,
-    PredicateDefinition, PredicateDefinitionQuery, PredicateDefinitionState,
-    StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind, SymbolQueryContract,
-    SymbolQueryRequest, TraitPredicateFulfillmentDefinitionQuery,
+    AnySymbolId, ConstantDefinitionState, DependencyRequirementKind, ImplementationCoherenceQuery,
+    ImplementationSymbolId, PredicateDefinition, PredicateDefinitionQuery,
+    PredicateDefinitionState, StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind,
+    SymbolQueryContract, SymbolQueryRequest, TraitPredicateFulfillmentDefinitionQuery,
     TraitPredicateMemberDefinitionQuery,
 };
 

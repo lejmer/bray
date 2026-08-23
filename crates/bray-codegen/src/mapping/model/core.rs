@@ -7,10 +7,10 @@ use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
-    CodegenDebugLocation, CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenOperationMapping,
-    CodegenNativeStaticMapping, CodegenProductHostMapping, CodegenStaticStorageMapping,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenDebugLocation, CodegenInstanceKey, CodegenInstanceTypeMapping,
+    CodegenNativeStaticMapping, CodegenOperationMapping, CodegenProductHostMapping,
+    CodegenStaticStorageMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
 use super::static_storage::{validate_native_static_mappings, validate_static_storage_mappings};

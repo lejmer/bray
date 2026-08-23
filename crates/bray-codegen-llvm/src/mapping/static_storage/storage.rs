@@ -141,9 +141,7 @@ fn declare_static_global<'context>(
     global
 }
 
-const fn native_static_definition_linkage(
-    binding: bray_symbols::NativeSymbolBinding,
-) -> Linkage {
+const fn native_static_definition_linkage(binding: bray_symbols::NativeSymbolBinding) -> Linkage {
     match binding {
         bray_symbols::NativeSymbolBinding::Strong => Linkage::External,
         bray_symbols::NativeSymbolBinding::Weak => Linkage::WeakAny,

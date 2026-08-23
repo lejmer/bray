@@ -172,10 +172,7 @@ impl Compilation {
         {
             let anchor = symbol_directive.map_or(anchor, bray_symbols::DirectiveTemplate::syntax);
 
-            diagnostics.add(invalid_symbol_policy(
-                anchor,
-                "presence",
-            ));
+            diagnostics.add(invalid_symbol_policy(anchor, "presence"));
         }
 
         if direction == ForeignCallableDirection::Import
@@ -257,11 +254,7 @@ impl Compilation {
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
                     let display = native_symbol_display(contract.symbol().identity());
 
-                    diagnostics.add(duplicate_native_symbol(
-                        anchor,
-                        &display,
-                        entry.get(),
-                    ));
+                    diagnostics.add(duplicate_native_symbol(anchor, &display, entry.get()));
 
                     entry.get_mut().push(anchor);
                 }
@@ -275,10 +268,8 @@ impl Compilation {
         {
             cancellation.check()?;
 
-            let result = self.foreign_static_contract_with_cancellation(
-                static_symbol.id(),
-                cancellation,
-            )?;
+            let result =
+                self.foreign_static_contract_with_cancellation(static_symbol.id(), cancellation)?;
 
             diagnostics.add_range(result.diagnostics().iter().cloned());
 
@@ -414,7 +405,11 @@ func weak_export() -> i32
             .foreign_callable_contract(source_function(&compilation, "weak_export"))
             .unwrap_or_else(|error| panic!("foreign contract must be available: {error:?}"));
 
-        assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:#?}",
+            result.diagnostics()
+        );
 
         let contract = result
             .value()

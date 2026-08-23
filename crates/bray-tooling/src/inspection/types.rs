@@ -119,6 +119,16 @@ impl<'model> TypeFormatter<'model> {
 
                 Ok(format_application(name, arguments))
             }
+            TypeExpressionTemplate::CallableContract {
+                definition,
+                arguments,
+                ..
+            } => {
+                let name = self.symbol((*definition).into());
+                let arguments = self.template_arguments(arguments, depth + 1)?;
+
+                Ok(format_application(name, arguments))
+            }
             TypeExpressionTemplate::TypeValuedMemberProjection {
                 subject,
                 application,
@@ -418,6 +428,7 @@ fn template_kind(template: &TypeExpressionTemplate) -> &'static str {
     match template {
         TypeExpressionTemplate::Resolved(_) => "resolved",
         TypeExpressionTemplate::Named { .. } => "named",
+        TypeExpressionTemplate::CallableContract { .. } => "callable_contract",
         TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
             "type_valued_member_projection"
         }

@@ -107,10 +107,7 @@ impl Parser {
     }
 
     fn recover_unknown_variant_directive(&mut self, builder: &mut VariantDirectivesSyntaxBuilder) {
-        self.recover_unsupported_directive(
-            builder,
-            &UNION_VARIANT_DECLARATION_START_KINDS,
-        );
+        self.recover_unsupported_directive(builder, &UNION_VARIANT_DECLARATION_START_KINDS);
     }
 
     fn parse_union_variant_payload(&mut self) -> UnionVariantPayloadSyntax {

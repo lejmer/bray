@@ -7,8 +7,8 @@ use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync, CheckedBodyBehavior,
     CheckedControlFlow, CheckedDependencyContracts, CheckedMemoryOperations, CheckedPatterns,
-    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SelectedArgument,
-    SemanticSelection, StorageFlow, StoragePlan,
+    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SelectedArgument, SemanticSelection,
+    StorageFlow, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -655,7 +655,9 @@ impl Compilation {
                     continue;
                 };
 
-                if usize::try_from(*ordinal).is_ok_and(|ordinal| ordinal < callable.parameters().len()) {
+                if usize::try_from(*ordinal)
+                    .is_ok_and(|ordinal| ordinal < callable.parameters().len())
+                {
                     continue;
                 }
 
@@ -710,11 +712,7 @@ enum SemanticDiagnosticSource {
     ConstantInstance(Arc<DiagnosticResult<bray_checker::EvaluatedConstantCall>>),
     ModuleSurface(Arc<DiagnosticResult<ModuleSurface>>),
     CallableContracts(
-        Arc<
-            DiagnosticResult<
-                <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
-            >,
-        >,
+        Arc<DiagnosticResult<<CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value>>,
     ),
     TypeRepresentation(Arc<DiagnosticResult<DeclaredTypeRepresentation>>),
     TraitConformance(

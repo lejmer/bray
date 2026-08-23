@@ -682,13 +682,11 @@ where
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        let Some(mapping) =
-            crate::selection::map_argument_parameter_indices(
-                arguments,
-                callable.parameters(),
-                callable.is_variadic(),
-            )
-        else {
+        let Some(mapping) = crate::selection::map_argument_parameter_indices(
+            arguments,
+            callable.parameters(),
+            callable.is_variadic(),
+        ) else {
             return Ok(None);
         };
 

@@ -1064,11 +1064,7 @@ impl Lowerer<'_> {
                         MirStorageKind::Static(reference.clone())
                     };
 
-                    let storage = self.builder.push_storage(
-                        self.source(origin),
-                        kind,
-                        ty,
-                    )?;
+                    let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
                     self.static_storages.insert(reference.clone(), storage);
 

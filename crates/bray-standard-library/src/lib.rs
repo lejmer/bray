@@ -21,11 +21,10 @@ pub use manifest::{
     StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
     StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
     StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
-    StandardLibraryOptimizationMetadataProblem,
-    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
-    StandardLibraryOptimizationSemantics, StandardLibraryTargetArtifacts,
-    decode_standard_library_manifest, encode_standard_library_manifest,
-    standard_library_target_artifact_directory,
+    StandardLibraryOptimizationMetadataProblem, StandardLibraryOptimizationProducer,
+    StandardLibraryOptimizationProducerKind, StandardLibraryOptimizationSemantics,
+    StandardLibraryTargetArtifacts, decode_standard_library_manifest,
+    encode_standard_library_manifest, standard_library_target_artifact_directory,
 };
 pub use resolver::{
     ResolvedStandardLibraryArtifact, StandardLibraryLoadError, StandardLibraryResolver,

@@ -169,9 +169,7 @@ fn build_identity_surface(
 ) -> Result<ExportIdentitySurface, PackageInterfaceExportError> {
     // The exported surface retains the Arc-backed package identity independently.
     let package_key = ExternalSymbolKey::package(compilation.package_identity().clone());
-
     let package_symbol = package_symbol(graph, compilation.package_identity())?;
-
     let mut selected = BTreeSet::from_iter(public_symbols.iter().copied());
 
     selected.extend(
@@ -214,6 +212,7 @@ fn build_identity_surface(
     }
 
     let mut keys = BTreeMap::new();
+
     keys.insert(package_symbol, package_key);
 
     for symbol in selected.iter().copied() {
@@ -1245,10 +1244,7 @@ mod tests {
 
         for (template_index, template) in semantics.checked_templates().iter().enumerate() {
             for (node_index, node) in template.nodes().iter().enumerate() {
-                let bray_package_interface::InterfaceCheckedTemplateOperation::Borrow {
-                    kind,
-                    operand,
-                } = node.operation()
+                let InterfaceCheckedTemplateOperation::Borrow { kind, operand } = node.operation()
                 else {
                     continue;
                 };
@@ -1894,6 +1890,35 @@ mod tests {
             value.kind(),
             &InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(64))
         );
+    }
+
+    #[test]
+    fn named_callable_contract_applications_export_in_public_signatures() {
+        let compilation = compilation_from_sources([concat!(
+            "trusted module app;\n",
+            "\n",
+            "callable ThreadStart = @abi(c)\n",
+            "func(pos context: RawPointer<u8>) -> RawPointer<u8>;\n",
+            "\n",
+            "callable Transform<T> = @abi(c)\n",
+            "func(pos value: T) -> T;\n",
+            "\n",
+            "callable FixedTransform<const N: usize> = @abi(c)\n",
+            "func(pos value: RawPointer<[u8; N]>) -> RawPointer<[u8; N]>;\n",
+            "\n",
+            "trusted func register(\n",
+            "    pos start: ThreadStart,\n",
+            "    pos transform: Transform<i32>,\n",
+            "    pos fixed: FixedTransform<4>\n",
+            ") -> i32\n",
+            "{\n",
+            "    return 0;\n",
+            "}\n",
+        )]);
+
+        let bundle = export(&compilation);
+
+        assert_eq!(bundle.semantics().callable_signatures().len(), 1);
     }
 
     #[test]

@@ -552,7 +552,8 @@ where
                     borrow: Some((*kind, reached_type)),
                 }))
             }
-            TypeExpressionTemplate::Named { .. }
+            TypeExpressionTemplate::CallableContract { .. }
+            | TypeExpressionTemplate::Named { .. }
             | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
             | TypeExpressionTemplate::Tuple(_)
             | TypeExpressionTemplate::Array { .. }

@@ -27,8 +27,8 @@ pub(crate) fn current_target_bundle(
 pub(super) fn input_identity(source: &Path) -> Result<String, BuildError> {
     let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
-    let sources = crate::input_identity::WorkspaceSources::load(&root)
-        .map_err(BuildError::InputIdentity)?;
+    let sources =
+        crate::input_identity::WorkspaceSources::load(&root).map_err(BuildError::InputIdentity)?;
 
     crate::input_identity::input_digest(
         &root,

@@ -25,8 +25,7 @@ pub use identity::{
 };
 pub use model::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    InterfaceNativeBoundaryKind,
-    PackageImplementationArtifactBuildError,
+    InterfaceNativeBoundaryKind, PackageImplementationArtifactBuildError,
 };
 pub use specialization::{
     CURRENT_MIR_SCHEMA_REVISION, ImplementationExternalSymbolIdentity,

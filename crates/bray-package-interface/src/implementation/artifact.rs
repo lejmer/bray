@@ -733,8 +733,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use bray_bound_tree::CheckedTemplateKind;
     use bray_base::NonEmptySharedStr;
+    use bray_bound_tree::CheckedTemplateKind;
     use bray_symbols::{
         ExternalSymbolKey, ForeignCallableDirection, ImportedInterfaceId, InterfaceSymbolId,
         NativeSymbolContract, PackageIdentity, SemanticValueStore, SymbolId, SymbolKind,
@@ -794,8 +794,7 @@ mod tests {
     fn malformed_unrequested_payloads_do_not_block_other_body_lookups() {
         let fixture = artifact_fixture();
 
-        let second_owner =
-            InterfaceSymbolId::new(fixture.body.owner().raw().saturating_add(100));
+        let second_owner = InterfaceSymbolId::new(fixture.body.owner().raw().saturating_add(100));
 
         let second =
             InterfaceConstantCallableBody::new(second_owner, fixture.body.template().clone());
@@ -807,9 +806,8 @@ mod tests {
             fixture.bundle.implementation_configuration().clone(),
         );
 
-        let encoded =
-            encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
-                .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
+        let encoded = encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
+            .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
         let pristine = PackageImplementationArtifact::try_from_bytes(
             Arc::clone(&encoded),

@@ -114,6 +114,7 @@ where
                 .map(|parameter| parameter.mode())
                 .collect())
         }
+        TypeExpressionTemplate::CallableContract { target, .. } => parameter_modes(request, target),
         TypeExpressionTemplate::Named { .. }
         | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
         | TypeExpressionTemplate::Tuple(_)

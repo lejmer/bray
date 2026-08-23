@@ -11,13 +11,12 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, CallableSignatureQuery, CallableSignatureTemplate,
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantExpressionExpectedType,
-    ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeQuery,
-    ImplementationSubjectQuery, NamedTypeSymbolId, PredicateDefinitionSymbolId,
-    GenericArgumentTemplate, GenericParameterSymbolId, PredicateSignatureTemplateQuery,
-    StaticDeclaredTypeQuery, StructFieldTypeQuery, SymbolQueryRequest,
-    SymbolProvider,
-    TraitConstantFulfillmentDeclaredTypeQuery,
-    TraitConstantMemberDeclaredTypeQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
+    ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericArgumentTemplate,
+    GenericConstParameterDeclaredTypeQuery, GenericParameterSymbolId, ImplementationSubjectQuery,
+    NamedTypeSymbolId, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
+    StaticDeclaredTypeQuery, StructFieldTypeQuery, SymbolProvider, SymbolQueryRequest,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
+    TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
 use bray_syntax::{LambdaExpressionSyntax, StaticDeclarationSyntax};
 use bray_target::TargetPropertyKind;
@@ -380,9 +379,8 @@ impl DeclaredValueTypeBinding<'_> {
     fn callable_signature(
         &self,
         owner: AnySymbolId,
-    ) -> BindingQueryResult<
-        Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>,
-    > {
+    ) -> BindingQueryResult<Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>>
+    {
         let callable = CallableSymbolId::try_from_any(owner)
             .ok_or(BindingQueryError::DependencyUnavailable)?;
 
@@ -432,11 +430,10 @@ impl DeclaredValueTypeBinding<'_> {
         match owner {
             AnySymbolId::Constant(constant) => self.constant_type(constant),
             AnySymbolId::Static(static_symbol) => {
-                let declared = self
-                    .context
-                    .resolve_symbol_query(SymbolQueryRequest::<StaticDeclaredTypeQuery>::new(
-                        static_symbol,
-                    ))?;
+                let declared =
+                    self.context.resolve_symbol_query(SymbolQueryRequest::<
+                        StaticDeclaredTypeQuery,
+                    >::new(static_symbol))?;
 
                 self.static_reference_type(static_symbol, owned_template(declared.value()))
             }
@@ -475,9 +472,16 @@ impl DeclaredValueTypeBinding<'_> {
                     )
                     .ok_or(BindingQueryError::DependencyUnavailable)?;
 
-                syntax.static_declaration_modifiers().extern_token().is_some()
+                syntax
+                    .static_declaration_modifiers()
+                    .extern_token()
+                    .is_some()
                     || (syntax.mut_token().is_some()
-                        && syntax.static_directives().symbol_directives().next().is_some())
+                        && syntax
+                            .static_directives()
+                            .symbol_directives()
+                            .next()
+                            .is_some())
             }
             None => self
                 .context

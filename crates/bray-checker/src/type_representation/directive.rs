@@ -282,10 +282,7 @@ where
         tagless: bool,
         recovered: &mut bool,
     ) -> CheckerQueryResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
-        if matches!(
-            definition.subject(),
-            NamedTypeSymbolId::Struct(_)
-        ) {
+        if matches!(definition.subject(), NamedTypeSymbolId::Struct(_)) {
             return Ok((Vec::new(), None));
         }
 
@@ -701,7 +698,10 @@ fn layout_problems(
         }
 
         for (present, option) in [
-            (layout.alignment.is_some(), DiagnosticLayoutOption::Alignment),
+            (
+                layout.alignment.is_some(),
+                DiagnosticLayoutOption::Alignment,
+            ),
             (layout.packing.is_some(), DiagnosticLayoutOption::Packing),
             (layout.size.is_some(), DiagnosticLayoutOption::Size),
             (layout.tag_type.is_some(), DiagnosticLayoutOption::Tag),
@@ -746,7 +746,10 @@ fn layout_problems(
         }
 
         if layout.size.is_some()
-            && !matches!(layout.mode, DeclaredLayoutMode::Stable | DeclaredLayoutMode::C)
+            && !matches!(
+                layout.mode,
+                DeclaredLayoutMode::Stable | DeclaredLayoutMode::C
+            )
         {
             problems.push(DiagnosticLayoutProblem::OpaqueStorageRequiresStableOrC);
         }

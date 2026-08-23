@@ -2,8 +2,7 @@ use bray_codegen::{CodegenNativeStaticMapping, CodegenUnit};
 use bray_ir::MirStorageKind;
 use bray_runtime_interface::BinarySymbolName;
 use bray_symbols::{
-    ForeignCallableDirection, NativeSymbolContract, StaticReferenceSelection,
-    StaticStorageDuration,
+    ForeignCallableDirection, NativeSymbolContract, StaticReferenceSelection, StaticStorageDuration,
 };
 
 use super::super::super::{CodegenPreparationError, Compilation};
@@ -117,8 +116,8 @@ impl Compilation {
             }));
         }
 
-        let Some(boundary) = self
-            .imported_native_boundary_with_cancellation(declaration.into(), cancellation)?
+        let Some(boundary) =
+            self.imported_native_boundary_with_cancellation(declaration.into(), cancellation)?
         else {
             return Ok(None);
         };

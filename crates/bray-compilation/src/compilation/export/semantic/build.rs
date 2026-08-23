@@ -2,12 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundUnitKey;
 use bray_package_interface::{
-    InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
+    InterfaceExecutableTemplate, InterfaceNativeBoundary, InterfaceRuntimeRequirement,
+    InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
 };
-use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, InterfaceSymbolId,
-};
+use bray_symbols::{AnySymbolId, ExternalSymbolKey, InterfaceSymbolId};
 
 use super::super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
@@ -18,9 +16,7 @@ use super::declarations::{
     export_generic_semantics, export_predicate_semantics, export_type_semantics,
 };
 use super::defaults::target_dependencies;
-use super::implementation::{
-    export_constant_semantics, implementation_semantics,
-};
+use super::implementation::{export_constant_semantics, implementation_semantics};
 use super::templates::ExecutableTemplateExporter;
 
 pub(in crate::compilation::export) fn build_semantics(

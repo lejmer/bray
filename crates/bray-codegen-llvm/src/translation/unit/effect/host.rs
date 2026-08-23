@@ -118,10 +118,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     )?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    let frame_storage = self.allocate_temporary(
-                        frame.get_type(),
-                        "root.frame.transfer.storage",
-                    )?;
+                    let frame_storage =
+                        self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
 
                     llvm(self.builder.build_store(frame_storage, frame))?;
 

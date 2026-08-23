@@ -312,6 +312,32 @@ fn template_internal_dependency(
                     return Some(internal);
                 }
             }
+            TypeExpressionTemplate::CallableContract {
+                definition,
+                target,
+                arguments,
+                ..
+            } => {
+                if source_symbol_is_not_publicly_reachable(
+                    (*definition).into(),
+                    declarations,
+                    symbols,
+                ) {
+                    return Some((*definition).into());
+                }
+
+                pending.push(target);
+
+                if let Some(internal) = template_arguments_internal_dependency(
+                    arguments,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
+                    return Some(internal);
+                }
+            }
             TypeExpressionTemplate::TypeValuedMemberProjection {
                 subject,
                 application,

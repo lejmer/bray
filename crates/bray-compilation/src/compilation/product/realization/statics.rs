@@ -358,8 +358,7 @@ impl Compilation {
                 let native_binding = self
                     .optional_native_static_contract(&reference, cancellation)?
                     .filter(|contract| {
-                        contract.direction
-                            == bray_symbols::ForeignCallableDirection::Export
+                        contract.direction == bray_symbols::ForeignCallableDirection::Export
                     })
                     .map(|contract| contract.symbol.binding());
 

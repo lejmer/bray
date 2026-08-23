@@ -1,5 +1,5 @@
 @target(target.identity.SYSTEM == "windows")
-module std.os.windows;
+trusted module std.os.windows;
 
 @copy
 @layout(transparent)

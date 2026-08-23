@@ -50,9 +50,7 @@ pub(in crate::output::diagnostic::json) fn native_symbol_directive_problem_json(
     use bray_diagnostics::DiagnosticNativeSymbolDirectiveProblem as Problem;
 
     match problem {
-        Problem::Argument(problem) => {
-            directive_argument_problem_json(problem)
-        }
+        Problem::Argument(problem) => directive_argument_problem_json(problem),
         Problem::MissingIdentity => DiagnosticProblemJson {
             reason: "missing_identity",
             context: Vec::new(),

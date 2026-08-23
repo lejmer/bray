@@ -17,10 +17,7 @@ impl CandidateWinners {
     pub(super) fn for_workload(workload: &WorkloadReport) -> Self {
         Self {
             compilation_process: minimum_complete(
-                std::iter::once(Some(
-                    workload.compilation.process_elapsed_nanoseconds,
-                ))
-                .chain(
+                std::iter::once(Some(workload.compilation.process_elapsed_nanoseconds)).chain(
                     workload
                         .peers
                         .values()
@@ -28,10 +25,7 @@ impl CandidateWinners {
                 ),
             ),
             compiler_work: minimum_complete(
-                std::iter::once(Some(
-                    workload.compilation.compiler_elapsed_nanoseconds,
-                ))
-                .chain(
+                std::iter::once(Some(workload.compilation.compiler_elapsed_nanoseconds)).chain(
                     workload
                         .peers
                         .values()

@@ -35,17 +35,17 @@ use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] | \
-    os-constants generate [--check] | \
+    os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
     test [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
         Some("build") => BuildOptions::parse(arguments).and_then(BuildOptions::build),
-        Some("os-constants") => crate::standard_library::os_constants::run(arguments)
+        Some("os-bindings") => crate::standard_library::os_bindings::run(arguments)
             .map(|()| PathBuf::new())
-            .map_err(BuildError::OsConstants),
+            .map_err(BuildError::OsBindings),
         Some("test") => native_test(arguments).map(|()| PathBuf::new()),
-        Some("verify") => verify(arguments).map(|()| PathBuf::new()),
+        Some("verify") => super::verification::verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
     };
 
@@ -150,26 +150,6 @@ fn path_argument(
         .next()
         .map(PathBuf::from)
         .ok_or(BuildError::MissingValue(option))
-}
-
-fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError> {
-    if let Some(argument) = arguments.next() {
-        return Err(BuildError::UnexpectedArgument(argument));
-    }
-
-    crate::progress::run("Checking standard library OS constants", || {
-        crate::standard_library::os_constants::verify()
-    })
-    .map_err(BuildError::OsConstants)?;
-
-    let directory = tempfile::Builder::new()
-        .prefix("bray-standard-library-verification-")
-        .tempdir()
-        .map_err(BuildError::TemporaryDirectory)?;
-
-    crate::progress::run("Verifying the standard library bundle", || {
-        crate::standard_library::conformance::verify(directory.path())
-    })
 }
 
 pub(in crate::standard_library) fn compare_bundles(
@@ -691,7 +671,12 @@ pub(in crate::standard_library) fn standard_library_source_request(
     let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
         .map_err(|error| BuildError::Source(format!("{error:?}")))?;
 
-    let options = CompilationOptions::new(worker_budget, ProductKind::Library, selected.clone());
+    let native_links =
+        crate::standard_library::os_bindings::native_links(selected.profile().identity())
+            .map_err(BuildError::OsBindings)?;
+
+    let options = CompilationOptions::new(worker_budget, ProductKind::Library, selected.clone())
+        .with_native_link_inputs(native_links);
 
     Ok(
         CompilationRequest::with_options(product.identity().package().clone(), sources, options)

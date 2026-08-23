@@ -1,7 +1,7 @@
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::sync::Arc;
+use std::sync::{Mutex, MutexGuard};
 
 use bray_base::Cancellation;
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactId};
@@ -123,8 +123,9 @@ impl ExternalToolHost for RecordingExternalToolHost {
         if let Some(report) = &self.optimization_report {
             let path = optimization_report_path(invocation);
 
-            std::fs::write(path, report)
-                .unwrap_or_else(|error| panic!("test optimization report must be written: {error}"));
+            std::fs::write(path, report).unwrap_or_else(|error| {
+                panic!("test optimization report must be written: {error}")
+            });
         }
 
         if let Some(report) = &self.incomplete_optimization_report {

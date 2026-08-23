@@ -186,10 +186,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let layout_value = self.construct_positional_product(
             layout_type,
-            &[
-                bytes.into(),
-                integer.const_int(alignment, false).into(),
-            ],
+            &[bytes.into(), integer.const_int(alignment, false).into()],
         )?;
 
         let success = self.construct_positional_union(result, 0, &[layout_value])?;

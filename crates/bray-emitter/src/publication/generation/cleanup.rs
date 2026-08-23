@@ -15,7 +15,12 @@ pub(super) fn generation_public_paths(
     locator: GenerationLocator,
     planned: &crate::PlannedArtifact,
 ) -> Result<BTreeSet<PathBuf>, ArtifactPublicationFailure> {
-    let bytes = std::fs::read(layout.metadata.join(locator.to_hex()).join(GENERATION_MANIFEST))
+    let bytes = std::fs::read(
+        layout
+            .metadata
+            .join(locator.to_hex())
+            .join(GENERATION_MANIFEST),
+    )
     .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
 
     let manifest = serde_json::from_slice::<GenerationManifest>(&bytes)

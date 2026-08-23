@@ -1,16 +1,14 @@
 use bray_package_interface::{
-    DependencyInterfaceId, InterfaceConstantProjection,
-    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-    InterfaceConstantValueId, InterfaceConstantValueKind,
-    InterfaceGenericSubstitutionId, InterfaceStorageMember, InterfaceStorageShape, InterfaceSymbolReference, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
-    InterfaceUnionTag,
+    DependencyInterfaceId, InterfaceConstantProjection, InterfaceConstantTerm,
+    InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId,
+    InterfaceConstantValueKind, InterfaceGenericSubstitutionId, InterfaceStorageMember,
+    InterfaceStorageShape, InterfaceSymbolReference, InterfaceTypeRepresentation,
+    InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 use bray_symbols::{
-    AnySymbolId,
-    ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueData,
-    ConstantValueId, ConstantValueKind,
-    DeclaredStorageShape, GenericSubstitutionId,
-    ImplementationInstanceId, SymbolKeyData, TypeId,
+    AnySymbolId, ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId,
+    ConstantValueData, ConstantValueId, ConstantValueKind, DeclaredStorageShape,
+    GenericSubstitutionId, ImplementationInstanceId, SymbolKeyData, TypeId,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -375,7 +373,7 @@ impl<'a> SemanticExporter<'a> {
                         .iter()
                         .map(|member| (member.field().map(AnySymbolId::from), member.ty())),
                 )?
-                    .into(),
+                .into(),
             ),
             DeclaredStorageShape::Union(variants) => InterfaceStorageShape::Union(
                 variants
@@ -383,9 +381,10 @@ impl<'a> SemanticExporter<'a> {
                     .map(|variant| {
                         let members = self.storage_members(
                             owner,
-                            variant.members().iter().map(|member| {
-                                (member.field().map(AnySymbolId::from), member.ty())
-                            }),
+                            variant
+                                .members()
+                                .iter()
+                                .map(|member| (member.field().map(AnySymbolId::from), member.ty())),
                         )?;
 
                         Ok(InterfaceUnionStorageVariant::new(
@@ -407,10 +406,7 @@ impl<'a> SemanticExporter<'a> {
                     union_tag_type,
                 )
                 .with_union_tags(union_tags)
-                .with_opaque_storage(
-                    representation.opaque_size(),
-                    representation.is_incomplete(),
-                )
+                .with_opaque_storage(representation.opaque_size(), representation.is_incomplete())
                 .with_tagless_union(representation.is_tagless_union())
                 .with_storage(storage)
                 .with_copy(representation.copy_contract(), copy_dependencies)

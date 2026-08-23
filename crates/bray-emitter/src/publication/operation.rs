@@ -1086,9 +1086,7 @@ mod tests {
 
         let second_path = second
             .generation()
-            .and_then(|generation| {
-                generation.artifact_path(second.artifacts().artifacts()[0].id())
-            })
+            .and_then(|generation| generation.artifact_path(second.artifacts().artifacts()[0].id()))
             .unwrap_or_else(|| panic!("second private artifact path must resolve"));
 
         let third = ArtifactPublisher::new(&never_cancelled)

@@ -118,10 +118,7 @@ impl Parser {
         &mut self,
         builder: &mut FunctionDirectivesSyntaxBuilder,
     ) {
-        self.recover_unsupported_directive(
-            builder,
-            &FUNCTION_DECLARATION_START_KINDS,
-        );
+        self.recover_unsupported_directive(builder, &FUNCTION_DECLARATION_START_KINDS);
     }
 
     fn parse_function_modifiers(&mut self) -> FunctionModifiersSyntax {
@@ -201,9 +198,7 @@ impl Parser {
                     SyntaxKind::AbiDirective
                     | SyntaxKind::LinkDirective
                     | SyntaxKind::SymbolDirective,
-                ) => {
-                    DirectiveScanKind::ArgumentList
-                }
+                ) => DirectiveScanKind::ArgumentList,
                 Some(SyntaxKind::TestDirective) => DirectiveScanKind::ArgumentList,
                 Some(SyntaxKind::EntrypointDirective) => DirectiveScanKind::Bare,
                 _ => DirectiveScanKind::Unknown,

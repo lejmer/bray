@@ -7,13 +7,15 @@ use bray_binder::{
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbol,
-    CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId, ImportedSemanticAddress,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId,
-    NamedTypeSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore,
-    StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolGraph,
-    SymbolQueryRequest, TypeAssociatedSurface, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
-    UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
+    AnySymbolId, CallableContractSymbolId, CallableContractTypeQuery,
+    CallableParameterDefaultProviderSymbolId, CallableParameterSymbol, CallableParameterSymbolId,
+    FunctionSymbol, FunctionSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton,
+    MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId, NamedTypeSymbolId,
+    ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore, StructFieldSymbol,
+    StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolGraph, SymbolQueryRequest,
+    TypeAssociatedSurface, TypeExpressionTemplate, UnionPayloadFieldSymbol,
+    UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
+    UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 
@@ -376,6 +378,16 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
 
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
         CompilationBindingContext::imported_symbols(self)
+    }
+
+    fn callable_contract_type(
+        &self,
+        definition: CallableContractSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
+        SymbolQueryProvider::resolve_symbol_query(
+            self,
+            SymbolQueryRequest::<CallableContractTypeQuery>::new(definition),
+        )
     }
 
     fn module_re_export_lookup(

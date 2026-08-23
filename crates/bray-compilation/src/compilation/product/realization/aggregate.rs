@@ -54,9 +54,7 @@ impl Compilation {
             self.codegen_type(tag, target, cancellation, mappings, pending)?;
         }
 
-        let tag_layout = tag
-            .map(|tag| sized_layout(mappings, tag))
-            .transpose()?;
+        let tag_layout = tag.map(|tag| sized_layout(mappings, tag)).transpose()?;
 
         let packing = representation.value().packing().and_then(NonZeroU64::new);
 
@@ -106,8 +104,11 @@ impl Compilation {
             variants.push((variant.variant(), fields));
         }
 
-        let payload_offset = align_to(tag_layout.map_or(0, TargetValueLayout::size), payload_alignment)
-            .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
+        let payload_offset = align_to(
+            tag_layout.map_or(0, TargetValueLayout::size),
+            payload_alignment,
+        )
+        .ok_or(CodegenPreparationError::LayoutOverflow(ty))?;
 
         let variants = variants
             .into_iter()

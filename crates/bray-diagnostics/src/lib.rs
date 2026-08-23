@@ -33,13 +33,13 @@ pub use argument::{
     DiagnosticDependencySubjectKind, DiagnosticDocumentParseKind,
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
-    DiagnosticLinkRequirement, DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind,
-    DiagnosticLinkedProductKind, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
+    DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
+    DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
+    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
     DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticLinkOptimizationReportProblem, DiagnosticStandardLibraryManifestProblem,
-    DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
     DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;

@@ -341,10 +341,13 @@ impl CodegenUnionVariantLayout {
     }
 
     /// Returns the physical layout of one declared payload field.
-    pub fn payload_field(&self, field: bray_symbols::UnionPayloadFieldSymbolId) -> Option<&CodegenFieldLayout> {
-        self.fields.iter().find(|layout| {
-            layout.reference() == Some(MirFieldReference::UnionPayload(field))
-        })
+    pub fn payload_field(
+        &self,
+        field: bray_symbols::UnionPayloadFieldSymbolId,
+    ) -> Option<&CodegenFieldLayout> {
+        self.fields
+            .iter()
+            .find(|layout| layout.reference() == Some(MirFieldReference::UnionPayload(field)))
     }
 }
 
@@ -427,9 +430,7 @@ impl CodegenTypeKind {
     }
 
     /// Creates an overlapping union representation without a stored tag.
-    pub fn untagged_union(
-        variants: impl IntoIterator<Item = CodegenUnionVariantLayout>,
-    ) -> Self {
+    pub fn untagged_union(variants: impl IntoIterator<Item = CodegenUnionVariantLayout>) -> Self {
         Self::Union {
             tag: None,
             variants: shared_slice(variants),

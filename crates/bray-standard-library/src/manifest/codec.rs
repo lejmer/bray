@@ -170,17 +170,17 @@ fn decode_optimization(
         StandardLibraryArtifactDigest::new(decode_digest(wire.fallback.digest)?),
     )?;
 
-    let module_count = NonZeroU32::new(wire.module_count)
-        .ok_or(invalid_optimization_metadata(MetadataProblem::ZeroModuleCount))?;
+    let module_count = NonZeroU32::new(wire.module_count).ok_or(invalid_optimization_metadata(
+        MetadataProblem::ZeroModuleCount,
+    ))?;
 
     let preservation_roots = wire
         .preservation_roots
         .into_iter()
         .map(|name| {
-            BinarySymbolName::try_new(name)
-                .ok_or(invalid_optimization_metadata(
-                    MetadataProblem::InvalidPreservationRoot,
-                ))
+            BinarySymbolName::try_new(name).ok_or(invalid_optimization_metadata(
+                MetadataProblem::InvalidPreservationRoot,
+            ))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -203,10 +203,9 @@ fn decode_optimization(
         .platform_services
         .into_iter()
         .map(|role| {
-            PlatformServiceRole::from_name(&role)
-                .ok_or(invalid_optimization_metadata(
-                    MetadataProblem::UnknownPlatformService,
-                ))
+            PlatformServiceRole::from_name(&role).ok_or(invalid_optimization_metadata(
+                MetadataProblem::UnknownPlatformService,
+            ))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -287,9 +286,8 @@ mod tests {
         StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
         StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
         StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
-        StandardLibraryOptimizationMetadataProblem,
-        StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
-        StandardLibraryTargetArtifacts,
+        StandardLibraryOptimizationMetadataProblem, StandardLibraryOptimizationProducer,
+        StandardLibraryOptimizationProducerKind, StandardLibraryTargetArtifacts,
     };
 
     #[test]

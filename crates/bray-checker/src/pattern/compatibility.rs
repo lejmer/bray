@@ -134,12 +134,14 @@ where
             return Ok(false);
         };
 
-        let representation =
-            available_dependency(self.request.declared_type_representation((*structure).into()))?;
+        let representation = available_dependency(
+            self.request
+                .declared_type_representation((*structure).into()),
+        )?;
 
-        if representation.is_some_and(|representation| {
-            representation.value().has_flexible_trailing_member()
-        }) {
+        if representation
+            .is_some_and(|representation| representation.value().has_flexible_trailing_member())
+        {
             return Ok(false);
         }
 

@@ -111,7 +111,7 @@ impl NativeTarget {
             properties
                 .with_atomics(native_atomic_properties())
                 .with_operations(TargetOperationSupport::new(true, true, true))
-                .with_native_symbols(TargetNativeSymbolSupport::new(false, false, true, true))
+                .with_native_symbols(self.native_symbol_support())
                 .with_dynamic_loading(true)
                 .with_native_threads(true)
         })
@@ -193,6 +193,20 @@ impl NativeTarget {
         TargetCDataModel::try_new(char, long, unsigned_long, wide_char, long_double)
             .unwrap_or_else(|| panic!("native target C ABI properties must be valid"))
     }
+
+    const fn native_symbol_support(self) -> TargetNativeSymbolSupport {
+        match self {
+            Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu => {
+                TargetNativeSymbolSupport::new(false, true, true, true)
+            }
+            Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => {
+                TargetNativeSymbolSupport::new(true, false, true, true)
+            }
+            Self::X86_64MacOs | Self::Aarch64MacOs => {
+                TargetNativeSymbolSupport::new(false, false, true, true)
+            }
+        }
+    }
 }
 
 fn native_atomic_properties() -> TargetAtomicSupport {
@@ -270,6 +284,27 @@ mod tests {
             assert!(profile.properties().operations().raw_memory());
             assert!(profile.properties().operations().allocation());
             assert!(profile.properties().dynamic_loading());
+
+            let native_symbols = profile.properties().native_symbols();
+
+            assert_eq!(
+                native_symbols.ordinals(),
+                matches!(
+                    target,
+                    NativeTarget::X86_64WindowsMsvc | NativeTarget::Aarch64WindowsMsvc
+                )
+            );
+
+            assert_eq!(
+                native_symbols.versions(),
+                matches!(
+                    target,
+                    NativeTarget::X86_64LinuxGnu | NativeTarget::Aarch64LinuxGnu
+                )
+            );
+
+            assert!(native_symbols.weak_binding());
+            assert!(native_symbols.optional_data());
 
             let atomics = profile.properties().atomics();
 

@@ -123,12 +123,8 @@ pub(super) fn build(
                 Some(&linker_map_path),
             )?;
 
-            let reuse = super::evidence::bray_reuse_evidence(
-                &artifact,
-                target,
-                standard_library,
-                runtime,
-            )?;
+            let reuse =
+                super::evidence::bray_reuse_evidence(&artifact, target, standard_library, runtime)?;
 
             (reuse, artifact.linker_map)
         }

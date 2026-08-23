@@ -11,11 +11,11 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
-    AnySymbolId, ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
+    AnySymbolId, CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
+    ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
     DirectiveKind, DirectiveSurface, DirectiveTemplate, NamedTypeSymbolId, NativeLinkKind,
-    NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
-    NativeSymbolIdentity, NativeSymbolPresence, StructSymbolId, TrustedCapabilitySymbolId,
+    NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity,
+    NativeSymbolPresence, StructSymbolId, TrustedCapabilitySymbolId,
 };
 
 use super::super::Compilation;
@@ -230,12 +230,8 @@ pub(super) fn foreign_symbol_contract(
             NativeSymbolIdentity::Name(name)
         }
         (None, Some(argument)) => {
-            let Some(ordinal) = directive_integer_argument(
-                compilation,
-                argument,
-                cancellation,
-                diagnostics,
-            )?
+            let Some(ordinal) =
+                directive_integer_argument(compilation, argument, cancellation, diagnostics)?
             else {
                 return Ok(None);
             };
@@ -259,7 +255,10 @@ pub(super) fn foreign_symbol_contract(
         compilation,
         arguments.get("binding").copied(),
         "binding",
-        &[("strong", NativeSymbolBinding::Strong), ("weak", NativeSymbolBinding::Weak)],
+        &[
+            ("strong", NativeSymbolBinding::Strong),
+            ("weak", NativeSymbolBinding::Weak),
+        ],
         NativeSymbolBinding::Strong,
         diagnostics,
     )? {
@@ -296,9 +295,9 @@ pub(super) fn foreign_symbol_contract(
     };
 
     if let Some(name) = unsupported {
-        let anchor = arguments
-            .get(name)
-            .map_or(directive.syntax(), |argument| argument.expression().syntax());
+        let anchor = arguments.get(name).map_or(directive.syntax(), |argument| {
+            argument.expression().syntax()
+        });
 
         diagnostics.add(invalid_native_symbol_directive(
             anchor,

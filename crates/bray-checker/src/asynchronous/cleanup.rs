@@ -104,9 +104,7 @@ where
             TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Borrow { .. }
-            | TypeData::TraitView(_) => {
-                CleanupShape::default()
-            }
+            | TypeData::TraitView(_) => CleanupShape::default(),
         };
 
         self.active.remove(&ty);

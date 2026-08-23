@@ -1,7 +1,7 @@
 mod cleanup;
 mod layout;
-mod lock;
 mod locator;
+mod lock;
 mod manifest;
 mod projection;
 mod reader;

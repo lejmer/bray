@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
-use bray_codegen::{
-    CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
-};
+use bray_codegen::{CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, GenericSubstitutionId, TypeId};
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};

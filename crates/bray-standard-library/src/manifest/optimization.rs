@@ -6,11 +6,11 @@ use bray_base::{NonEmptySharedStr, is_canonical_relative_path, sorted_unique_sha
 use bray_runtime_interface::{BinarySymbolName, PlatformServiceRole, RuntimeAbiVersion};
 use bray_target::{CodeModel, RelocationModel, TargetIdentity};
 
+use super::model::invalid_optimization_metadata as invalid_metadata;
 use super::{
     StandardLibraryArtifact, StandardLibraryArtifactDigest, StandardLibraryArtifactKind,
     StandardLibraryManifestError, StandardLibraryOptimizationMetadataProblem,
 };
-use super::model::invalid_optimization_metadata as invalid_metadata;
 
 use StandardLibraryOptimizationMetadataProblem as MetadataProblem;
 
@@ -42,13 +42,13 @@ impl StandardLibraryOptimizationProducer {
         toolchain: impl Into<Arc<str>>,
         toolchain_revision: impl Into<Arc<str>>,
     ) -> Result<Self, StandardLibraryManifestError> {
-        let implementation = NonEmptySharedStr::try_new(implementation)
-            .ok_or(invalid_metadata(MetadataProblem::MissingProducerImplementation))?;
+        let implementation = NonEmptySharedStr::try_new(implementation).ok_or(invalid_metadata(
+            MetadataProblem::MissingProducerImplementation,
+        ))?;
 
-        let implementation_revision = NonEmptySharedStr::try_new(implementation_revision)
-            .ok_or(invalid_metadata(
-                MetadataProblem::MissingProducerImplementationRevision,
-            ))?;
+        let implementation_revision = NonEmptySharedStr::try_new(implementation_revision).ok_or(
+            invalid_metadata(MetadataProblem::MissingProducerImplementationRevision),
+        )?;
 
         let toolchain = NonEmptySharedStr::try_new(toolchain)
             .ok_or(invalid_metadata(MetadataProblem::MissingToolchain))?;

@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    GenericArgumentTemplate, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-    MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData, TypeExpressionTemplate,
-    TypeId,
+    CallableContractSymbolId, GenericArgumentTemplate, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, TypeExpressionSyntax,
@@ -68,13 +68,44 @@ impl TypeExpressionBinder<'_> {
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         let resolved = self.bind_type_path(path)?;
 
-        let MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) =
-            resolved
-        else {
-            return self.error_type_template();
-        };
+        match resolved {
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
+                self.bind_named_type(definition, arguments)
+            }
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::CallableContract(
+                definition,
+            )) => self.bind_callable_contract(definition, arguments),
+            MemberLookupResult::Found(_)
+            | MemberLookupResult::NotFound
+            | MemberLookupResult::WrongKind(_)
+            | MemberLookupResult::Ambiguous(_)
+            | MemberLookupResult::Inaccessible(_)
+            | MemberLookupResult::Malformed(_) => self.error_type_template(),
+        }
+    }
 
-        self.bind_named_type(definition, arguments)
+    pub(super) fn bind_callable_contract(
+        &mut self,
+        definition: CallableContractSymbolId,
+        arguments: Option<&GenericArgumentListSyntax>,
+    ) -> BindingQueryResult<TypeExpressionTemplate> {
+        let parameters = self.callable_contract_parameters(definition)?;
+        let arguments = self.bind_generic_arguments(arguments, &parameters)?;
+        let target = self.imports.callable_contract_type(definition)?;
+
+        self.diagnostics
+            .add_range(target.diagnostics().iter().cloned());
+
+        if parameters.is_empty() {
+            return Ok(target.value().clone());
+        }
+
+        Ok(TypeExpressionTemplate::CallableContract {
+            definition,
+            target: Arc::new(target.value().clone()),
+            parameters: Arc::from(parameters),
+            arguments: Arc::from(arguments),
+        })
     }
 
     pub(super) fn bind_named_type(

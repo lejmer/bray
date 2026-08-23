@@ -159,7 +159,7 @@ fn build(
         &[],
         &sources,
     )
-        .map_err(CommandError::InputIdentity)?;
+    .map_err(CommandError::InputIdentity)?;
 
     let existing_package = package(output, target);
 
@@ -175,7 +175,7 @@ fn build(
         &expected_archives,
         &input,
     )
-        .map_err(CommandError::InputIdentity)?
+    .map_err(CommandError::InputIdentity)?
     {
         crate::progress::message(match memory_observation {
             MemoryObservation::Disabled => "Reusing native runtime artifacts",

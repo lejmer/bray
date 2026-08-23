@@ -101,10 +101,7 @@ impl Parser {
     }
 
     fn recover_unknown_type_directive(&mut self, builder: &mut TypeDirectivesSyntaxBuilder) {
-        self.recover_unsupported_directive(
-            builder,
-            &TYPE_DECLARATION_START_KINDS,
-        );
+        self.recover_unsupported_directive(builder, &TYPE_DECLARATION_START_KINDS);
     }
 
     fn parse_type_modifiers(&mut self) -> TypeModifiersSyntax {
@@ -394,7 +391,11 @@ mod tests {
         let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
 
         assert_eq!(declarations.len(), 1);
-        assert_eq!(declarations[0].identifier_token().text(source), Some("NativeMutex"));
+
+        assert_eq!(
+            declarations[0].identifier_token().text(source),
+            Some("NativeMutex")
+        );
     }
 
     #[test]

@@ -758,11 +758,8 @@ mod tests {
         crate::json::write_pretty(&comparison_path, &comparison)
             .unwrap_or_else(|error| panic!("comparison JSON must write: {error}"));
 
-        super::report::write_comparison(
-            &baseline_output.join("comparison.html"),
-            &comparison,
-        )
-        .unwrap_or_else(|error| panic!("comparison HTML must write: {error}"));
+        super::report::write_comparison(&baseline_output.join("comparison.html"), &comparison)
+            .unwrap_or_else(|error| panic!("comparison HTML must write: {error}"));
 
         assert_eq!(comparison.workloads.len(), 1);
         assert_eq!(comparison.workloads[0].peers.len(), 2);
