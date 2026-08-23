@@ -5,8 +5,8 @@ use bray_base::Cancellation;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, ConstantTermData, GenericArgument, GenericOwnerId,
-    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    AnySymbolId, BorrowKind, CallableContractSymbolId, ConstantTermData, GenericArgument,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
     ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, SelfTypeContext,
     SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
     TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
@@ -30,6 +30,12 @@ pub trait TypeExpressionImports {
 
     /// Returns the imported identity skeleton when imported declaration details are required.
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
+
+    /// Returns the callable type named by one callable-contract declaration.
+    fn callable_contract_type(
+        &self,
+        definition: CallableContractSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>>;
 }
 
 impl<T> TypeExpressionImports for T
@@ -46,6 +52,13 @@ where
 
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
         BindingQueryContext::imported_symbols(self)
+    }
+
+    fn callable_contract_type(
+        &self,
+        definition: CallableContractSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
+        BindingQueryContext::callable_contract_type(self, definition)
     }
 }
 
@@ -303,6 +316,9 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
                 self.bind_named_type(definition, None)
             }
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::CallableContract(
+                definition,
+            )) => self.bind_callable_contract(definition, None),
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::GenericParameter(
                 parameter,
             )) => self

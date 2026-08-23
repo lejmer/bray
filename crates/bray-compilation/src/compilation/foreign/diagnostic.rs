@@ -70,6 +70,7 @@ pub(in crate::compilation) fn template_diagnostic_type(
                 .map_err(FactQueryError::CheckerInfrastructure)?
         }
         TypeExpressionTemplate::Named { .. } => DiagnosticType::Unknown,
+        TypeExpressionTemplate::CallableContract { .. } => DiagnosticType::Callable,
         TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
             DiagnosticType::TypeValuedMember
         }

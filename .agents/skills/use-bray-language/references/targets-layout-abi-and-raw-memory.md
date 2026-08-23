@@ -422,9 +422,9 @@ module platform_handle
 
 Device owners, buffers, transfers, synchronization, and mappings use `device_memory` and any additional host-memory or foreign-call capabilities their contracts require. Volatile device access is not atomic and creates no synchronization edge.
 
-Target-specific operating-system modules are `std.os.windows`, `std.os.linux`, and `std.os.darwin`. Their handle, descriptor, owner, and resource types remain distinct even when their underlying integer widths match. Portable code should prefer the corresponding portable standard-library service.
+Target-specific operating-system modules are `std.os.windows`, `std.os.linux`, and `std.os.darwin`. Their generated raw declarations are exact-target bindings, while their handle, descriptor, owner, and resource types remain distinct even when underlying widths match. Portable code should prefer the corresponding portable standard-library service.
 
-See [device memory](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/device-memory.md) and [target-specific operating-system modules](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/target-specific-operating-system-modules.md).
+See [device memory](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/device-memory.md) and [foreign and platform interoperability](https://github.com/lejmer/bray/blob/develop/docs/design/foreign-and-platform-interoperability.md#target-specific-operating-system-modules).
 
 ## Target control
 

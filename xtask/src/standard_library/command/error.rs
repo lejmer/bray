@@ -18,7 +18,7 @@ pub(in crate::standard_library) enum BuildError {
     Publication(DirectoryPublicationError),
     Project(String),
     Source(String),
-    OsConstants(String),
+    OsBindings(String),
     NativeArchive(String),
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
@@ -158,10 +158,10 @@ impl fmt::Display for BuildError {
                     "standard library source could not be read: {error}"
                 )
             }
-            Self::OsConstants(error) => {
+            Self::OsBindings(error) => {
                 write!(
                     formatter,
-                    "standard library OS constants are invalid: {error}"
+                    "standard library OS bindings are invalid: {error}"
                 )
             }
             Self::NativeArchive(error) => {

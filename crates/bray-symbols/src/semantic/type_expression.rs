@@ -307,6 +307,17 @@ pub enum TypeExpressionTemplate {
         /// Generic arguments in parameter order.
         arguments: Arc<[GenericArgumentTemplate]>,
     },
+    /// A named callable contract retains its declaration type and applied generic arguments.
+    CallableContract {
+        /// The exact callable-contract declaration.
+        definition: crate::CallableContractSymbolId,
+        /// The declared callable type before generic substitution.
+        target: Arc<TypeExpressionTemplate>,
+        /// Generic parameters in declaration order.
+        parameters: Arc<[GenericParameterSymbolId]>,
+        /// Generic arguments in parameter order.
+        arguments: Arc<[GenericArgumentTemplate]>,
+    },
     /// A type-valued member projection retains its applied trait and exact member.
     TypeValuedMemberProjection {
         subject: Arc<TypeExpressionTemplate>,
@@ -348,6 +359,7 @@ impl TypeExpressionTemplate {
         match self {
             Self::Resolved(ty) => Some(*ty),
             Self::Named { .. }
+            | Self::CallableContract { .. }
             | Self::TypeValuedMemberProjection { .. }
             | Self::Tuple(_)
             | Self::Array { .. }
@@ -374,6 +386,12 @@ impl TypeExpressionTemplate {
         match self {
             Self::Resolved(_) => {}
             Self::Named { arguments, .. } => {
+                push_argument_constants(arguments, occurrences);
+            }
+            Self::CallableContract {
+                target, arguments, ..
+            } => {
+                target.push_constant_expressions(occurrences);
                 push_argument_constants(arguments, occurrences);
             }
             Self::TypeValuedMemberProjection {

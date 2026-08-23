@@ -316,6 +316,9 @@ where
 
             Ok(callable.dependency_contracts())
         }
+        TypeExpressionTemplate::CallableContract { target, .. } => {
+            callable_type_dependencies(request, target)
+        }
         TypeExpressionTemplate::Named { .. }
         | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
         | TypeExpressionTemplate::Tuple(_)

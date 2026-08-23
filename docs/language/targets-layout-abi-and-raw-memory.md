@@ -19,7 +19,6 @@ wrappers.
 - [Extern declarations and FFI](targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md)
 - [Foreign data and symbols](targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md)
 - [Static storage and ABI boundaries](declarations/static-storage-declarations.md#visibility-and-export)
-- [Target-specific operating-system modules](targets-layout-abi-and-raw-memory/target-specific-operating-system-modules.md)
 - [Raw pointer type](targets-layout-abi-and-raw-memory/raw-pointer-type.md)
 - [Core memory declarations](targets-layout-abi-and-raw-memory/core-memory-declarations.md)
 - [Raw memory access and copying](targets-layout-abi-and-raw-memory/raw-memory-access-and-copying.md)

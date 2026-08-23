@@ -264,6 +264,29 @@ impl TypeExpressionBinder<'_> {
         self.generic_parameters(type_parameters, const_parameters)
     }
 
+    pub(super) fn callable_contract_parameters(
+        &self,
+        definition: bray_symbols::CallableContractSymbolId,
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+        let parameters = match self.symbols.callable_contract(definition) {
+            Some(symbol) => Some((
+                symbol.generic_type_parameters(),
+                symbol.generic_const_parameters(),
+            )),
+            None => self.imports.imported_symbols()?.and_then(|symbols| {
+                symbols.callable_contract(definition).map(|symbol| {
+                    (
+                        symbol.generic_type_parameters(),
+                        symbol.generic_const_parameters(),
+                    )
+                })
+            }),
+        }
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+        self.generic_parameters(parameters.0, parameters.1)
+    }
+
     pub(super) fn trait_parameters(
         &self,
         definition: TraitSymbolId,

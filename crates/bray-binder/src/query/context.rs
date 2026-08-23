@@ -4,9 +4,10 @@ use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId,
-    SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
+    AnySymbolId, CallableContractSymbolId, CallableParameterDefaultProviderSymbolId,
+    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
+    NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
+    TypeExpressionTemplate,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -80,6 +81,12 @@ pub trait BindingQueryContext: Send + Sync {
 
     /// Returns the selected dependencies' immutable imported symbol surface.
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
+
+    /// Returns the callable type named by one callable-contract declaration.
+    fn callable_contract_type(
+        &self,
+        definition: CallableContractSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>>;
 
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(

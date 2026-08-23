@@ -803,7 +803,8 @@ fn foreign_aggregate_alignment_is_supported(
             *definition
         }
         TypeExpressionTemplate::Named { definition, .. } => *definition,
-        TypeExpressionTemplate::Callable(_)
+        TypeExpressionTemplate::CallableContract { .. }
+        | TypeExpressionTemplate::Callable(_)
         | TypeExpressionTemplate::Tuple(_)
         | TypeExpressionTemplate::Array { .. }
         | TypeExpressionTemplate::FlexibleArray(_)
@@ -839,6 +840,9 @@ pub(in crate::compilation::foreign) fn foreign_type_is_supported(
         }
         TypeExpressionTemplate::Named { definition, .. } => {
             named_type_is_supported(compilation, *definition, abi, cancellation)
+        }
+        TypeExpressionTemplate::CallableContract { target, .. } => {
+            foreign_type_is_supported(compilation, target, abi, cancellation)
         }
         TypeExpressionTemplate::Callable(callable) => {
             Ok(callable.abi() == abi && callable.execution() == CallableExecution::Synchronous)

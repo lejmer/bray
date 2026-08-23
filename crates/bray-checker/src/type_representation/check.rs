@@ -463,6 +463,18 @@ where
                 parameters,
                 arguments,
             } => self.check_named_template(*definition, parameters, arguments, origin),
+            TypeExpressionTemplate::CallableContract { .. } => Ok(MemberRepresentation {
+                finite: true,
+                plain: false,
+                c_compatible: false,
+                flexible: false,
+                copyable: Copyability::Always,
+                copy_dependencies: BTreeSet::new(),
+                non_copyable_members: BTreeSet::new(),
+                stored_type_problems: BTreeSet::new(),
+                recursive_cycles: Vec::new(),
+                recovered: false,
+            }),
             TypeExpressionTemplate::TypeValuedMemberProjection { .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
