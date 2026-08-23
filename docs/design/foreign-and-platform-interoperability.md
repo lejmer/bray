@@ -292,8 +292,9 @@ interfaces retain the target properties that affect every public target-specific
 
 Native constants have one authority: generated target-specific Bray source checked into the standard-library tree.
 `cargo xtask` generation reads a short manifest whose shared POSIX and operating-system sources are combined with one
-source for each exact target. These files describe the pinned target SDKs. The generator writes authoritative source with the complete input digest and fails verification when
-regeneration differs. Compilation never reads the compiler host's headers. The generated
+source for each exact target. These files describe the pinned target SDKs. The generator writes authoritative source
+with the complete input digest and fails verification when regeneration differs. Compilation never reads the compiler
+host's headers. The generated
 source bytes participate in the ordinary package source and artifact digests, so cross compilation and repeated builds
 use the same target constants even when the host operating system differs. Target metadata may validate a value but
 never supplies an alternate constant definition.

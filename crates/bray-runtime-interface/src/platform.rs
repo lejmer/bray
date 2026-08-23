@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, shared_slice};
 
-/// One closed platform-service role understood by the compiler and native provider.
+/// One closed platform-service role understood by the compiler, standard library, and runtime.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PlatformServiceRole {
     /// Reads the immutable process identity.

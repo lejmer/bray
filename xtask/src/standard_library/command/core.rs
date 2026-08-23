@@ -80,12 +80,10 @@ fn native_test_options(
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--part" => {
-                let value = path_argument(arguments, "--part")?;
+                let value = required_argument(arguments, "--part")?;
 
-                let value = value
-                    .to_str()
-                    .and_then(super::super::native::TestPart::parse)
-                    .ok_or_else(|| BuildError::UnexpectedArgument(value.display().to_string()))?;
+                let value = super::super::native::TestPart::parse(&value)
+                    .ok_or_else(|| BuildError::UnexpectedArgument(value))?;
 
                 if !parts.contains(&value) {
                     parts.push(value);
@@ -162,9 +160,15 @@ fn path_argument(
     arguments: &mut impl Iterator<Item = String>,
     option: &'static str,
 ) -> Result<PathBuf, BuildError> {
+    required_argument(arguments, option).map(PathBuf::from)
+}
+
+fn required_argument(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<String, BuildError> {
     arguments
         .next()
-        .map(PathBuf::from)
         .ok_or(BuildError::MissingValue(option))
 }
 

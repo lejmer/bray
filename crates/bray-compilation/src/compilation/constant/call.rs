@@ -500,6 +500,7 @@ impl Compilation {
             return Ok(None);
         }
 
+        // The accepted variants contain only scalar values or one interned static address.
         let value = values
             .intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
