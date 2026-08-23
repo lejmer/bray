@@ -878,6 +878,7 @@ mod tests {
         );
 
         let key = source_function_body_key(&compilation, "acquire");
+
         let lowered = compilation
             .lowered_unit(key)
             .unwrap_or_else(|error| panic!("borrowed atomic lock loop must lower: {error:?}"));
@@ -887,6 +888,7 @@ mod tests {
             "{:#?}",
             lowered.diagnostics()
         );
+
         assert!(lowered.value().is_some());
     }
 

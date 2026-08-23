@@ -1,0 +1,193 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+trusted internal func windows_child_handles(
+    pos policy: u32,
+    stream: u32,
+    reads: bool,
+    security: RawPointer<u8>,
+) -> Result<WindowsChildHandles, std.platform.PlatformStatus>
+    uses(foreign_call)
+{
+    match policy
+    {
+        case 0
+        {
+            let handle: RawPointer<u8> = trusted std.os.windows.get_standard_handle(stream);
+
+            if !trusted internal valid_windows_handle(handle)
+            {
+                return Error(trusted internal std.platform.windows_error_status());
+            }
+
+            return Ok(
+                {
+                    parent = std.memory.null<u8>(),
+                    child = handle,
+                    parent_owned = false,
+                    child_owned = false,
+                }
+            );
+        }
+        case 1
+        {
+            let null_name: [u8; 8] = [78, 0, 85, 0, 76, 0, 0, 0];
+
+            let access: u32 = if reads
+            {
+                yield std.os.windows.GENERIC_READ;
+            }
+            else
+            {
+                yield std.os.windows.GENERIC_WRITE;
+            };
+
+            let handle: RawPointer<u8> = trusted std.os.windows.create_file_w(
+                trusted std.memory.reinterpret<u16, u8>(std.memory.address_of<u8>(&null_name[0])),
+                access = access,
+                share = std.os.windows.FILE_SHARE_READ | std.os.windows.FILE_SHARE_WRITE |
+                    std.os.windows.FILE_SHARE_DELETE,
+                security = security,
+                creation = std.os.windows.OPEN_EXISTING,
+                attributes = std.os.windows.FILE_ATTRIBUTE_NORMAL,
+                template_file = std.memory.null<u8>(),
+            );
+
+            if !trusted internal valid_windows_handle(handle)
+            {
+                return Error(trusted internal std.platform.windows_error_status());
+            }
+
+            return Ok(
+                {
+                    parent = std.memory.null<u8>(),
+                    child = handle,
+                    parent_owned = false,
+                    child_owned = true,
+                }
+            );
+        }
+        case 2
+        {
+            let mut read_pipe: RawPointer<u8> = std.memory.null<u8>();
+            let mut write_pipe: RawPointer<u8> = std.memory.null<u8>();
+
+            if trusted std.os.windows.create_pipe(
+                std.memory.address_of_mut<RawPointer<u8>>(&mut read_pipe),
+                std.memory.address_of_mut<RawPointer<u8>>(&mut write_pipe),
+                security = security,
+                size = 0,
+            ) == 0
+            {
+                return Error(trusted internal std.platform.windows_error_status());
+            }
+
+            let parent: RawPointer<u8> = if reads
+            {
+                yield write_pipe;
+            }
+            else
+            {
+                yield read_pipe;
+            };
+
+            let child: RawPointer<u8> = if reads
+            {
+                yield read_pipe;
+            }
+            else
+            {
+                yield write_pipe;
+            };
+
+            if trusted std.os.windows.set_handle_information(
+                parent,
+                mask = std.os.windows.HANDLE_FLAG_INHERIT,
+                flags = 0,
+            ) == 0
+            {
+                let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+                let _: i32 = trusted std.os.windows.close_handle(read_pipe);
+                let _: i32 = trusted std.os.windows.close_handle(write_pipe);
+                return Error(status);
+            }
+
+            return Ok(
+                {
+                    parent = parent,
+                    child = child,
+                    parent_owned = true,
+                    child_owned = true,
+                }
+            );
+        }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
+    }
+}
+
+trusted internal func release_windows_child_handles(pos handles: WindowsChildHandles) -> unit
+{
+    trusted internal release_windows_child_ends(handles);
+    trusted internal release_windows_parent_ends(handles);
+}
+
+trusted internal func release_windows_child_ends(pos handles: WindowsChildHandles) -> unit
+    uses(foreign_call)
+{
+    if handles.child_owned
+    {
+        let _: i32 = trusted std.os.windows.close_handle(handles.child);
+    }
+}
+
+trusted internal func release_windows_parent_ends(pos handles: WindowsChildHandles) -> unit
+    uses(foreign_call)
+{
+    if handles.parent_owned
+    {
+        let _: i32 = trusted std.os.windows.close_handle(handles.parent);
+    }
+}
+
+trusted internal func close_valid_windows_handle(pos handle: RawPointer<u8>) -> unit
+    uses(foreign_call)
+{
+    if trusted internal valid_windows_handle(handle)
+    {
+        let _: i32 = trusted std.os.windows.close_handle(handle);
+    }
+}
+
+trusted internal func close_windows_process(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+
+    if !trusted internal valid_windows_handle(process)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted std.os.windows.close_handle(process) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func valid_windows_handle(pos handle: RawPointer<u8>) -> bool
+{
+    let value: u64 = trusted internal std.platform.pointer_handle(handle);
+    return value != 0 && value != 18_446_744_073_709_551_615;
+}
+
+trusted internal func windows_handle(pos handle: RawPointer<u8>) -> u64
+{
+    if std.memory.is_null<u8>(handle)
+    {
+        return 0;
+    }
+
+    return trusted internal std.platform.pointer_handle(handle);
+}

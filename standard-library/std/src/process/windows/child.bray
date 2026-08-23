@@ -1,0 +1,430 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+@copy
+internal struct WindowsChildHandles
+{
+    parent: RawPointer<u8>;
+    child: RawPointer<u8>;
+    parent_owned: bool;
+    child_owned: bool;
+}
+
+internal struct WindowsSpawnStorage
+{
+    executable: std.memory.RawBuffer<u8>;
+    command_line: std.memory.RawBuffer<u8>;
+    environment: std.memory.RawBuffer<u8>;
+    working_directory: std.memory.RawBuffer<u8>;
+}
+
+trusted internal func platform_child_spawn(
+    pos executable: PlatformNativeText,
+    pos arguments: &[PlatformNativeText],
+    pos environment: &[PlatformEnvironmentEntry],
+    pos child: RawPointer<u64>,
+    pos standard_input: RawPointer<u64>,
+    pos standard_output: RawPointer<u64>,
+    pos standard_error: RawPointer<u64>,
+    working_directory: PlatformNativeText,
+    standard_input_policy: u32,
+    standard_output_policy: u32,
+    standard_error_policy: u32,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    trusted std.memory.write<u64>(child, value = 0);
+    trusted std.memory.write<u64>(standard_input, value = 0);
+    trusted std.memory.write<u64>(standard_output, value = 0);
+    trusted std.memory.write<u64>(standard_error, value = 0);
+
+    let storage: WindowsSpawnStorage = match trusted internal windows_spawn_storage(
+        executable,
+        arguments,
+        environment,
+        working_directory = working_directory,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let mut security: [u64; 3] = [0, 0, 0];
+
+    let security_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+        std.memory.address_of_mut<u64>(&mut security[0])
+    );
+
+    trusted internal write_windows_u32(
+        security_pointer,
+        offset = std.os.windows.SECURITY_ATTRIBUTES_LENGTH_OFFSET,
+        value = std.truncate_to<u32>(std.os.windows.SECURITY_ATTRIBUTES_SIZE),
+    );
+
+    trusted internal write_windows_u32(
+        security_pointer,
+        offset = std.os.windows.SECURITY_ATTRIBUTES_INHERIT_OFFSET,
+        value = 1,
+    );
+
+    let input: WindowsChildHandles = match trusted internal windows_child_handles(
+        standard_input_policy,
+        stream = std.os.windows.STD_INPUT_HANDLE,
+        reads = true,
+        security = security_pointer,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let output: WindowsChildHandles = match trusted internal windows_child_handles(
+        standard_output_policy,
+        stream = std.os.windows.STD_OUTPUT_HANDLE,
+        reads = false,
+        security = security_pointer,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            trusted internal release_windows_child_handles(input);
+            return status;
+        }
+    };
+
+    let error: WindowsChildHandles = match trusted internal windows_child_handles(
+        standard_error_policy,
+        stream = std.os.windows.STD_ERROR_HANDLE,
+        reads = false,
+        security = security_pointer,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            trusted internal release_windows_child_handles(input);
+            trusted internal release_windows_child_handles(output);
+            return status;
+        }
+    };
+
+    let mut inherited: [RawPointer<u8>; 3] = [input.child, output.child, error.child];
+    let mut attribute_size: usize = 0;
+
+    let _: i32 = trusted std.os.windows.initialize_proc_thread_attribute_list(
+        std.memory.null<u8>(),
+        count = 1,
+        flags = 0,
+        size = std.memory.address_of_mut<usize>(&mut attribute_size),
+    );
+
+    if attribute_size == 0
+    {
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+        trusted internal release_windows_child_handles(input);
+        trusted internal release_windows_child_handles(output);
+        trusted internal release_windows_child_handles(error);
+        return status;
+    }
+
+    let mut attributes: std.memory.RawBuffer<u8> = match trusted internal windows_buffer(attribute_size)
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            trusted internal release_windows_child_handles(input);
+            trusted internal release_windows_child_handles(output);
+            trusted internal release_windows_child_handles(error);
+            return status;
+        }
+    };
+
+    let attributes_pointer: RawPointer<u8> = std.memory.pointer<u8>(&attributes);
+
+    if trusted std.os.windows.initialize_proc_thread_attribute_list(
+        attributes_pointer,
+        count = 1,
+        flags = 0,
+        size = std.memory.address_of_mut<usize>(&mut attribute_size),
+    ) == 0
+    {
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+        trusted internal release_windows_child_handles(input);
+        trusted internal release_windows_child_handles(output);
+        trusted internal release_windows_child_handles(error);
+        return status;
+    }
+
+    if trusted std.os.windows.update_proc_thread_attribute(
+        attributes_pointer,
+        flags = 0,
+        attribute = std.os.windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        value = trusted std.memory.reinterpret<u8, RawPointer<u8>>(
+            std.memory.address_of_mut<RawPointer<u8>>(&mut inherited[0])
+        ),
+        size = target.pointer.BYTES * 3,
+        previous = std.memory.null<u8>(),
+        return_size = std.memory.null<usize>(),
+    ) == 0
+    {
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+        trusted std.os.windows.delete_proc_thread_attribute_list(attributes_pointer);
+        trusted internal release_windows_child_handles(input);
+        trusted internal release_windows_child_handles(output);
+        trusted internal release_windows_child_handles(error);
+        return status;
+    }
+
+    let mut startup: [u64; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let startup_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+        std.memory.address_of_mut<u64>(&mut startup[0])
+    );
+
+    trusted internal write_windows_u32(
+        startup_pointer,
+        offset = 0,
+        value = std.truncate_to<u32>(std.os.windows.STARTUP_INFO_SIZE),
+    );
+
+    trusted internal write_windows_u32(
+        startup_pointer,
+        offset = std.os.windows.STARTUP_INFO_FLAGS_OFFSET,
+        value = std.os.windows.STARTF_USESTDHANDLES,
+    );
+
+    trusted internal write_windows_pointer(
+        startup_pointer,
+        offset = std.os.windows.STARTUP_INFO_INPUT_OFFSET,
+        value = input.child,
+    );
+
+    trusted internal write_windows_pointer(
+        startup_pointer,
+        offset = std.os.windows.STARTUP_INFO_OUTPUT_OFFSET,
+        value = output.child,
+    );
+
+    trusted internal write_windows_pointer(
+        startup_pointer,
+        offset = std.os.windows.STARTUP_INFO_ERROR_OFFSET,
+        value = error.child,
+    );
+
+    trusted internal write_windows_pointer(
+        startup_pointer,
+        offset = std.os.windows.STARTUP_INFO_ATTRIBUTE_LIST_OFFSET,
+        value = attributes_pointer,
+    );
+
+    let mut process_information: [u64; 3] = [0, 0, 0];
+
+    let process_information_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+        std.memory.address_of_mut<u64>(&mut process_information[0])
+    );
+
+    let working_pointer: RawPointer<u16> = trusted internal windows_optional_text_pointer(&storage.working_directory);
+
+    let created: i32 = trusted std.os.windows.create_process_w(
+        trusted internal windows_text_pointer(&storage.executable),
+        trusted internal windows_text_pointer(&storage.command_line),
+        process_security = std.memory.null<u8>(),
+        thread_security = std.memory.null<u8>(),
+        inherit_handles = 1,
+        creation_flags = std.os.windows.CREATE_UNICODE_ENVIRONMENT | std.os.windows.EXTENDED_STARTUPINFO_PRESENT,
+        environment = std.memory.pointer<u8>(&storage.environment),
+        working_directory = working_pointer,
+        startup = startup_pointer,
+        process_information = process_information_pointer,
+    );
+
+    let creation_status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+    trusted std.os.windows.delete_proc_thread_attribute_list(attributes_pointer);
+    trusted internal release_windows_child_ends(input);
+    trusted internal release_windows_child_ends(output);
+    trusted internal release_windows_child_ends(error);
+
+    if created == 0
+    {
+        trusted internal release_windows_parent_ends(input);
+        trusted internal release_windows_parent_ends(output);
+        trusted internal release_windows_parent_ends(error);
+        return creation_status;
+    }
+
+    let process_handle: RawPointer<u8> = trusted internal read_windows_pointer(
+        process_information_pointer,
+        offset = std.os.windows.PROCESS_INFORMATION_PROCESS_OFFSET,
+    );
+
+    let thread_handle: RawPointer<u8> = trusted internal read_windows_pointer(
+        process_information_pointer,
+        offset = std.os.windows.PROCESS_INFORMATION_THREAD_OFFSET,
+    );
+
+    if !trusted internal valid_windows_handle(process_handle) || !trusted internal valid_windows_handle(thread_handle)
+    {
+        trusted internal close_valid_windows_handle(process_handle);
+        trusted internal close_valid_windows_handle(thread_handle);
+        trusted internal release_windows_parent_ends(input);
+        trusted internal release_windows_parent_ends(output);
+        trusted internal release_windows_parent_ends(error);
+        return internal std.platform.other_status();
+    }
+
+    let _: i32 = trusted std.os.windows.close_handle(thread_handle);
+    trusted std.memory.write<u64>(child, value = trusted internal std.platform.pointer_handle(process_handle));
+    trusted std.memory.write<u64>(standard_input, value = trusted internal windows_handle(input.parent));
+    trusted std.memory.write<u64>(standard_output, value = trusted internal windows_handle(output.parent));
+    trusted std.memory.write<u64>(standard_error, value = trusted internal windows_handle(error.parent));
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_child_wait(
+    pos child: u64,
+    pos terminal: RawPointer<u32>,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+
+    if !trusted internal valid_windows_handle(process)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let waited: u32 = trusted std.os.windows.wait_for_single_object(process, milliseconds = std.os.windows.INFINITE);
+
+    if waited != std.os.windows.WAIT_OBJECT_0
+    {
+        if waited == std.os.windows.WAIT_FAILED
+        {
+            return trusted internal std.platform.windows_error_status();
+        }
+
+        return internal std.platform.other_status();
+    }
+
+    let mut exit_code: u32 = std.os.windows.STILL_ACTIVE;
+
+    if trusted std.os.windows.get_exit_code_process(process, std.memory.address_of_mut<u32>(&mut exit_code)) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    if exit_code == std.os.windows.STILL_ACTIVE
+    {
+        return internal std.platform.other_status();
+    }
+
+    trusted std.memory.write<u32>(terminal, value = 1);
+
+    trusted std.memory.write<PlatformExitStatus>(
+        status,
+        value =
+        {
+            tag = 0,
+            reserved = 0,
+            payload = exit_code as i64,
+        },
+    );
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if mode == 0
+    {
+        return internal std.platform.unsupported_status();
+    }
+
+    if mode != 1
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+
+    if !trusted internal valid_windows_handle(process)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted std.os.windows.terminate_process(process, exit_code = 1) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_child_reap(
+    pos child: u64,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+{
+    if std.memory.is_null<PlatformExitStatus>(status)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    return trusted internal close_windows_process(child);
+}
+
+trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+
+    if !trusted internal valid_windows_handle(process)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let mut exit_code: u32 = std.os.windows.STILL_ACTIVE;
+
+    if trusted std.os.windows.get_exit_code_process(process, std.memory.address_of_mut<u32>(&mut exit_code)) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    let mut first_error: std.platform.PlatformStatus = internal std.platform.success_status();
+
+    if exit_code == std.os.windows.STILL_ACTIVE
+    {
+        if trusted std.os.windows.terminate_process(process, exit_code = 1) == 0
+        {
+            first_error = trusted internal std.platform.windows_error_status();
+        }
+
+        let waited: u32 = trusted std.os.windows.wait_for_single_object(
+            process,
+            milliseconds = std.os.windows.INFINITE,
+        );
+
+        if waited != std.os.windows.WAIT_OBJECT_0 && internal std.platform.successful_status(first_error)
+        {
+            first_error = if waited == std.os.windows.WAIT_FAILED
+            {
+                yield trusted internal std.platform.windows_error_status();
+            }
+            else
+            {
+                yield internal std.platform.other_status();
+            };
+        }
+    }
+
+    let closed: std.platform.PlatformStatus = trusted internal close_windows_process(child);
+
+    if !internal std.platform.successful_status(first_error)
+    {
+        return first_error;
+    }
+
+    return closed;
+}

@@ -1,0 +1,133 @@
+{
+  "groups": [
+    {
+      "name": "darwin_runtime",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "constants": [
+        {
+          "name": "F_DUPFD_CLOEXEC",
+          "native": "F_DUPFD_CLOEXEC",
+          "type": "i32",
+          "value": 67
+        },
+        {
+          "name": "O_APPEND",
+          "native": "O_APPEND",
+          "type": "i32",
+          "value": 8
+        },
+        {
+          "name": "O_CREAT",
+          "native": "O_CREAT",
+          "type": "i32",
+          "value": 512
+        },
+        {
+          "name": "O_EXCL",
+          "native": "O_EXCL",
+          "type": "i32",
+          "value": 2048
+        },
+        {
+          "name": "O_TRUNC",
+          "native": "O_TRUNC",
+          "type": "i32",
+          "value": 1024
+        },
+        {
+          "name": "SPAWN_FILE_ACTION_WORDS",
+          "native": "(sizeof(posix_spawn_file_actions_t) / 8)",
+          "type": "usize",
+          "value": 1
+        }
+      ],
+      "functions": [
+        {
+          "name": "arc4random_buf",
+          "native": "arc4random_buf",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "unit",
+          "native_result": "void",
+          "link": "c",
+          "error_state": "fills the complete destination",
+          "ownership": "the caller retains destination ownership",
+          "initialization": "success initializes the complete destination",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "ns_get_argc",
+          "native": "_NSGetArgc",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<i32>",
+          "native_result": "int *",
+          "link": "c",
+          "error_state": "returns process argument count storage",
+          "ownership": "the process owns the returned storage",
+          "initialization": "the returned storage contains the process argument count",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "ns_get_argv",
+          "native": "_NSGetArgv",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<RawPointer<RawPointer<u8>>>",
+          "native_result": "char ***",
+          "link": "c",
+          "error_state": "returns process argument vector storage",
+          "ownership": "the process owns the returned storage and argument text",
+          "initialization": "the returned storage contains the process argument vector",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "error_location",
+          "native": "__error",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<i32>",
+          "native_result": "int *",
+          "link": "c",
+          "error_state": "returns the calling native thread error storage",
+          "ownership": "the C runtime owns the current native thread storage",
+          "initialization": "the returned storage contains the current error code",
+          "ensures": [
+            "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<i32>(pointer = result)",
+            "trusted core.memory.initialized_as<i32>(pointer = result)"
+          ],
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        }
+      ]
+    }
+  ],
+  "targets": []
+}

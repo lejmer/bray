@@ -312,8 +312,9 @@ Regenerate the checked-in target-specific operating-system bindings and native p
 cargo xtask standard-library os-bindings generate
 ```
 
-The generator reads `standard-library/targets/os-bindings.json`. That model names the pinned SDK authority, revision,
-and header set for every exact native target. It writes Bray declarations beneath
+The generator reads `standard-library/targets/os-bindings.json`, which lists focused sources beneath
+`standard-library/targets/os-bindings`. Shared POSIX and operating-system files hold common declarations, while one file
+per exact target names its pinned SDK authority, revision, header set, and target-specific declarations. The generator writes Bray declarations beneath
 `standard-library/std/src/os/generated` and matching C probes beneath `standard-library/targets/probes`. Every generated
 file records the complete model's SHA-256 digest. Production compilation consumes only the generated Bray declarations
 and does not inspect ambient host headers.

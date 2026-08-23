@@ -493,7 +493,7 @@ fn build_target(
 ) -> Result<BuiltTarget, BuildError> {
     if !super::platform::inventory_matches(product.platform_services()) {
         return Err(BuildError::Manifest(
-            "platform archive role inventory does not match the standard library".to_owned(),
+            "temporal provider roles are missing from the standard library".to_owned(),
         ));
     }
 
@@ -509,7 +509,9 @@ fn build_target(
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let platform = Vec::new();
+    let platform = crate::progress::run("Building the temporal provider", || {
+        super::platform::build_archives(&root, native, &output)
+    })?;
 
     let request = standard_library_source_request(
         product,

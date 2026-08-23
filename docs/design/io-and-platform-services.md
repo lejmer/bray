@@ -147,11 +147,12 @@ diagnostic message.
 Panics remain reserved for violated Bray or trusted-boundary invariants. Capacity exhaustion, missing files, denied
 access, unavailable entropy, child creation failure, and clock failure are not compiler panics.
 
-## Private Platform Service ABI
+## Internal platform roles and target bindings
 
-The platform service ABI is a closed compiler-readable contract between trusted standard-library bindings and the
-selected target support artifacts. It is not a Bray package, source namespace, public declaration family, or
-symbol-spelling convention.
+Platform roles give the compiler and runtime a stable identity for standard-library operations that a selected runtime
+component may override. Ordinary operating-system services are implemented in trusted Bray code over the exact-target
+declarations in `std.os`. The temporal roles remain backed by the pinned third-party provider described in
+[Time library](time.md). Neither mechanism is part of the public standard-library API.
 
 Each role has:
 
@@ -174,13 +175,14 @@ The minimum role families are:
 | Filesystems      | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles           |
 | Child processes  | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
 | Clocks           | Read process-local monotonic and wall clocks                                                                        |
-| Temporal data    | Interpret calendar values and named timezone rules through the pinned native provider                               |
+| Temporal data    | Interpret calendar values and named timezone rules through the pinned third-party provider                          |
 | Entropy          | Fill caller-owned mutable bytes from the target entropy source                                                      |
 | Wait integration | Expose waitable completion sources that the runtime reactor can register and wake                                   |
 
-The role set is intentionally mechanism-oriented. Path normalization, buffering, text conversion, directory sorting,
-command policy, typed process protocols, random algorithms, cancellation policy, and public error composition remain
-Bray code.
+Path normalization, buffering, text conversion, directory sorting, command policy, typed process protocols, random
+algorithms, cancellation policy, and public error composition remain Bray code. Target-specific handle operations,
+filesystem calls, process creation, streams, clocks, entropy, dynamic loading, and process-context discovery are also
+Bray code. The temporal provider owns calendar and timezone behavior maintained by its third-party sources.
 
 ### Role Schema
 
@@ -249,13 +251,13 @@ ordinal.
 Every handle requirement accepts only its exact class. Standard-stream roles carry no forgeable handle because their
 process-root identity is part of the selected execution environment.
 
-Reference-provider filesystem and process handles use disjoint numeric domains: the high bit is clear for files and
-directories and set for child processes and their pipes. Exact entry points also validate the owner variant, so a raw
-value from another resource family cannot accidentally identify a different live owner.
+Bray owner types keep files, directories, processes, pipes, and dynamic libraries in separate resource families even
+when the operating system represents several families with the same scalar or pointer type. Trusted target code
+validates raw values before constructing an owner and releases each value through its matching operating-system call.
 
-Pointers have the selected target's pointer width and alignment. Every scalar length and offset is `u64`. The provider
-rejects a value that cannot fit the target address space. All reserved fields and bits are zero. The provider validates
-pointer, length, alignment, overlap, handle class, and enum values before using an input.
+Pointers have the selected target's pointer width and alignment. Every scalar length and offset crossing an override or
+temporal boundary is `u64`. The boundary validates pointer ranges, lengths, alignment, overlap, handle class, and enum
+values before using an input.
 
 ### ABI Record Layout
 
@@ -325,39 +327,14 @@ before the ABI call. `AbiChildRequest` therefore carries a complete environment 
 three stream-policy values map one-to-one to the public `ChildStreamPolicy` variants in declaration order. The provider
 copies every value it needs after the call returns.
 
-### Process Context Block
+### Process context storage
 
-The platform provider owns one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
-little-endian integers at these byte offsets. Process-root standard streams are separate resources and are not encoded
-in the block:
+Target-specific Bray initialization copies the startup arguments, environment, and working directory into immutable
+standard-library storage before public process-context access. Arguments retain source order. Environment entries retain
+target-native text, and lookup uses the operating system's key comparison rules. Public values copy from this storage
+into ordinary owned path and native-text values.
 
-| Offset | Field                                             |
-|-------:|---------------------------------------------------|
-|    `0` | platform ABI major as `u16`                       |
-|    `2` | platform ABI minor as `u16`                       |
-|    `4` | native text unit width in bits as `u8`            |
-|    `5` | environment key comparison kind as `u8`           |
-|    `6` | zero reserved `u16`                               |
-|    `8` | process identity as `u64`                         |
-|   `16` | startup working-directory payload offset as `u64` |
-|   `24` | startup working-directory byte length as `u64`    |
-|   `32` | argument count as `u64`                           |
-|   `40` | argument table offset as `u64`                    |
-|   `48` | environment entry count as `u64`                  |
-|   `56` | environment table offset as `u64`                 |
-|   `64` | complete block byte length as `u64`               |
-
-Each argument table entry is a 16-byte payload offset and length pair. Each environment entry is a 32-byte key offset,
-key length, value offset, and value length tuple. Every range is within the complete block and ranges cannot overlap
-either table. Arguments retain source order and environment entries use lexicographic unsigned target-native
-key-code-unit order.
-
-The platform host fixes and validates the block before returning its first borrowed context view. Typed context roles
-return scalar values or product-lifetime borrowed native-text views into that block. A provider cannot use these roles
-to expose later host-global mutations. The standard library copies a borrowed view only when constructing an owned
-argument, environment entry, or path value. Process identity and context counts require no allocation or copying.
-
-`platform.context.environment_key_equals` compares two call-only native-text values using the target process
+`platform.context.environment_key_equals` compares two target-native text values using the target process
 environment's key comparison rules. It writes `1` for equality and `0` otherwise. This role does not query mutable host
 environment state.
 
@@ -492,8 +469,8 @@ decrease. `wall_now` nanoseconds are below one billion. Public async entropy dis
 blocking lane. Timer
 cancellation uses the common operation roles and forwards cancellation only after terminal operation completion.
 
-Each native provider converts its target monotonic source to nanoseconds at the platform boundary. The conversion scale
-and process clock domain are properties of the selected provider rather than fields repeated in every observation.
+Each target-specific Bray implementation converts its monotonic source to nanoseconds. The conversion scale and process
+clock domain remain properties of the selected target rather than fields repeated in every observation.
 
 Each process-context, stream, filesystem, child-process, clock, and entropy role requires its same-named capability. The
 three operation roles require `wait_integration`. A target contract must advertise the capability and every role in that
@@ -670,35 +647,30 @@ These service contracts describe language-level availability. A true service con
 support artifacts to provide every mandatory role for that service. A false service contract makes the corresponding
 service operations unavailable during normal target-conditional declaration checking.
 
-Target properties do not select a provider or encode an artifact path. Exact provider identity, role bindings, ABI
-version, native dependencies, and artifact digests remain build and link inputs.
+Target properties do not encode artifact paths. Role bindings, native dependencies, and artifact digests remain build
+and link inputs.
 
 ## Artifacts And Linking
 
 Each standard-library target artifact set records:
 
 - the exact target identity,
-- the platform-service ABI version,
-- provided platform roles and their semantic-contract digest,
-- the implementing static archive, direct system binding, or narrow native shim for each role,
+- the runtime ABI version,
+- the Bray standard-library archive and its direct native link requirements,
+- the temporal-provider roles and their semantic-contract digest,
 - native dependency requirements,
 - and content digests for every supplied artifact.
 
-The reference native provider is packaged independently of the protected-frame concurrency runtime. Standard-library
-target inventories carry capability-partitioned archives, and each archive carries only its own direct system-library
-requirements. A runtime component may declare the exact platform roles it overrides, such as a test host's reserved
-standard input and bounded standard-output and standard-error capture leaves. The ordinary provider archives remain
-available for every other reachable role. This separation ensures that a synchronous product can use native platform
-services without acquiring task scheduling, protected-frame storage, or other concurrency-runtime code.
+The Bray standard-library archive implements ordinary operating-system roles directly. The temporal provider is a
+separate static archive with its own provenance and native link requirements. A runtime component may still declare the
+exact platform roles it overrides, such as a test host's captured streams. Runtime overrides resolve before the standard
+library implementation.
 
-Platform-provider archives have distinct typed link provenance and follow the selected runtime components in archive
-resolution order. Runtime-owned exact operations therefore override their ordinary provider leaves deterministically,
-while unresolved operations continue into the capability-partitioned provider archives.
-
-Direct platform bindings are preferred when the target exposes a stable representable ABI. A native shim is allowed only
-to normalize mechanisms that cannot be expressed safely through direct declarations, such as macro-only APIs, unstable
-native structures, unusual calling conventions, or signal and unwind trampolines. A shim cannot own portable Bray
-policy.
+Generated direct bindings are used when the target exposes a stable representable ABI. A narrow native shim remains
+appropriate for a mechanism that has no safe direct declaration, such as a macro-only API, an unstable native structure,
+an unusual calling convention, or a signal or unwind trampoline. A shim cannot own portable Bray policy. Temporal
+semantics are a separate exception because the project deliberately relies on established third-party calendar,
+timezone, parsing, and formatting work.
 
 Standard input, standard output, standard error, files, process pipes, sockets, and captured test streams occupy
 independent retention boundaries. The production standard-stream leaves call only the exact target stream mechanism and

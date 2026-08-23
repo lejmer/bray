@@ -174,7 +174,7 @@ product retains only demanded provider capabilities and their data.
 
 Temporal platform ABI exports occupy a linkable component separate from unrelated platform mechanisms. Selecting an
 ordinary filesystem, stream, process, clock, or entropy service cannot introduce a reference to the temporal provider.
-Linker-map conformance enters through the public platform ABI and verifies that a product with no temporal demand
+Linker-map conformance enters through the private temporal ABI and verifies that a product with no temporal demand
 retains no temporal provider partition.
 
 ## Testing

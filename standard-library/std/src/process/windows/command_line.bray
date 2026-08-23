@@ -1,0 +1,158 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+trusted internal func windows_command_line(
+    pos executable: PlatformNativeText,
+    pos arguments: &[PlatformNativeText],
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    let mut units: usize = try internal quoted_windows_units(executable);
+    let count: usize = internal std.memory.slice_length<PlatformNativeText>(arguments);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let argument_units: usize = try internal quoted_windows_units(arguments[index]);
+
+        if units > 9_223_372_036_854_775_806 - argument_units
+        {
+            return Error(internal std.platform.exhausted_status());
+        }
+
+        units += argument_units + 1;
+        index += 1;
+    }
+
+    if units == 9_223_372_036_854_775_807
+    {
+        return Error(internal std.platform.exhausted_status());
+    }
+
+    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer((units + 1) * 2);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
+    let mut written: usize = trusted internal write_quoted_windows_argument(destination, executable, index = 0);
+    index = 0;
+
+    while index < count
+    {
+        trusted internal write_windows_unit(destination, index = written, value = 32);
+        written = trusted internal write_quoted_windows_argument(destination, arguments[index], index = written + 1);
+        index += 1;
+    }
+
+    trusted internal write_windows_unit(destination, index = written, value = 0);
+    return Ok(storage);
+}
+
+internal func quoted_windows_units(pos text: PlatformNativeText) -> Result<usize, std.platform.PlatformStatus>
+{
+    let text_units: usize = try internal windows_text_units(text, allow_empty = true, allow_equals = true);
+    let mut result: usize = 2;
+    let mut slashes: usize = 0;
+    let mut index: usize = 0;
+
+    while index < text_units
+    {
+        let value: u16 = trusted internal windows_text_unit(text, index);
+
+        if value == 92
+        {
+            slashes += 1;
+        }
+        else
+        {
+            let emitted: usize = if value == 34
+            {
+                if slashes > 9_223_372_036_854_775_806
+                {
+                    return Error(internal std.platform.exhausted_status());
+                }
+
+                yield slashes * 2 + 2;
+            }
+            else
+            {
+                yield slashes + 1;
+            };
+
+            if result > 18_446_744_073_709_551_615 - emitted
+            {
+                return Error(internal std.platform.exhausted_status());
+            }
+
+            result += emitted;
+            slashes = 0;
+        }
+
+        index += 1;
+    }
+
+    if slashes > (18_446_744_073_709_551_615 - result) / 2
+    {
+        return Error(internal std.platform.exhausted_status());
+    }
+
+    return Ok(result + slashes * 2);
+}
+
+trusted internal func write_quoted_windows_argument(
+    pos destination: RawPointer<u8>,
+    pos text: PlatformNativeText,
+    index: usize,
+) -> usize
+{
+    let units: usize = std.truncate_to<usize>(text.length) / 2;
+    let mut written: usize = index;
+    let mut slashes: usize = 0;
+    let mut source: usize = 0;
+    trusted internal write_windows_unit(destination, index = written, value = 34);
+    written += 1;
+
+    while source < units
+    {
+        let value: u16 = trusted internal windows_text_unit(text, source);
+
+        if value == 92
+        {
+            slashes += 1;
+        }
+        else
+        {
+            let escaped: usize = if value == 34
+            {
+                yield slashes * 2 + 1;
+            }
+            else
+            {
+                yield slashes;
+            };
+
+            let mut copied: usize = 0;
+
+            while copied < escaped
+            {
+                trusted internal write_windows_unit(destination, index = written, value = 92);
+                written += 1;
+                copied += 1;
+            }
+
+            trusted internal write_windows_unit(destination, index = written, value = value);
+            written += 1;
+            slashes = 0;
+        }
+
+        source += 1;
+    }
+
+    let mut copied: usize = 0;
+
+    while copied < slashes * 2
+    {
+        trusted internal write_windows_unit(destination, index = written, value = 92);
+        written += 1;
+        copied += 1;
+    }
+
+    trusted internal write_windows_unit(destination, index = written, value = 34);
+    return written + 1;
+}

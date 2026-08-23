@@ -472,6 +472,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Option<EvaluatedConstantCall>, FactQueryError> {
         let context = self.checker_context(cancellation)?;
+
         let hook = context
             .implementation_hook(callable.definition().callable_symbol().into_any())
             .map_err(checker_constant_query_error)?;
@@ -485,6 +486,7 @@ impl Compilation {
         };
 
         let values = self.semantic_value_store()?;
+
         let argument = values
             .constant_value_data(*argument)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;

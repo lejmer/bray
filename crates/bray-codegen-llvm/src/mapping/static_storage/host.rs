@@ -95,6 +95,7 @@ pub(super) fn declare_thread_static_registration<'context>(
         registration.set_initializer(&initializer);
         registration.set_linkage(Linkage::WeakODR);
         registration.set_visibility(GlobalVisibility::Hidden);
+
         crate::comdat::attach(
             module,
             registration,
@@ -127,6 +128,7 @@ pub(super) fn declare_static_host_entry<'context>(
     let pointer = pointer_type(types)?;
     let usize = usize_type(types)?;
     let entry_type = static_host_entry_type(context, pointer, usize);
+
     let dependency = declare_static_dependency_lookup(
         module,
         host_mapping,
@@ -320,6 +322,7 @@ pub(super) fn declare_product_host<'context>(
     descriptor.set_constant(true);
     descriptor.set_initializer(&descriptor_initializer);
     descriptor.set_linkage(Linkage::WeakODR);
+
     crate::comdat::attach(
         module,
         descriptor,

@@ -781,6 +781,7 @@ mod tests {
     #[test]
     fn long_extern_callable_headers_wrap_parameters() {
         let source = "trusted module fixture;\n\nextern trusted func create_thread(pos attributes: RawPointer<SecurityAttributes>, pos stack_size: usize, pos entry: ThreadStartRoutine, pos context: RawPointer<u8>, pos creation_flags: u32, pos thread_identifier: RawPointer<u32>) -> RawPointer<u8>\n    uses(foreign_call);\n";
+
         let formatted = format_text(source, &FormatterConfiguration::default())
             .unwrap_or_else(|error| panic!("fixture must format: {error:?}"));
 

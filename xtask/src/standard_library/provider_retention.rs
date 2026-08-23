@@ -14,9 +14,6 @@ const CIVIL_MEMBER: &str = "-civil.o";
 const TEXT_MEMBER: &str = "-text.o";
 const TIMEZONE_MEMBER: &str = "-timezone.o";
 const DATABASE_MEMBER: &str = "-tz.o";
-const STANDARD_INPUT_MEMBER: &str = "-input.o";
-const STANDARD_OUTPUT_MEMBER: &str = "-output.o";
-const STANDARD_ERROR_MEMBER: &str = "-error.o";
 
 pub(super) fn audit(
     root: &Path,
@@ -24,52 +21,12 @@ pub(super) fn audit(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    let standard_stream =
-        platform_archive(toolchain, target, PlatformServiceRole::StandardOutputWrite)?;
-
     let temporal = platform_archive(toolchain, target, PlatformServiceRole::TimeDateValidate)?;
     let temporal_include = root.join("crates/bray-platform-abi/native/temporal/include");
-
-    let standard_stream_include =
-        root.join("crates/bray-platform-abi/native/standard_stream/include");
 
     let output = output.join("provider-retention");
 
     fs::create_dir(&output).map_err(|error| BuildError::write(&output, error))?;
-
-    let print = link_fixture(
-        root,
-        &output,
-        &standard_stream_include,
-        &standard_stream,
-        target,
-        "provider-retention-print",
-    )?;
-
-    require_members(
-        &print.map,
-        &[STANDARD_OUTPUT_MEMBER],
-        &[STANDARD_INPUT_MEMBER, STANDARD_ERROR_MEMBER],
-        "print-only",
-    )?;
-
-    require_atomic_standard_output(&print.standard_output)?;
-
-    let input = link_fixture(
-        root,
-        &output,
-        &standard_stream_include,
-        &standard_stream,
-        target,
-        "provider-retention-input",
-    )?;
-
-    require_members(
-        &input.map,
-        &[STANDARD_INPUT_MEMBER],
-        &[STANDARD_OUTPUT_MEMBER, STANDARD_ERROR_MEMBER],
-        "input-only",
-    )?;
 
     let civil = link_fixture(
         root,
@@ -81,7 +38,7 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &civil.map,
+        &civil,
         &[CIVIL_MEMBER],
         &[TEXT_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER],
         "civil-date",
@@ -97,7 +54,7 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &text.map,
+        &text,
         &[TEXT_MEMBER],
         &[CIVIL_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER],
         "parse-format",
@@ -113,7 +70,7 @@ pub(super) fn audit(
     )?;
 
     require_members(
-        &timezone.map,
+        &timezone,
         &[TIMEZONE_MEMBER, DATABASE_MEMBER],
         &[CIVIL_MEMBER, TEXT_MEMBER],
         "named-timezone",
@@ -123,11 +80,6 @@ pub(super) fn audit(
 struct ProviderArchive {
     path: PathBuf,
     native_links: Vec<NativeLinkRequirement>,
-}
-
-struct ProviderFixtureOutput {
-    map: String,
-    standard_output: Vec<u8>,
 }
 
 fn platform_archive(
@@ -185,7 +137,7 @@ fn link_fixture(
     provider: &ProviderArchive,
     target: NativeTarget,
     name: &str,
-) -> Result<ProviderFixtureOutput, BuildError> {
+) -> Result<String, BuildError> {
     let source = root.join("xtask/fixtures").join(format!("{name}.cpp"));
     let executable = output.join(crate::native_toolchain::executable_name(name));
     let map = output.join(format!("{name}.map"));
@@ -223,30 +175,10 @@ fn link_fixture(
 
     execution.current_dir(output);
 
-    let execution =
-        crate::command::require_success(execution, "executing native provider retention fixture")
-            .map_err(|error| BuildError::conformance("native provider retention", error))?;
+    crate::command::require_success(execution, "executing native provider retention fixture")
+        .map_err(|error| BuildError::conformance("native provider retention", error))?;
 
-    let map = fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))?;
-
-    Ok(ProviderFixtureOutput {
-        map,
-        standard_output: execution.stdout,
-    })
-}
-
-fn require_atomic_standard_output(output: &[u8]) -> Result<(), BuildError> {
-    let first = [vec![b'a'; 64], vec![b'b'; 64]].concat();
-    let second = [vec![b'b'; 64], vec![b'a'; 64]].concat();
-
-    if output == first || output == second {
-        return Ok(());
-    }
-
-    Err(BuildError::conformance(
-        "native provider retention",
-        "concurrent standard-output operations interleaved",
-    ))
+    fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))
 }
 
 fn append_native_links(

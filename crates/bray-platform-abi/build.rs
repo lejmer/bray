@@ -46,16 +46,12 @@ fn main() {
             .unwrap_or_else(|| panic!("Cargo must provide CARGO_MANIFEST_DIR")),
     );
 
-    if env::var_os("CARGO_FEATURE_CORE").is_some() {
-        build_core(&manifest);
-    }
-
-    if env::var_os("CARGO_FEATURE_STANDARD_STREAMS").is_some() {
-        build_standard_streams(&manifest);
+    if env::var_os("CARGO_FEATURE_TEMPORAL").is_some() {
+        build_temporal(&manifest);
     }
 }
 
-fn build_core(manifest: &Path) {
+fn build_temporal(manifest: &Path) {
     let third_party = manifest.join("../../third-party/temporal");
     let dynamic = manifest.join("native/dynamic");
     let provider = manifest.join("native/temporal");
@@ -117,33 +113,6 @@ fn build_core(manifest: &Path) {
 
     println!("cargo:rerun-if-changed={}", provider.display());
     println!("cargo:rerun-if-changed={}", dynamic.display());
-}
-
-fn build_standard_streams(manifest: &Path) {
-    let standard_stream = manifest.join("native/standard_stream");
-    let mut standard_streams = cc::Build::new();
-
-    standard_streams
-        .cpp(true)
-        .cpp_link_stdlib(None)
-        .static_crt(true)
-        .std("c++17")
-        .include(standard_stream.join("include"))
-        .files([
-            standard_stream.join("src/input.cpp"),
-            standard_stream.join("src/output.cpp"),
-            standard_stream.join("src/error.cpp"),
-        ])
-        .warnings(true);
-
-    configure_discardable_sections(&mut standard_streams);
-    standard_streams.compile("bray_platform_standard_streams");
-
-    if env::var("CARGO_CFG_TARGET_FAMILY").is_ok_and(|family| family == "unix") {
-        println!("cargo:rustc-link-lib=pthread");
-    }
-
-    println!("cargo:rerun-if-changed={}", standard_stream.display());
 }
 
 #[derive(Deserialize)]

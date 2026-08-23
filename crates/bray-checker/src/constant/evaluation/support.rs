@@ -233,12 +233,15 @@ where
         }
 
         let values = self.request.semantic_values();
+
         let data = values.type_data(ty).map_err(|_| {
             EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
+
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
+
         let substitution = values
             .generic_substitution_data(*substitution)
             .map_err(|_| {
@@ -246,9 +249,11 @@ where
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 )
             })?;
+
         let [binding] = substitution.bindings() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
+
         let GenericArgument::Type(value_type) = binding.argument() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };

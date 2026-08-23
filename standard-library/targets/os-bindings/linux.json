@@ -1,0 +1,91 @@
+{
+  "groups": [
+    {
+      "name": "linux_runtime",
+      "targets": [
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "constants": [
+        {
+          "name": "F_DUPFD_CLOEXEC",
+          "native": "F_DUPFD_CLOEXEC",
+          "type": "i32",
+          "value": 1030
+        },
+        {
+          "name": "O_APPEND",
+          "native": "O_APPEND",
+          "type": "i32",
+          "value": 1024
+        },
+        {
+          "name": "O_CREAT",
+          "native": "O_CREAT",
+          "type": "i32",
+          "value": 64
+        },
+        {
+          "name": "O_EXCL",
+          "native": "O_EXCL",
+          "type": "i32",
+          "value": 128
+        },
+        {
+          "name": "O_TRUNC",
+          "native": "O_TRUNC",
+          "type": "i32",
+          "value": 512
+        },
+        {
+          "name": "SOCK_CLOEXEC",
+          "native": "SOCK_CLOEXEC",
+          "type": "i32",
+          "value": 524288
+        },
+        {
+          "name": "SPAWN_FILE_ACTION_WORDS",
+          "native": "(sizeof(posix_spawn_file_actions_t) / 8)",
+          "type": "usize",
+          "value": 10
+        }
+      ],
+      "functions": [
+        {
+          "name": "getrandom",
+          "native": "getrandom",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "unsigned int"
+            }
+          ],
+          "result": "isize",
+          "native_result": "ssize_t",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains destination ownership",
+          "initialization": "success initializes the returned destination prefix",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        }
+      ]
+    }
+  ],
+  "targets": []
+}

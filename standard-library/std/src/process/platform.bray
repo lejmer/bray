@@ -15,40 +15,10 @@ internal struct PlatformNativeText
 
 @copy
 @layout(c)
-internal struct PlatformSpanList
-{
-    entries: RawPointer<PlatformNativeText>;
-    count: u64;
-}
-
-@copy
-@layout(c)
 internal struct PlatformEnvironmentEntry
 {
     key: PlatformNativeText;
     value: PlatformNativeText;
-}
-
-@copy
-@layout(c)
-internal struct PlatformEnvironmentList
-{
-    entries: RawPointer<PlatformEnvironmentEntry>;
-    count: u64;
-}
-
-@copy
-@layout(c)
-internal struct PlatformChildRequest
-{
-    executable: PlatformNativeText;
-    working_directory: PlatformNativeText;
-    arguments: PlatformSpanList;
-    environment: PlatformEnvironmentList;
-    standard_input: u32;
-    standard_output: u32;
-    standard_error: u32;
-    reserved: u32;
 }
 
 @copy
@@ -83,18 +53,6 @@ internal func empty_span() -> PlatformNativeText
         address = std.memory.null<u8>(),
         length = 0,
     };
-}
-
-internal func list_pointer<T>(pos values: &std.collection.List<T>) -> RawPointer<T>
-{
-    if std.collection.length<T>(values) == 0
-    {
-        return std.memory.null<T>();
-    }
-
-    let entries: &[T] = std.collection.as_slice<T>(values);
-
-    return std.memory.address_of<T>(&entries[0]);
 }
 
 internal func stream_policy_value(policy: ChildStreamPolicy) -> u32

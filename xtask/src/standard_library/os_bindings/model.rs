@@ -22,16 +22,29 @@ pub(super) fn is_primitive_abi_type(ty: &str) -> bool {
     abi_integer_representation(ty).is_some() || matches!(ty, "r32" | "r64")
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct Description {
     pub(super) format: u32,
-    #[serde(default)]
     pub(super) groups: Vec<BindingGroupDescription>,
     pub(super) targets: Vec<TargetDescription>,
 }
 
 impl Description {
+    pub(super) fn from_sources(format: u32, sources: Vec<Source>) -> Self {
+        let mut groups = Vec::new();
+        let mut targets = Vec::new();
+
+        for source in sources {
+            groups.extend(source.groups);
+            targets.extend(source.targets);
+        }
+
+        Self {
+            format,
+            groups,
+            targets,
+        }
+    }
+
     pub(super) fn expand_groups(mut self) -> Result<Self, String> {
         validate_group_identities(&self.groups, &self.targets)?;
 
@@ -57,6 +70,7 @@ impl Description {
             target
                 .constants
                 .sort_by(|left, right| left.name.cmp(&right.name));
+
             target
                 .functions
                 .sort_by(|left, right| left.name.cmp(&right.name));
@@ -66,11 +80,28 @@ impl Description {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Manifest {
+    pub(super) format: u32,
+    pub(super) sources: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Source {
+    #[serde(default)]
+    pub(super) groups: Vec<BindingGroupDescription>,
+    #[serde(default)]
+    pub(super) targets: Vec<TargetDescription>,
+}
+
 fn validate_group_identities(
     groups: &[BindingGroupDescription],
     targets: &[TargetDescription],
 ) -> Result<(), String> {
     let mut names = BTreeSet::new();
+
     let target_names = targets
         .iter()
         .map(|target| target.target.as_str())
@@ -405,6 +436,10 @@ pub(super) struct FunctionDescription {
     pub(super) ownership: Option<String>,
     #[serde(default)]
     pub(super) initialization: Option<String>,
+    #[serde(default)]
+    pub(super) requires: Vec<String>,
+    #[serde(default)]
+    pub(super) ensures: Vec<String>,
     #[serde(default)]
     pub(super) dependencies: Vec<String>,
 }

@@ -386,7 +386,24 @@ fn render_function(
 
     writeln!(source, ") -> {}", function.result).expect("writing to a string must succeed");
 
+    render_predicate_clause(source, "requires", &function.requires);
+    render_predicate_clause(source, "ensures", &function.ensures);
+
     writeln!(source, "    uses(foreign_call);").expect("writing to a string must succeed");
+}
+
+fn render_predicate_clause(source: &mut String, clause: &str, conditions: &[String]) {
+    if conditions.is_empty() {
+        return;
+    }
+
+    writeln!(source, "    {clause}(").expect("writing to a string must succeed");
+
+    for condition in conditions {
+        writeln!(source, "        {condition},").expect("writing to a string must succeed");
+    }
+
+    writeln!(source, "    )").expect("writing to a string must succeed");
 }
 
 fn render_static(source: &mut String, target: &TargetDescription, static_: &StaticDescription) {

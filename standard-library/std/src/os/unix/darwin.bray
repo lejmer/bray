@@ -230,12 +230,17 @@ trusted func write(pos descriptor: i32, pos source: RawPointer<u8>, pos length: 
 trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
     uses(foreign_call)
 {
-    if trusted std.os.darwin.socket_pair(
+    trusted std.memory.write<i32>(descriptors, value = -1);
+    trusted std.memory.write<i32>(std.memory.offset<i32>(descriptors, elements = 1), value = -1);
+
+    let status: i32 = trusted std.os.darwin.socket_pair(
         std.os.darwin.AF_UNIX,
         kind = std.os.darwin.SOCK_STREAM,
         protocol = 0,
         descriptors = descriptors,
-    ) != 0
+    );
+
+    if status != 0
     {
         return -1;
     }
@@ -246,11 +251,12 @@ trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
     if trusted std.os.darwin.fcntl(first, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0 ||
         trusted std.os.darwin.fcntl(second, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0
     {
-        let error: i32 = trusted std.memory.read<i32>(trusted std.os.darwin.error_location());
+        let error_location: RawPointer<i32> = trusted std.os.darwin.error_location();
+        let error: i32 = trusted internal std.platform.read_native_i32(error_location);
 
         let _: i32 = trusted std.os.darwin.close(first);
         let _: i32 = trusted std.os.darwin.close(second);
-        trusted std.memory.write<i32>(trusted std.os.darwin.error_location(), value = error);
+        trusted std.memory.write<i32>(error_location, value = error);
 
         return -1;
     }

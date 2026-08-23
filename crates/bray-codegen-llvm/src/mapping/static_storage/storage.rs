@@ -167,6 +167,7 @@ fn declare_static_attachment<'context>(
         attachment.set_linkage(Linkage::WeakODR);
         attachment.set_visibility(GlobalVisibility::Hidden);
         attachment.set_thread_local(true);
+
         crate::comdat::attach(
             module,
             attachment,

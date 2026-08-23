@@ -1040,14 +1040,17 @@ mod tests {
 
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
             ProductKind::Library,
             SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
         );
+
         let request =
             CompilationRequest::with_options(package, vec![source_input(source, 0)], options)
                 .with_standard_library_source_authority();
+
         let compilation = Compilation::load(request).unwrap_or_else(|error| {
             panic!("standard library test compilation must load: {error:?}")
         });
