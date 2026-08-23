@@ -135,7 +135,7 @@ fn declare_static_global<'context>(
     }
 
     if mapping.native_binding().is_none() {
-        global.set_comdat(module.get_or_insert_comdat(name));
+        crate::comdat::attach(module, global, name, target.machine().object_format());
     }
 
     global
@@ -167,7 +167,12 @@ fn declare_static_attachment<'context>(
         attachment.set_linkage(Linkage::WeakODR);
         attachment.set_visibility(GlobalVisibility::Hidden);
         attachment.set_thread_local(true);
-        attachment.set_comdat(module.get_or_insert_comdat(&name));
+        crate::comdat::attach(
+            module,
+            attachment,
+            &name,
+            types.target().machine().object_format(),
+        );
 
         attachment
     });
@@ -204,9 +209,12 @@ fn declare_static_accessor<'context>(
         .as_global_value()
         .set_visibility(GlobalVisibility::Hidden);
 
-    accessor
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(&accessor_name));
+    crate::comdat::attach(
+        module,
+        accessor.as_global_value(),
+        &accessor_name,
+        types.target().machine().object_format(),
+    );
 
     let context = types.context();
     let builder = context.create_builder();
@@ -552,6 +560,7 @@ fn declare_static_callback<'context>(
         name,
         block_name,
         types.context().void_type().fn_type(&[], false),
+        types,
     )
 }
 
@@ -560,6 +569,7 @@ pub(super) fn declare_static_callback_with_type<'context>(
     name: &str,
     block_name: &str,
     ty: FunctionType<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
 ) -> FunctionValue<'context> {
     let callback = module.add_function(name, ty, None);
 
@@ -569,9 +579,12 @@ pub(super) fn declare_static_callback_with_type<'context>(
         .as_global_value()
         .set_visibility(GlobalVisibility::Hidden);
 
-    callback
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(name));
+    crate::comdat::attach(
+        module,
+        callback.as_global_value(),
+        name,
+        types.target().machine().object_format(),
+    );
 
     module
         .get_context()

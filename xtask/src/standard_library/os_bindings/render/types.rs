@@ -1,6 +1,8 @@
 use std::fmt::Write;
 
-use super::super::model::{ParameterDescription, TargetDescription, TypeDescription};
+use super::super::model::{
+    ParameterDescription, TargetDescription, TypeDescription, abi_integer_representation,
+};
 
 // Formatting through String's fmt::Write implementation has no failure path.
 pub(super) fn render_abi_type_contracts(source: &mut String, target: &TargetDescription) {
@@ -110,13 +112,15 @@ fn render_callable_type_contracts(
         );
     }
 
-    render_abi_type_contract(
-        source,
-        target,
-        &format!("{callable} result"),
-        result,
-        native_result,
-    );
+    if result != "unit" {
+        render_abi_type_contract(
+            source,
+            target,
+            &format!("{callable} result"),
+            result,
+            native_result,
+        );
+    }
 }
 
 fn render_abi_type_contract(
@@ -136,19 +140,7 @@ fn render_abi_type_contract(
         return;
     }
 
-    let primitive = match bray {
-        "i8" => Some((1, true)),
-        "i16" => Some((2, true)),
-        "i32" => Some((4, true)),
-        "i64" => Some((8, true)),
-        "u8" => Some((1, false)),
-        "u16" => Some((2, false)),
-        "u32" => Some((4, false)),
-        "u64" | "usize" => Some((8, false)),
-        _ => None,
-    };
-
-    if let Some((size, signed)) = primitive {
+    if let Some((size, signed)) = abi_integer_representation(bray) {
         writeln!(
             source,
             "_Static_assert(sizeof({native}) == {size}, \"{context} Bray integer size\");"

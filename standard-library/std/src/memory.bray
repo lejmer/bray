@@ -495,7 +495,11 @@ trusted internal func grow_byte_buffer(pos buffer: &mut RawBuffer<u8>) -> Result
 extern trusted internal func byte_buffer_fill(pos destination: RawPointer<u8>, value: u8, count: usize) -> unit
     uses(raw_memory, unchecked_init);
 
-extern trusted internal func byte_slice_copy(pos source: &[u8], pos destination: RawPointer<u8>) -> unit
+extern trusted internal func byte_buffer_copy(
+    pos source: RawPointer<u8>,
+    pos destination: RawPointer<u8>,
+    count: usize,
+) -> unit
     uses(raw_memory, unchecked_init);
 
 extern trusted internal func byte_buffer_read(pos pointer: RawPointer<u8>, index: usize) -> u8

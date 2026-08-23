@@ -4,7 +4,7 @@ use bray_target::NativeTarget;
 
 use super::model::{
     Description, FORMAT, OverrideAuthority, ParameterDescription, SdkRevision, SymbolBinding,
-    SymbolDescription, SymbolPresence, TargetDescription, TypeDescription,
+    SymbolDescription, SymbolPresence, TargetDescription, TypeDescription, is_primitive_abi_type,
 };
 
 pub(super) fn validate(description: &Description) -> Result<(), String> {
@@ -399,14 +399,15 @@ fn validate_callable_types(
         validate_abi_type(target, &parameter.ty)?;
     }
 
-    validate_abi_type(target, result)
+    if result == "unit" {
+        Ok(())
+    } else {
+        validate_abi_type(target, result)
+    }
 }
 
 fn validate_abi_type(target: &TargetDescription, ty: &str) -> Result<(), String> {
-    if matches!(
-        ty,
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "r32" | "r64"
-    ) {
+    if is_primitive_abi_type(ty) {
         return Ok(());
     }
 
@@ -539,10 +540,12 @@ mod tests {
 
     #[test]
     fn checked_in_description_covers_every_native_target() {
-        let description: Description = serde_json::from_str(include_str!(
+        let description = serde_json::from_str::<Description>(include_str!(
             "../../../../standard-library/targets/os-bindings.json"
         ))
-        .unwrap_or_else(|error| panic!("binding description must parse: {error}"));
+        .unwrap_or_else(|error| panic!("binding description must parse: {error}"))
+        .expand_groups()
+        .unwrap_or_else(|error| panic!("binding groups must expand: {error}"));
 
         validate(&description)
             .unwrap_or_else(|error| panic!("binding description must be valid: {error}"));

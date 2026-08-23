@@ -1,0 +1,50 @@
+@target(
+    target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu" ||
+        target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME == "aarch64-apple-darwin"
+)
+trusted module std.io;
+
+trusted internal func platform_standard_input_read(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    return trusted internal std.platform.descriptor_transfer(
+        descriptor = 0,
+        bytes = destination,
+        length = length,
+        transferred = transferred,
+        read_operation = true,
+    );
+}
+
+trusted internal func platform_standard_output_write(
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    return trusted internal std.platform.descriptor_transfer(
+        descriptor = 1,
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}
+
+trusted internal func platform_standard_error_write(
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    return trusted internal std.platform.descriptor_transfer(
+        descriptor = 2,
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}

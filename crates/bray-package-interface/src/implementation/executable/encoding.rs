@@ -1591,7 +1591,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(26);
                 self.ty(state)?;
             }
-            Kind::ByteSliceCopy => self.wire.write_u32(27),
+            Kind::ByteBufferCopy => self.wire.write_u32(27),
             Kind::VolatileRead {
                 pointee,
                 address_space,

@@ -63,8 +63,9 @@ fn read_description() -> Result<DescriptionFile, String> {
     let bytes =
         std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
 
-    let description: Description = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("could not parse {}: {error}", input.display()))?;
+    let description = serde_json::from_slice::<Description>(&bytes)
+        .map_err(|error| format!("could not parse {}: {error}", input.display()))?
+        .expand_groups()?;
 
     validate(&description)?;
 

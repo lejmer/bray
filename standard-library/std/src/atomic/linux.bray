@@ -1,0 +1,34 @@
+@target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
+module std.atomic;
+
+trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, pos expected: u32)
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAIT_PRIVATE,
+        expected,
+        std.memory.null<u8>(),
+        std.memory.null<u8>(),
+        0,
+    );
+}
+
+trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAKE_PRIVATE,
+        1,
+        std.memory.null<u8>(),
+        std.memory.null<u8>(),
+        0,
+    );
+}

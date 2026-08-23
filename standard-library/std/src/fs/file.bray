@@ -18,7 +18,6 @@ struct File
     }
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.is_open
         {
@@ -101,7 +100,6 @@ struct File
 
 trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) -> Result<File, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let platform_path_value: PlatformPath = platform_path(path);
 
@@ -134,24 +132,12 @@ trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) 
 
 trusted internal func file_metadata(handle: u64) -> Result<FileMetadata, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
-    let mut output: PlatformFileMetadata = empty_platform_metadata();
-    let output_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut output);
-
-    let status: std.platform.PlatformStatus = trusted platform_file_metadata(
-        handle = handle,
-        metadata = output_pointer
-    );
-
-    try checked_platform_status(status);
-
-    return platform_metadata(output);
+    return trusted platform_file_metadata_value(handle);
 }
 
 trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !file.is_open
     {
@@ -209,7 +195,6 @@ impl FileSeeker = File(std.io.Seeker)
 
 trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let maximum: usize = internal std.memory.slice_length<u8>(&destination);
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
@@ -233,7 +218,6 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
 
 trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let maximum: usize = internal std.memory.slice_length<u8>(source);
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
@@ -257,7 +241,6 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
 
 trusted internal func flush_file(pos file: &mut File) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted platform_file_flush(handle = file.handle);
 
@@ -270,7 +253,6 @@ trusted internal func seek_file(
     origin: std.io.SeekOrigin,
 ) -> Result<u64, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut position: u64 = 0;
     let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);

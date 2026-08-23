@@ -520,7 +520,6 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
 trusted internal func request_child_termination(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
         child = child.state.handle,
@@ -565,7 +564,6 @@ trusted internal func checked_child_status_or_dispose(
 
 trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     trusted close_retained_pipes(&mut child);
 

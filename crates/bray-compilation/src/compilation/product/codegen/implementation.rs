@@ -471,7 +471,7 @@ impl Compilation {
 
         let Some(runtime) = runtime else {
             if host.is_some_and(|host| host.requirements().requires_implementation())
-                || product_host.is_some()
+                || kind != ProductKind::Library && product_host.is_some()
             {
                 return Err(NativeProductPlanningError::MissingRuntime);
             }
@@ -3343,7 +3343,17 @@ mod tests {
             "public static EXPORTED_VALUE: i32 = 42;\n",
         );
 
-        let (backend, plan) = runtime_native_plan_for_product(source, ProductKind::Library);
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("static library plan must resolve: {error:?}"));
 
         let mappings = plan
             .mappings()
@@ -3581,6 +3591,9 @@ mod tests {
             "@link(name = \"native\")\n",
             "@symbol(name = \"native_mutex\")\n",
             "extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;\n",
+            "@link(name = \"native\")\n",
+            "@symbol(name = \"native_environ\")\n",
+            "extern trusted static mut NATIVE_ENVIRON: RawPointer<RawPointer<u8>>;\n",
             "@symbol(name = \"unused_export\")\n",
             "static UNUSED_EXPORT: i32 = 7;\n",
             "@symbol(name = \"weak_export\", binding = weak)\n",
@@ -3592,6 +3605,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
+            "    let environment: RawPointer<RawPointer<u8>> = NATIVE_ENVIRON;\n",
             "}\n",
         );
 

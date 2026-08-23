@@ -7,35 +7,19 @@ use super::super::core::UnitTranslator;
 use super::super::support::{int_value, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-    pub(super) fn translate_byte_slice_copy(
+    pub(super) fn translate_byte_buffer_copy(
         &mut self,
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
-        let [source, destination] = memory.operands() else {
+        let [source, destination, count] = memory.operands() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let source = self.operand(source)?.into_struct_value();
-
-        let source_pointer = llvm(self.builder.build_extract_value(
-            source,
-            0,
-            "memory.slice.pointer",
-        ))?
-        .into_pointer_value();
-
-        let bytes = llvm(
-            self.builder
-                .build_extract_value(source, 1, "memory.slice.length"),
-        )?
-        .into_int_value();
-
+        let source = self.memory_pointer(source)?;
         let destination = self.memory_pointer(destination)?;
+        let bytes = self.pointer_sized_memory_operand(count)?;
 
-        llvm(
-            self.builder
-                .build_memcpy(destination, 1, source_pointer, 1, bytes),
-        )?;
+        llvm(self.builder.build_memcpy(destination, 1, source, 1, bytes))?;
 
         self.observe_memory_copy(bytes)?;
 

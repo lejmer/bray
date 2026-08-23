@@ -1,0 +1,616 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.fs;
+
+trusted internal func platform_file_read(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    return trusted internal std.platform.handle_transfer(
+        trusted internal std.platform.handle_pointer(handle),
+        bytes = destination,
+        length = length,
+        transferred = transferred,
+        read_operation = true,
+    );
+}
+
+trusted internal func platform_file_write(
+    pos handle: u64,
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    return trusted internal std.platform.handle_transfer(
+        trusted internal std.platform.handle_pointer(handle),
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}
+
+trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let native_handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+
+    if trusted std.os.windows.flush_file_buffers(native_handle) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_seek(
+    pos handle: u64,
+    pos offset_bits: u64,
+    pos origin: u32,
+    pos position: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let native_origin: u32 = match origin
+    {
+        case 0
+        {
+            if offset_bits > 9_223_372_036_854_775_807
+            {
+                return internal std.platform.invalid_input_status();
+            }
+
+            yield std.os.windows.FILE_BEGIN;
+        }
+        case 1 { yield std.os.windows.FILE_CURRENT; }
+        case 2 { yield std.os.windows.FILE_END; }
+        case _ { return internal std.platform.invalid_input_status(); }
+    };
+
+    let distance: std.os.windows.LargeInteger = std.os.windows.LargeInteger.QuadPart(
+        quad_part = std.truncate_to<i64>(offset_bits)
+    );
+
+    let mut native_position: i64 = 0;
+
+    let native_position_pointer: RawPointer<std.os.windows.LargeInteger> = trusted std.memory.reinterpret<
+        std.os.windows.LargeInteger,
+        i64,
+    >(std.memory.address_of_mut<i64>(&mut native_position));
+
+    if trusted std.os.windows.set_file_pointer_ex(
+        trusted internal std.platform.handle_pointer(handle),
+        distance = distance,
+        position = native_position_pointer,
+        origin = native_origin,
+    ) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    if native_position < 0
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    trusted std.memory.write<u64>(position, value = std.truncate_to<u64>(native_position));
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if trusted std.os.windows.close_handle(trusted internal std.platform.handle_pointer(handle)) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_open(
+    pos path: PlatformPath,
+    pos options: PlatformFileOptions,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if options.reserved != 0
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let access: u32 = match options.access
+    {
+        case 0 { yield std.os.windows.GENERIC_READ; }
+        case 1 { yield std.os.windows.GENERIC_WRITE; }
+        case 2 { yield std.os.windows.GENERIC_READ | std.os.windows.GENERIC_WRITE; }
+        case 3 { yield std.os.windows.FILE_APPEND_DATA | std.os.windows.SYNCHRONIZE; }
+        case _ { return internal std.platform.invalid_input_status(); }
+    };
+
+    let creation: u32 = match options.creation
+    {
+        case 0 { yield std.os.windows.OPEN_EXISTING; }
+        case 1 { yield std.os.windows.OPEN_ALWAYS; }
+        case 2 { yield std.os.windows.CREATE_NEW; }
+        case 3
+        {
+            if options.access == 0
+            {
+                return internal std.platform.invalid_input_status();
+            }
+
+            yield std.os.windows.TRUNCATE_EXISTING;
+        }
+        case _ { return internal std.platform.invalid_input_status(); }
+    };
+
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(path);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            let native_handle: RawPointer<u8> = trusted std.os.windows.create_file_w(
+                trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
+                access = access,
+                share = std.os.windows.FILE_SHARE_READ | std.os.windows.FILE_SHARE_WRITE |
+                    std.os.windows.FILE_SHARE_DELETE,
+                security = std.memory.null<u8>(),
+                creation = creation,
+                attributes = std.os.windows.FILE_ATTRIBUTE_NORMAL,
+                template_file = std.memory.null<u8>(),
+            );
+
+            let native_value: u64 = trusted internal std.platform.pointer_handle(native_handle);
+
+            if native_value == 18_446_744_073_709_551_615
+            {
+                return trusted internal std.platform.windows_error_status();
+            }
+
+            trusted std.memory.write<u64>(opened, value = native_value);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(path);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal windows_path_operation_status(
+                trusted std.os.windows.create_directory_w(
+                    trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
+                    security = std.memory.null<u8>(),
+                )
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(path);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal windows_path_operation_status(
+                trusted std.os.windows.delete_file_w(trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer))
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(path);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal windows_path_operation_status(
+                trusted std.os.windows.remove_directory_w(
+                    trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer)
+                )
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_rename(
+    pos source: PlatformPath,
+    pos destination: PlatformPath,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let terminated_source: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(source);
+
+    match consume terminated_source
+    {
+        case Ok(source_path)
+        {
+            let terminated_destination: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+                trusted internal terminated_windows_path(destination);
+
+            match consume terminated_destination
+            {
+                case Ok(destination_path)
+                {
+                    return trusted internal windows_path_operation_status(
+                        trusted std.os.windows.move_file_ex_w(
+                            trusted std.memory.reinterpret<u16, u8>(source_path.pointer),
+                            destination = trusted std.memory.reinterpret<u16, u8>(destination_path.pointer),
+                            flags = std.os.windows.MOVEFILE_REPLACE_EXISTING,
+                        )
+                    );
+                }
+                case Error(status) { return status; }
+            }
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func terminated_windows_path(
+    pos path: PlatformPath
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    if path.length % 2 != 0
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    return trusted internal std.platform.terminated_native_text(
+        path.address,
+        length = path.length,
+        terminator_bytes = 2,
+    );
+}
+
+trusted internal func windows_path_operation_status(pos result: i32) -> std.platform.PlatformStatus
+{
+    if result == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_metadata_value(pos handle: u64) -> Result<FileMetadata, std.io.IoError>
+    uses(foreign_call)
+{
+    let mut storage: [u64; 7] = [0; 7];
+    let data: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut storage[0]));
+
+    if trusted std.os.windows.get_file_information_by_handle(
+        trusted internal std.platform.handle_pointer(handle),
+        data = data,
+    ) == 0
+    {
+        return Error(trusted internal windows_io_error());
+    }
+
+    return trusted internal windows_metadata(data, size_high_offset = 32, size_low_offset = 36);
+}
+
+trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Result<FileMetadata, std.io.IoError>
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal terminated_windows_path(path);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            let mut storage: [u64; 5] = [0; 5];
+
+            let data: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+                std.memory.address_of_mut<u64>(&mut storage[0])
+            );
+
+            if trusted std.os.windows.get_file_attributes_ex_w(
+                trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
+                information_level = 0,
+                data = data,
+            ) == 0
+            {
+                return Error(trusted internal windows_io_error());
+            }
+
+            return trusted internal windows_metadata(data, size_high_offset = 28, size_low_offset = 32);
+        }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    }
+}
+
+trusted internal func platform_directory_state_capacity() -> usize
+{
+    return 76;
+}
+
+trusted internal func platform_directory_open(
+    pos path: PlatformPath,
+    pos state: RawPointer<u8>,
+) -> Result<u64, std.io.IoError>
+    uses(foreign_call)
+{
+    let pattern: std.memory.RawBuffer<u8> = match trusted internal windows_directory_pattern(path)
+    {
+        case Ok(buffer) { yield buffer; }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    };
+
+    let search_handle: RawPointer<u8> = trusted std.os.windows.find_first_file_ex_w(
+        trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(&pattern)),
+        information_level = std.os.windows.FIND_EX_INFO_BASIC,
+        data = state,
+        search_operation = std.os.windows.FIND_EX_SEARCH_NAME_MATCH,
+        search_filter = std.memory.null<u8>(),
+        flags = std.os.windows.FIND_FIRST_EX_LARGE_FETCH,
+    );
+
+    if trusted internal std.platform.pointer_handle(search_handle) == 18_446_744_073_709_551_615
+    {
+        return Error(trusted internal windows_io_error());
+    }
+
+    return Ok(trusted internal std.platform.pointer_handle(search_handle));
+}
+
+trusted internal func platform_directory_next(
+    pos handle: u64,
+    pos state: RawPointer<u8>,
+    pos first: RawPointer<u8>,
+) -> Result<DirectoryEntry?, std.io.IoError>
+    uses(foreign_call)
+{
+    let native_handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+
+    loop
+    {
+        if trusted internal std.memory.byte_buffer_read(first, index = 0) != 0
+        {
+            trusted internal std.memory.byte_buffer_fill(first, value = 0, count = 1);
+        }
+        else if trusted std.os.windows.find_next_file_w(native_handle, data = state) == 0
+        {
+            let error: u32 = trusted std.os.windows.get_last_error();
+
+            if error == 18
+            {
+                let exhausted: DirectoryEntry? = none;
+
+                return Ok(exhausted);
+            }
+
+            return Error(
+                internal std.io.platform_status_error(internal std.platform.native_error_status(error as i64))
+            );
+        }
+
+        let name: RawPointer<u16> = trusted std.memory.reinterpret<u16, u8>(
+            std.memory.offset<u8>(state, elements = 44)
+        );
+
+        let units: usize = trusted internal std.platform.terminated_u16_length(name);
+
+        if units > 260
+        {
+            return Error(internal std.io.invalid_transfer_error());
+        }
+
+        if trusted internal windows_dot_entry(name, units = units)
+        {
+            continue;
+        }
+
+        let entry_path: std.path.Path = try trusted internal directory_entry_path(
+            trusted std.memory.reinterpret<u8, u16>(name),
+            bytes = units * 2,
+        );
+
+        let entry_metadata: FileMetadata = try trusted internal windows_metadata(
+            state,
+            size_high_offset = 28,
+            size_low_offset = 32,
+        );
+
+        let entry: DirectoryEntry =
+        {
+            path = entry_path,
+            metadata = entry_metadata,
+        };
+
+        let mut result: DirectoryEntry? = none;
+
+        result = entry;
+
+        return Ok(result);
+    }
+}
+
+trusted internal func platform_directory_close(pos handle: u64) -> Result<unit, std.io.IoError>
+    uses(foreign_call)
+{
+    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle)) == 0
+    {
+        return Error(trusted internal windows_io_error());
+    }
+
+    return Ok(unit);
+}
+
+trusted internal func platform_directory_discard(pos handle: u64) -> unit
+    uses(foreign_call)
+{
+    let _: i32 = trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle));
+}
+
+trusted internal func windows_metadata(
+    pos data: RawPointer<u8>,
+    size_high_offset: isize,
+    size_low_offset: isize,
+) -> Result<FileMetadata, std.io.IoError>
+{
+    let attributes: u32 = trusted internal std.platform.read_native_u32(data);
+    let write_low: u32 = trusted internal std.platform.read_native_u32(std.memory.offset<u8>(data, elements = 20));
+    let write_high: u32 = trusted internal std.platform.read_native_u32(std.memory.offset<u8>(data, elements = 24));
+
+    let size_high: u32 = trusted internal std.platform.read_native_u32(
+        std.memory.offset<u8>(data, elements = size_high_offset)
+    );
+
+    let size_low: u32 = trusted internal std.platform.read_native_u32(
+        std.memory.offset<u8>(data, elements = size_low_offset)
+    );
+
+    let kind: FileKind = if attributes & std.os.windows.FILE_ATTRIBUTE_DIRECTORY != 0
+    {
+        yield FileKind.Directory;
+    }
+    else
+    {
+        yield FileKind.File;
+    };
+
+    let mut modified: std.time.Timestamp? = none;
+    let mut seconds: i64 = 0;
+    let mut nanoseconds: u32 = 0;
+
+    let converted: std.platform.PlatformStatus = trusted internal std.platform.windows_file_time(
+        low = write_low,
+        high = write_high,
+        seconds = std.memory.address_of_mut<i64>(&mut seconds),
+        nanoseconds = std.memory.address_of_mut<u32>(&mut nanoseconds),
+    );
+
+    if internal std.platform.successful_status(converted)
+    {
+        let timestamp: std.time.Timestamp = internal std.time.timestamp_from_parts(
+            seconds = seconds,
+            nanoseconds = nanoseconds,
+        );
+
+        modified = timestamp;
+    }
+
+    return Ok(
+        {
+            kind = kind,
+            bytes = size_low as u64 | size_high as u64 << 32,
+            modified = modified,
+        }
+    );
+}
+
+trusted internal func windows_directory_pattern(
+    pos path: PlatformPath
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    if path.length % 2 != 0 || path.length > 9_223_372_036_854_775_801
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let path_bytes: usize = std.truncate_to<usize>(path.length);
+    let mut separator_bytes: usize = 0;
+
+    if path_bytes > 0
+    {
+        let last: u16 = trusted internal std.platform.read_native_u16(
+            trusted std.memory.reinterpret<u16, u8>(
+                std.memory.offset<u8>(path.address, elements = std.truncate_to<isize>(path_bytes - 2))
+            )
+        );
+
+        if last != 47 && last != 92
+        {
+            separator_bytes = 2;
+        }
+    }
+
+    let total: usize = path_bytes + separator_bytes + 4;
+    let mut pattern: std.memory.RawBuffer<u8> = trusted internal std.platform.context_buffer(total);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&pattern);
+
+    trusted internal std.memory.byte_buffer_fill(destination, value = 0, count = total);
+
+    if path_bytes > 0
+    {
+        trusted internal std.memory.byte_buffer_copy(path.address, destination, count = path_bytes);
+    }
+
+    let mut offset: usize = path_bytes;
+
+    if separator_bytes != 0
+    {
+        trusted std.memory.write<u16>(
+            trusted std.memory.reinterpret<u16, u8>(
+                std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset))
+            ),
+            value = 92,
+        );
+
+        offset += 2;
+    }
+
+    trusted std.memory.write<u16>(
+        trusted std.memory.reinterpret<u16, u8>(
+            std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset))
+        ),
+        value = 42,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(&mut pattern, count = total);
+
+    return Ok(pattern);
+}
+
+trusted internal func windows_dot_entry(pos name: RawPointer<u16>, units: usize) -> bool
+{
+    if units == 1
+    {
+        return trusted internal std.platform.read_native_u16(name) == 46;
+    }
+
+    if units == 2
+    {
+        return trusted internal std.platform.read_native_u16(name) == 46 &&
+            trusted internal std.platform.read_native_u16(std.memory.offset<u16>(name, elements = 1)) == 46;
+    }
+
+    return false;
+}
+
+trusted internal func windows_io_error() -> std.io.IoError
+{
+    return internal std.io.platform_status_error(trusted internal std.platform.windows_error_status());
+}

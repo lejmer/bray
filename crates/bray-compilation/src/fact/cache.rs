@@ -298,7 +298,9 @@ impl<T> FactCell<T> {
                         }
 
                         value
-                    })?;
+                    });
+
+                    let value = value?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;

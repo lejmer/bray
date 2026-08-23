@@ -1,0 +1,587 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module std.fs;
+
+trusted internal func platform_file_read(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    return trusted internal std.platform.descriptor_transfer(
+        native_descriptor,
+        bytes = destination,
+        length = length,
+        transferred = transferred,
+        read_operation = true,
+    );
+}
+
+trusted internal func platform_file_write(
+    pos handle: u64,
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    return trusted internal std.platform.descriptor_transfer(
+        native_descriptor,
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}
+
+trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    if trusted std.os.unix.flush(native_descriptor) != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_seek(
+    pos handle: u64,
+    pos offset_bits: u64,
+    pos origin: u32,
+    pos position: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let native_origin: i32 = match origin
+    {
+        case 0
+        {
+            if offset_bits > 9_223_372_036_854_775_807
+            {
+                return internal std.platform.invalid_input_status();
+            }
+
+            yield std.os.unix.SEEK_START;
+        }
+        case 1 { yield std.os.unix.SEEK_CURRENT; }
+        case 2 { yield std.os.unix.SEEK_END; }
+        case _ { return internal std.platform.invalid_input_status(); }
+    };
+
+    let result: i64 = trusted std.os.unix.seek(
+        native_descriptor,
+        offset = std.truncate_to<i64>(offset_bits),
+        origin = native_origin,
+    );
+
+    if result < 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    trusted std.memory.write<u64>(position, value = std.truncate_to<u64>(result));
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    if trusted std.os.unix.close(native_descriptor) != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_open(
+    pos path: PlatformPath,
+    pos options: PlatformFileOptions,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    let flags: i32 = match open_flags(options)
+    {
+        case Ok(flags) { yield flags; }
+        case Error(status) { return status; }
+    };
+
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            let native_descriptor: i32 = trusted std.os.unix.open_file(
+                terminated_path.pointer,
+                flags = flags,
+                mode = 438,
+            );
+
+            if native_descriptor < 0
+            {
+                return trusted internal std.platform.unix_error_status();
+            }
+
+            trusted std.memory.write<u64>(opened, value = std.truncate_to<u64>(native_descriptor));
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal path_operation_status(
+                trusted std.os.unix.create_directory(terminated_path.pointer, mode = 511)
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal path_operation_status(trusted std.os.unix.remove_file(terminated_path.pointer));
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal path_operation_status(
+                trusted std.os.unix.remove_directory(terminated_path.pointer)
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_path_rename(
+    pos source: PlatformPath,
+    pos destination: PlatformPath,
+) -> std.platform.PlatformStatus
+{
+    let terminated_source: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(
+        source.address,
+        length = source.length,
+        terminator_bytes = 1,
+    );
+
+    match consume terminated_source
+    {
+        case Ok(source_path)
+        {
+            let terminated_destination: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+                trusted internal std.platform.terminated_native_text(
+                destination.address,
+                length = destination.length,
+                terminator_bytes = 1,
+            );
+
+            match consume terminated_destination
+            {
+                case Ok(destination_path)
+                {
+                    return trusted internal path_operation_status(
+                        trusted std.os.unix.rename_path(source_path.pointer, destination = destination_path.pointer)
+                    );
+                }
+                case Error(status) { return status; }
+            }
+        }
+        case Error(status) { return status; }
+    }
+}
+
+internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.platform.PlatformStatus>
+{
+    if options.reserved != 0
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let mut flags: i32 = match options.access
+    {
+        case 0 { yield std.os.unix.O_RDONLY; }
+        case 1 { yield std.os.unix.O_WRONLY; }
+        case 2 { yield std.os.unix.O_RDWR; }
+        case 3 { yield std.os.unix.O_WRONLY | std.os.unix.O_APPEND; }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
+    };
+
+    flags |= std.os.unix.O_CLOEXEC;
+
+    match options.creation
+    {
+        case 0 {}
+        case 1 { flags |= std.os.unix.O_CREAT; }
+        case 2 { flags |= std.os.unix.O_CREAT | std.os.unix.O_EXCL; }
+        case 3
+        {
+            if options.access == 0
+            {
+                return Error(internal std.platform.invalid_input_status());
+            }
+
+            flags |= std.os.unix.O_TRUNC;
+        }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
+    }
+
+    return Ok(flags);
+}
+
+trusted internal func path_operation_status(pos result: i32) -> std.platform.PlatformStatus
+{
+    if result != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_file_metadata_value(pos handle: u64) -> Result<FileMetadata, std.io.IoError>
+{
+    let native_descriptor: i32 = match internal std.platform.checked_descriptor(handle)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    };
+
+    let mut storage: [u64; 18] = [0; 18];
+    let data: RawPointer<u8> = trusted internal unix_status_storage(std.memory.address_of_mut<u64>(&mut storage[0]));
+
+    if trusted std.os.unix.file_status(native_descriptor, status = data) != 0
+    {
+        return Error(trusted internal unix_io_error());
+    }
+
+    return trusted internal unix_metadata(data);
+}
+
+trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Result<FileMetadata, std.io.IoError>
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            let mut storage: [u64; 18] = [0; 18];
+
+            let data: RawPointer<u8> = trusted internal unix_status_storage(
+                std.memory.address_of_mut<u64>(&mut storage[0])
+            );
+
+            if trusted std.os.unix.path_status(terminated_path.pointer, status = data) != 0
+            {
+                return Error(trusted internal unix_io_error());
+            }
+
+            return trusted internal unix_metadata(data);
+        }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    }
+}
+
+trusted internal func platform_directory_state_capacity() -> usize
+{
+    return 0;
+}
+
+trusted internal func platform_directory_open(
+    pos path: PlatformPath,
+    pos state: RawPointer<u8>,
+) -> Result<u64, std.io.IoError>
+    uses(foreign_call)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            let directory: RawPointer<u8> = trusted std.os.unix.open_directory(terminated_path.pointer);
+
+            if std.memory.is_null<u8>(directory)
+            {
+                return Error(trusted internal unix_io_error());
+            }
+
+            return Ok(trusted internal std.platform.pointer_handle(directory));
+        }
+        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+    }
+}
+
+trusted internal func platform_directory_next(
+    pos handle: u64,
+    pos state: RawPointer<u8>,
+    pos first: RawPointer<u8>,
+) -> Result<DirectoryEntry?, std.io.IoError>
+    uses(foreign_call)
+{
+    let directory: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let descriptor: i32 = trusted std.os.unix.directory_descriptor(directory);
+
+    if descriptor < 0
+    {
+        return Error(trusted internal unix_io_error());
+    }
+
+    loop
+    {
+        trusted internal std.platform.clear_unix_error();
+
+        let native_entry: RawPointer<u8> = trusted std.os.unix.read_directory(directory);
+
+        if std.memory.is_null<u8>(native_entry)
+        {
+            if trusted internal std.platform.unix_error_code() != 0
+            {
+                return Error(trusted internal unix_io_error());
+            }
+
+            let exhausted: DirectoryEntry? = none;
+
+            return Ok(exhausted);
+        }
+
+        let name: RawPointer<u8> = std.memory.byte_offset<u8>(
+            native_entry,
+            bytes = std.truncate_to<isize>(std.os.unix.DIRECTORY_NAME_OFFSET),
+        );
+
+        let length: usize = match trusted internal unix_directory_name_length(name)
+        {
+            case ?value { yield value; }
+            case none { return Error(internal std.io.invalid_transfer_error()); }
+        };
+
+        if trusted internal unix_dot_entry(name, length = length)
+        {
+            continue;
+        }
+
+        let mut storage: [u64; 18] = [0; 18];
+
+        let data: RawPointer<u8> = trusted internal unix_status_storage(
+            std.memory.address_of_mut<u64>(&mut storage[0])
+        );
+
+        if trusted std.os.unix.file_status_at(descriptor, name, status = data, flags = 0) != 0
+        {
+            return Error(trusted internal unix_io_error());
+        }
+
+        let entry: DirectoryEntry =
+        {
+            path = try trusted internal directory_entry_path(name, bytes = length),
+            metadata = try trusted internal unix_metadata(data),
+        };
+
+        let mut result: DirectoryEntry? = none;
+
+        result = entry;
+
+        return Ok(result);
+    }
+}
+
+trusted internal func platform_directory_close(pos handle: u64) -> Result<unit, std.io.IoError>
+{
+    if trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle)) != 0
+    {
+        return Error(trusted internal unix_io_error());
+    }
+
+    return Ok(unit);
+}
+
+trusted internal func platform_directory_discard(pos handle: u64) -> unit
+{
+    let _: i32 = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
+}
+
+trusted internal func unix_status_storage(pos storage: RawPointer<u64>) -> RawPointer<u8>
+{
+    return trusted std.memory.reinterpret<u8, u64>(storage);
+}
+
+trusted internal func unix_metadata(pos data: RawPointer<u8>) -> Result<FileMetadata, std.io.IoError>
+{
+    if std.memory.is_null<u8>(data)
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let mode: u32 = trusted internal std.platform.read_native_u32(
+        std.memory.byte_offset<u8>(data, bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODE_OFFSET))
+    );
+
+    let size: i64 = std.truncate_to<i64>(
+        trusted internal std.platform.read_native_u64(
+            std.memory.byte_offset<u8>(data, bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_SIZE_OFFSET))
+        )
+    );
+
+    if size < 0
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let kind_bits: u32 = mode & std.os.unix.FILE_KIND_MASK;
+
+    let kind: FileKind = if kind_bits == std.os.unix.FILE_KIND_DIRECTORY
+    {
+        yield FileKind.Directory;
+    }
+    else if kind_bits == std.os.unix.FILE_KIND_REGULAR
+    {
+        yield FileKind.File;
+    }
+    else
+    {
+        yield FileKind.Other;
+    };
+
+    let seconds: i64 = std.truncate_to<i64>(
+        trusted internal std.platform.read_native_u64(
+            std.memory.byte_offset<u8>(
+                data,
+                bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODIFIED_SECONDS_OFFSET),
+            )
+        )
+    );
+
+    let nanoseconds: i64 = std.truncate_to<i64>(
+        trusted internal std.platform.read_native_u64(
+            std.memory.byte_offset<u8>(
+                data,
+                bytes = std.truncate_to<isize>(std.os.unix.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET),
+            )
+        )
+    );
+
+    if nanoseconds < 0 || 1_000_000_000 <= nanoseconds
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let timestamp: std.time.Timestamp = internal std.time.timestamp_from_parts(
+        seconds = seconds,
+        nanoseconds = std.truncate_to<u32>(nanoseconds),
+    );
+
+    let mut modified: std.time.Timestamp? = none;
+
+    modified = timestamp;
+
+    return Ok(
+        {
+            kind = kind,
+            bytes = std.truncate_to<u64>(size),
+            modified = modified,
+        }
+    );
+}
+
+trusted internal func unix_directory_name_length(pos name: RawPointer<u8>) -> usize?
+{
+    let mut length: usize = 0;
+
+    while length < std.os.unix.DIRECTORY_NAME_CAPACITY
+    {
+        if trusted internal std.memory.byte_buffer_read(name, index = length) == 0
+        {
+            let mut result: usize? = none;
+
+            result = length;
+
+            return result;
+        }
+
+        length += 1;
+    }
+
+    return none;
+}
+
+trusted internal func unix_dot_entry(pos name: RawPointer<u8>, length: usize) -> bool
+{
+    if length == 1
+    {
+        return trusted internal std.memory.byte_buffer_read(name, index = 0) == 46;
+    }
+
+    if length == 2
+    {
+        return trusted internal std.memory.byte_buffer_read(name, index = 0) == 46 &&
+            trusted internal std.memory.byte_buffer_read(name, index = 1) == 46;
+    }
+
+    return false;
+}
+
+trusted internal func unix_io_error() -> std.io.IoError
+{
+    return internal std.io.platform_status_error(trusted internal std.platform.unix_error_status());
+}

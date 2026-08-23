@@ -232,7 +232,7 @@ where
         | ImplementationHook::RawBufferReplace
         | ImplementationHook::RawBufferRelocate
         | ImplementationHook::ByteBufferFill
-        | ImplementationHook::ByteSliceCopy
+        | ImplementationHook::ByteBufferCopy
         | ImplementationHook::ByteBufferRead
         | ImplementationHook::SliceLength => {
             return classify_allocation_and_buffer_operation(hook, types);
@@ -619,10 +619,10 @@ fn classify_allocation_and_buffer_operation(
 
             CheckedMemoryOperationKind::ByteBufferFill
         }
-        ImplementationHook::ByteSliceCopy => {
+        ImplementationHook::ByteBufferCopy => {
             ensure_no_type_arguments(types)?;
 
-            CheckedMemoryOperationKind::ByteSliceCopy
+            CheckedMemoryOperationKind::ByteBufferCopy
         }
         ImplementationHook::ByteBufferRead => {
             ensure_no_type_arguments(types)?;

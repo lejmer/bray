@@ -219,8 +219,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::ByteSliceCopy => {
-                self.translate_byte_slice_copy(memory)?;
+            CheckedMemoryOperationKind::ByteBufferCopy => {
+                self.translate_byte_buffer_copy(memory)?;
 
                 Ok(None)
             }
@@ -1464,25 +1464,29 @@ mod tests {
             None,
         );
 
-        let byte_slice = push_memory(
+        let source_pointer = push_memory(
             builder,
             block,
             source,
-            CheckedMemoryOperationKind::RawBufferInitializedSlice,
+            CheckedMemoryOperationKind::RawBufferPointer,
             [MirOperand::Value(buffer)],
             [types.raw_buffer_borrow],
-            Some(types.slice),
+            Some(types.pointer),
         )
         .result()
-        .unwrap_or_else(|| panic!("raw buffer slice must produce a value"));
+        .unwrap_or_else(|| panic!("raw buffer pointer must produce a value"));
 
         push_memory(
             builder,
             block,
             source,
-            CheckedMemoryOperationKind::ByteSliceCopy,
-            [MirOperand::Value(byte_slice), MirOperand::Value(null)],
-            [types.slice, types.pointer],
+            CheckedMemoryOperationKind::ByteBufferCopy,
+            [
+                MirOperand::Value(source_pointer),
+                MirOperand::Value(null),
+                MirOperand::Value(size),
+            ],
+            [types.pointer, types.pointer, types.usize],
             None,
         );
 

@@ -1,7 +1,6 @@
 use std::hash::Hasher as _;
 
 use bray_base::{StableDigestHasher, lowercase_hex};
-use inkwell::comdat::ComdatSelectionKind;
 use inkwell::module::{Linkage, Module};
 use inkwell::values::{BasicValueEnum, GlobalValue, UnnamedAddress};
 
@@ -20,20 +19,7 @@ pub(crate) fn publish_string_global<'context>(
     global.set_unnamed_address(UnnamedAddress::Global);
     global.set_initializer(&initializer);
 
-    let selection = match target.machine().object_format() {
-        bray_target::ObjectFormat::Coff => Some(ComdatSelectionKind::ExactMatch),
-        bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::WebAssembly => {
-            Some(ComdatSelectionKind::Any)
-        }
-        bray_target::ObjectFormat::MachO | bray_target::ObjectFormat::Xcoff => None,
-    };
-
-    if let Some(selection) = selection {
-        let comdat = module.get_or_insert_comdat(name);
-
-        comdat.set_selection_kind(selection);
-        global.set_comdat(comdat);
-    }
+    crate::comdat::attach(module, global, name, target.machine().object_format());
 
     global
 }

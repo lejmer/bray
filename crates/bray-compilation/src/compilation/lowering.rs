@@ -842,6 +842,55 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_atomic_lock_loop_lowers() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool\n",
+            "{\n",
+            "    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);\n",
+            "\n",
+            "    if acquired\n",
+            "    {\n",
+            "        return true;\n",
+            "    }\n",
+            "\n",
+            "    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
+            "\n",
+            "    while observed != 0\n",
+            "    {\n",
+            "        trusted wait(lock, expected = 2);\n",
+            "        observed = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
+            "    }\n",
+            "\n",
+            "    return true;\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "acquire");
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("borrowed atomic lock loop must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+        assert!(lowered.value().is_some());
+    }
+
+    #[test]
     fn value_producing_blocks_lower_through_a_result_join() {
         let compilation = compilation(concat!(
             "module app;\n",

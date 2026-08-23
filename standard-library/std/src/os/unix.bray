@@ -1,0 +1,2 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.os.unix;

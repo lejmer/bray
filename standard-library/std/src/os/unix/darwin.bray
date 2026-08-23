@@ -1,0 +1,346 @@
+@target(target.identity.SYSTEM == "darwin")
+trusted internal module std.os.unix;
+
+const MAP_ANONYMOUS: i32 = std.os.darwin.MAP_ANONYMOUS;
+
+const MAP_PRIVATE: i32 = std.os.darwin.MAP_PRIVATE;
+
+const O_APPEND: i32 = std.os.darwin.O_APPEND;
+
+const O_CLOEXEC: i32 = std.os.darwin.O_CLOEXEC;
+
+const O_CREAT: i32 = std.os.darwin.O_CREAT;
+
+const O_EXCL: i32 = std.os.darwin.O_EXCL;
+
+const O_RDONLY: i32 = std.os.darwin.O_RDONLY;
+
+const O_RDWR: i32 = std.os.darwin.O_RDWR;
+
+const O_TRUNC: i32 = std.os.darwin.O_TRUNC;
+
+const O_WRONLY: i32 = std.os.darwin.O_WRONLY;
+
+const PROT_EXEC: i32 = std.os.darwin.PROT_EXEC;
+
+const PROT_NONE: i32 = std.os.darwin.PROT_NONE;
+
+const PROT_READ: i32 = std.os.darwin.PROT_READ;
+
+const PROT_WRITE: i32 = std.os.darwin.PROT_WRITE;
+
+const RTLD_GLOBAL: i32 = std.os.darwin.RTLD_GLOBAL;
+
+const RTLD_LAZY: i32 = std.os.darwin.RTLD_LAZY;
+
+const RTLD_LOCAL: i32 = std.os.darwin.RTLD_LOCAL;
+
+const RTLD_NOW: i32 = std.os.darwin.RTLD_NOW;
+
+const SEEK_CURRENT: i32 = std.os.darwin.SEEK_CURRENT;
+
+const SEEK_END: i32 = std.os.darwin.SEEK_END;
+
+const SEEK_START: i32 = std.os.darwin.SEEK_START;
+
+const SPAWN_FILE_ACTION_WORDS: usize = std.os.darwin.SPAWN_FILE_ACTION_WORDS;
+
+const DIRECTORY_NAME_CAPACITY: usize = std.os.darwin.DIRECTORY_NAME_CAPACITY;
+
+const DIRECTORY_NAME_OFFSET: usize = std.os.darwin.DIRECTORY_NAME_OFFSET;
+
+const FILE_KIND_DIRECTORY: u32 = std.os.darwin.FILE_KIND_DIRECTORY;
+
+const FILE_KIND_MASK: u32 = std.os.darwin.FILE_KIND_MASK;
+
+const FILE_KIND_REGULAR: u32 = std.os.darwin.FILE_KIND_REGULAR;
+
+const FILE_STATUS_MODE_OFFSET: usize = std.os.darwin.FILE_STATUS_MODE_OFFSET;
+
+const FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET: usize = std.os.darwin.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET;
+
+const FILE_STATUS_MODIFIED_SECONDS_OFFSET: usize = std.os.darwin.FILE_STATUS_MODIFIED_SECONDS_OFFSET;
+
+const FILE_STATUS_SIZE: usize = std.os.darwin.FILE_STATUS_SIZE;
+
+const FILE_STATUS_SIZE_OFFSET: usize = std.os.darwin.FILE_STATUS_SIZE_OFFSET;
+
+trusted func close(pos descriptor: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.close(descriptor);
+}
+
+trusted func create_directory(pos path: RawPointer<u8>, mode: u32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.mkdir(path, mode = mode);
+}
+
+trusted func close_directory(pos directory: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.close_directory(directory);
+}
+
+trusted func directory_descriptor(pos directory: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.directory_descriptor(directory);
+}
+
+trusted func dlclose(pos handle: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.dlclose(handle);
+}
+
+trusted func dlerror() -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.dlerror();
+}
+
+trusted func dlopen(pos path: RawPointer<u8>, mode: i32) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.dlopen(path, mode = mode);
+}
+
+trusted func dlsym(pos handle: RawPointer<u8>, pos name: RawPointer<u8>) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.dlsym(handle, name);
+}
+
+trusted func mmap(
+    pos address: RawPointer<u8>,
+    pos length: usize,
+    pos protection: i32,
+    pos flags: i32,
+    pos descriptor: i32,
+    pos offset: i64,
+) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.mmap(address, length, protection, flags, descriptor, offset);
+}
+
+trusted func flush(pos descriptor: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.fsync(descriptor);
+}
+
+trusted func file_status(pos descriptor: i32, pos status: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.file_status(descriptor, status);
+}
+
+trusted func file_status_at(
+    pos directory: i32,
+    pos path: RawPointer<u8>,
+    pos status: RawPointer<u8>,
+    pos flags: i32,
+) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.file_status_at(directory, path, status, flags);
+}
+
+trusted func working_directory(pos destination: RawPointer<u8>, capacity: usize) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.getcwd(destination, capacity = capacity);
+}
+
+trusted func open_file(pos path: RawPointer<u8>, flags: i32, mode: u32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.open(path, flags, mode);
+}
+
+trusted func open_directory(pos path: RawPointer<u8>) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.open_directory(path);
+}
+
+trusted func path_status(pos path: RawPointer<u8>, pos status: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.path_status(path, status);
+}
+
+trusted func read_directory(pos directory: RawPointer<u8>) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.read_directory(directory);
+}
+
+trusted func seek(pos descriptor: i32, offset: i64, origin: i32) -> i64
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.lseek(descriptor, offset, origin);
+}
+
+trusted func mprotect(pos address: RawPointer<u8>, pos length: usize, pos protection: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.mprotect(address, length, protection);
+}
+
+trusted func munmap(pos address: RawPointer<u8>, pos length: usize) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.munmap(address, length);
+}
+
+trusted func read(pos descriptor: i32, pos destination: RawPointer<u8>, pos length: usize) -> isize
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.read(descriptor, destination = destination, length = length);
+}
+
+trusted func remove_directory(pos path: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.rmdir(path);
+}
+
+trusted func remove_file(pos path: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.unlink(path);
+}
+
+trusted func rename_path(pos source: RawPointer<u8>, pos destination: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.rename(source, destination);
+}
+
+trusted func write(pos descriptor: i32, pos source: RawPointer<u8>, pos length: usize) -> isize
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.write(descriptor, source = source, length = length);
+}
+
+trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
+    uses(foreign_call)
+{
+    if trusted std.os.darwin.socket_pair(
+        std.os.darwin.AF_UNIX,
+        kind = std.os.darwin.SOCK_STREAM,
+        protocol = 0,
+        descriptors = descriptors,
+    ) != 0
+    {
+        return -1;
+    }
+
+    let first: i32 = trusted std.memory.read<i32>(descriptors);
+    let second: i32 = trusted std.memory.read<i32>(std.memory.offset<i32>(descriptors, elements = 1));
+
+    if trusted std.os.darwin.fcntl(first, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0 ||
+        trusted std.os.darwin.fcntl(second, std.os.darwin.F_SETFD, std.os.darwin.FD_CLOEXEC) != 0
+    {
+        let error: i32 = trusted std.memory.read<i32>(trusted std.os.darwin.error_location());
+
+        let _: i32 = trusted std.os.darwin.close(first);
+        let _: i32 = trusted std.os.darwin.close(second);
+        trusted std.memory.write<i32>(trusted std.os.darwin.error_location(), value = error);
+
+        return -1;
+    }
+
+    return 0;
+}
+
+trusted func duplicate_close_on_exec(pos descriptor: i32, minimum: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.fcntl(descriptor, std.os.darwin.F_DUPFD_CLOEXEC, minimum);
+}
+
+trusted func initialize_spawn_actions(pos actions: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.spawn_actions_initialize(
+        trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions)
+    );
+}
+
+trusted func add_spawn_close(pos actions: RawPointer<u8>, descriptor: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.spawn_actions_add_close(
+        trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions),
+        descriptor,
+    );
+}
+
+trusted func add_spawn_duplicate(pos actions: RawPointer<u8>, source: i32, destination: i32) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.spawn_actions_add_duplicate(
+        trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions),
+        source,
+        destination,
+    );
+}
+
+trusted func add_spawn_working_directory(pos actions: RawPointer<u8>, path: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.spawn_actions_add_chdir(
+        trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions),
+        path,
+    );
+}
+
+trusted func destroy_spawn_actions(pos actions: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.spawn_actions_destroy(
+        trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions)
+    );
+}
+
+trusted func spawn(
+    pos process: RawPointer<i32>,
+    pos executable: RawPointer<u8>,
+    pos actions: RawPointer<u8>,
+    pos arguments: RawPointer<RawPointer<u8>>,
+    pos environment: RawPointer<RawPointer<u8>>,
+) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.posix_spawn(
+        process,
+        path = executable,
+        actions = trusted std.memory.reinterpret<std.os.darwin.PosixSpawnFileActions, u8>(actions),
+        attributes = std.memory.null<u8>(),
+        arguments = arguments,
+        environment = environment,
+    );
+}
+
+trusted func wait(pos process: i32, pos status: RawPointer<i32>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.wait_pid(process, status, options = 0);
+}
+
+trusted func signal(pos process: i32, force: bool) -> i32
+    uses(foreign_call)
+{
+    let requested: i32 = match force
+    {
+        case true { yield std.os.darwin.SIGKILL; }
+        case false { yield std.os.darwin.SIGTERM; }
+    };
+
+    return trusted std.os.darwin.kill(process, signal = requested);
+}

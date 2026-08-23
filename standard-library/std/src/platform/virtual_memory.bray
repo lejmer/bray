@@ -1,0 +1,96 @@
+trusted internal module std.platform.virtual_memory;
+
+@copy
+union Access
+{
+    None;
+    Read;
+    ReadWrite;
+    ReadExecute;
+    ReadWriteExecute;
+}
+
+struct Region
+{
+    internal address: RawPointer<u8>;
+    internal bytes: usize;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            let _: std.platform.PlatformStatus = trusted platform_unmap(self.address, bytes = self.bytes);
+        }
+    }
+
+    func length() -> usize
+    {
+        return self.bytes;
+    }
+
+    trusted internal func pointer() -> RawPointer<u8>
+    {
+        return self.address;
+    }
+
+    mut func protect(pos access: Access) -> Result<unit, std.platform.PlatformStatus>
+    {
+        let status: std.platform.PlatformStatus = trusted platform_protect(
+            self.address,
+            bytes = self.bytes,
+            access = access,
+        );
+
+        if !internal std.platform.successful_status(status)
+        {
+            return Error(status);
+        }
+
+        return Ok(unit);
+    }
+
+    consume mut func close() -> Result<unit, std.platform.PlatformStatus>
+    {
+        if !self.active
+        {
+            return Ok(unit);
+        }
+
+        let status: std.platform.PlatformStatus = trusted platform_unmap(self.address, bytes = self.bytes);
+
+        if !internal std.platform.successful_status(status)
+        {
+            return Error(status);
+        }
+
+        self.active = false;
+
+        return Ok(unit);
+    }
+}
+
+trusted internal func map(pos bytes: usize, access: Access) -> Result<Region, std.platform.PlatformStatus>
+{
+    if bytes == 0
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let mapped: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted platform_map(bytes, access = access);
+
+    match consume mapped
+    {
+        case Ok(address)
+        {
+            return Ok(
+                {
+                    address = address,
+                    bytes = bytes,
+                    active = true,
+                }
+            );
+        }
+        case Error(status) { return Error(status); }
+    }
+}

@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerUnitView,
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerUnitView, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
+    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantEvaluator,
+    EvaluatedConstantCall, evaluate_constant_callable_template,
     resolve_callable_signature_template,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureQuery, ImportedSymbolSkeleton, SymbolKey, SymbolKeyData,
-    SymbolQueryRequest, TypeData,
+    CallableConstness, CallableSignatureQuery, ConstantValueData, ConstantValueKind,
+    ImportedSymbolSkeleton, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
 };
 
 use super::super::Compilation;
@@ -302,6 +304,21 @@ impl Compilation {
             return Ok(DiagnosticResult::without_diagnostics(None));
         }
 
+        if let Some(evaluated) = self.compiler_known_constant_call(
+            *callable,
+            key.arguments(),
+            key.result_type(),
+            cancellation,
+        )? {
+            return Ok(DiagnosticResult::new(
+                Some(evaluated),
+                DiagnosticBag::merged_all([
+                    signature_result.diagnostics(),
+                    checked_terms.diagnostics(),
+                ]),
+            ));
+        }
+
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
             let address = binding_context
                 .imported_semantic_address(callable.definition().callable_symbol().into_any())
@@ -445,5 +462,56 @@ impl Compilation {
             )),
             diagnostics,
         ))
+    }
+
+    fn compiler_known_constant_call(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        arguments: &[bray_symbols::ConstantValueId],
+        result_type: bray_symbols::TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<EvaluatedConstantCall>, FactQueryError> {
+        let context = self.checker_context(cancellation)?;
+        let hook = context
+            .implementation_hook(callable.definition().callable_symbol().into_any())
+            .map_err(checker_constant_query_error)?;
+
+        let Some(hook) = hook.filter(|hook| hook.is_available()) else {
+            return Ok(None);
+        };
+
+        let (ImplementationHook::AtomicInitialize, [argument]) = (hook.hook(), arguments) else {
+            return Ok(None);
+        };
+
+        let values = self.semantic_value_store()?;
+        let argument = values
+            .constant_value_data(*argument)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if !matches!(
+            argument.kind(),
+            ConstantValueKind::Boolean(_)
+                | ConstantValueKind::Integer(_)
+                | ConstantValueKind::StaticAddress(_)
+        ) {
+            return Ok(None);
+        }
+
+        let value = values
+            .intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(Some(EvaluatedConstantCall::new(
+            value,
+            ConstantEvaluationUsage::default(),
+        )))
+    }
+}
+
+fn checker_constant_query_error(error: CheckerQueryError) -> FactQueryError {
+    match error {
+        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
+        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
     }
 }

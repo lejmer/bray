@@ -253,9 +253,15 @@ fn build_archive(
     let mut lifecycle_roots = BTreeSet::new();
 
     for (index, bytes) in modules.into_iter().enumerate() {
-        if !is_bitcode(&bytes) {
+        if !is_llvm_bitcode(&bytes) {
+            let signature = bytes
+                .iter()
+                .take(4)
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+
             return Err(BuildError::NativeArchive(format!(
-                "optimization module {index} is not raw LLVM bitcode"
+                "optimization module {index} starts with 0x{signature} instead of LLVM bitcode magic"
             )));
         }
 
@@ -543,7 +549,7 @@ fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildErr
             ));
         }
 
-        if is_bitcode(&output.stdout) {
+        if is_llvm_bitcode(&output.stdout) {
             bitcode.push(output.stdout);
         }
     }
@@ -551,8 +557,8 @@ fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildErr
     Ok(bitcode)
 }
 
-fn is_bitcode(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"BC\xc0\xde")
+fn is_llvm_bitcode(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"BC\xc0\xde") || bytes.starts_with(b"\xde\xc0\x17\x0b")
 }
 
 fn native_exports(
@@ -670,15 +676,15 @@ mod tests {
     use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
 
     use super::{
-        contains_checkout_path, is_bitcode, lifecycle_roots_for_line, quoted_assignment,
+        contains_checkout_path, is_llvm_bitcode, lifecycle_roots_for_line, quoted_assignment,
         remap_checkout_path,
     };
 
     #[test]
-    fn bitcode_detection_accepts_raw_llvm_modules() {
-        assert!(is_bitcode(b"BC\xc0\xdepayload"));
-        assert!(!is_bitcode(b"\xde\xc0\x17\x0bpayload"));
-        assert!(!is_bitcode(b"native object"));
+    fn bitcode_detection_accepts_raw_and_wrapped_llvm_modules() {
+        assert!(is_llvm_bitcode(b"BC\xc0\xdepayload"));
+        assert!(is_llvm_bitcode(b"\xde\xc0\x17\x0bpayload"));
+        assert!(!is_llvm_bitcode(b"native object"));
     }
 
     #[test]

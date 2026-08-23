@@ -290,7 +290,6 @@ func monotonic_now() -> Result<Instant, ClockError>
 }
 
 trusted internal func monotonic_ticks(pos ticks: RawPointer<u64>) -> std.platform.PlatformStatus
-    uses(foreign_call)
 {
     return trusted internal std.platform.clock_monotonic_now(ticks);
 }
@@ -301,7 +300,6 @@ func wall_now() -> Result<Timestamp, ClockError>
 }
 
 trusted internal func wall_now_from_platform() -> Result<Timestamp, ClockError>
-    uses(foreign_call)
 {
     let mut seconds: i64 = 0;
     let mut nanoseconds: u32 = 0;
@@ -329,7 +327,6 @@ func sleep(pos duration: Duration) -> Result<unit, ClockError>
 
 trusted internal func sleep_on_platform(pos duration: Duration) -> Result<unit, ClockError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if duration.seconds() < 0
     {

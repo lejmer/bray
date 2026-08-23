@@ -913,6 +913,13 @@ mod tests {
         let artifact = encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("static interface must encode: {error:?}"));
 
+        PackageImplementationArtifact::try_from_export_bundle(
+            &artifact,
+            bundle,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("static implementation must encode: {error:?}"));
+
         let validated = ValidatedPackageInterface::try_new(
             artifact.shared_bytes(),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
@@ -1357,9 +1364,10 @@ mod tests {
                 "}\n",
                 "extern func slice_length<T>(pos values: &[T]) -> usize;\n",
                 "extern func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>;\n",
-                "extern trusted func byte_slice_copy(\n",
-                "    pos source: &[u8],\n",
-                "    destination: RawPointer<u8>,\n",
+                "extern trusted func byte_buffer_copy(\n",
+                "    pos source: RawPointer<u8>,\n",
+                "    pos destination: RawPointer<u8>,\n",
+                "    count: usize,\n",
                 ");\n",
                 "extern trusted func byte_buffer_fill(\n",
                 "    destination: RawPointer<u8>,\n",

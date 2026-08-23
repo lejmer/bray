@@ -86,7 +86,11 @@ internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source
         let source: &[u8] = &buffered[reader.start..reader.start + copied];
         let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
 
-        trusted internal std.memory.byte_slice_copy(source = source, destination = destination_pointer);
+        trusted internal std.memory.byte_buffer_copy(
+            source = internal std.memory.byte_slice_pointer(source),
+            destination = destination_pointer,
+            count = copied,
+        );
     }
 
     reader.start += copied;

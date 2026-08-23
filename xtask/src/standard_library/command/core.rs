@@ -509,13 +509,7 @@ fn build_target(
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let platform = if product.platform_services().is_empty() {
-        Vec::new()
-    } else {
-        crate::progress::run("Building standard library platform providers", || {
-            super::platform::build_archives(&root, native, &output)
-        })?
-    };
+    let platform = Vec::new();
 
     let request = standard_library_source_request(
         product,

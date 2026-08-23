@@ -1,0 +1,512 @@
+@target(target.identity.SYSTEM == "windows")
+trusted internal module std.platform;
+
+internal struct LocalAllocation
+{
+    pointer: RawPointer<u8>;
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        let _: RawPointer<u8> = trusted std.os.windows.local_free(self.pointer);
+    }
+}
+
+internal struct EnvironmentBlock
+{
+    pointer: RawPointer<u16>;
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        let _: i32 = trusted std.os.windows.free_environment_strings_w(self.pointer);
+    }
+}
+
+trusted internal func process_identity() -> u64
+    uses(foreign_call)
+{
+    return trusted std.os.windows.get_current_process_id() as u64;
+}
+
+trusted internal func native_text_width() -> usize
+{
+    return 16;
+}
+
+trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
+    uses(foreign_call)
+{
+    let required: u32 = trusted std.os.windows.get_current_directory_w(0, destination = std.memory.null<u16>());
+
+    if required == 0 || required > 2_147_483_647
+    {
+        panic("the platform startup working directory is unavailable");
+    }
+
+    let bytes: usize = required as usize * 2;
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(bytes);
+    let pointer: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
+
+    trusted internal std.memory.byte_buffer_fill(pointer, value = 0, count = bytes);
+
+    let written: u32 = trusted std.os.windows.get_current_directory_w(
+        required,
+        destination = trusted std.memory.reinterpret<u16, u8>(pointer),
+    );
+
+    if written == 0 || written >= required
+    {
+        panic("the platform startup working directory is unavailable");
+    }
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = written as usize * 2);
+
+    return buffer;
+}
+
+trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
+    uses(foreign_call, raw_memory)
+{
+    let command_line: RawPointer<u16> = trusted std.os.windows.get_command_line_w();
+
+    if std.memory.is_null<u16>(command_line)
+    {
+        panic("the platform process arguments are unavailable");
+    }
+
+    let mut count: i32 = 0;
+
+    let arguments: RawPointer<RawPointer<u16>> = trusted std.os.windows.command_line_to_argv_w(
+        command_line,
+        count = std.memory.address_of_mut<i32>(&mut count),
+    );
+
+    if std.memory.is_null<RawPointer<u16>>(arguments) || count < 0
+    {
+        panic("the platform process arguments are unavailable");
+    }
+
+    let owner: LocalAllocation =
+    {
+        pointer = trusted std.memory.reinterpret<u8, RawPointer<u16>>(arguments),
+    };
+
+    let argument_count: usize = std.truncate_to<usize>(count);
+    let mut total: usize = 0;
+    let mut index: usize = 0;
+
+    while index < argument_count
+    {
+        let argument: RawPointer<u16> = trusted internal read_native_pointer<u16>(
+            std.memory.offset<RawPointer<u16>>(arguments, elements = std.truncate_to<isize>(index))
+        );
+
+        let units: usize = trusted internal terminated_u16_length(argument);
+
+        if total > 9_223_372_036_854_775_807 - units * 2 - 2
+        {
+            panic("the platform process context is too large");
+        }
+
+        total += units * 2 + 2;
+        index += 1;
+    }
+
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
+    let mut offset: usize = 0;
+    index = 0;
+
+    while index < argument_count
+    {
+        let argument: RawPointer<u16> = trusted internal read_native_pointer<u16>(
+            std.memory.offset<RawPointer<u16>>(arguments, elements = std.truncate_to<isize>(index))
+        );
+
+        let units: usize = trusted internal terminated_u16_length(argument);
+        let bytes: usize = units * 2 + 2;
+
+        trusted internal std.memory.byte_buffer_copy(
+            trusted std.memory.reinterpret<u8, u16>(argument),
+            std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset)),
+            count = bytes,
+        );
+
+        offset += bytes;
+        index += 1;
+    }
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
+
+    return buffer;
+}
+
+trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
+    uses(foreign_call)
+{
+    let environment: RawPointer<u16> = trusted std.os.windows.get_environment_strings_w();
+
+    if std.memory.is_null<u16>(environment)
+    {
+        panic("the platform process environment is unavailable");
+    }
+
+    let owner: EnvironmentBlock =
+    {
+        pointer = environment,
+    };
+
+    let mut total: usize = 0;
+    let mut source_index: usize = 0;
+
+    loop
+    {
+        let entry: RawPointer<u16> = std.memory.offset<u16>(
+            environment,
+            elements = std.truncate_to<isize>(source_index),
+        );
+
+        let units: usize = trusted internal terminated_u16_length(entry);
+
+        if units == 0
+        {
+            break;
+        }
+
+        if trusted internal read_native_u16(entry) != 61
+        {
+            if total > 9_223_372_036_854_775_807 - units * 2 - 2
+            {
+                panic("the platform process context is too large");
+            }
+
+            total += units * 2 + 2;
+        }
+
+        source_index += units + 1;
+    }
+
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
+    let mut destination_offset: usize = 0;
+    source_index = 0;
+
+    loop
+    {
+        let entry: RawPointer<u16> = std.memory.offset<u16>(
+            environment,
+            elements = std.truncate_to<isize>(source_index),
+        );
+
+        let units: usize = trusted internal terminated_u16_length(entry);
+
+        if units == 0
+        {
+            break;
+        }
+
+        if trusted internal read_native_u16(entry) != 61
+        {
+            let bytes: usize = units * 2 + 2;
+
+            trusted internal std.memory.byte_buffer_copy(
+                trusted std.memory.reinterpret<u8, u16>(entry),
+                std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(destination_offset)),
+                count = bytes,
+            );
+
+            destination_offset += bytes;
+        }
+
+        source_index += units + 1;
+    }
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
+
+    return buffer;
+}
+
+trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
+    uses(foreign_call)
+{
+    let left_bytes: usize = internal std.memory.slice_length<u8>(left);
+    let right_bytes: usize = std.truncate_to<usize>(right.length);
+
+    if left_bytes % 2 != 0 || right_bytes as u64 != right.length || right_bytes % 2 != 0
+    {
+        return false;
+    }
+
+    let left_units: usize = left_bytes / 2;
+    let right_units: usize = right_bytes / 2;
+
+    if left_units > 2_147_483_647 || right_units > 2_147_483_647
+    {
+        return false;
+    }
+
+    return trusted std.os.windows.compare_string_ordinal(
+        trusted std.memory.reinterpret<u16, u8>(internal std.memory.byte_slice_pointer(left)),
+        left_length = std.truncate_to<i32>(left_units),
+        right = trusted std.memory.reinterpret<u16, u8>(right.address),
+        right_length = std.truncate_to<i32>(right_units),
+        ignore_case = 1,
+    ) == std.os.windows.CSTR_EQUAL;
+}
+
+trusted internal func terminated_u16_length(pos pointer: RawPointer<u16>) -> usize
+{
+    let mut length: usize = 0;
+
+    while length < 9_223_372_036_854_775_807
+    {
+        if trusted internal read_native_u16(
+            std.memory.offset<u16>(pointer, elements = std.truncate_to<isize>(length))
+        ) == 0
+        {
+            return length;
+        }
+
+        length += 1;
+    }
+
+    panic("the platform process context contains invalid native text");
+}
+
+trusted internal func current_thread_identity() -> u64
+    uses(foreign_call)
+{
+    return trusted std.os.windows.get_current_thread_id() as u64;
+}
+
+trusted internal func windows_error_status() -> PlatformStatus
+    uses(foreign_call)
+{
+    return native_error_status(trusted std.os.windows.get_last_error() as i64);
+}
+
+trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
+    uses(foreign_call)
+{
+    let mut native_ticks: u64 = 0;
+
+    trusted std.os.windows.query_interrupt_time_precise(std.memory.address_of_mut<u64>(&mut native_ticks));
+
+    if native_ticks > 184_467_440_737_095_516
+    {
+        return other_status();
+    }
+
+    trusted std.memory.write<u64>(ticks, value = native_ticks * 100);
+
+    return success_status();
+}
+
+trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
+    uses(foreign_call)
+{
+    let mut observed: std.os.windows.FileTime =
+    {
+        low = 0,
+        high = 0,
+    };
+
+    trusted std.os.windows.get_system_time_precise_as_file_time(
+        std.memory.address_of_mut<std.os.windows.FileTime>(&mut observed)
+    );
+
+    return trusted internal windows_file_time(
+        low = observed.low,
+        high = observed.high,
+        seconds = seconds,
+        nanoseconds = nanoseconds,
+    );
+}
+
+trusted internal func windows_file_time(
+    low: u32,
+    high: u32,
+    seconds: RawPointer<i64>,
+    nanoseconds: RawPointer<u32>,
+) -> PlatformStatus
+{
+    let native_ticks: u64 = low as u64 | high as u64 << 32;
+
+    if native_ticks >= 116_444_736_000_000_000
+    {
+        let unix_ticks: u64 = native_ticks - 116_444_736_000_000_000;
+        let whole_seconds: u64 = unix_ticks / 10_000_000;
+
+        if whole_seconds > 9_223_372_036_854_775_807
+        {
+            return other_status();
+        }
+
+        trusted std.memory.write<i64>(seconds, value = std.truncate_to<i64>(whole_seconds));
+        trusted std.memory.write<u32>(nanoseconds, value = std.truncate_to<u32>(unix_ticks % 10_000_000 * 100));
+    }
+    else
+    {
+        let before_epoch: u64 = 116_444_736_000_000_000 - native_ticks;
+        let whole_seconds: u64 = before_epoch / 10_000_000;
+        let remaining_ticks: u64 = before_epoch % 10_000_000;
+
+        if remaining_ticks == 0
+        {
+            trusted std.memory.write<i64>(seconds, value = -std.truncate_to<i64>(whole_seconds));
+            trusted std.memory.write<u32>(nanoseconds, value = 0);
+        }
+        else
+        {
+            trusted std.memory.write<i64>(seconds, value = -std.truncate_to<i64>(whole_seconds) - 1);
+
+            trusted std.memory.write<u32>(
+                nanoseconds,
+                value = 1_000_000_000 - std.truncate_to<u32>(remaining_ticks * 100),
+            );
+        }
+    }
+
+    return success_status();
+}
+
+trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
+    uses(foreign_call)
+{
+    if nanoseconds >= 1_000_000_000
+    {
+        return invalid_input_status();
+    }
+
+    let rounded_nanoseconds: u64 = nanoseconds as u64 + 999_999;
+
+    if seconds > (18_446_744_073_709_551_615 - rounded_nanoseconds / 1_000_000) / 1_000
+    {
+        return invalid_input_status();
+    }
+
+    let mut milliseconds: u64 = seconds * 1_000 + rounded_nanoseconds / 1_000_000;
+
+    while milliseconds > 4_294_967_294
+    {
+        trusted std.os.windows.sleep(4_294_967_294);
+        milliseconds -= 4_294_967_294;
+    }
+
+    if milliseconds > 0
+    {
+        trusted std.os.windows.sleep(std.truncate_to<u32>(milliseconds));
+    }
+
+    return success_status();
+}
+
+trusted internal func entropy_fill(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    let count: usize = std.truncate_to<usize>(length);
+
+    if count as u64 != length
+    {
+        return invalid_input_status();
+    }
+
+    let mut completed: usize = 0;
+
+    while completed < count
+    {
+        let remaining: usize = count - completed;
+
+        let requested: u32 = if remaining > 4_294_967_295
+        {
+            yield 4_294_967_295;
+        }
+        else
+        {
+            yield std.truncate_to<u32>(remaining);
+        };
+
+        let result: i32 = trusted std.os.windows.bcrypt_gen_random(
+            std.memory.null<u8>(),
+            destination = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(completed)),
+            length = requested,
+            flags = std.os.windows.BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        );
+
+        if result != 0
+        {
+            return native_error_status(result as i64);
+        }
+
+        completed += requested as usize;
+    }
+
+    trusted std.memory.write<u64>(transferred, value = length);
+
+    return success_status();
+}
+
+trusted internal func handle_transfer(
+    pos handle: RawPointer<u8>,
+    bytes: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+    read_operation: bool,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    if length == 0
+    {
+        return internal success_status();
+    }
+
+    let requested: u32 = if length > 4_294_967_295
+    {
+        yield 4_294_967_295;
+    }
+    else
+    {
+        yield std.truncate_to<u32>(length);
+    };
+
+    let mut count: u32 = 0;
+
+    let succeeded: i32 = if read_operation
+    {
+        yield trusted std.os.windows.read_file(
+            handle,
+            destination = bytes,
+            length = requested,
+            transferred = std.memory.address_of_mut<u32>(&mut count),
+            overlapped = std.memory.null<u8>(),
+        );
+    }
+    else
+    {
+        yield trusted std.os.windows.write_file(
+            handle,
+            source = bytes,
+            length = requested,
+            transferred = std.memory.address_of_mut<u32>(&mut count),
+            overlapped = std.memory.null<u8>(),
+        );
+    };
+
+    if succeeded == 0
+    {
+        return trusted internal windows_error_status();
+    }
+
+    trusted std.memory.write<u64>(transferred, value = count as u64);
+
+    return internal success_status();
+}

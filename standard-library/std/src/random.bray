@@ -114,7 +114,6 @@ struct Generator
         count: usize
     ) -> Result<unit, EntropyError>
         requires(blocking_execution())
-        uses(foreign_call)
     {
         let mut transferred: u64 = 0;
 

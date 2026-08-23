@@ -1,0 +1,52 @@
+@target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
+trusted module std.io;
+
+using std.os.windows;
+
+trusted internal func platform_standard_input_read(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    return trusted internal std.platform.handle_transfer(
+        trusted std.os.windows.get_standard_handle(std.os.windows.STD_INPUT_HANDLE),
+        bytes = destination,
+        length = length,
+        transferred = transferred,
+        read_operation = true,
+    );
+}
+
+trusted internal func platform_standard_output_write(
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    return trusted internal std.platform.handle_transfer(
+        trusted std.os.windows.get_standard_handle(std.os.windows.STD_OUTPUT_HANDLE),
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}
+
+trusted internal func platform_standard_error_write(
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    return trusted internal std.platform.handle_transfer(
+        trusted std.os.windows.get_standard_handle(std.os.windows.STD_ERROR_HANDLE),
+        bytes = source,
+        length = length,
+        transferred = transferred,
+        read_operation = false,
+    );
+}

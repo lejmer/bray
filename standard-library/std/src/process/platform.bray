@@ -5,6 +5,7 @@ using std.io;
 using std.memory;
 using std.path;
 
+@copy
 @layout(c)
 internal struct PlatformNativeText
 {
@@ -12,6 +13,7 @@ internal struct PlatformNativeText
     length: u64;
 }
 
+@copy
 @layout(c)
 internal struct PlatformSpanList
 {
@@ -19,6 +21,7 @@ internal struct PlatformSpanList
     count: u64;
 }
 
+@copy
 @layout(c)
 internal struct PlatformEnvironmentEntry
 {
@@ -26,6 +29,7 @@ internal struct PlatformEnvironmentEntry
     value: PlatformNativeText;
 }
 
+@copy
 @layout(c)
 internal struct PlatformEnvironmentList
 {
@@ -33,6 +37,7 @@ internal struct PlatformEnvironmentList
     count: u64;
 }
 
+@copy
 @layout(c)
 internal struct PlatformChildRequest
 {
@@ -46,6 +51,7 @@ internal struct PlatformChildRequest
     reserved: u32;
 }
 
+@copy
 @layout(c)
 internal struct PlatformExitStatus
 {
@@ -53,65 +59,6 @@ internal struct PlatformExitStatus
     reserved: u32;
     payload: i64;
 }
-
-@abi(c)
-extern trusted internal func platform_process_pipe_read(
-    pos handle: u64,
-    pos destination: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_process_pipe_write(
-    pos handle: u64,
-    pos source: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_process_pipe_close(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_child_spawn(
-    pos request: PlatformChildRequest,
-    pos child: RawPointer<u64>,
-    pos standard_input: RawPointer<u64>,
-    pos standard_output: RawPointer<u64>,
-    pos standard_error: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_child_wait(
-    pos child: u64,
-    pos terminal: RawPointer<u32>,
-    pos status: RawPointer<PlatformExitStatus>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_child_reap(
-    pos child: u64,
-    pos status: RawPointer<PlatformExitStatus>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
 
 internal func path_span(pos path: &std.path.Path) -> PlatformNativeText
 {

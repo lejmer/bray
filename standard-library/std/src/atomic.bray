@@ -305,3 +305,10 @@ func notify_all<T>(pos storage: &Atomic<T>)
 {
     core.atomic.notify_all<T>(&storage.storage);
 }
+
+trusted internal func word_pointer(pos storage: &core.atomic.Atomic<u32>) -> RawPointer<u32>
+{
+    let pointer: RawPointer<core.atomic.Atomic<u32>> = std.memory.address_of<core.atomic.Atomic<u32>>(storage);
+
+    return trusted std.memory.reinterpret<u32, core.atomic.Atomic<u32>>(pointer);
+}

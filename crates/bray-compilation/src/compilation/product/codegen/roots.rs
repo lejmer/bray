@@ -77,13 +77,15 @@ impl Compilation {
                 .resolved_type()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let native_export = self
-                .foreign_static_contract_with_cancellation(static_symbol.id(), cancellation)?
-                .value()
-                .as_ref()
-                .is_some_and(|contract| {
-                    contract.direction() == bray_symbols::ForeignCallableDirection::Export
-                });
+            let native_direction =
+                self.foreign_static_direction(static_symbol.id(), cancellation)?;
+
+            if native_direction == Some(bray_symbols::ForeignCallableDirection::Import) {
+                continue;
+            }
+
+            let native_export =
+                native_direction == Some(bray_symbols::ForeignCallableDirection::Export);
 
             if native_export
                 || !template.value().lifecycle_obligations().is_empty()
@@ -110,12 +112,11 @@ impl Compilation {
             }
 
             if let Some(declaration) = StaticSymbolId::try_from_any(symbol) {
-                roots.push(self.product_root_static(
-                    declaration,
-                    &binding_context,
-                    target,
-                    cancellation,
-                )?);
+                if let Some(root) =
+                    self.product_root_static(declaration, &binding_context, target, cancellation)?
+                {
+                    roots.push(root);
+                }
 
                 continue;
             }
@@ -155,7 +156,13 @@ impl Compilation {
         binding_context: &super::super::super::binder::CompilationBindingContext<'_>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenInstance, NativeProductPlanningError> {
+    ) -> Result<Option<ConcreteCodegenInstance>, NativeProductPlanningError> {
+        if self.foreign_static_direction(declaration, cancellation)?
+            == Some(bray_symbols::ForeignCallableDirection::Import)
+        {
+            return Ok(None);
+        }
+
         let initializer = self
             .static_initializer_key(declaration)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -182,7 +189,7 @@ impl Compilation {
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
         let specialization = self.codegen_specialization(substitution)?;
 
-        Ok(ConcreteCodegenInstance::static_initializer(
+        Ok(Some(ConcreteCodegenInstance::static_initializer(
             MirUnitKey::Bound(initializer),
             declaration,
             substitution,
@@ -192,7 +199,19 @@ impl Compilation {
                 target.profile().clone(),
                 self.selected_target().target().runtime_abi(),
             ),
-        ))
+        )))
+    }
+
+    fn foreign_static_direction(
+        &self,
+        declaration: StaticSymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_symbols::ForeignCallableDirection>, FactQueryError> {
+        Ok(self
+            .foreign_static_contract_with_cancellation(declaration, cancellation)?
+            .value()
+            .as_ref()
+            .map(bray_symbols::ForeignStaticContract::direction))
     }
 
     fn product_root_callable(

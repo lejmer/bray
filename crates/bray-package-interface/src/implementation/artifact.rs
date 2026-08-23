@@ -677,7 +677,8 @@ fn validate_executable_owner(
     if !owner_symbol.kind().is_callable()
         && !matches!(
             owner_symbol.kind(),
-            bray_symbols::SymbolKind::CallableParameterDefaultProvider
+            bray_symbols::SymbolKind::Static
+                | bray_symbols::SymbolKind::CallableParameterDefaultProvider
                 | bray_symbols::SymbolKind::StructFieldDefaultProvider
                 | bray_symbols::SymbolKind::UnionPayloadDefaultProvider
         )

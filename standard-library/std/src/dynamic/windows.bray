@@ -1,0 +1,184 @@
+@target(
+    target.platform.dynamic_loading && (target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME ==
+        "aarch64-pc-windows-msvc")
+)
+trusted module std.dynamic;
+
+trusted internal func platform_dynamic_library_open_path(
+    pos path: std.fs.PlatformPath,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !supported_windows_load_policy(policy)
+    {
+        return windows_load_policy_status(policy);
+    }
+
+    if !absolute_windows_path(&path)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 2);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal load_windows_library(
+                trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
+                flags = std.os.windows.LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | std.os.windows.LOAD_LIBRARY_SEARCH_SYSTEM32,
+                opened = opened,
+            );
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_dynamic_library_open_system(
+    pos identity: u32,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    if identity != 0
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if !supported_windows_load_policy(policy)
+    {
+        return windows_load_policy_status(policy);
+    }
+
+    let name: [u16; 13] = [117, 99, 114, 116, 98, 97, 115, 101, 46, 100, 108, 108, 0];
+
+    return trusted internal load_windows_library(
+        std.memory.address_of<u16>(&name[0]),
+        flags = std.os.windows.LOAD_LIBRARY_SEARCH_SYSTEM32,
+        opened = opened,
+    );
+}
+
+trusted internal func load_windows_library(
+    pos name: RawPointer<u16>,
+    flags: u32,
+    opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let library: RawPointer<u8> = trusted std.os.windows.load_library_ex_w(
+        name,
+        file = std.memory.null<u8>(),
+        flags = flags,
+    );
+
+    if std.memory.is_null<u8>(library)
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    trusted std.memory.write<u64>(opened, value = trusted internal std.platform.pointer_handle(library));
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_dynamic_library_symbol(
+    pos handle: u64,
+    pos name: RawPointer<u8>,
+    pos length: u64,
+    pos address: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(name, length = length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_name)
+        {
+            let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+
+            let resolved_address: RawPointer<u8> = trusted std.os.windows.get_proc_address(
+                library,
+                name = terminated_name.pointer,
+            );
+
+            if std.memory.is_null<u8>(resolved_address)
+            {
+                return trusted internal std.platform.windows_error_status();
+            }
+
+            trusted std.memory.write<RawPointer<u8>>(address, value = resolved_address);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+
+    if trusted std.os.windows.free_library(library) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+internal func supported_windows_load_policy(pos policy: u32) -> bool
+{
+    return policy == 0 || policy == 1;
+}
+
+internal func windows_load_policy_status(pos policy: u32) -> std.platform.PlatformStatus
+{
+    if policy <= 4
+    {
+        return internal std.platform.unsupported_status();
+    }
+
+    return internal std.platform.invalid_input_status();
+}
+
+trusted internal func absolute_windows_path(pos path: &std.fs.PlatformPath) -> bool
+{
+    if path.length < 4 || path.length % 2 != 0 || std.memory.is_null<u8>(path.address)
+    {
+        return false;
+    }
+
+    let first: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 0);
+    let first_high: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 1);
+    let second: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 2);
+    let second_high: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 3);
+
+    if first == 92 && first_high == 0 && second == 92 && second_high == 0
+    {
+        return true;
+    }
+
+    if path.length < 6 || first_high != 0 || second != 58 || second_high != 0
+    {
+        return false;
+    }
+
+    let drive_letter: bool = first >= 65 && first <= 90 || first >= 97 && first <= 122;
+    let separator: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 4);
+    let separator_high: u8 = trusted internal std.memory.byte_buffer_read(path.address, index = 5);
+
+    return drive_letter && separator_high == 0 && (separator == 92 || separator == 47);
+}

@@ -3,7 +3,7 @@ use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, TypeId,
+    ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument, TypeData, TypeId,
 };
 
 use crate::constant::diagnostic::ConstantDiagnostic;
@@ -168,10 +168,7 @@ where
 
         match data.kind() {
             ConstantValueKind::Integer(integer) => {
-                let representation = type_representation(self.request, data.ty())
-                    .map_err(EvaluationFailure::Infrastructure)?
-                    .and_then(bray_compiler_known::RepresentationRole::integer_representation)
-                    .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+                let representation = self.integer_constant_representation(data.ty(), expression)?;
 
                 if !fits_integer_representation(integer, representation, || {
                     self.request
@@ -216,6 +213,50 @@ where
         }
 
         Ok(())
+    }
+
+    fn integer_constant_representation(
+        &self,
+        ty: TypeId,
+        expression: BoundExpressionId,
+    ) -> Result<IntegerRepresentation, EvaluationFailure> {
+        let role = type_representation(self.request, ty)
+            .map_err(EvaluationFailure::Infrastructure)?
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+        if let Some(representation) = role.integer_representation() {
+            return Ok(representation);
+        }
+
+        if role != bray_compiler_known::RepresentationRole::Atomic {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        }
+
+        let values = self.request.semantic_values();
+        let data = values.type_data(ty).map_err(|_| {
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
+        let TypeData::Named { substitution, .. } = data.as_ref() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+        let substitution = values
+            .generic_substitution_data(*substitution)
+            .map_err(|_| {
+                EvaluationFailure::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+        let [binding] = substitution.bindings() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+        let GenericArgument::Type(value_type) = binding.argument() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        type_representation(self.request, value_type)
+            .map_err(EvaluationFailure::Infrastructure)?
+            .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
     }
 
     pub(super) fn constant_value(

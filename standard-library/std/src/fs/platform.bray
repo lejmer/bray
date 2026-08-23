@@ -17,115 +17,6 @@ internal struct PlatformFileOptions
     reserved: u64;
 }
 
-@layout(c)
-internal struct PlatformFileMetadata
-{
-    kind: u32;
-    present: u32;
-    bytes: u64;
-    modified_seconds: i64;
-    modified_nanoseconds: u32;
-    reserved: u32;
-}
-
-@abi(c)
-extern trusted internal func platform_file_read(
-    pos handle: u64,
-    pos destination: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_write(
-    pos handle: u64,
-    pos source: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_seek(
-    pos handle: u64,
-    pos offset_bits: u64,
-    pos origin: u32,
-    pos position: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_open(
-    pos path: PlatformPath,
-    pos options: PlatformFileOptions,
-    pos opened: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_file_metadata(
-    pos handle: u64,
-    pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_path_metadata(
-    pos path: PlatformPath,
-    pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_directory_open(
-    pos path: PlatformPath,
-    pos opened: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_directory_next(
-    pos handle: u64,
-    pos destination: RawPointer<u8>,
-    pos capacity: u64,
-    pos written_or_required: RawPointer<u64>,
-    pos end: RawPointer<u32>,
-    pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_directory_close(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_path_rename(
-    pos source: PlatformPath,
-    pos destination: PlatformPath,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
-
 internal func platform_path(pos path: &std.path.Path) -> PlatformPath
 {
     let bytes: &[u8] = internal std.path.native_bytes(path.to_native());
@@ -134,19 +25,6 @@ internal func platform_path(pos path: &std.path.Path) -> PlatformPath
     {
         address = internal std.memory.byte_slice_pointer(bytes),
         length = internal std.memory.slice_length<u8>(bytes) as u64,
-    };
-}
-
-internal func empty_platform_metadata() -> PlatformFileMetadata
-{
-    return
-    {
-        kind = 2,
-        present = 0,
-        bytes = 0,
-        modified_seconds = 0,
-        modified_nanoseconds = 0,
-        reserved = 0,
     };
 }
 
@@ -182,42 +60,35 @@ internal func seek_origin_value(pos value: std.io.SeekOrigin) -> u32
     };
 }
 
-internal func platform_metadata(pos value: PlatformFileMetadata) -> Result<FileMetadata, std.io.IoError>
-{
-    if value.reserved != 0 || value.present > 1 || value.kind > 2 || value.modified_nanoseconds >= 1000000000
-    {
-        return Error(internal std.io.invalid_transfer_error());
-    }
-
-    let kind: FileKind = match value.kind
-    {
-        case 0 { yield FileKind.File; }
-        case 1 { yield FileKind.Directory; }
-        case _ { yield FileKind.Other; }
-    };
-
-    let mut modified: std.time.Timestamp? = none;
-
-    if value.present == 1
-    {
-        let timestamp: std.time.Timestamp = internal std.time.timestamp_from_parts(
-            seconds = value.modified_seconds,
-            nanoseconds = value.modified_nanoseconds,
-        );
-
-        modified = timestamp;
-    }
-
-    return Ok(
-        {
-            kind = kind,
-            bytes = value.bytes,
-            modified = modified,
-        }
-    );
-}
-
 internal func checked_platform_status(pos value: std.platform.PlatformStatus) -> Result<unit, std.io.IoError>
 {
     return internal std.io.checked_status(value);
+}
+
+trusted internal func directory_entry_path(
+    pos source: RawPointer<u8>,
+    bytes: usize,
+) -> Result<std.path.Path, std.io.IoError>
+{
+    let mut buffer: std.bytes.Buffer = try internal std.io.allocate_fixed_buffer(capacity = bytes);
+
+    if bytes > 0
+    {
+        trusted internal std.memory.byte_buffer_copy(
+            source,
+            internal std.memory.byte_slice_pointer_mut(std.bytes.as_slice_mut(&mut buffer)),
+            count = bytes,
+        );
+    }
+
+    let native: std.path.NativeText =
+    {
+        bytes = buffer,
+    };
+
+    match std.path.Path.from_native(native)
+    {
+        case Ok(path) { return Ok(path); }
+        case Error(_) { return Error(internal std.io.invalid_transfer_error()); }
+    }
 }

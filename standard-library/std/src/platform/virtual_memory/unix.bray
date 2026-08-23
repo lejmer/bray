@@ -1,0 +1,60 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.platform.virtual_memory;
+
+trusted internal func platform_map(
+    pos bytes: usize,
+    access: Access,
+) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+{
+    let address: RawPointer<u8> = trusted std.os.unix.mmap(
+        std.memory.null<u8>(),
+        length = bytes,
+        protection = unix_protection(access),
+        flags = std.os.unix.MAP_PRIVATE | std.os.unix.MAP_ANONYMOUS,
+        descriptor = -1,
+        offset = 0,
+    );
+
+    if trusted internal std.platform.pointer_handle(address) == ~0
+    {
+        return Error(trusted internal std.platform.unix_error_status());
+    }
+
+    return Ok(address);
+}
+
+trusted internal func platform_protect(
+    pos address: RawPointer<u8>,
+    bytes: usize,
+    access: Access,
+) -> std.platform.PlatformStatus
+{
+    if trusted std.os.unix.mprotect(address, length = bytes, protection = unix_protection(access)) != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_unmap(pos address: RawPointer<u8>, bytes: usize) -> std.platform.PlatformStatus
+{
+    if trusted std.os.unix.munmap(address, length = bytes) != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+internal func unix_protection(pos access: Access) -> i32
+{
+    return match access
+    {
+        case None { yield std.os.unix.PROT_NONE; }
+        case Read { yield std.os.unix.PROT_READ; }
+        case ReadWrite { yield std.os.unix.PROT_READ | std.os.unix.PROT_WRITE; }
+        case ReadExecute { yield std.os.unix.PROT_READ | std.os.unix.PROT_EXEC; }
+        case ReadWriteExecute { yield std.os.unix.PROT_READ | std.os.unix.PROT_WRITE | std.os.unix.PROT_EXEC; }
+    };
+}

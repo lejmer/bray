@@ -30,7 +30,11 @@ struct Buffer
         let mut buffer: Buffer = try Buffer(capacity = byte_count);
         let destination: RawPointer<u8> = buffer.storage.pointer;
 
-        trusted internal std.memory.byte_slice_copy(source = bytes, destination = destination);
+        trusted internal std.memory.byte_buffer_copy(
+            source = internal std.memory.byte_slice_pointer(bytes),
+            destination = destination,
+            count = byte_count,
+        );
 
         trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = byte_count);
 
@@ -192,7 +196,12 @@ trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.m
     let current_length: usize = buffer.storage.initialized;
     let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
-    trusted internal std.memory.byte_slice_copy(source = bytes, destination = destination);
+    trusted internal std.memory.byte_buffer_copy(
+        source = internal std.memory.byte_slice_pointer(bytes),
+        destination = destination,
+        count = byte_count,
+    );
+
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + byte_count);
 
     return Ok(unit);

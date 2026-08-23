@@ -1296,7 +1296,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             24 => Ok(Kind::ByteBufferRead),
             25 => Ok(Kind::SliceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
-            27 => Ok(Kind::ByteSliceCopy),
+            27 => Ok(Kind::ByteBufferCopy),
             28 => Ok(Kind::VolatileRead {
                 pointee: self.ty()?,
                 address_space: match read_u32(&mut self.reader)? {
