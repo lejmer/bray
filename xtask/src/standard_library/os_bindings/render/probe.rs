@@ -2,12 +2,13 @@ use std::fmt::Write;
 
 use super::super::model::{
     BitfieldDescription, CallbackDescription, DynamicSymbolDescription, FieldDescription,
-    FunctionDescription, ParameterDescription, StaticDescription, TargetDescription,
-    TypeDescription,
+    FunctionDescription, ParameterDescription, SdkRevision, StaticDescription, SymbolBinding,
+    SymbolDescription, SymbolPresence, TargetDescription, TypeDescription,
 };
 
 // Formatting through String's fmt::Write implementation has no failure path.
 use super::bits::bit_mask;
+use super::types::render_abi_type_contracts;
 
 pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
     let mut source = String::new();
@@ -21,9 +22,19 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
     writeln!(
         source,
         "/* SDK authority: {} {} */",
-        target.sdk.authority, target.sdk.revision
+        target.sdk.authority,
+        target.sdk.revision.label()
     )
     .expect("writing to a string must succeed");
+
+    if let Some(runtime) = &target.sdk.compiler_runtime {
+        writeln!(
+            source,
+            "/* Compiler runtime authority: {} {} */",
+            runtime.authority, runtime.revision
+        )
+        .expect("writing to a string must succeed");
+    }
 
     writeln!(source, "/* Complete input SHA-256: {digest} */")
         .expect("writing to a string must succeed");
@@ -43,6 +54,8 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
     }
 
     source.push('\n');
+
+    render_sdk_revision_contract(&mut source, &target.sdk.revision);
 
     for scalar in &target.scalars {
         writeln!(
@@ -87,8 +100,10 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
         render_probe_callback(&mut source, callback);
     }
 
+    render_abi_type_contracts(&mut source, target);
+
     for function in &target.functions {
-        render_probe_function(&mut source, function);
+        render_probe_function(&mut source, target, function);
     }
 
     for static_ in &target.statics {
@@ -109,13 +124,33 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
     }
 
     for function in &target.functions {
-        writeln!(source, "    (void)&{};", function.native)
-            .expect("writing to a string must succeed");
+        writeln!(
+            source,
+            "    (void)&{};",
+            probe_function_name(target, function)
+        )
+        .expect("writing to a string must succeed");
+
+        render_symbol_lookup(
+            &mut source,
+            target,
+            &function.link,
+            function.symbol.as_ref(),
+            &mut failure,
+        );
     }
 
     for static_ in &target.statics {
-        writeln!(source, "    (void)&{};", probe_static_name(static_))
+        writeln!(source, "    (void)&{};", probe_static_name(target, static_))
             .expect("writing to a string must succeed");
+
+        render_symbol_lookup(
+            &mut source,
+            target,
+            &static_.link,
+            Some(&static_.symbol),
+            &mut failure,
+        );
     }
 
     for symbol in &target.dynamic_symbols {
@@ -126,6 +161,58 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
     writeln!(source, "}}").expect("writing to a string must succeed");
 
     source
+}
+
+fn render_sdk_revision_contract(source: &mut String, revision: &SdkRevision) {
+    match revision {
+        SdkRevision::Linux { kernel, glibc, .. } => {
+            let (kernel_major, kernel_minor) = revision_pair(kernel);
+
+            let (glibc_major, glibc_minor) = revision_pair(glibc);
+
+            writeln!(
+                source,
+                "_Static_assert(LINUX_VERSION_CODE >= KERNEL_VERSION({kernel_major}, {kernel_minor}, 0) && LINUX_VERSION_CODE < KERNEL_VERSION({kernel_major}, {}, 0), \"Linux SDK revision\");",
+                kernel_minor + 1
+            )
+            .expect("writing to a string must succeed");
+
+            writeln!(
+                source,
+                "_Static_assert(__GLIBC__ == {glibc_major} && __GLIBC_MINOR__ == {glibc_minor}, \"glibc SDK revision\");"
+            )
+            .expect("writing to a string must succeed");
+        }
+        SdkRevision::MacOs { version } => {
+            let (major, minor) = revision_pair(version);
+
+            let encoded = major * 10_000 + minor * 100;
+
+            writeln!(
+                source,
+                "_Static_assert(__MAC_OS_X_VERSION_MAX_ALLOWED == {encoded}, \"macOS SDK revision\");"
+            )
+            .expect("writing to a string must succeed");
+        }
+        SdkRevision::Windows { .. } => {}
+    }
+}
+
+fn revision_pair(revision: &str) -> (u32, u32) {
+    // Model validation requires exactly two numeric revision components.
+    let mut parts = revision.split('.');
+
+    let major = parts
+        .next()
+        .and_then(|part| part.parse().ok())
+        .expect("validated SDK revisions have a numeric major component");
+
+    let minor = parts
+        .next()
+        .and_then(|part| part.parse().ok())
+        .expect("validated SDK revisions have a numeric minor component");
+
+    (major, minor)
 }
 
 fn render_probe_type(source: &mut String, ty: &TypeDescription) {
@@ -240,7 +327,11 @@ fn render_probe_callback(source: &mut String, callback: &CallbackDescription) {
     .expect("writing to a string must succeed");
 }
 
-fn render_probe_function(source: &mut String, function: &FunctionDescription) {
+fn render_probe_function(
+    source: &mut String,
+    target: &TargetDescription,
+    function: &FunctionDescription,
+) {
     if function.variadic {
         writeln!(
             source,
@@ -248,25 +339,25 @@ fn render_probe_function(source: &mut String, function: &FunctionDescription) {
             function.native, function.name, function.native
         )
         .expect("writing to a string must succeed");
+    } else {
+        let parameters = native_parameters(&function.parameters);
 
-        return;
+        writeln!(
+            source,
+            "typedef {} (*bray_probe_{}_type)({});",
+            function.native_result, function.name, parameters
+        )
+        .expect("writing to a string must succeed");
+
+        writeln!(
+            source,
+            "_Static_assert(__builtin_types_compatible_p(__typeof__(&{}), bray_probe_{}_type), \"{} signature\");",
+            function.native, function.name, function.native
+        )
+        .expect("writing to a string must succeed");
     }
 
-    let parameters = native_parameters(&function.parameters);
-
-    writeln!(
-        source,
-        "typedef {} (*bray_probe_{}_type)({});",
-        function.native_result, function.name, parameters
-    )
-    .expect("writing to a string must succeed");
-
-    writeln!(
-        source,
-        "_Static_assert(__builtin_types_compatible_p(__typeof__(&{}), bray_probe_{}_type), \"{} signature\");",
-        function.native, function.name, function.native
-    )
-    .expect("writing to a string must succeed");
+    render_function_symbol(source, target, function);
 }
 
 fn render_probe_static(
@@ -274,34 +365,9 @@ fn render_probe_static(
     target: &TargetDescription,
     static_: &StaticDescription,
 ) {
-    let probe_name = probe_static_name(static_);
+    let probe_name = probe_static_name(target, static_);
 
-    if static_.thread_local {
-        writeln!(
-            source,
-            "extern _Thread_local {} {};",
-            static_.native_type, probe_name
-        )
-        .expect("writing to a string must succeed");
-
-        if target.system == "linux" {
-            if let Some(version) = &static_.symbol.version {
-                // Model validation guarantees that a versioned symbol has a name.
-                let symbol = static_
-                    .symbol
-                    .name
-                    .as_deref()
-                    .expect("validated versioned symbols must have names");
-
-                writeln!(
-                    source,
-                    "__asm__(\".symver {},{}@{}\");",
-                    probe_name, symbol, version
-                )
-                .expect("writing to a string must succeed");
-            }
-        }
-    }
+    render_static_symbol(source, target, static_, &probe_name);
 
     writeln!(
         source,
@@ -311,11 +377,113 @@ fn render_probe_static(
     .expect("writing to a string must succeed");
 }
 
-fn probe_static_name(static_: &StaticDescription) -> String {
-    if static_.thread_local {
-        format!("bray_probe_{}", static_.name)
+fn probe_static_name(target: &TargetDescription, static_: &StaticDescription) -> String {
+    if target.system != "windows" && !plain_native_symbol(&static_.native, &static_.symbol) {
+        return format!("bray_probe_{}_symbol", static_.name);
+    }
+
+    static_.native.clone()
+}
+
+fn probe_function_name(target: &TargetDescription, function: &FunctionDescription) -> String {
+    let Some(symbol) = &function.symbol else {
+        return function.native.clone();
+    };
+
+    if target.system != "windows" && !plain_native_symbol(&function.native, symbol) {
+        return format!("bray_probe_{}_symbol", function.name);
+    }
+
+    function.native.clone()
+}
+
+fn plain_native_symbol(native: &str, symbol: &SymbolDescription) -> bool {
+    symbol.name.as_deref() == Some(native)
+        && symbol.version.is_none()
+        && matches!(symbol.binding, SymbolBinding::Strong)
+        && matches!(symbol.presence, SymbolPresence::Required)
+}
+
+fn render_function_symbol(
+    source: &mut String,
+    target: &TargetDescription,
+    function: &FunctionDescription,
+) {
+    let Some(symbol) = &function.symbol else {
+        return;
+    };
+
+    if target.system == "windows" || plain_native_symbol(&function.native, symbol) {
+        return;
+    }
+
+    render_symbol_alias(
+        source,
+        &format!("bray_probe_{}_symbol", function.name),
+        &format!("__typeof__({})", function.native),
+        false,
+        symbol,
+    );
+}
+
+fn render_static_symbol(
+    source: &mut String,
+    target: &TargetDescription,
+    static_: &StaticDescription,
+    probe_name: &str,
+) {
+    if target.system == "windows" || plain_native_symbol(&static_.native, &static_.symbol) {
+        return;
+    }
+
+    render_symbol_alias(
+        source,
+        probe_name,
+        &static_.native_type,
+        static_.thread_local,
+        &static_.symbol,
+    );
+}
+
+fn render_symbol_alias(
+    source: &mut String,
+    alias: &str,
+    native_type: &str,
+    thread_local: bool,
+    symbol: &SymbolDescription,
+) {
+    let storage = if thread_local { "_Thread_local " } else { "" };
+
+    let weak = if matches!(symbol.binding, SymbolBinding::Weak)
+        || matches!(symbol.presence, SymbolPresence::Optional)
+    {
+        " __attribute__((weak))"
     } else {
-        static_.native.clone()
+        ""
+    };
+
+    if let Some(version) = &symbol.version {
+        // Model validation permits versions only for named symbols.
+        let name = symbol
+            .name
+            .as_deref()
+            .expect("validated versioned symbols have names");
+
+        writeln!(source, "extern {storage}{native_type} {alias}{weak};")
+            .expect("writing to a string must succeed");
+
+        writeln!(source, "__asm__(\".symver {alias},{name}@{version}\");")
+            .expect("writing to a string must succeed");
+
+        return;
+    }
+
+    if let Some(name) = &symbol.name {
+        writeln!(
+            source,
+            "extern {storage}{native_type} {alias} __asm__(\"{name}\"){weak};"
+        )
+        .expect("writing to a string must succeed");
     }
 }
 
@@ -385,6 +553,63 @@ fn render_dynamic_probe_body(
             failure,
         );
     }
+}
+
+fn render_symbol_lookup(
+    source: &mut String,
+    target: &TargetDescription,
+    link_name: &str,
+    symbol: Option<&SymbolDescription>,
+    failure: &mut u32,
+) {
+    let Some(symbol) = symbol else {
+        return;
+    };
+
+    if target.system != "windows" {
+        return;
+    }
+
+    let library = format!("{}.dll", c_string(link_name));
+    let identifier = *failure;
+
+    writeln!(
+        source,
+        "    HMODULE bray_probe_symbol_library_{identifier} = LoadLibraryA(\"{library}\");"
+    )
+    .expect("writing to a string must succeed");
+
+    render_failure_check(
+        source,
+        &format!("bray_probe_symbol_library_{identifier} == NULL"),
+        failure,
+    );
+
+    let identity = match (&symbol.name, symbol.ordinal) {
+        (Some(name), None) => format!("\"{}\"", c_string(name)),
+        (None, Some(ordinal)) => format!("(const char *)(uintptr_t){ordinal}"),
+        _ => unreachable!("validated symbols select one identity"),
+    };
+
+    writeln!(
+        source,
+        "    FARPROC bray_probe_symbol_{identifier} = GetProcAddress(bray_probe_symbol_library_{identifier}, {identity});"
+    )
+    .expect("writing to a string must succeed");
+
+    if matches!(symbol.presence, SymbolPresence::Required) {
+        render_failure_check(
+            source,
+            &format!("bray_probe_symbol_{identifier} == NULL"),
+            failure,
+        );
+    }
+
+    render_failure_check(
+        source,
+        &format!("!FreeLibrary(bray_probe_symbol_library_{identifier})"),
+        failure,
+    );
 }
 
 fn c_string(value: &str) -> String {

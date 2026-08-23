@@ -3,7 +3,8 @@ use std::fmt::Write;
 use super::super::model::{
     AggregateDescription, BitfieldDescription, CallbackDescription, DynamicSymbolDescription,
     FlexibleDescription, FunctionDescription, LinkDescription, OpaqueDescription,
-    ParameterDescription, StaticDescription, SymbolDescription, TargetDescription, TypeDescription,
+    OverrideAuthority, ParameterDescription, StaticDescription, SymbolDescription,
+    TargetDescription, TypeDescription,
 };
 
 // Formatting through String's fmt::Write implementation has no failure path.
@@ -21,9 +22,19 @@ pub(super) fn bray(target: &TargetDescription, digest: &str) -> Result<String, S
     writeln!(
         source,
         "// SDK authority: {} {}",
-        target.sdk.authority, target.sdk.revision
+        target.sdk.authority,
+        target.sdk.revision.label()
     )
     .expect("writing to a string must succeed");
+
+    if let Some(runtime) = &target.sdk.compiler_runtime {
+        writeln!(
+            source,
+            "// Compiler runtime authority: {} {}",
+            runtime.authority, runtime.revision
+        )
+        .expect("writing to a string must succeed");
+    }
 
     writeln!(source, "// Complete input SHA-256: {digest}")
         .expect("writing to a string must succeed");
@@ -45,7 +56,11 @@ pub(super) fn bray(target: &TargetDescription, digest: &str) -> Result<String, S
     for constant in &target.constants {
         source.push('\n');
 
-        writeln!(source, "const {}: {} = {};", constant.name, constant.ty, constant.value)
+        writeln!(
+            source,
+            "const {}: {} = {};",
+            constant.name, constant.ty, constant.value
+        )
         .expect("writing to a string must succeed");
     }
 
@@ -68,8 +83,6 @@ pub(super) fn bray(target: &TargetDescription, digest: &str) -> Result<String, S
     for symbol in &target.dynamic_symbols {
         render_dynamic_symbol(&mut source, symbol);
     }
-
-    render_overrides(&mut source, target);
 
     bray_formatter::format_text(&source, &bray_formatter::FormatterConfiguration::default())
         .map(|outcome| outcome.into_text())
@@ -135,8 +148,14 @@ fn render_union(source: &mut String, aggregate: &AggregateDescription) {
     writeln!(source, "{{").expect("writing to a string must succeed");
 
     for field in &aggregate.fields {
-        writeln!(source, "    {}({}: {});", pascal_case(&field.name), field.name, field.ty)
-            .expect("writing to a string must succeed");
+        writeln!(
+            source,
+            "    {}({}: {});",
+            pascal_case(&field.name),
+            field.name,
+            field.ty
+        )
+        .expect("writing to a string must succeed");
     }
 
     writeln!(source, "}}").expect("writing to a string must succeed");
@@ -159,6 +178,8 @@ fn render_aggregate_metadata(source: &mut String, aggregate: &AggregateDescripti
         writeln!(source, "// Active variant contract: {contract}.")
             .expect("writing to a string must succeed");
     }
+
+    render_override_authority(source, &aggregate.override_);
 }
 
 fn render_opaque(source: &mut String, opaque: &OpaqueDescription) {
@@ -172,8 +193,14 @@ fn render_opaque(source: &mut String, opaque: &OpaqueDescription) {
     )
     .expect("writing to a string must succeed");
 
-    writeln!(source, "@layout(c, size = {}, align = {})", opaque.size, opaque.align)
-        .expect("writing to a string must succeed");
+    render_override_authority(source, &opaque.override_);
+
+    writeln!(
+        source,
+        "@layout(c, size = {}, align = {})",
+        opaque.size, opaque.align
+    )
+    .expect("writing to a string must succeed");
 
     writeln!(source, "struct {};", opaque.name).expect("writing to a string must succeed");
 }
@@ -200,8 +227,12 @@ fn render_flexible(source: &mut String, flexible: &FlexibleDescription) {
             .expect("writing to a string must succeed");
     }
 
-    writeln!(source, "    {}: [{}; ..];", flexible.tail.name, flexible.tail.ty)
-        .expect("writing to a string must succeed");
+    writeln!(
+        source,
+        "    {}: [{}; ..];",
+        flexible.tail.name, flexible.tail.ty
+    )
+    .expect("writing to a string must succeed");
 
     writeln!(source, "}}").expect("writing to a string must succeed");
 }
@@ -219,13 +250,19 @@ fn render_bitfields(source: &mut String, bitfields: &BitfieldDescription) {
     )
     .expect("writing to a string must succeed");
 
+    render_override_authority(source, &bitfields.override_);
+
     writeln!(source, "@copy").expect("writing to a string must succeed");
     writeln!(source, "@layout(c)").expect("writing to a string must succeed");
     writeln!(source, "struct {}", bitfields.name).expect("writing to a string must succeed");
     writeln!(source, "{{").expect("writing to a string must succeed");
 
-    writeln!(source, "    internal mut {}: {};", bitfields.backing_name, bitfields.backing_type)
-        .expect("writing to a string must succeed");
+    writeln!(
+        source,
+        "    internal mut {}: {};",
+        bitfields.backing_name, bitfields.backing_type
+    )
+    .expect("writing to a string must succeed");
 
     for field in &bitfields.fields {
         writeln!(source, "    {}: {};", field.name, field.ty)
@@ -238,8 +275,12 @@ fn render_bitfields(source: &mut String, bitfields: &BitfieldDescription) {
 
         source.push('\n');
 
-        writeln!(source, "    func {}() -> {}", field.name, bitfields.backing_type)
-            .expect("writing to a string must succeed");
+        writeln!(
+            source,
+            "    func {}() -> {}",
+            field.name, bitfields.backing_type
+        )
+        .expect("writing to a string must succeed");
 
         writeln!(source, "    {{").expect("writing to a string must succeed");
 
@@ -263,13 +304,11 @@ fn render_bitfields(source: &mut String, bitfields: &BitfieldDescription) {
 
         writeln!(source, "    {{").expect("writing to a string must succeed");
 
-        writeln!(source, "        if value > {maximum}")
-            .expect("writing to a string must succeed");
+        writeln!(source, "        if value > {maximum}").expect("writing to a string must succeed");
 
         writeln!(source, "        {{").expect("writing to a string must succeed");
 
-        writeln!(source, "            return false;")
-            .expect("writing to a string must succeed");
+        writeln!(source, "            return false;").expect("writing to a string must succeed");
 
         writeln!(source, "        }}").expect("writing to a string must succeed");
 
@@ -278,11 +317,7 @@ fn render_bitfields(source: &mut String, bitfields: &BitfieldDescription) {
         writeln!(
             source,
             "        self.{} = self.{} & ~({} << {}) | value << {};",
-            bitfields.backing_name,
-            bitfields.backing_name,
-            mask,
-            field.shift,
-            field.shift
+            bitfields.backing_name, bitfields.backing_name, mask, field.shift, field.shift
         )
         .expect("writing to a string must succeed");
 
@@ -308,8 +343,7 @@ fn render_callback(source: &mut String, callback: &CallbackDescription) {
 
     render_parameters(source, &callback.parameters);
 
-    writeln!(source, ") -> {};", callback.result)
-        .expect("writing to a string must succeed");
+    writeln!(source, ") -> {};", callback.result).expect("writing to a string must succeed");
 }
 
 fn render_function(
@@ -335,8 +369,7 @@ fn render_function(
     render_link(source, link);
     render_symbol(source, function.symbol.as_ref(), &function.native);
 
-    writeln!(source, "@abi({})", function.abi.as_str())
-        .expect("writing to a string must succeed");
+    writeln!(source, "@abi({})", function.abi.as_str()).expect("writing to a string must succeed");
 
     write!(source, "extern trusted func {}(", function.name)
         .expect("writing to a string must succeed");
@@ -353,8 +386,7 @@ fn render_function(
 
     writeln!(source, ") -> {}", function.result).expect("writing to a string must succeed");
 
-    writeln!(source, "    uses(foreign_call);")
-        .expect("writing to a string must succeed");
+    writeln!(source, "    uses(foreign_call);").expect("writing to a string must succeed");
 }
 
 fn render_static(source: &mut String, target: &TargetDescription, static_: &StaticDescription) {
@@ -471,8 +503,7 @@ fn render_contract_metadata(
         ("Initialization", initialization),
     ] {
         if let Some(value) = value {
-            writeln!(source, "// {label}: {value}.")
-                .expect("writing to a string must succeed");
+            writeln!(source, "// {label}: {value}.").expect("writing to a string must succeed");
         }
     }
 
@@ -520,8 +551,7 @@ fn render_symbol(source: &mut String, symbol: Option<&SymbolDescription>, fallba
         options.push(format!("presence = {}", symbol.presence.as_str()));
     }
 
-    writeln!(source, "@symbol({})", options.join(", "))
-        .expect("writing to a string must succeed");
+    writeln!(source, "@symbol({})", options.join(", ")).expect("writing to a string must succeed");
 }
 
 fn render_parameters(source: &mut String, parameters: &[ParameterDescription]) {
@@ -535,20 +565,20 @@ fn render_parameters(source: &mut String, parameters: &[ParameterDescription]) {
     }
 }
 
-fn render_overrides(source: &mut String, target: &TargetDescription) {
-    for override_ in &target.overrides {
-        source.push('\n');
+fn render_override_authority(source: &mut String, override_: &Option<OverrideAuthority>) {
+    let Some(override_) = override_ else {
+        return;
+    };
 
-        writeln!(
-            source,
-            "// Override `{}` = `{}` from {}.",
-            override_.fact, override_.value, override_.authority
-        )
+    writeln!(
+        source,
+        "// Native layout authority: {}.",
+        override_.authority
+    )
+    .expect("writing to a string must succeed");
+
+    writeln!(source, "// Native layout rationale: {}.", override_.reason)
         .expect("writing to a string must succeed");
-
-        writeln!(source, "// Reason: {}.", override_.reason)
-            .expect("writing to a string must succeed");
-    }
 }
 
 fn pascal_case(name: &str) -> String {

@@ -5,12 +5,19 @@
       "target": "x86_64-unknown-linux-gnu",
       "system": "linux",
       "sdk": {
-        "authority": "Linux UAPI and glibc",
-        "revision": "Linux 6.12 glibc 2.40",
+        "authority": "Debian 13 stable sysroot",
+        "revision": {
+          "kind": "linux",
+          "distribution": "Debian",
+          "release": "13",
+          "kernel": "6.12",
+          "glibc": "2.41"
+        },
         "headers": [
           "dirent.h",
           "dlfcn.h",
           "fcntl.h",
+          "linux/version.h",
           "netdb.h",
           "netinet/ip.h",
           "pthread.h",
@@ -297,6 +304,10 @@
           "native": "pthread_mutex_t",
           "size": 40,
           "align": 8,
+          "override": {
+            "authority": "Debian 13 x86_64 pthread headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
           "classification": "memory"
         },
         {
@@ -431,6 +442,25 @@
           "initialization": "no output storage",
           "dependencies": [
             "foreign_call"
+          ]
+        },
+        {
+          "name": "errno_location",
+          "native": "__errno_location",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<i32>",
+          "native_result": "int *",
+          "link": "c",
+          "symbol": {
+            "name": "__errno_location",
+            "version": "GLIBC_2.2.5"
+          },
+          "ownership": "the C runtime owns the current native thread storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
           ]
         },
         {
@@ -590,25 +620,6 @@
             "foreign_call",
             "raw_memory"
           ]
-        },
-        {
-          "name": "ERRNO",
-          "native": "errno",
-          "type": "i32",
-          "native_type": "int",
-          "link": "c",
-          "mutable": true,
-          "thread_local": true,
-          "symbol": {
-            "name": "errno",
-            "version": "GLIBC_2.2.5"
-          },
-          "ownership": "the C runtime owns one value per attached native thread",
-          "dependencies": [
-            "foreign_call",
-            "native_thread",
-            "raw_memory"
-          ]
         }
       ],
       "dynamic_symbols": [
@@ -639,25 +650,24 @@
             "raw_memory"
           ]
         }
-      ],
-      "overrides": [
-        {
-          "fact": "pthread_mutex_t.layout",
-          "value": "size=40,align=8",
-          "authority": "glibc 2.40 x86_64 pthread headers",
-          "reason": "opaque native storage exposes no stable named field layout"
-        }
       ]
     },
     {
       "target": "aarch64-unknown-linux-gnu",
       "system": "linux",
       "sdk": {
-        "authority": "Linux UAPI and glibc",
-        "revision": "Linux 6.12 glibc 2.40",
+        "authority": "Debian 13 stable sysroot",
+        "revision": {
+          "kind": "linux",
+          "distribution": "Debian",
+          "release": "13",
+          "kernel": "6.12",
+          "glibc": "2.41"
+        },
         "headers": [
           "dlfcn.h",
           "fcntl.h",
+          "linux/version.h",
           "netdb.h",
           "netinet/ip.h",
           "pthread.h",
@@ -944,6 +954,10 @@
           "native": "pthread_mutex_t",
           "size": 48,
           "align": 8,
+          "override": {
+            "authority": "Debian 13 AArch64 pthread headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
           "classification": "memory"
         },
         {
@@ -1078,6 +1092,25 @@
           "initialization": "no output storage",
           "dependencies": [
             "foreign_call"
+          ]
+        },
+        {
+          "name": "errno_location",
+          "native": "__errno_location",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<i32>",
+          "native_result": "int *",
+          "link": "c",
+          "symbol": {
+            "name": "__errno_location",
+            "version": "GLIBC_2.17"
+          },
+          "ownership": "the C runtime owns the current native thread storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
           ]
         },
         {
@@ -1237,25 +1270,6 @@
             "foreign_call",
             "raw_memory"
           ]
-        },
-        {
-          "name": "ERRNO",
-          "native": "errno",
-          "type": "i32",
-          "native_type": "int",
-          "link": "c",
-          "mutable": true,
-          "thread_local": true,
-          "symbol": {
-            "name": "errno",
-            "version": "GLIBC_2.17"
-          },
-          "ownership": "the C runtime owns one value per attached native thread",
-          "dependencies": [
-            "foreign_call",
-            "native_thread",
-            "raw_memory"
-          ]
         }
       ],
       "dynamic_symbols": [
@@ -1286,14 +1300,6 @@
             "raw_memory"
           ]
         }
-      ],
-      "overrides": [
-        {
-          "fact": "pthread_mutex_t.layout",
-          "value": "size=48,align=8",
-          "authority": "glibc 2.40 AArch64 pthread headers",
-          "reason": "opaque native storage exposes no stable named field layout"
-        }
       ]
     },
     {
@@ -1301,7 +1307,14 @@
       "system": "windows",
       "sdk": {
         "authority": "Microsoft Windows SDK",
-        "revision": "10.0.26100.0",
+        "revision": {
+          "kind": "windows",
+          "version": "10.0.26100.0"
+        },
+        "compiler_runtime": {
+          "authority": "Microsoft Visual C++ build tools",
+          "revision": "14.44.35207"
+        },
         "headers": [
           "windows.h"
         ],
@@ -1438,6 +1451,10 @@
           "native": "CRITICAL_SECTION",
           "size": 40,
           "align": 8,
+          "override": {
+            "authority": "Windows SDK 10.0.26100.0 x64 headers",
+            "reason": "opaque native synchronization storage has target-specific private fields"
+          },
           "classification": "memory"
         },
         {
@@ -1518,11 +1535,35 @@
               "offset": 0
             },
             {
+              "name": "parts",
+              "native": "u",
+              "type": "LargeIntegerParts",
+              "native_type": "__typeof__(((LARGE_INTEGER *)0)->u)",
+              "offset": 0
+            }
+          ]
+        },
+        {
+          "kind": "structure",
+          "name": "LargeIntegerParts",
+          "native": "__typeof__(((LARGE_INTEGER *)0)->u)",
+          "size": 8,
+          "align": 4,
+          "classification": "integer",
+          "fields": [
+            {
               "name": "low_part",
-              "native": "u.LowPart",
+              "native": "LowPart",
               "type": "u32",
               "native_type": "DWORD",
               "offset": 0
+            },
+            {
+              "name": "high_part",
+              "native": "HighPart",
+              "type": "i32",
+              "native_type": "LONG",
+              "offset": 4
             }
           ]
         },
@@ -1725,14 +1766,6 @@
             "foreign_call",
             "layout_reinterpret"
           ]
-        }
-      ],
-      "overrides": [
-        {
-          "fact": "CRITICAL_SECTION.layout",
-          "value": "size=40,align=8",
-          "authority": "Windows SDK 10.0.26100.0 x64 headers",
-          "reason": "opaque native synchronization storage has target-specific private fields"
         }
       ],
       "statics": []
@@ -1742,7 +1775,14 @@
       "system": "windows",
       "sdk": {
         "authority": "Microsoft Windows SDK",
-        "revision": "10.0.26100.0",
+        "revision": {
+          "kind": "windows",
+          "version": "10.0.26100.0"
+        },
+        "compiler_runtime": {
+          "authority": "Microsoft Visual C++ build tools",
+          "revision": "14.44.35207"
+        },
         "headers": [
           "windows.h"
         ],
@@ -1879,6 +1919,10 @@
           "native": "CRITICAL_SECTION",
           "size": 40,
           "align": 8,
+          "override": {
+            "authority": "Windows SDK 10.0.26100.0 Arm64 headers",
+            "reason": "opaque native synchronization storage has target-specific private fields"
+          },
           "classification": "memory"
         },
         {
@@ -1959,11 +2003,35 @@
               "offset": 0
             },
             {
+              "name": "parts",
+              "native": "u",
+              "type": "LargeIntegerParts",
+              "native_type": "__typeof__(((LARGE_INTEGER *)0)->u)",
+              "offset": 0
+            }
+          ]
+        },
+        {
+          "kind": "structure",
+          "name": "LargeIntegerParts",
+          "native": "__typeof__(((LARGE_INTEGER *)0)->u)",
+          "size": 8,
+          "align": 4,
+          "classification": "integer",
+          "fields": [
+            {
               "name": "low_part",
-              "native": "u.LowPart",
+              "native": "LowPart",
               "type": "u32",
               "native_type": "DWORD",
               "offset": 0
+            },
+            {
+              "name": "high_part",
+              "native": "HighPart",
+              "type": "i32",
+              "native_type": "LONG",
+              "offset": 4
             }
           ]
         },
@@ -2168,14 +2236,6 @@
           ]
         }
       ],
-      "overrides": [
-        {
-          "fact": "CRITICAL_SECTION.layout",
-          "value": "size=40,align=8",
-          "authority": "Windows SDK 10.0.26100.0 Arm64 headers",
-          "reason": "opaque native synchronization storage has target-specific private fields"
-        }
-      ],
       "statics": []
     },
     {
@@ -2183,8 +2243,12 @@
       "system": "darwin",
       "sdk": {
         "authority": "Apple macOS SDK",
-        "revision": "15.5",
+        "revision": {
+          "kind": "mac_os",
+          "version": "15.5"
+        },
         "headers": [
+          "Availability.h",
           "CoreFoundation/CoreFoundation.h",
           "dlfcn.h",
           "fcntl.h",
@@ -2331,6 +2395,10 @@
           "native": "pthread_mutex_t",
           "size": 64,
           "align": 8,
+          "override": {
+            "authority": "macOS SDK 15.5 x86_64 pthread headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
           "classification": "memory"
         },
         {
@@ -2668,14 +2736,6 @@
             "layout_reinterpret",
             "raw_memory"
           ]
-        }
-      ],
-      "overrides": [
-        {
-          "fact": "pthread_mutex_t.layout",
-          "value": "size=64,align=8",
-          "authority": "macOS SDK 15.5 x86_64 pthread headers",
-          "reason": "opaque native storage exposes no stable named field layout"
         }
       ]
     },
@@ -2684,8 +2744,12 @@
       "system": "darwin",
       "sdk": {
         "authority": "Apple macOS SDK",
-        "revision": "15.5",
+        "revision": {
+          "kind": "mac_os",
+          "version": "15.5"
+        },
         "headers": [
+          "Availability.h",
           "CoreFoundation/CoreFoundation.h",
           "dlfcn.h",
           "fcntl.h",
@@ -2832,6 +2896,10 @@
           "native": "pthread_mutex_t",
           "size": 64,
           "align": 8,
+          "override": {
+            "authority": "macOS SDK 15.5 AArch64 pthread headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
           "classification": "memory"
         },
         {
@@ -3169,14 +3237,6 @@
             "layout_reinterpret",
             "raw_memory"
           ]
-        }
-      ],
-      "overrides": [
-        {
-          "fact": "pthread_mutex_t.layout",
-          "value": "size=64,align=8",
-          "authority": "macOS SDK 15.5 AArch64 pthread headers",
-          "reason": "opaque native storage exposes no stable named field layout"
         }
       ]
     }

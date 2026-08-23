@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use bray_base::lowercase_hex;
 use bray_base::NonEmptySharedStr;
+use bray_base::lowercase_hex;
 use sha2::{Digest, Sha256};
 
-use super::model::{Description, LinkKind, validate};
+use super::model::{Description, LinkKind};
 use super::render::{RenderedTarget, render_all};
+use super::validation::validate;
 use crate::workspace;
 
 const INPUT_PATH: &str = "standard-library/targets/os-bindings.json";
@@ -58,7 +59,9 @@ pub(super) fn load() -> Result<LoadedDescription, String> {
 fn read_description() -> Result<DescriptionFile, String> {
     let root = workspace::root()?;
     let input = root.join(INPUT_PATH);
-    let bytes = std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
+
+    let bytes =
+        std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
 
     let description: Description = serde_json::from_slice(&bytes)
         .map_err(|error| format!("could not parse {}: {error}", input.display()))?;

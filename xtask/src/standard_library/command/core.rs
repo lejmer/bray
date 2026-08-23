@@ -35,7 +35,7 @@ use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] | \
-    os-bindings <generate [--check] | probe [--target <triple>]> | \
+    os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
     test [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
@@ -671,10 +671,9 @@ pub(in crate::standard_library) fn standard_library_source_request(
     let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
         .map_err(|error| BuildError::Source(format!("{error:?}")))?;
 
-    let native_links = crate::standard_library::os_bindings::native_links(
-        selected.profile().identity(),
-    )
-    .map_err(BuildError::OsBindings)?;
+    let native_links =
+        crate::standard_library::os_bindings::native_links(selected.profile().identity())
+            .map_err(BuildError::OsBindings)?;
 
     let options = CompilationOptions::new(worker_budget, ProductKind::Library, selected.clone())
         .with_native_link_inputs(native_links);
