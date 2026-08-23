@@ -230,7 +230,7 @@ The command writes phase and workload progress to standard error while keeping t
 standard output line.
 
 The first run prepares a target-specific runtime and standard-library toolchain under Cargo's target directory. Later
-runs reuse that toolchain when the compiler, Cargo lockfile, runtime, platform providers, standard library, and selected
+runs reuse that toolchain when the compiler, Cargo lockfile, runtime, temporal provider, standard library, and selected
 target are unchanged. Changing report options such as `--warmup`, `--samples`, `--workload`, or `--output` does not
 rebuild it.
 

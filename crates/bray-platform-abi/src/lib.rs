@@ -1,4 +1,4 @@
-//! Native implementation of Bray's platform-service ABI.
+//! Link integration for Bray's isolated third-party temporal provider.
 
 #![deny(unsafe_code)]
 
