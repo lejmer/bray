@@ -1171,10 +1171,7 @@ mod tests {
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
@@ -1194,10 +1191,7 @@ mod tests {
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
     }

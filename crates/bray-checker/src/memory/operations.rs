@@ -18,11 +18,11 @@ use bray_symbols::{
 
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
-use crate::unit::semantic_inputs_match;
 
 pub(crate) fn check_memory_operations<C>(
     request: CheckerUnitView<'_, C>,

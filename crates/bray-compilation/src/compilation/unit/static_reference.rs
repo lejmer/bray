@@ -4,9 +4,7 @@ use bray_bound_tree::{
     BoundWalkOutcome, SemanticSelection, SemanticSelectionEntry, walk_bound_unit_view,
 };
 use bray_checker::{NestedCallableEvidence, check_generic_arguments};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery,
@@ -17,9 +15,7 @@ use bray_symbols::{
 use bray_syntax::GenericArgumentListSyntax;
 
 use super::support::checker_unit_view;
-use crate::compilation::binder::{
-    binding_query_error, generic_parameter_ids, type_binder,
-};
+use crate::compilation::binder::{binding_query_error, generic_parameter_ids, type_binder};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};

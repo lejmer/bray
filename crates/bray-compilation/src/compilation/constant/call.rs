@@ -3,11 +3,10 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
-    ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
-    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantEvaluator,
-    EvaluatedConstantCall, evaluate_constant_callable_template,
-    resolve_callable_signature_template,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
+    ConstantEvaluationUsage, ConstantEvaluator, ConstantReferenceResolution,
+    ConstantTemplateResolver, DefaultConstantEvaluator, EvaluatedConstantCall,
+    evaluate_constant_callable_template, resolve_callable_signature_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};

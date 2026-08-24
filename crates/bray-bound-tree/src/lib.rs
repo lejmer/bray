@@ -16,8 +16,8 @@ mod node;
 mod origin;
 mod pattern;
 mod refinement;
-mod semantic;
 mod selection;
+mod semantic;
 mod storage;
 mod template;
 #[cfg(test)]
@@ -93,9 +93,6 @@ pub use pattern::{
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
 };
-pub use semantic::{
-    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
-};
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
     ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
@@ -106,6 +103,7 @@ pub use selection::{
     SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver, SelectionKind,
     SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
+pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,

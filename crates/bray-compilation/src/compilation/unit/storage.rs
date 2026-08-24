@@ -73,7 +73,9 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+
+                let control_flow =
+                    self.control_flow_with_cancellation(key.clone(), cancellation)?;
 
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;

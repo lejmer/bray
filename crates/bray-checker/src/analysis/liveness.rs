@@ -11,11 +11,11 @@ use bray_symbols::{CallableSignatureQuery, TypeData};
 
 use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
-use crate::unit::semantic_inputs_match;
 
 use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};

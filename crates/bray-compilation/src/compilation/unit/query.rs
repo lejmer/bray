@@ -21,9 +21,7 @@ use super::view::{
     AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
     LivenessView, RefinementsView, SemanticSelectionsView, StorageFlowView,
 };
-use crate::compilation::binder::{
-    bind_declared_value_type_templates, binding_query_error,
-};
+use crate::compilation::binder::{bind_declared_value_type_templates, binding_query_error};
 use crate::compilation::checker::checker_result;
 use crate::compilation::operation::operation_type_input;
 use crate::compilation::state::Compilation;
@@ -112,17 +110,16 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
     ) -> Result<ExpressionTypesView, FactQueryError> {
-        let published = self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
+        let published =
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(ExpressionTypesView::new(Arc::clone(published.result())))
     }
 
     /// Returns final source-literal values and their diagnostics for one bound semantic unit.
-    pub fn literal_values(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<LiteralValuesView, FactQueryError> {
-        let published = self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
+    pub fn literal_values(&self, key: BoundUnitKey) -> Result<LiteralValuesView, FactQueryError> {
+        let published =
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(LiteralValuesView::new(Arc::clone(published.result())))
     }
@@ -142,7 +139,8 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
     ) -> Result<SemanticSelectionsView, FactQueryError> {
-        let published = self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
+        let published =
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(SemanticSelectionsView::new(Arc::clone(published.result())))
     }
@@ -158,30 +156,21 @@ impl Compilation {
     }
 
     /// Returns durable last-use and lexical scope-boundary decisions for one unit.
-    pub fn liveness(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<LivenessView, FactQueryError> {
+    pub fn liveness(&self, key: BoundUnitKey) -> Result<LivenessView, FactQueryError> {
         let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(LivenessView::new(Arc::clone(published.result())))
     }
 
     /// Returns flow-sensitive analysis available at checked operation occurrences.
-    pub fn refinements(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<RefinementsView, FactQueryError> {
+    pub fn refinements(&self, key: BoundUnitKey) -> Result<RefinementsView, FactQueryError> {
         let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(RefinementsView::new(Arc::clone(published.result())))
     }
 
     /// Returns checked storage, ownership, movement, and borrow decisions for one unit.
-    pub fn storage_flow(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<StorageFlowView, FactQueryError> {
+    pub fn storage_flow(&self, key: BoundUnitKey) -> Result<StorageFlowView, FactQueryError> {
         let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(StorageFlowView::new(Arc::clone(published.result())))
@@ -208,10 +197,7 @@ impl Compilation {
     }
 
     /// Returns async frame, suspension, task, and cleanup analysis for one unit.
-    pub fn async_analysis(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<AsyncAnalysisView, FactQueryError> {
+    pub fn async_analysis(&self, key: BoundUnitKey) -> Result<AsyncAnalysisView, FactQueryError> {
         let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(AsyncAnalysisView::new(Arc::clone(published.result())))
@@ -437,13 +423,12 @@ impl Compilation {
             )
         })?;
 
-        let value = CheckedExpressionSemantics::try_new(types, selections, literals).map_err(
-            |_| {
+        let value =
+            CheckedExpressionSemantics::try_new(types, selections, literals).map_err(|_| {
                 FactQueryError::CheckerInfrastructure(
                     CheckerInfrastructureError::InvalidSemanticSelectionInput,
                 )
-            },
-        )?;
+            })?;
 
         let diagnostics = DiagnosticBag::merged_all([
             candidates.diagnostics(),
@@ -836,7 +821,6 @@ mod tests {
                 key.clone()
             ))
         );
-
     }
 
     #[test]
@@ -944,7 +928,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.body_semantics.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let first = match compilation.liveness(key.clone()) {
             Ok(analysis) => analysis,
@@ -1031,17 +1018,21 @@ mod tests {
         assert_eq!(first.snapshot_address(), storage_flow.snapshot_address());
         assert_eq!(first.snapshot_address(), asynchronous.snapshot_address());
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::BodySemantics(key.clone()),
-        ) {
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
+        {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published dependency contracts must retain dependencies"),
             Err(error) => panic!("dependency contract dependencies must be readable: {error:?}"),
         };
 
-        assert!(dependencies.contains(
-            &crate::fact::CompilationFactKey::ExpressionSemantics(key.clone())
-        ));
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+                key.clone()
+            ))
+        );
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::MemoryOperations(key)));
@@ -1063,7 +1054,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.body_semantics.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let analysis = match compilation.storage_flow(key.clone()) {
             Ok(analysis) => analysis,
@@ -1109,9 +1103,11 @@ mod tests {
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
 
-        assert!(dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
-            key.clone()
-        )));
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+                key.clone()
+            ))
+        );
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::MemoryOperations(key)));
     }
@@ -1896,7 +1892,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.body_semantics.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let first = match compilation.refinements(key.clone()) {
             Ok(analysis) => analysis,
@@ -2461,18 +2460,12 @@ mod tests {
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
@@ -5044,18 +5037,12 @@ func main()
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
         assert_eq!(
-            compilation
-                .state
-                .expression_semantics
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 

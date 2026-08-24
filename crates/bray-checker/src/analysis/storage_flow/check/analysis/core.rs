@@ -19,11 +19,11 @@ use bray_diagnostics::{
 use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::storage::StorageScopeOwners;
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
-use crate::unit::semantic_inputs_match;
 
 use super::super::availability::storage_is_recovered;
 use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
@@ -68,14 +68,7 @@ where
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
 
-    check_storage_flow_with_graph(
-        request,
-        storage,
-        liveness,
-        refinements,
-        memory,
-        &graph,
-    )
+    check_storage_flow_with_graph(request, storage, liveness, refinements, memory, &graph)
 }
 
 #[expect(

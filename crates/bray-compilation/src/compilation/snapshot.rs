@@ -911,7 +911,10 @@ mod tests {
                 .shares_storage_with(&updated.state.source_unit_syntax[0])
         );
 
-        assert_eq!(previous.state.selected_target, updated.state.selected_target);
+        assert_eq!(
+            previous.state.selected_target,
+            updated.state.selected_target
+        );
 
         assert!(
             !previous

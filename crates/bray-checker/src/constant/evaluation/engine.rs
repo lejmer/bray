@@ -178,11 +178,9 @@ where
                 input.semantic_selections().kind(),
             ),
         ],
-    )
-        || input.patterns().is_some_and(|patterns| {
-            !semantic_inputs_match(request, [(patterns.unit(), patterns.kind())])
-        })
-        || !input.is_consistent()
+    ) || input.patterns().is_some_and(|patterns| {
+        !semantic_inputs_match(request, [(patterns.unit(), patterns.kind())])
+    }) || !input.is_consistent()
     {
         return Err(EvaluationAbort::invalid_input());
     }

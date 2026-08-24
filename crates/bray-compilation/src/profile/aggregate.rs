@@ -236,8 +236,7 @@ pub(super) struct ProfileShard {
     pub(super) queries: [ProfileQueryAggregate; ProfileQueryKind::COUNT],
     pub(super) metrics: [u64; ProfileMetricKind::COUNT],
     pub(super) scheduler: ProfileSchedulerAggregate,
-    pub(super) scheduling_waves:
-        BTreeMap<ProfileSchedulingWaveKey, ProfileSchedulingWaveAggregate>,
+    pub(super) scheduling_waves: BTreeMap<ProfileSchedulingWaveKey, ProfileSchedulingWaveAggregate>,
     pub(super) events: Vec<ProfileEventRecord>,
     pub(super) spans: Vec<ActiveSpan>,
     pub(super) next_span: u64,

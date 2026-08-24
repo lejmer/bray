@@ -22,10 +22,10 @@ use crate::{
 };
 use bray_bound_tree::{
     BodyBehaviorContributions, CheckedAsync, CheckedBodySemantics, CheckedControlFlow,
-    CheckedDependencyContracts, CheckedExpressionSemantics,
-    CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
-    CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness,
-    SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
+    CheckedDependencyContracts, CheckedExpressionSemantics, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness, SelectedCall,
+    SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
 };
 use bray_symbols::{
     CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,

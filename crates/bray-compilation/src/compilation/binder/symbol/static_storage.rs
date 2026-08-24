@@ -260,13 +260,14 @@ fn static_initializer_behavior(
             .entries()
             .iter()
             .any(|entry| {
-            matches!(
-                entry.selection(),
-                SemanticSelection::StaticReference(reference)
-                    if reference.template().declaration() == declaration
-                        && reference.closed_instance().is_none()
-            )
-        }) {
+                matches!(
+                    entry.selection(),
+                    SemanticSelection::StaticReference(reference)
+                        if reference.template().declaration() == declaration
+                            && reference.closed_instance().is_none()
+                )
+            })
+        {
             diagnostics.add(static_source_diagnostic(
                 &key,
                 DiagnosticKind::CheckingStaticSpecializationDivergence,

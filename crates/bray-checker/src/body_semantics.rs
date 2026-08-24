@@ -1,23 +1,22 @@
 use bray_bound_tree::{
-    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics,
-    CheckedMemoryOperations, CheckedPatterns, StoragePlan,
+    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
+    CheckedPatterns, StoragePlan,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::{
     ControlFlowGraphBuildOutcome, analyze_storage_liveness_with_graph,
-    build_storage_control_flow_graph, check_refinements_with_graph,
-    check_storage_flow_with_graph,
+    build_storage_control_flow_graph, check_refinements_with_graph, check_storage_flow_with_graph,
 };
 use crate::asynchronous::check_async_analysis_with_graph;
 use crate::behavior::collect_body_behavior;
 use crate::dependency::check_dependency_contracts;
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
-use crate::unit::semantic_inputs_match;
 
 pub(crate) fn check_body_semantics<C>(
     request: CheckerUnitView<'_, C>,
@@ -79,10 +78,7 @@ where
     ));
 
     let refinements = complete!(check_refinements_with_graph(
-        request,
-        patterns,
-        storage,
-        &graph,
+        request, patterns, storage, &graph,
     ));
 
     let flow = complete!(check_storage_flow_with_graph(

@@ -12,9 +12,7 @@ use bray_declarations::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
-use bray_symbols::{
-    PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph,
-};
+use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph};
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{

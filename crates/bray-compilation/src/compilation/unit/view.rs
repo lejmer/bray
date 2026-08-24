@@ -61,12 +61,7 @@ semantic_view!(
     selections
 );
 
-semantic_view!(
-    LivenessView,
-    CheckedBodySemantics,
-    Liveness,
-    liveness
-);
+semantic_view!(LivenessView, CheckedBodySemantics, Liveness, liveness);
 
 semantic_view!(
     RefinementsView,

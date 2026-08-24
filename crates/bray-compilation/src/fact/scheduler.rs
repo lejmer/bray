@@ -102,7 +102,6 @@ impl FactScheduler {
     where
         T: Send,
     {
-
         let slots = (0..len)
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<T>>>>();

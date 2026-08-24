@@ -17,9 +17,7 @@ use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, 
 
 use super::cleanup::scope_exit_plans;
 use super::dependency::retained_suspension_subjects;
-use super::diagnostic::{
-    add_unavailable_await_dependency_diagnostic, await_dependency_failure,
-};
+use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
 
 use crate::analysis::{
     AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,

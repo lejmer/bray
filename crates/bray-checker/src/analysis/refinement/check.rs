@@ -9,8 +9,8 @@ use bray_diagnostics::{
     DiagnosticLabelKind, DiagnosticRefinementCapacity, SeverityKind,
 };
 
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 use crate::unit::semantic_inputs_match;
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::super::fixed_point::{

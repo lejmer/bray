@@ -340,11 +340,8 @@ impl Compilation {
 
         let semantic_context = semantic_unit_context_for(binding_context.symbols(), unit)?;
 
-        let request = crate::compilation::unit::checker_unit_view(
-            unit,
-            &semantic_context,
-            &context,
-        )?;
+        let request =
+            crate::compilation::unit::checker_unit_view(unit, &semantic_context, &context)?;
 
         let input = OperationSelectionRequest::new(
             key.expression(),

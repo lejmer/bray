@@ -18,12 +18,12 @@ use bray_source::SourceStore;
 use bray_symbols::{
     AnyConstantDefinitionId, CallableDefinitionId, CallableTypeDirectiveKey,
     CompilerKnownSymbolProvider, ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey,
-    ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface,
-    ForeignCallableContract, ForeignStaticContract, FunctionSymbolId,
-    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
-    PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
+    ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
+    ForeignStaticContract, FunctionSymbolId, GenericConstraintObligationKey,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationQuery,
+    ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
+    ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
+    ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
     SemanticValueStoreCreateError, StaticSymbolId, SymbolGraph,
     TraitImplementationConformanceQuery, TypeAssociatedSurface, TypeId,
 };

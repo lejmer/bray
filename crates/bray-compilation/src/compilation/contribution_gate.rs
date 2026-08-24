@@ -253,11 +253,8 @@ impl Compilation {
         )
         .with_references(references);
 
-        let unit = super::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+        let unit =
+            super::unit::checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

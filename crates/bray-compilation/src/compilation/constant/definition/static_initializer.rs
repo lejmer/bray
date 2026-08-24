@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::CheckedTemplateKind;
 use bray_checker::{
-    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_static_initializer_template,
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator, DefaultConstantEvaluator,
+    EvaluatedConstantCall, evaluate_static_initializer_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{StaticInstanceKey, StaticStorageDuration};

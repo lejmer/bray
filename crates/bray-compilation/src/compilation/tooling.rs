@@ -523,8 +523,10 @@ impl Compilation {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
 
-            let expressions = self
-                .expression_semantics_with_cancellation(bound.value().key().clone(), cancellation)?;
+            let expressions = self.expression_semantics_with_cancellation(
+                bound.value().key().clone(),
+                cancellation,
+            )?;
 
             let selected = bound
                 .value()
@@ -534,12 +536,11 @@ impl Compilation {
                     syntax_contains(expression.origin().source_anchor().syntax(), syntax)
                 })
                 .filter_map(|(expression, node)| {
-                    let SemanticSelection::Call(call) =
-                        expressions
-                            .result()
-                            .value()
-                            .selections()
-                            .expression(expression)?
+                    let SemanticSelection::Call(call) = expressions
+                        .result()
+                        .value()
+                        .selections()
+                        .expression(expression)?
                     else {
                         return None;
                     };
@@ -917,7 +918,12 @@ impl Compilation {
 
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-                match semantics.result().value().selections().expression(expression) {
+                match semantics
+                    .result()
+                    .value()
+                    .selections()
+                    .expression(expression)
+                {
                     Some(SemanticSelection::Reference(target)) => Some(*target),
                     _ => None,
                 }

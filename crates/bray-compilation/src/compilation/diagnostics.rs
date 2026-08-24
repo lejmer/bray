@@ -6,9 +6,8 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
     BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedBodyBehavior,
-    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics,
-    CheckedMemoryOperations, CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument,
-    SemanticSelection, StoragePlan,
+    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
+    CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -1115,7 +1114,10 @@ mod tests {
             Ok(false)
         );
 
-        assert_eq!(compilation.state.body_semantics.is_published(key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(key),
+            Ok(false)
+        );
 
         assert_eq!(
             compilation.state.checked_body_behaviors.is_published(key),

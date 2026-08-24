@@ -10,11 +10,11 @@ use bray_symbols::CallableSignatureQuery;
 
 use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
-use crate::unit::semantic_inputs_match;
 
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,

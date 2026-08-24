@@ -76,17 +76,15 @@ pub use semantic_context::{
 };
 pub use service::{
     AsyncChecker, BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
-    ControlFlowChecker,
-    DefaultAsyncChecker, DefaultBodyBehaviorCollector, DefaultBodySemanticChecker,
-    DefaultConstantChecker,
-    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
-    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
-    DefaultMemoryOperationChecker, DefaultPatternChecker, DefaultRefinementAnalyzer,
-    DefaultSemanticSelector, DefaultStorageFlowChecker, DefaultStoragePlanner,
-    DefaultTargetValidityChecker, DependencyContractChecker, ExpressionSemanticChecker,
-    ExpressionTypeChecker, LivenessAnalyzer, MemoryOperationChecker, PatternChecker,
-    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
-    TargetValidityChecker,
+    ControlFlowChecker, DefaultAsyncChecker, DefaultBodyBehaviorCollector,
+    DefaultBodySemanticChecker, DefaultConstantChecker, DefaultConstantEvaluator,
+    DefaultControlFlowChecker, DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
+    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultMemoryOperationChecker,
+    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
+    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
+    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
+    MemoryOperationChecker, PatternChecker, RefinementAnalyzer, SemanticSelector,
+    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,

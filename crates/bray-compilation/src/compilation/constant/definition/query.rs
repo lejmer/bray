@@ -9,9 +9,9 @@ use bray_bound_tree::{
     CheckedSemanticSelections, CheckedTemplateKind,
 };
 use bray_checker::{
-    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
-    ConstantEvaluator, ConstantReferenceResolution, DefaultConstantChecker,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_definition_template,
+    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
+    ConstantReferenceResolution, DefaultConstantChecker, DefaultConstantEvaluator,
+    EvaluatedConstantCall, evaluate_constant_definition_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
@@ -270,11 +270,10 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                let references = self
-                    .symbolic_references(
-                        bound.result().value(),
-                        semantics.result().value().selections(),
-                    )?;
+                let references = self.symbolic_references(
+                    bound.result().value(),
+                    semantics.result().value().selections(),
+                )?;
 
                 let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
