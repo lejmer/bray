@@ -1,3 +1,4 @@
+// Retain the temporal provider's exported ABI symbols in this static library.
 use bray_platform_abi_temporal as _;
 
 #[cfg(test)]

@@ -582,12 +582,36 @@ pub(super) fn query_failure_diagnostics(
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
+        FactQueryError::AtomicInitializerArgumentUnavailable => {
+            DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
+        }
+        FactQueryError::AtomicInitializerResultUnavailable => {
+            DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+        }
+        FactQueryError::ImportedExecutableTemplateMismatch => {
+            DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
+        }
         FactQueryError::SemanticUnitContext(_) => {
             DiagnosticEmissionEvaluationFailure::SemanticContext
         }
-        FactQueryError::CheckerInfrastructure(_) => {
-            DiagnosticEmissionEvaluationFailure::CheckerInfrastructure
-        }
+        FactQueryError::CheckerInfrastructure(error) => match error {
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicRepresentationArgumentsUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
+                DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
+            }
+            _ => DiagnosticEmissionEvaluationFailure::CheckerInfrastructure,
+        },
     };
 
     emission_failure_diagnostics(

@@ -18,7 +18,7 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::binder::binding_query_error;
-use super::super::checker::checker_result;
+use super::super::checker::{checker_result, query_error_with_fallback};
 use super::super::unit::semantic_unit_context_for;
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
@@ -186,15 +186,10 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
 }
 
 fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
-    match error {
-        FactQueryError::Cancelled => CheckerQueryError::Cancelled,
-        FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::InvalidConstantEvaluationInput,
-        ),
-    }
+    query_error_with_fallback(
+        error,
+        CheckerInfrastructureError::InvalidConstantEvaluationInput,
+    )
 }
 
 impl Compilation {
@@ -489,7 +484,7 @@ impl Compilation {
 
         let argument = values
             .constant_value_data(*argument)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactQueryError::AtomicInitializerArgumentUnavailable)?;
 
         if !matches!(
             argument.kind(),
@@ -503,7 +498,7 @@ impl Compilation {
         // The accepted variants contain only scalar values or one interned static address.
         let value = values
             .intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactQueryError::AtomicInitializerResultUnavailable)?;
 
         Ok(Some(EvaluatedConstantCall::new(
             value,

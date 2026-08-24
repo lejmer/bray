@@ -481,7 +481,7 @@ impl Compilation {
 
         if let Some(template) = template.value() {
             let MirUnitKey::ImportedExecutable(key) = template.key() else {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(FactQueryError::ImportedExecutableTemplateMismatch.into());
             };
 
             return Ok(MirUnitKey::ImportedExecutable(*key));

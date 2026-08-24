@@ -657,14 +657,28 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 }
 
 pub(in crate::compilation) fn checker_query_error(error: FactQueryError) -> CheckerQueryError {
+    query_error_with_fallback(error, CheckerInfrastructureError::SemanticValueUnavailable)
+}
+
+pub(in crate::compilation) fn query_error_with_fallback(
+    error: FactQueryError,
+    fallback: CheckerInfrastructureError,
+) -> CheckerQueryError {
     match error {
         FactQueryError::Cancelled => CheckerQueryError::Cancelled,
         FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
+        FactQueryError::AtomicInitializerArgumentUnavailable => CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::AtomicInitializerArgumentUnavailable,
+        ),
+        FactQueryError::AtomicInitializerResultUnavailable => CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::AtomicInitializerResultUnavailable,
+        ),
+        FactQueryError::ImportedExecutableTemplateMismatch => CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::ImportedExecutableTemplateMismatch,
+        ),
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_) => {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-        }
+        | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(fallback),
     }
 }
 

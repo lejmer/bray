@@ -235,7 +235,9 @@ where
         let values = self.request.semantic_values();
 
         let data = values.type_data(ty).map_err(|_| {
-            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+            EvaluationFailure::Infrastructure(
+                CheckerInfrastructureError::AtomicRepresentationTypeUnavailable,
+            )
         })?;
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
@@ -246,7 +248,7 @@ where
             .generic_substitution_data(*substitution)
             .map_err(|_| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable,
                 )
             })?;
 

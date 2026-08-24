@@ -49,6 +49,16 @@ pub enum CheckerInfrastructureError {
     },
     /// Canonical semantic value construction or lookup failed.
     SemanticValueUnavailable,
+    /// The representation type for an atomic value is unavailable.
+    AtomicRepresentationTypeUnavailable,
+    /// The representation arguments for an atomic value are unavailable.
+    AtomicRepresentationArgumentsUnavailable,
+    /// The atomic initializer argument has no available compile-time value.
+    AtomicInitializerArgumentUnavailable,
+    /// The atomic initializer result cannot be retained as a compile-time value.
+    AtomicInitializerResultUnavailable,
+    /// An imported native operation does not match its compiled definition.
+    ImportedExecutableTemplateMismatch,
     /// A required compiler-known representation is unavailable for the selected target.
     CompilerKnownRepresentationUnavailable {
         /// The unavailable representation role.

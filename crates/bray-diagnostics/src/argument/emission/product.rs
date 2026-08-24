@@ -82,6 +82,11 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidNativeLinkInput,
     EvaluationCycle,
     EvaluationInfrastructure,
+    EvaluationAtomicRepresentationTypeUnavailable,
+    EvaluationAtomicRepresentationArgumentsUnavailable,
+    EvaluationAtomicInitializerArgumentUnavailable,
+    EvaluationAtomicInitializerResultUnavailable,
+    EvaluationImportedExecutableTemplateMismatch,
     SemanticContextFailure,
     CheckingInfrastructureFailure,
     CodegenTargetUnsupportedProfile,
@@ -155,6 +160,21 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidNativeLinkInput => "invalid_native_link_input",
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
+            Self::EvaluationAtomicRepresentationTypeUnavailable => {
+                "evaluation_atomic_representation_type_unavailable"
+            }
+            Self::EvaluationAtomicRepresentationArgumentsUnavailable => {
+                "evaluation_atomic_representation_arguments_unavailable"
+            }
+            Self::EvaluationAtomicInitializerArgumentUnavailable => {
+                "evaluation_atomic_initializer_argument_unavailable"
+            }
+            Self::EvaluationAtomicInitializerResultUnavailable => {
+                "evaluation_atomic_initializer_result_unavailable"
+            }
+            Self::EvaluationImportedExecutableTemplateMismatch => {
+                "evaluation_imported_executable_template_mismatch"
+            }
             Self::SemanticContextFailure => "semantic_context_failure",
             Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",

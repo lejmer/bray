@@ -103,6 +103,11 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("semantic diagnostics failed: {error}")
+            }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
             }
@@ -136,6 +141,11 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
+            }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("check diagnostics failed: {error}")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("check diagnostic semantic unit context failed: {error:?}")
