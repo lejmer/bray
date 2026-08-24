@@ -340,6 +340,18 @@ where
     }
 }
 
+pub(crate) fn semantic_inputs_match<C, const N: usize>(
+    request: CheckerUnitView<'_, C>,
+    inputs: [(bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind); N],
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let identity = (request.unit().unit(), request.unit().key().kind());
+
+    inputs.into_iter().all(|input| input == identity)
+}
+
 pub(crate) fn expression_block_owners<C>(
     request: CheckerUnitView<'_, C>,
     expressions: impl IntoIterator<Item = BoundExpressionId>,

@@ -51,3 +51,7 @@ pub use source_graph::ProductSourceGraph;
 pub use state::Compilation;
 pub use testing::TestDiscovery;
 pub use tooling::{CompletionCandidate, SemanticAvailability};
+pub use unit::{
+    AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
+    LivenessView, RefinementsView, SemanticSelectionsView, StorageFlowView,
+};

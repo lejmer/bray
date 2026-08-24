@@ -102,28 +102,10 @@ impl Compilation {
 
         let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
 
-        let expression_types =
-            self.expression_types_with_cancellation(key.clone(), cancellation)?;
-
+        let expressions = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
         let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
-
-        let selections = self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
-
-        let literals = self.literal_values_with_cancellation(key.clone(), cancellation)?;
-
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-
-        let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
-
-        let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
-
-        let storage_flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
-
-        let dependencies =
-            self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
-
-        let async_analysis = self.async_analysis_with_cancellation(key.clone(), cancellation)?;
-
+        let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         let (constant_reference_values, constant_reference_diagnostics) =
@@ -132,16 +114,10 @@ impl Compilation {
         let diagnostics = DiagnosticBag::merged_all([
             unit.result().diagnostics(),
             control_flow.result().diagnostics(),
-            expression_types.result().diagnostics(),
+            expressions.result().diagnostics(),
             patterns.result().diagnostics(),
-            selections.result().diagnostics(),
-            literals.result().diagnostics(),
             storage.result().diagnostics(),
-            liveness.result().diagnostics(),
-            refinements.result().diagnostics(),
-            storage_flow.result().diagnostics(),
-            dependencies.result().diagnostics(),
-            async_analysis.result().diagnostics(),
+            body.result().diagnostics(),
             behavior.result().diagnostics(),
             &constant_reference_diagnostics,
         ]);
@@ -165,26 +141,26 @@ impl Compilation {
         let static_owner = self.static_lowering_owner(
             key,
             unit.result().value(),
-            expression_types.result().value(),
+            expressions.result().value().types(),
             cancellation,
         )?;
 
         let native_static_templates =
-            self.native_static_templates(selections.result().value(), cancellation)?;
+            self.native_static_templates(expressions.result().value().selections(), cancellation)?;
 
         let input = LoweringInput::try_new(
             unit.result().value(),
             control_flow.result().value(),
-            expression_types.result().value(),
+            expressions.result().value().types(),
             patterns.result().value(),
-            selections.result().value(),
-            literals.result().value(),
+            expressions.result().value().selections(),
+            expressions.result().value().literals(),
             storage.result().value(),
-            liveness.result().value(),
-            refinements.result().value(),
-            storage_flow.result().value(),
-            dependencies.result().value(),
-            async_analysis.result().value(),
+            body.result().value().liveness(),
+            body.result().value().refinements(),
+            body.result().value().storage_flow(),
+            body.result().value().dependencies(),
+            body.result().value().asynchronous(),
             behavior.result().value(),
             self.semantic_value_store()?,
             self.available_compiler_known_symbols(),
@@ -1197,7 +1173,7 @@ mod tests {
         assert_eq!(
             compilation
                 .state
-                .checked_expression_types
+                .expression_semantics
                 .is_published(&key),
             Ok(false)
         );
@@ -1220,7 +1196,7 @@ mod tests {
         assert_eq!(
             compilation
                 .state
-                .checked_expression_types
+                .expression_semantics
                 .is_published(&key),
             Ok(false)
         );

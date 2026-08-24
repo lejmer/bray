@@ -378,30 +378,14 @@ pub(crate) enum CompilationFactKey {
     ConstantCallCycle(ConstantCallDependencyKey),
     /// Durable control-flow analysis for one bound unit.
     CheckedControlFlow(BoundUnitKey),
-    /// Final expression types for one bound unit.
-    CheckedExpressionTypes(BoundUnitKey),
-    /// Final source-literal values for one bound unit.
-    CheckedLiteralValues(BoundUnitKey),
     /// Checked pattern compatibility, binding types, and match coverage for one bound unit.
     CheckedPatterns(BoundUnitKey),
-    /// Final semantic selections for one bound unit.
-    CheckedSemanticSelections(BoundUnitKey),
     /// Persistent storage identities and occurrence-specific access plans for one bound unit.
     StoragePlan(BoundUnitKey),
-    /// Durable last-use and lexical scope-boundary decisions for one bound unit.
-    Liveness(BoundUnitKey),
-    /// Durable flow-sensitive refinements available at checked operation occurrences.
-    Refinements(BoundUnitKey),
-    /// Checked storage, ownership, movement, and borrow decisions for one bound unit.
-    StorageFlow(BoundUnitKey),
-    /// Normalized dependency contracts for semantic occurrences in one bound unit.
-    DependencyContracts(BoundUnitKey),
     /// Checked compiler-provided memory operations for one bound unit.
     MemoryOperations(BoundUnitKey),
-    /// Async frame, suspension, task, and cleanup analysis for one bound unit.
-    AsyncAnalysis(BoundUnitKey),
-    /// Direct callable and runtime-default behavior contributions from one bound unit.
-    BodyBehaviorContributions(BoundUnitKey),
+    /// Correlated immutable flow, storage, dependency, async, and behavior semantics.
+    BodySemantics(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
@@ -540,18 +524,10 @@ impl CompilationFactKey {
         match self {
             Self::BoundUnit(key)
             | Self::CheckedControlFlow(key)
-            | Self::CheckedExpressionTypes(key)
-            | Self::CheckedLiteralValues(key)
             | Self::CheckedPatterns(key)
-            | Self::CheckedSemanticSelections(key)
             | Self::StoragePlan(key)
-            | Self::Liveness(key)
-            | Self::Refinements(key)
-            | Self::StorageFlow(key)
-            | Self::DependencyContracts(key)
             | Self::MemoryOperations(key)
-            | Self::AsyncAnalysis(key)
-            | Self::BodyBehaviorContributions(key)
+            | Self::BodySemantics(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)
             | Self::DeclaredValueTypeTemplates(key)

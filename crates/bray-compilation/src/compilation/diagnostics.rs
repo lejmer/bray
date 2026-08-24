@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
-    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedAsync, CheckedBodyBehavior,
-    CheckedControlFlow, CheckedDependencyContracts, CheckedMemoryOperations, CheckedPatterns,
-    CheckedRefinements, DeclaredValueTypeTemplates, Liveness, SelectedArgument, SemanticSelection,
-    StorageFlow, StoragePlan,
+    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedBodyBehavior,
+    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics,
+    CheckedMemoryOperations, CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument,
+    SemanticSelection, StoragePlan,
 };
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -33,7 +33,7 @@ use bray_syntax::{
 
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
-use super::state::{CheckedExpressionSemantics, Compilation};
+use super::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -372,15 +372,8 @@ impl Compilation {
         let control_flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
         let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-        let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
-        let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
-        let storage_flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
-
-        let dependencies =
-            self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
-
         let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
-        let async_analysis = self.async_analysis_with_cancellation(key.clone(), cancellation)?;
+        let body_semantics = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         let target_validity = self.semantic_unit_target_validity(
@@ -397,12 +390,8 @@ impl Compilation {
             SemanticDiagnosticSource::ControlFlow(Arc::clone(control_flow.result())),
             SemanticDiagnosticSource::Patterns(Arc::clone(patterns.result())),
             SemanticDiagnosticSource::Storage(Arc::clone(storage.result())),
-            SemanticDiagnosticSource::Liveness(Arc::clone(liveness.result())),
-            SemanticDiagnosticSource::Refinements(Arc::clone(refinements.result())),
-            SemanticDiagnosticSource::StorageFlow(Arc::clone(storage_flow.result())),
-            SemanticDiagnosticSource::Dependencies(Arc::clone(dependencies.result())),
             SemanticDiagnosticSource::Memory(Arc::clone(memory.result())),
-            SemanticDiagnosticSource::Async(Arc::clone(async_analysis.result())),
+            SemanticDiagnosticSource::BodySemantics(body_semantics),
             SemanticDiagnosticSource::BodyBehavior(Arc::clone(behavior.result())),
             SemanticDiagnosticSource::TargetValidity(target_validity),
         ];
@@ -580,7 +569,8 @@ impl Compilation {
         semantics: &CheckedExpressionSemantics,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticBag, FactQueryError> {
-        let (types, selections, _) = semantics;
+        let types = semantics.types();
+        let selections = semantics.selections();
 
         let values = self.semantic_value_store()?;
         let mut diagnostics = DiagnosticBag::new();
@@ -722,12 +712,8 @@ enum SemanticDiagnosticSource {
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlow>>),
     Patterns(Arc<DiagnosticResult<CheckedPatterns>>),
     Storage(Arc<DiagnosticResult<StoragePlan>>),
-    Liveness(Arc<DiagnosticResult<Liveness>>),
-    Refinements(Arc<DiagnosticResult<CheckedRefinements>>),
-    StorageFlow(Arc<DiagnosticResult<StorageFlow>>),
-    Dependencies(Arc<DiagnosticResult<CheckedDependencyContracts>>),
     Memory(Arc<DiagnosticResult<CheckedMemoryOperations>>),
-    Async(Arc<DiagnosticResult<CheckedAsync>>),
+    BodySemantics(Arc<PublishedUnitResult<CheckedBodySemantics>>),
     BodyBehavior(Arc<DiagnosticResult<CheckedBodyBehavior>>),
     TargetValidity(DiagnosticBag),
     ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
@@ -757,12 +743,8 @@ impl SemanticDiagnosticSource {
             Self::ControlFlow(result) => result.diagnostics(),
             Self::Patterns(result) => result.diagnostics(),
             Self::Storage(result) => result.diagnostics(),
-            Self::Liveness(result) => result.diagnostics(),
-            Self::Refinements(result) => result.diagnostics(),
-            Self::StorageFlow(result) => result.diagnostics(),
-            Self::Dependencies(result) => result.diagnostics(),
             Self::Memory(result) => result.diagnostics(),
-            Self::Async(result) => result.diagnostics(),
+            Self::BodySemantics(result) => result.result().diagnostics(),
             Self::BodyBehavior(result) => result.diagnostics(),
             Self::TargetValidity(diagnostics) => diagnostics,
             Self::ConstantTemplate(result) => result.diagnostics(),
@@ -1133,12 +1115,7 @@ mod tests {
             Ok(false)
         );
 
-        assert_eq!(compilation.state.liveness.is_published(key), Ok(false));
-
-        assert_eq!(
-            compilation.state.dependency_contracts.is_published(key),
-            Ok(false)
-        );
+        assert_eq!(compilation.state.body_semantics.is_published(key), Ok(false));
 
         assert_eq!(
             compilation.state.checked_body_behaviors.is_published(key),
@@ -1161,12 +1138,7 @@ mod tests {
             Ok(true)
         );
 
-        assert_eq!(compilation.state.liveness.is_published(key), Ok(true));
-
-        assert_eq!(
-            compilation.state.dependency_contracts.is_published(key),
-            Ok(true)
-        );
+        assert_eq!(compilation.state.body_semantics.is_published(key), Ok(true));
 
         assert_eq!(
             compilation.state.checked_body_behaviors.is_published(key),

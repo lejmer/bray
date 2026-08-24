@@ -23,6 +23,7 @@ use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_category, expression_span};
 use crate::representation::type_representation;
+use crate::unit::semantic_inputs_match;
 
 use super::flow::EvaluationFlow;
 use super::result::EvaluatedConstant;
@@ -165,12 +166,21 @@ where
         }
     };
 
-    if input.expression_types().unit() != request.view().unit()
-        || input.expression_types().kind() != request.view().kind()
-        || input.semantic_selections().unit() != request.view().unit()
-        || input.semantic_selections().kind() != request.view().kind()
+    if !semantic_inputs_match(
+        request,
+        [
+            (
+                input.expression_types().unit(),
+                input.expression_types().kind(),
+            ),
+            (
+                input.semantic_selections().unit(),
+                input.semantic_selections().kind(),
+            ),
+        ],
+    )
         || input.patterns().is_some_and(|patterns| {
-            patterns.unit() != request.view().unit() || patterns.kind() != request.view().kind()
+            !semantic_inputs_match(request, [(patterns.unit(), patterns.kind())])
         })
         || !input.is_consistent()
     {

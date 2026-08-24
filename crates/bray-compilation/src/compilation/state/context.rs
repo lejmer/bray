@@ -2,10 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_bound_tree::{
-    BodyBehaviorContributions, BoundUnit, BoundUnitKey, CheckedAsync, CheckedBodyBehavior,
-    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, Liveness, SelectedIterationSource, StorageFlow, StoragePlan,
+    BoundUnit, BoundUnitKey, CheckedBodyBehavior, CheckedBodySemantics, CheckedControlFlow,
+    CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
+    DeclaredValueTypeTemplates, SelectedIterationSource, StoragePlan,
 };
 use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_codegen::{CodegenConfiguration, CodegenOutcome};
@@ -38,12 +37,6 @@ use crate::request::{CompilationOptions, DependencyInterfaceInput, PackageInterf
 use crate::compilation::binder::CompilationSymbolSemantics;
 use crate::compilation::source_graph::ProductSourceGraph;
 use crate::compilation::testing::TestDiscovery;
-
-pub(in crate::compilation) type CheckedExpressionSemantics = (
-    CheckedExpressionTypes,
-    CheckedSemanticSelections,
-    CheckedLiteralValues,
-);
 
 /// Durable immutable compilation context and demand-driven query entrypoint.
 #[derive(Clone)]
@@ -178,20 +171,10 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) provisional_expression_semantics:
         UnitQueryCache<CheckedExpressionSemantics>,
     pub(in crate::compilation) expression_semantics: UnitQueryCache<CheckedExpressionSemantics>,
-    pub(in crate::compilation) checked_expression_types: UnitQueryCache<CheckedExpressionTypes>,
-    pub(in crate::compilation) checked_literal_values: UnitQueryCache<CheckedLiteralValues>,
     pub(in crate::compilation) checked_patterns: UnitQueryCache<CheckedPatterns>,
-    pub(in crate::compilation) checked_semantic_selections:
-        UnitQueryCache<CheckedSemanticSelections>,
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
-    pub(in crate::compilation) liveness: UnitQueryCache<Liveness>,
-    pub(in crate::compilation) refinements: UnitQueryCache<CheckedRefinements>,
-    pub(in crate::compilation) storage_flow: UnitQueryCache<StorageFlow>,
-    pub(in crate::compilation) dependency_contracts: UnitQueryCache<CheckedDependencyContracts>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
-    pub(in crate::compilation) async_analysis: UnitQueryCache<CheckedAsync>,
-    pub(in crate::compilation) body_behavior_contributions:
-        UnitQueryCache<BodyBehaviorContributions>,
+    pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
     pub(in crate::compilation) codegen: Option<CodegenConfiguration>,

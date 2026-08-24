@@ -89,6 +89,8 @@ pub enum CheckerInfrastructureError {
     RefinementStorageUnavailable,
     /// Storage-flow inputs or durable decisions violate the requested unit contract.
     InvalidStorageFlow,
+    /// Correlated body-semantic inputs or durable results violate the requested unit contract.
+    InvalidBodySemantics,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.

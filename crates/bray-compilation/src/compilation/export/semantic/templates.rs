@@ -160,7 +160,7 @@ pub(super) fn checked_constraint_expression(
     let (references, reference_diagnostics) = compilation
         .concrete_call_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             substitution,
             None,
             &BTreeMap::new(),
@@ -190,11 +190,12 @@ pub(super) fn checked_constraint_expression(
         cancellation,
     );
 
-    let input =
-        ConstantEvaluationInput::new(&semantics.result().value().0, &semantics.result().value().1)
-            .with_root(root)
-            .with_references(references)
-            .with_call_resolver(&resolver);
+    let input = ConstantEvaluationInput::for_expression(
+        semantics.result().value(),
+        root,
+        references,
+        &resolver,
+    );
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
         .map_err(|_| incomplete(expression.owner()))?;
@@ -206,7 +207,7 @@ pub(super) fn checked_constraint_expression(
     let ty = semantics
         .result()
         .value()
-        .0
+        .types()
         .expression(root)
         .ok_or_else(|| incomplete(expression.owner()))?
         .ty();

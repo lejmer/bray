@@ -253,7 +253,13 @@ fn static_initializer_behavior(
             .expression_semantics_with_cancellation(key.clone(), context.cancellation())
             .map_err(super::binding::binder_error)?;
 
-        if semantics.result().value().1.entries().iter().any(|entry| {
+        if semantics
+            .result()
+            .value()
+            .selections()
+            .entries()
+            .iter()
+            .any(|entry| {
             matches!(
                 entry.selection(),
                 SemanticSelection::StaticReference(reference)
@@ -1101,7 +1107,7 @@ mod tests {
         let instances = semantics
             .result()
             .value()
-            .1
+            .selections()
             .entries()
             .iter()
             .filter_map(|entry| match entry.selection() {

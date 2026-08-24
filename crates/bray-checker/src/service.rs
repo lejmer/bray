@@ -4,6 +4,7 @@ use crate::analysis::check_refinements;
 use crate::analysis::check_storage_flow;
 use crate::asynchronous::check_async_analysis;
 use crate::behavior::collect_body_behavior;
+use crate::body_semantics::check_body_semantics;
 use crate::constant::{check_constant_term, evaluate_constant};
 use crate::dependency::check_dependency_contracts;
 use crate::expression::check_expression_semantics;
@@ -20,7 +21,8 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedAsync, CheckedControlFlow, CheckedDependencyContracts,
+    BodyBehaviorContributions, CheckedAsync, CheckedBodySemantics, CheckedControlFlow,
+    CheckedDependencyContracts, CheckedExpressionSemantics,
     CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
     CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness,
     SelectedCall, SelectedIterationSource, SelectedOperation, StorageFlow, StoragePlan,
@@ -94,6 +96,10 @@ pub struct DefaultMemoryOperationChecker;
 /// The standard Bray direct body-behavior collector.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultBodyBehaviorCollector;
+
+/// The standard correlated body-semantic checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultBodySemanticChecker;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -363,6 +369,37 @@ impl<C> BodyBehaviorCollector<C> for DefaultBodyBehaviorCollector where
 {
 }
 
+/// Correlated flow, storage, dependency, async, and behavior checking over one unit.
+pub trait BodySemanticChecker<C>: Sync
+where
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+{
+    /// Establishes one immutable body-semantic stage from its checked prerequisites.
+    fn check_body_semantics(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        control_flow: &CheckedControlFlow,
+        expressions: &CheckedExpressionSemantics,
+        patterns: &CheckedPatterns,
+        storage: &StoragePlan,
+        memory: &CheckedMemoryOperations,
+    ) -> CheckerOutcome<CheckedBodySemantics> {
+        check_body_semantics(
+            request,
+            control_flow,
+            expressions,
+            patterns,
+            storage,
+            memory,
+        )
+    }
+}
+
+impl<C> BodySemanticChecker<C> for DefaultBodySemanticChecker where
+    C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized
+{
+}
+
 /// Cooperating expression typing and semantic selection over one bound semantic unit.
 pub trait ExpressionSemanticChecker<C>: Sync
 where
@@ -381,10 +418,10 @@ where
         nested_callables: &[NestedCallableEvidence],
         candidate_sets: &[ExpressionCandidateSet],
         pattern_input: &PatternCheckInput,
-        operation_input: &crate::ExpressionTypeInput,
+        operation_input: &ExpressionTypeInput,
     ) -> CheckerOutcome<(
         CheckedExpressionTypes,
-        bray_bound_tree::CheckedSemanticSelections,
+        CheckedSemanticSelections,
         CheckedLiteralValues,
     )> {
         check_expression_semantics(

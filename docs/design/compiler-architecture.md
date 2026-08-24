@@ -134,14 +134,15 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- an authoritative source-shaped bound high-level IR with independently published semantic query results,
+- an authoritative source-shaped bound high-level IR with immutable semantic stage snapshots and focused views,
 - a backend-independent mid-level IR.
 
-No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR
-through a validated view containing only the immutable semantic query results required by that consumer.
+No universal checked-program object records which analyses have run. Correlated semantics that share a traversal or
+intermediate representation can have one immutable owning stage. Focused accessors borrow views from that stage, while
+later stages remain lazy.
 
-Lowering receives one such view over a published bound unit and its required typed side query results. It publishes one
-execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
+Lowering receives a published bound unit and the immutable stage snapshots containing its required semantics. It
+publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
 
@@ -196,25 +197,25 @@ Compiler query results should generally be lazy across stable compiler boundarie
 - MIR units,
 - backend codegen units.
 
-A lazy query result must be complete within the boundary promised by its API. An expression-type accessor returns the
-complete immutable expression-type query result for its key. A selected-call accessor returns the complete immutable
-call-selection query result for its key. Neither accessor implies that unrelated storage, effect, contract, or lowering
-query results were evaluated.
+A lazy query result must be complete within the boundary promised by its API. An expression-type accessor returns a
+stable view of the complete immutable expression-type result for its key. A selected-call accessor returns a stable view
+of the complete immutable call-selection result for its key. Correlated views can share one owning stage without
+implying that later storage, behavior, or lowering stages were evaluated.
 
 A declaration-surface type accessor can promise a complete source type-expression template rather than a checked
 `TypeId`. Such a template preserves embedded constant-expression occurrences and their expected-type sources without
 demanding expression typing, selection, target validation, or constant evaluation. A separate checked type or signature
 accessor resolves only the occurrences required by that request through the cooperating semantic fixed point.
 
-Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side query results
-keyed to that unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete.
-A consumer that needs a set of query results requests that exact set through typed accessors. There is no universal
-whole-unit completion query.
+Binding publishes one stable immutable `BoundUnit`. Semantic stages publish correlated durable results once when they
+share a traversal, fixed point, or intermediate representation. Focused accessors return views into the owning stage
+without republishing cloned projections. The compiler must not copy the bound tree into stage-specific wrapper families
+as analyses complete. There is no universal whole-unit completion query.
 
-Typed query result keys and accessors are the public compiler model. The same keys identify cached evaluation
-internally. Dependency recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are
-private mechanics behind those accessors. The compiler must not mirror query results with public query objects, generic
-query result wrappers, dynamic registries, duplicate query identities, or progress-wrapper representation families.
+Typed semantic accessors are the public compiler model. Owning stage keys identify cached evaluation internally.
+Dependency recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are private
+mechanics behind those accessors. The compiler must not expose generic query objects, dynamic registries, duplicate
+projection identities, or progress-wrapper representation families.
 
 Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation
 can ask for a declaration surface or a type signature. A completion implementation can ask for the local query results

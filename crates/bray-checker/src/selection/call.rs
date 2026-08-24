@@ -13,6 +13,7 @@ use bray_symbols::{
     ImplementationSelection, ReceiverMode, TypeData,
 };
 
+use crate::unit::semantic_inputs_match;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
@@ -1027,7 +1028,7 @@ fn validate_unit<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if types.unit() != request.view().unit() || types.kind() != request.view().kind() {
+    if !semantic_inputs_match(request, [(types.unit(), types.kind())]) {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 

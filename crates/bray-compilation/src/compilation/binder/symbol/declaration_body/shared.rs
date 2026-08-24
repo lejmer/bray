@@ -1,10 +1,14 @@
 use bray_binder::{BindingQueryError, BindingQueryResult};
-use bray_bound_tree::{BoundUnitKey, BoundUnitRoot};
+use bray_bound_tree::{
+    BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
+    StoragePlan,
+};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::PublishedUnitResult;
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
     pub(in crate::compilation::binder::symbol) result: TypeId,
@@ -41,13 +45,14 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .storage_plan_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let dependencies = compilation
-        .dependency_contracts_with_cancellation(key, context.cancellation)
+    let body = compilation
+        .body_semantics_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let (types, _, _) = semantics.result().value();
-
-    let result = types
+    let result = semantics
+        .result()
+        .value()
+        .types()
         .expression(root)
         .ok_or(BindingQueryError::DependencyUnavailable)?;
 
@@ -58,22 +63,17 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .expression(root)
         .ok_or(BindingQueryError::DependencyUnavailable)?;
 
+    let dependencies = body.result().value().dependencies();
+
     let contract = dependencies
-        .result()
-        .value()
         .expression(root)
-        .and_then(|contract| dependencies.result().value().contract(contract))
+        .and_then(|contract| dependencies.contract(contract))
         .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
 
-    let diagnostics = DiagnosticBag::merged_all([
-        bound.result().diagnostics(),
-        semantics.result().diagnostics(),
-        storage.result().diagnostics(),
-        dependencies.result().diagnostics(),
-    ]);
+    let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
     Ok(CheckedSourceExpression {
         result: result.ty(),
@@ -81,7 +81,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         diagnostics,
         is_recovered: expression.is_recovered()
             || result.is_recovered()
-            || dependencies.result().value().is_recovered(),
+            || dependencies.is_recovered(),
     })
 }
 
@@ -107,9 +107,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .storage_plan_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let dependencies = compilation
-        .dependency_contracts_with_cancellation(key, context.cancellation)
+    let body = compilation
+        .body_semantics_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
+
+    let dependencies = body.result().value().dependencies();
 
     let block = bound.result().value().view().block(root);
 
@@ -121,10 +123,8 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
     for expression in block.items().iter().filter_map(|item| item.expression()) {
         let contract = dependencies
-            .result()
-            .value()
             .expression(expression)
-            .and_then(|contract| dependencies.result().value().contract(contract));
+            .and_then(|contract| dependencies.contract(contract));
 
         let Some(contract) = contract else {
             return Err(BindingQueryError::DependencyUnavailable);
@@ -137,17 +137,26 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         )?);
     }
 
-    let diagnostics = DiagnosticBag::merged_all([
-        bound.result().diagnostics(),
-        semantics.result().diagnostics(),
-        storage.result().diagnostics(),
-        dependencies.result().diagnostics(),
-    ]);
+    let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
     Ok(CheckedSourcePredicateSequence {
         dependency_contracts,
         diagnostics,
     })
+}
+
+fn checked_source_diagnostics(
+    bound: &PublishedUnitResult<BoundUnit>,
+    semantics: &PublishedUnitResult<CheckedExpressionSemantics>,
+    storage: &PublishedUnitResult<StoragePlan>,
+    body: &PublishedUnitResult<CheckedBodySemantics>,
+) -> DiagnosticBag {
+    DiagnosticBag::merged_all([
+        bound.result().diagnostics(),
+        semantics.result().diagnostics(),
+        storage.result().diagnostics(),
+        body.result().diagnostics(),
+    ])
 }
 
 pub(in crate::compilation::binder::symbol) fn checked_source_body_dependency_contracts(
@@ -164,18 +173,18 @@ pub(in crate::compilation::binder::symbol) fn checked_source_body_dependency_con
         .storage_plan_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
-    let dependencies = compilation
-        .dependency_contracts_with_cancellation(key, context.cancellation)
+    let body = compilation
+        .body_semantics_with_cancellation(key, context.cancellation)
         .map_err(super::super::binding::binder_error)?;
+
+    let dependencies = body.result().value().dependencies();
 
     let mut contracts = Vec::new();
 
     for (expression, _) in bound.result().value().tree().expressions() {
         let Some(contract) = dependencies
-            .result()
-            .value()
             .expression(expression)
-            .and_then(|contract| dependencies.result().value().contract(contract))
+            .and_then(|contract| dependencies.contract(contract))
         else {
             continue;
         };

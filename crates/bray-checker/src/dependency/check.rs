@@ -14,6 +14,7 @@ use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
+use crate::unit::semantic_inputs_match;
 
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
@@ -28,13 +29,14 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if selections.unit() != request.unit().unit()
-        || selections.kind() != request.unit().key().kind()
-        || storage.unit() != request.unit().unit()
-        || storage.kind() != request.unit().key().kind()
-        || flow.unit() != request.unit().unit()
-        || flow.kind() != request.unit().key().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (selections.unit(), selections.kind()),
+            (storage.unit(), storage.kind()),
+            (flow.unit(), flow.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidStorageFlow,
         );

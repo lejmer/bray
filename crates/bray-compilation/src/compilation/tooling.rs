@@ -285,7 +285,7 @@ impl Compilation {
             let key = bound.value().key().clone();
             let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-            let Some(result) = semantics.result().value().0.expression(expression) else {
+            let Some(result) = semantics.result().value().types().expression(expression) else {
                 return Ok(recovery_or_unavailable(true, None));
             };
 
@@ -523,8 +523,8 @@ impl Compilation {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
 
-            let selections = self
-                .semantic_selections_with_cancellation(bound.value().key().clone(), cancellation)?;
+            let expressions = self
+                .expression_semantics_with_cancellation(bound.value().key().clone(), cancellation)?;
 
             let selected = bound
                 .value()
@@ -535,7 +535,11 @@ impl Compilation {
                 })
                 .filter_map(|(expression, node)| {
                     let SemanticSelection::Call(call) =
-                        selections.result().value().expression(expression)?
+                        expressions
+                            .result()
+                            .value()
+                            .selections()
+                            .expression(expression)?
                     else {
                         return None;
                     };
@@ -705,8 +709,8 @@ impl Compilation {
                 .expressions()
                 .any(|(_, expression)| matches!(expression, BoundExpression::PatternReference(_)));
 
-            let selections = if has_pattern_references {
-                Some(self.semantic_selections_with_cancellation(unit.key().clone(), cancellation)?)
+            let expressions = if has_pattern_references {
+                Some(self.expression_semantics_with_cancellation(unit.key().clone(), cancellation)?)
             } else {
                 None
             };
@@ -716,10 +720,14 @@ impl Compilation {
 
                 let target = match expression {
                     BoundExpression::Name(reference) => Some(reference.target()),
-                    BoundExpression::PatternReference(_) => selections
+                    BoundExpression::PatternReference(_) => expressions
                         .as_ref()
-                        .and_then(|selections| {
-                            selections.result().value().expression(expression_id)
+                        .and_then(|expressions| {
+                            expressions
+                                .result()
+                                .value()
+                                .selections()
+                                .expression(expression_id)
                         })
                         .and_then(|selection| match selection {
                             SemanticSelection::Reference(target) => Some(*target),
@@ -909,7 +917,7 @@ impl Compilation {
 
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-                match semantics.result().value().1.expression(expression) {
+                match semantics.result().value().selections().expression(expression) {
                     Some(SemanticSelection::Reference(target)) => Some(*target),
                     _ => None,
                 }

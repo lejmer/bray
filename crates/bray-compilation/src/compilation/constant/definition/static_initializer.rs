@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::CheckedTemplateKind;
 use bray_checker::{
-    CheckerUnitView, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
     DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_static_initializer_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -48,13 +48,13 @@ impl Compilation {
 
         let types = substitute_expression_types(
             self.semantic_value_store()?,
-            &semantics.result().value().0,
+            semantics.result().value().types(),
             instance.substitution().substitution(),
         )?;
 
         let (references, dependency_diagnostics) = self.concrete_call_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             instance.substitution().substitution(),
             None,
             &BTreeMap::new(),
@@ -64,18 +64,17 @@ impl Compilation {
 
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
-        let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
+        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_static_address_borrows()
             .with_limits(limits);
 
-        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let unit = crate::compilation::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

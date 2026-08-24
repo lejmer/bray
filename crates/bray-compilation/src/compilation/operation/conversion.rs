@@ -33,12 +33,11 @@ impl Compilation {
         let context = self.checker_context_for(key.unit(), cancellation)?;
         let semantic_context = semantic_unit_context_for(binding_context.symbols(), unit)?;
 
-        let request = bray_checker::CheckerUnitView::new(unit, &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let request = crate::compilation::unit::checker_unit_view(
+            unit,
+            &semantic_context,
+            &context,
+        )?;
 
         let candidate = self
             .resolve_conversion_plan(

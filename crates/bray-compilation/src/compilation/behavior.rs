@@ -6,10 +6,6 @@ use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallableTarget,
     BoundSourceAnchor, BoundUnitKey, CheckedBodyBehavior, TrustedCapabilityUse,
 };
-use bray_checker::{
-    BodyBehaviorCollector, CheckerInfrastructureError, CheckerUnitView,
-    DefaultBodyBehaviorCollector,
-};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableCapabilityRequirement, CallableContractsQuery, CallableEffectRequirement,
@@ -23,9 +19,7 @@ use bray_symbols::{
 };
 
 use super::binder::{CompilationBindingContext, bind_declared_trusted_capabilities};
-use super::checker::checker_result;
 use super::state::Compilation;
-use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 #[derive(Default)]
@@ -152,64 +146,6 @@ impl Compilation {
         )
     }
 
-    fn body_behavior_contributions_with_cancellation(
-        &self,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<BodyBehaviorContributions>>, FactQueryError> {
-        self.unit_query(
-            &self.state.body_behavior_contributions,
-            CompilationFactKey::BodyBehaviorContributions(key.clone()),
-            key.clone(),
-            cancellation,
-            |cancellation| {
-                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let control = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-
-                let async_analysis =
-                    self.async_analysis_with_cancellation(key.clone(), cancellation)?;
-
-                let selections =
-                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
-
-                let semantic_context =
-                    semantic_unit_context_for(self.symbol_graph()?, bound.result().value())?;
-
-                let context = self.checker_context_for(&key, cancellation)?;
-
-                let request =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                        .map_err(|error| {
-                            FactQueryError::CheckerInfrastructure(
-                                CheckerInfrastructureError::InvalidUnitView(error),
-                            )
-                        })?;
-
-                let result = checker_result(DefaultBodyBehaviorCollector.collect_body_behavior(
-                    request,
-                    control.result().value(),
-                    selections.result().value(),
-                    async_analysis.result().value(),
-                ))?;
-
-                let (contributions, contribution_diagnostics) = result.into_parts();
-
-                let diagnostics = DiagnosticBag::merged_all([
-                    bound.result().diagnostics(),
-                    control.result().diagnostics(),
-                    selections.result().diagnostics(),
-                    async_analysis.result().diagnostics(),
-                    &contribution_diagnostics,
-                ]);
-
-                Ok((
-                    DiagnosticResult::new(contributions, diagnostics),
-                    Box::new([]),
-                ))
-            },
-        )
-    }
-
     fn direct_trusted_capability_use_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -222,16 +158,15 @@ impl Compilation {
         ),
         FactQueryError,
     > {
-        let contributions =
-            self.body_behavior_contributions_with_cancellation(key, cancellation)?;
+        let contributions = self.body_semantics_with_cancellation(key, cancellation)?;
 
         let mut capabilities = BTreeMap::<_, BTreeSet<_>>::new();
         let mut diagnostics = contributions.result().diagnostics().clone();
-        let mut is_recovered = contributions.result().value().is_recovered();
+        let mut is_recovered = contributions.result().value().behavior().is_recovered();
         let binding_context = self.binding_context(cancellation)?;
         let symbols = self.symbol_graph()?;
 
-        for call in contributions.result().value().calls() {
+        for call in contributions.result().value().behavior().calls() {
             let BoundCallableTarget::Declaration(instance) = call.target() else {
                 continue;
             };
@@ -333,14 +268,14 @@ impl Compilation {
                 continue;
             }
 
-            let contributions =
-                self.body_behavior_contributions_with_cancellation(key.clone(), cancellation)?;
+            let contributions = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+            let behavior = contributions.result().value().behavior();
 
             diagnostics = diagnostics.merged(contributions.result().diagnostics());
 
-            builder.merge_contributions(contributions.result().value());
+            builder.merge_contributions(behavior);
 
-            for call in contributions.result().value().calls() {
+            for call in behavior.calls() {
                 self.merge_call_behavior(
                     &binding_context,
                     call,
@@ -350,7 +285,7 @@ impl Compilation {
                 )?;
             }
 
-            for provider in contributions.result().value().defaults() {
+            for provider in behavior.defaults() {
                 self.merge_default_behavior(
                     &binding_context,
                     *provider,

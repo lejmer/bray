@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerUnitView, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
     ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
     ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantEvaluator,
     EvaluatedConstantCall, evaluate_constant_callable_template,
@@ -404,7 +404,7 @@ impl Compilation {
 
         let types = substitute_expression_types(
             values,
-            &semantics.result().value().0,
+            semantics.result().value().types(),
             callable.substitution(),
         )?;
 
@@ -412,7 +412,7 @@ impl Compilation {
 
         let (references, dependency_diagnostics) = self.concrete_call_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             callable.substitution(),
             key.selected_implementation(),
             &parameters,
@@ -422,19 +422,18 @@ impl Compilation {
 
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
-        let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
+        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_block_root(root, key.result_type())
             .with_patterns(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(key.limits());
 
-        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
-                    error,
-                ))
-            })?;
+        let unit = crate::compilation::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

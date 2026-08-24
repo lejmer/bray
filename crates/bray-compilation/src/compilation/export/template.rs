@@ -93,16 +93,16 @@ pub(super) fn export_checked_source_template(
         [],
     );
 
-    let (types, selections, literals) = semantics.result().value();
+    let semantics = semantics.result().value();
 
     export_source_template(
         export,
         SourceTemplateRequest {
             kind,
             unit: bound.result().value(),
-            types,
-            selections,
-            literals,
+            types: semantics.types(),
+            selections: semantics.selections(),
+            literals: semantics.literals(),
             expression,
             inputs,
             behavior: interface_behavior,
@@ -137,9 +137,9 @@ pub(super) struct SourceTemplateRequest<'a> {
     pub(super) behavior: InterfaceCheckedTemplateBehavior,
 }
 
-pub(super) fn export_source_template<'values, 'unit>(
-    export: &mut SemanticExporter<'values>,
-    request: SourceTemplateRequest<'unit>,
+pub(super) fn export_source_template(
+    export: &mut SemanticExporter,
+    request: SourceTemplateRequest,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
     let root = source_expression_root(request.unit, request.expression).ok_or_else(incomplete)?;
 

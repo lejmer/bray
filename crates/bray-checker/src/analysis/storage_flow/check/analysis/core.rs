@@ -23,6 +23,7 @@ use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
+use crate::unit::semantic_inputs_match;
 
 use super::super::availability::storage_is_recovered;
 use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
@@ -47,17 +48,16 @@ pub(crate) fn check_storage_flow<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if selections.unit() != request.unit().unit()
-        || selections.kind() != request.unit().key().kind()
-        || storage.unit() != request.unit().unit()
-        || storage.kind() != request.unit().key().kind()
-        || liveness.unit() != request.unit().unit()
-        || liveness.kind() != request.unit().key().kind()
-        || refinements.unit() != request.unit().unit()
-        || refinements.kind() != request.unit().key().kind()
-        || memory.unit() != request.unit().unit()
-        || memory.kind() != request.unit().key().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (selections.unit(), selections.kind()),
+            (storage.unit(), storage.kind()),
+            (liveness.unit(), liveness.kind()),
+            (refinements.unit(), refinements.kind()),
+            (memory.unit(), memory.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidStorageFlow,
         );
@@ -68,7 +68,32 @@ where
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
 
-    let Some(reachability) = analyze_reachability(&graph, request) else {
+    check_storage_flow_with_graph(
+        request,
+        storage,
+        liveness,
+        refinements,
+        memory,
+        &graph,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the analysis consumes correlated durable inputs and one shared control-flow graph"
+)]
+pub(crate) fn check_storage_flow_with_graph<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    liveness: &Liveness,
+    refinements: &CheckedRefinements,
+    memory: &CheckedMemoryOperations,
+    graph: &crate::analysis::model::ControlFlowGraph,
+) -> CheckerOutcome<StorageFlow>
+where
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+{
+    let Some(reachability) = analyze_reachability(graph, request) else {
         return CheckerOutcome::Cancelled;
     };
 

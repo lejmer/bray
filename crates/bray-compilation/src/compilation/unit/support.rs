@@ -6,15 +6,13 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, CheckedControlFlow, CheckedExpressionTypes, CheckedMemoryOperations,
-    CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates,
-    Liveness, StoragePlan, walk_bound_unit_view,
+    BoundWalkOutcome, CheckedControlFlow, CheckedExpressionTypes, CheckedPatterns,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultLivenessAnalyzer, DefaultPatternChecker, DefaultRefinementAnalyzer,
-    DefaultStoragePlanner, ExpressionCandidateSet, LivenessAnalyzer, PatternCheckInput,
-    PatternChecker, RefinementAnalyzer, SemanticUnitContext, StoragePlanner,
+    DefaultPatternChecker, DefaultStoragePlanner, ExpressionCandidateSet, PatternCheckInput,
+    PatternChecker, SemanticUnitContext, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
@@ -56,6 +54,19 @@ pub(in crate::compilation) fn semantic_unit_context_for(
     semantic_unit_context(symbols, bound).map_err(FactQueryError::SemanticUnitContext)
 }
 
+pub(in crate::compilation) fn checker_unit_view<'view, C>(
+    bound: &'view BoundUnit,
+    semantic_context: &'view SemanticUnitContext,
+    context: &'view C,
+) -> Result<CheckerUnitView<'view, C>, FactQueryError>
+where
+    C: bray_checker::CheckerRequestContext + ?Sized,
+{
+    CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
+    })
+}
+
 pub(super) fn check_control_flow(
     bound: &BoundUnit,
     semantic_context: &SemanticUnitContext,
@@ -67,9 +78,7 @@ pub(super) fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
+    let unit = checker_unit_view(bound, semantic_context, context)?;
 
     let result = checker_result(DefaultControlFlowChecker.check_control_flow(unit))?
         .map(|result| result.into_control_flow());
@@ -136,9 +145,7 @@ pub(super) fn check_patterns(
     types: &CheckedExpressionTypes,
     input: &PatternCheckInput,
 ) -> Result<DiagnosticResult<CheckedPatterns>, FactQueryError> {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
+    let unit = checker_unit_view(bound, semantic_context, context)?;
 
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
@@ -152,9 +159,7 @@ pub(super) fn plan_storage(
     patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
 ) -> Result<DiagnosticResult<StoragePlan>, FactQueryError> {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
+    let unit = checker_unit_view(bound, semantic_context, context)?;
 
     checker_result(DefaultStoragePlanner.plan_storage(
         unit,
@@ -163,38 +168,6 @@ pub(super) fn plan_storage(
         patterns,
         selections,
     ))
-}
-
-pub(super) fn analyze_liveness(
-    bound: &BoundUnit,
-    semantic_context: &SemanticUnitContext,
-    context: &CompilationCheckerContext<'_>,
-    selections: &CheckedSemanticSelections,
-    storage: &StoragePlan,
-    memory: &CheckedMemoryOperations,
-) -> Result<DiagnosticResult<Liveness>, FactQueryError> {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
-
-    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, selections, storage, memory))
-}
-
-pub(super) fn analyze_refinements(
-    bound: &BoundUnit,
-    semantic_context: &SemanticUnitContext,
-    context: &CompilationCheckerContext<'_>,
-    patterns: &CheckedPatterns,
-    selections: &CheckedSemanticSelections,
-    storage: &StoragePlan,
-) -> Result<DiagnosticResult<CheckedRefinements>, FactQueryError> {
-    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })?;
-
-    checker_result(
-        DefaultRefinementAnalyzer.analyze_refinements(unit, patterns, selections, storage),
-    )
 }
 
 pub(super) const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {

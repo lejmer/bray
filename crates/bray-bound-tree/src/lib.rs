@@ -16,6 +16,7 @@ mod node;
 mod origin;
 mod pattern;
 mod refinement;
+mod semantic;
 mod selection;
 mod storage;
 mod template;
@@ -91,6 +92,9 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
+};
+pub use semantic::{
+    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,

@@ -19,6 +19,8 @@ pub use compilation::{
     LinkedProductEmissionError, NativeProductPlan, NativeProductPlanningError,
     PackageInterfaceExportError, ProductEmissionError, ProductEmissionErrorKind,
     ProductEmissionInputs, ProductSourceGraph, SemanticAvailability, TestDiscovery,
+    AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
+    LivenessView, RefinementsView, SemanticSelectionsView, StorageFlowView,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

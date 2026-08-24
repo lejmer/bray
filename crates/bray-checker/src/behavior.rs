@@ -10,6 +10,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CurrentRunCancellation;
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::unit::semantic_inputs_match;
 
 pub(crate) fn collect_body_behavior<C>(
     request: CheckerUnitView<'_, C>,
@@ -24,13 +25,14 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if control_flow.unit() != request.unit().unit()
-        || control_flow.kind() != request.unit().key().kind()
-        || selections.unit() != request.unit().unit()
-        || selections.kind() != request.unit().key().kind()
-        || async_analysis.unit() != request.unit().unit()
-        || async_analysis.kind() != request.unit().key().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (control_flow.unit(), control_flow.kind()),
+            (selections.unit(), selections.kind()),
+            (async_analysis.unit(), async_analysis.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
         );

@@ -6,6 +6,7 @@ mod analysis;
 mod asynchronous;
 mod atomic;
 mod behavior;
+mod body_semantics;
 mod constant;
 mod context;
 mod dependency;
@@ -74,8 +75,10 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    AsyncChecker, BodyBehaviorCollector, ConstantChecker, ConstantEvaluator, ControlFlowChecker,
-    DefaultAsyncChecker, DefaultBodyBehaviorCollector, DefaultConstantChecker,
+    AsyncChecker, BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
+    ControlFlowChecker,
+    DefaultAsyncChecker, DefaultBodyBehaviorCollector, DefaultBodySemanticChecker,
+    DefaultConstantChecker,
     DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
     DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
     DefaultMemoryOperationChecker, DefaultPatternChecker, DefaultRefinementAnalyzer,
