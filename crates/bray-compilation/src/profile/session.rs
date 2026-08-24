@@ -54,11 +54,9 @@ pub(crate) fn merge_diagnostics<'diagnostic>(
 
     let diagnostics = diagnostics.into_iter().collect::<Vec<_>>();
 
-    let volume = diagnostics
-        .iter()
-        .fold(0_usize, |total, diagnostics| {
-            total.saturating_add(diagnostics.len())
-        });
+    let volume = diagnostics.iter().fold(0_usize, |total, diagnostics| {
+        total.saturating_add(diagnostics.len())
+    });
 
     let merged = DiagnosticBag::merged_all(diagnostics);
 
@@ -287,8 +285,7 @@ impl ProfileSession {
         let mut shard = self.shard();
         let statistics = &mut shard.queries[query.index()];
 
-        statistics.diagnostic_collections =
-            statistics.diagnostic_collections.saturating_add(1);
+        statistics.diagnostic_collections = statistics.diagnostic_collections.saturating_add(1);
 
         statistics.result_diagnostics = statistics
             .result_diagnostics
@@ -624,11 +621,11 @@ impl Drop for ProfileSchedulingWave<'_> {
         let active_workers = self.maximum_active_workers.load(Ordering::Relaxed);
         let mut shard = self.session.shard();
 
-        shard
-            .scheduling_waves
-            .entry(self.key)
-            .or_default()
-            .record(self.planned, ready, active_workers);
+        shard.scheduling_waves.entry(self.key).or_default().record(
+            self.planned,
+            ready,
+            active_workers,
+        );
 
         let scheduler = &mut shard.scheduler;
 
@@ -1087,7 +1084,12 @@ mod tests {
                     && query.diagnostic_copies > 0
             }));
 
-            assert!(report.queries.iter().any(|query| query.diagnostic_merges > 0));
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .any(|query| query.diagnostic_merges > 0)
+            );
 
             assert!(report.scheduler.wave_classes.iter().any(|class| {
                 class.waves > 0

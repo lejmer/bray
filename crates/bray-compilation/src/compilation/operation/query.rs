@@ -58,7 +58,7 @@ impl Compilation {
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
-        semantics: &super::super::state::CheckedExpressionSemantics,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         existing: &[OperationResolution],
         cancellation: &CancellationToken,
     ) -> Result<(Vec<OperationResolution>, DiagnosticBag), FactQueryError> {
@@ -74,7 +74,9 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         for expression in expressions {
-            if resolved.contains(&expression) || semantics.1.expression(expression).is_some() {
+            if resolved.contains(&expression)
+                || semantics.selections().expression(expression).is_some()
+            {
                 continue;
             }
 
@@ -84,8 +86,8 @@ impl Compilation {
                 &operation_key,
                 &binding_context,
                 bound,
-                &semantics.0,
-                &semantics.1,
+                semantics.types(),
+                semantics.selections(),
                 cancellation,
                 &mut diagnostics,
             )? {
@@ -139,8 +141,8 @@ impl Compilation {
             key,
             &binding_context,
             bound.result().value(),
-            &semantics.result().value().0,
-            &semantics.result().value().1,
+            semantics.result().value().types(),
+            semantics.result().value().selections(),
             cancellation,
             &mut diagnostics,
         )?;
@@ -338,12 +340,8 @@ impl Compilation {
 
         let semantic_context = semantic_unit_context_for(binding_context.symbols(), unit)?;
 
-        let request = bray_checker::CheckerUnitView::new(unit, &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let request =
+            crate::compilation::unit::checker_unit_view(unit, &semantic_context, &context)?;
 
         let input = OperationSelectionRequest::new(
             key.expression(),

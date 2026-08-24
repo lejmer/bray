@@ -17,6 +17,7 @@ mod origin;
 mod pattern;
 mod refinement;
 mod selection;
+mod semantic;
 mod storage;
 mod template;
 #[cfg(test)]
@@ -102,6 +103,7 @@ pub use selection::{
     SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver, SelectionKind,
     SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
+pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,

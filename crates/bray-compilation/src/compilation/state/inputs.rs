@@ -12,9 +12,8 @@ pub(super) fn shared_catalog() -> Arc<CompilerKnownSymbolProvider> {
     static PROVIDER: OnceLock<Arc<CompilerKnownSymbolProvider>> = OnceLock::new();
 
     let provider = PROVIDER.get_or_init(|| {
-        let provider = CompilerKnownSymbolProvider::build().unwrap_or_else(|error| {
-            panic!("compiler-known symbol provider is invalid: {error:?}")
-        });
+        let provider = CompilerKnownSymbolProvider::build()
+            .unwrap_or_else(|error| panic!("compiler-known symbol provider is invalid: {error:?}"));
 
         Arc::new(provider)
     });

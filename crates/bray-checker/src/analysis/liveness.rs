@@ -11,6 +11,7 @@ use bray_symbols::{CallableSignatureQuery, TypeData};
 
 use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -34,11 +35,13 @@ pub(crate) fn analyze_storage_liveness<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if selections.unit() != request.unit().unit()
-        || selections.kind() != request.unit().key().kind()
-        || storage.unit() != request.unit().unit()
-        || storage.kind() != request.unit().key().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (selections.unit(), selections.kind()),
+            (storage.unit(), storage.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLiveness);
     }
 
@@ -49,6 +52,19 @@ where
         }
     };
 
+    analyze_storage_liveness_with_graph(request, selections, storage, memory, &graph)
+}
+
+pub(crate) fn analyze_storage_liveness_with_graph<C>(
+    request: CheckerUnitView<'_, C>,
+    selections: &CheckedSemanticSelections,
+    storage: &StoragePlan,
+    memory: &CheckedMemoryOperations,
+    graph: &ControlFlowGraph,
+) -> CheckerOutcome<Liveness>
+where
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+{
     if !graph.is_well_formed() {
         panic!("checker control-flow graph violated its construction invariants");
     }

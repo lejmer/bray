@@ -6,6 +6,7 @@ mod analysis;
 mod asynchronous;
 mod atomic;
 mod behavior;
+mod body_semantics;
 mod constant;
 mod context;
 mod dependency;
@@ -74,16 +75,16 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    AsyncChecker, BodyBehaviorCollector, ConstantChecker, ConstantEvaluator, ControlFlowChecker,
-    DefaultAsyncChecker, DefaultBodyBehaviorCollector, DefaultConstantChecker,
-    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultDependencyContractChecker,
-    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultLivenessAnalyzer,
-    DefaultMemoryOperationChecker, DefaultPatternChecker, DefaultRefinementAnalyzer,
-    DefaultSemanticSelector, DefaultStorageFlowChecker, DefaultStoragePlanner,
-    DefaultTargetValidityChecker, DependencyContractChecker, ExpressionSemanticChecker,
-    ExpressionTypeChecker, LivenessAnalyzer, MemoryOperationChecker, PatternChecker,
-    RefinementAnalyzer, SemanticSelector, StorageFlowChecker, StoragePlanner,
-    TargetValidityChecker,
+    AsyncChecker, BodyBehaviorCollector, BodySemanticChecker, ConstantChecker, ConstantEvaluator,
+    ControlFlowChecker, DefaultAsyncChecker, DefaultBodyBehaviorCollector,
+    DefaultBodySemanticChecker, DefaultConstantChecker, DefaultConstantEvaluator,
+    DefaultControlFlowChecker, DefaultDependencyContractChecker, DefaultExpressionSemanticChecker,
+    DefaultExpressionTypeChecker, DefaultLivenessAnalyzer, DefaultMemoryOperationChecker,
+    DefaultPatternChecker, DefaultRefinementAnalyzer, DefaultSemanticSelector,
+    DefaultStorageFlowChecker, DefaultStoragePlanner, DefaultTargetValidityChecker,
+    DependencyContractChecker, ExpressionSemanticChecker, ExpressionTypeChecker, LivenessAnalyzer,
+    MemoryOperationChecker, PatternChecker, RefinementAnalyzer, SemanticSelector,
+    StorageFlowChecker, StoragePlanner, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,

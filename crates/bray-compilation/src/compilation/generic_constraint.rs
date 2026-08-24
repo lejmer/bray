@@ -6,8 +6,8 @@ use bray_bound_tree::{
     BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
 use bray_checker::{
-    CheckedConstantTerms, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-    ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator, closed_type_is_copyable,
+    CheckedConstantTerms, CheckerQueryError, CheckerRequestContext, ConstantEvaluationInput,
+    ConstantEvaluator, DefaultConstantEvaluator, closed_type_is_copyable,
     evaluate_generic_constraint_template, resolve_trait_application_template,
     resolve_type_expression_template, type_is_copyable_in_context,
 };
@@ -387,7 +387,7 @@ impl Compilation {
 
         let references = self.concrete_call_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             substitution,
             None,
             &BTreeMap::new(),
@@ -404,22 +404,17 @@ impl Compilation {
         let semantic_context =
             semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-        let request = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let request =
+            super::unit::checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
         let resolver = super::constant::CompilationConstantCallResolver::new(self, cancellation);
 
-        let input = ConstantEvaluationInput::new(
-            &semantics.result().value().0,
-            &semantics.result().value().1,
-        )
-        .with_root(root)
-        .with_references(references)
-        .with_call_resolver(&resolver);
+        let input = ConstantEvaluationInput::for_expression(
+            semantics.result().value(),
+            root,
+            references,
+            &resolver,
+        );
 
         let evaluated =
             checker_result(DefaultConstantEvaluator.evaluate_constant(request, &input))?;

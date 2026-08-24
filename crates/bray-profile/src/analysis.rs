@@ -246,10 +246,7 @@ impl<'profile> CompilationProfileSummary<'profile> {
             .report
             .queries
             .iter()
-            .filter(|statistics| {
-                statistics.published_values > 0
-                    || statistics.cloned_values > 0
-            })
+            .filter(|statistics| statistics.published_values > 0 || statistics.cloned_values > 0)
             .filter_map(|statistics| {
                 self.report
                     .query_descriptor(statistics.id)
@@ -470,8 +467,7 @@ impl<'profile> CompilationProfileComparison<'profile> {
                     != change.after_evaluation_self_nanoseconds
                     || change.before_evaluation_nanoseconds != change.after_evaluation_nanoseconds
                     || change.before_wait_nanoseconds != change.after_wait_nanoseconds
-                    || change.before_ready_value_nanoseconds
-                        != change.after_ready_value_nanoseconds
+                    || change.before_ready_value_nanoseconds != change.after_ready_value_nanoseconds
             })
             .collect::<Vec<_>>();
 

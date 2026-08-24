@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 
 use bray_profile::{
-    CompilationProfileAggregation, CompilationProfileCategory,
-    CompilationProfileDescriptorCatalog, CompilationProfileEvent, CompilationProfileMetric,
-    CompilationProfileMetricDescriptor, CompilationProfileOperationDescriptor,
-    CompilationProfileOperationStatistics, CompilationProfileQueryDescriptor,
-    CompilationProfileQueryStatistics, CompilationProfileSchedulerStatistics,
-    CompilationProfileSchedulingWaveStatistics, CompilationProfileSubject,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileDescriptorCatalog,
+    CompilationProfileEvent, CompilationProfileMetric, CompilationProfileMetricDescriptor,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics,
+    CompilationProfileSchedulerStatistics, CompilationProfileSchedulingWaveStatistics,
+    CompilationProfileSubject, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 
 use super::aggregate::{
@@ -98,15 +97,17 @@ pub(super) fn scheduler_report(
         maximum_ready_width: aggregate.maximum_ready_width,
         wave_classes: wave_classes
             .into_iter()
-            .map(|(key, aggregate)| CompilationProfileSchedulingWaveStatistics {
-                operation_id: key.operation_id,
-                query_id: key.query_id,
-                waves: aggregate.waves,
-                planned_items: aggregate.planned_items,
-                ready_items: aggregate.ready_items,
-                ready_width: aggregate.ready_width.report(),
-                active_workers: aggregate.active_workers.report(),
-            })
+            .map(
+                |(key, aggregate)| CompilationProfileSchedulingWaveStatistics {
+                    operation_id: key.operation_id,
+                    query_id: key.query_id,
+                    waves: aggregate.waves,
+                    planned_items: aggregate.planned_items,
+                    ready_items: aggregate.ready_items,
+                    ready_width: aggregate.ready_width.report(),
+                    active_workers: aggregate.active_workers.report(),
+                },
+            )
             .collect(),
         query_critical_path_nanoseconds: queries
             .iter()

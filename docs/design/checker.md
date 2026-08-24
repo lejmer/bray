@@ -177,21 +177,20 @@ Checker-owned semantic rules remain in focused checker services.
 
 ### Typed Semantic Queries
 
-The public semantic model is the set of typed lazy queries exposed by `Compilation` and symbol views. A caller requests
-the semantics it needs by the existing typed key and receives a stable immutable value and diagnostics. Examples include
-expression types, selected calls, selected operations, control-completion analyses, storage-access plans, effect
-summaries, and constant values.
+The public semantic model is the set of typed lazy accessors exposed by `Compilation` and symbol views. A caller requests
+the semantics it needs and receives a stable immutable value view and diagnostics. Examples include expression types,
+selected calls, selected operations, control-completion analyses, storage-access plans, effect summaries, and constant
+values.
 
-The query key is also the identity used for caching and dependency evaluation. The compiler must not mirror each
-semantic value with a public query object, generic wrapper, dynamic registry entry, duplicate query identity, or
-stage-progress representation. Dependency recording, single-flight evaluation, scheduling, waiting, and cancellation are
-private mechanics behind the typed accessors. They do not create another semantic layer above the published values.
+Correlated semantics can share one immutable owning stage when they require the same traversal, fixed point, or
+intermediate representation. Focused accessors return borrowed views backed by that stage and do not republish cloned
+tables or diagnostics. The owning stage key is the identity used for caching and dependency evaluation. Dependency
+recording, single-flight evaluation, scheduling, waiting, and cancellation remain private mechanics.
 
-Each query declares only the prerequisites needed to establish its own contract. Computing one value can request another
-through its typed accessor, but no ordinary request implies a closed checker schedule or completion of unrelated
-domains. Control-flow analysis for an enclosing callable does not require control-flow analysis for nested callable
-units. Call selection does not require borrow or effect analysis merely because those outputs may later be needed by
-lowering.
+Each stage declares only the prerequisites needed to establish its own contract. A focused view can require its owning
+stage, but no ordinary request implies a closed checker schedule or completion of later stages. Control-flow analysis for
+an enclosing callable does not require control-flow analysis for nested callable units. Call selection does not require
+storage or behavior analysis merely because those outputs may later be needed by lowering.
 
 The semantic unit category selects contextual inputs, not a list of analyses:
 
@@ -213,10 +212,9 @@ For contract-clause semantic contexts, `requires(...)` does not assume itself. `
 normal result, but body checking must prove the postcondition independently on every reachable normal completion.
 Trusted propositions retain their provenance in every category.
 
-Package diagnostics is an intentionally broad consumer. It requests every applicable diagnostic-owning query reachable
-from the package and merges their diagnostics deterministically. Lowering is a different projection: it requests and
-validates the exact typed inputs named by `LoweringInput`. Neither projection is a universal checked-unit value or
-evidence that unrelated analyses ran.
+Package diagnostics is an intentionally broad consumer. It requests every applicable diagnostic-owning stage reachable
+from the package and merges their diagnostics deterministically. Lowering requests the exact owning stages containing
+the inputs named by `LoweringInput`. Neither consumer establishes unrelated semantic units or later product stages.
 
 ### Outcomes And Cancellation
 

@@ -9,6 +9,7 @@ use bray_diagnostics::{
     DiagnosticLabelKind, DiagnosticRefinementCapacity, SeverityKind,
 };
 
+use crate::unit::semantic_inputs_match;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
@@ -32,13 +33,14 @@ pub(crate) fn check_refinements<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if patterns.unit() != request.view().unit()
-        || patterns.kind() != request.view().kind()
-        || selections.unit() != request.view().unit()
-        || selections.kind() != request.view().kind()
-        || storage.unit() != request.view().unit()
-        || storage.kind() != request.view().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (patterns.unit(), patterns.kind()),
+            (selections.unit(), selections.kind()),
+            (storage.unit(), storage.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(
             crate::CheckerInfrastructureError::InvalidRefinementInput,
         );
@@ -49,15 +51,27 @@ where
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
 
+    check_refinements_with_graph(request, patterns, storage, &graph)
+}
+
+pub(crate) fn check_refinements_with_graph<C>(
+    request: CheckerUnitView<'_, C>,
+    patterns: &CheckedPatterns,
+    storage: &StoragePlan,
+    graph: &ControlFlowGraph,
+) -> CheckerOutcome<CheckedRefinements>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     if !graph.is_well_formed() {
         panic!("checker control-flow graph violated its construction invariants");
     }
 
-    let Some(reachability) = analyze_reachability(&graph, request) else {
+    let Some(reachability) = analyze_reachability(graph, request) else {
         return CheckerOutcome::Cancelled;
     };
 
-    let universe = match RefinementUniverse::new(&graph, request, patterns, storage) {
+    let universe = match RefinementUniverse::new(graph, request, patterns, storage) {
         Ok(universe) => universe,
         Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
             return capacity_recovery(request, capacity);
@@ -75,12 +89,12 @@ where
         Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
     };
 
-    let result = match analyze_refinements(&graph, &reachability, &universe, storage, request) {
+    let result = match analyze_refinements(graph, &reachability, &universe, storage, request) {
         Some(result) => result,
         None => return CheckerOutcome::Cancelled,
     };
 
-    let occurrences = result.occurrences(&graph, storage);
+    let occurrences = result.occurrences(graph, storage);
 
     let is_recovered = graph
         .operations()

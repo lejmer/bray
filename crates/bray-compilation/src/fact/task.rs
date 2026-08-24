@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::{CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError};
@@ -215,10 +215,7 @@ pub(crate) fn record_input(
     })
 }
 
-pub(crate) fn record_frozen_fact(
-    runtime: RuntimeIdentity,
-    bit: u8,
-) -> Result<(), FactQueryError> {
+pub(crate) fn record_frozen_fact(runtime: RuntimeIdentity, bit: u8) -> Result<(), FactQueryError> {
     local_evaluations(|active| {
         let Some(context) = active.last() else {
             return Ok(());

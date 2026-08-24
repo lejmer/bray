@@ -381,51 +381,20 @@ fn reuse_mapped_cells(
         CompilationFactKey::ExpressionSemantics(key.clone())
     });
 
-    reuse!(checked_expression_types, |key| {
-        CompilationFactKey::CheckedExpressionTypes(key.clone())
-    });
-
-    // The updated cache owns its Arc-backed unit keys independently of the prior snapshot.
-    reuse!(checked_literal_values, |key| {
-        CompilationFactKey::CheckedLiteralValues(key.clone())
-    });
-
     reuse!(checked_patterns, |key| {
         CompilationFactKey::CheckedPatterns(key.clone())
-    });
-
-    reuse!(checked_semantic_selections, |key| {
-        CompilationFactKey::CheckedSemanticSelections(key.clone())
     });
 
     reuse!(storage_plans, |key| {
         CompilationFactKey::StoragePlan(key.clone())
     });
 
-    reuse!(liveness, |key| CompilationFactKey::Liveness(key.clone()));
-
-    reuse!(refinements, |key| {
-        CompilationFactKey::Refinements(key.clone())
-    });
-
-    reuse!(storage_flow, |key| {
-        CompilationFactKey::StorageFlow(key.clone())
-    });
-
-    reuse!(dependency_contracts, |key| {
-        CompilationFactKey::DependencyContracts(key.clone())
-    });
-
     reuse!(memory_operations, |key| {
         CompilationFactKey::MemoryOperations(key.clone())
     });
 
-    reuse!(async_analysis, |key| {
-        CompilationFactKey::AsyncAnalysis(key.clone())
-    });
-
-    reuse!(body_behavior_contributions, |key| {
-        CompilationFactKey::BodyBehaviorContributions(key.clone())
+    reuse!(body_semantics, |key| {
+        CompilationFactKey::BodySemantics(key.clone())
     });
 
     reuse!(checked_body_behaviors, |key| {
@@ -515,6 +484,7 @@ mod tests {
         let stable_unit = source_callable_body_key(&previous);
 
         let _ = previous.bound_unit(stable_unit.clone());
+        let _ = previous.dependency_contracts(stable_unit.clone());
         let _ = previous.control_flow(stable_unit.clone());
 
         let updated = previous
@@ -728,7 +698,9 @@ mod tests {
         let previous = compilation([source(10, 0, source_text)]);
         let stable_unit = source_callable_body_key(&previous);
 
-        let _ = previous.bound_unit(stable_unit.clone());
+        previous
+            .liveness(stable_unit.clone())
+            .unwrap_or_else(|error| panic!("previous body semantics must build: {error:?}"));
 
         let parallel = WorkerBudget::new(2)
             .unwrap_or_else(|error| panic!("parallel worker budget must build: {error:?}"));
@@ -745,6 +717,13 @@ mod tests {
                 .state
                 .bound_units
                 .shares_cell_with(&updated.state.bound_units, &stable_unit)
+        );
+
+        assert!(
+            previous
+                .state
+                .body_semantics
+                .shares_cell_with(&updated.state.body_semantics, &stable_unit)
         );
 
         assert_ne!(
@@ -932,7 +911,10 @@ mod tests {
                 .shares_storage_with(&updated.state.source_unit_syntax[0])
         );
 
-        assert_eq!(previous.state.selected_target, updated.state.selected_target);
+        assert_eq!(
+            previous.state.selected_target,
+            updated.state.selected_target
+        );
 
         assert!(
             !previous

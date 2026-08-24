@@ -9,9 +9,9 @@ use bray_bound_tree::{
     CheckedSemanticSelections, CheckedTemplateKind,
 };
 use bray_checker::{
-    CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
-    ConstantEvaluator, ConstantReferenceResolution, DefaultConstantChecker,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_definition_template,
+    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
+    ConstantReferenceResolution, DefaultConstantChecker, DefaultConstantEvaluator,
+    EvaluatedConstantCall, evaluate_constant_definition_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
@@ -222,9 +222,9 @@ impl Compilation {
         let term = self.symbolic_constant_term_with_cancellation(key.clone(), cancellation)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let root = expression_root(bound.result().value())?;
-        let types = self.expression_types_with_cancellation(key, cancellation)?;
+        let expressions = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-        let Some(root_type) = types.result().value().expression(root) else {
+        let Some(root_type) = expressions.result().value().types().expression(root) else {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
@@ -270,25 +270,25 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                let references = self
-                    .symbolic_references(bound.result().value(), &semantics.result().value().1)?;
+                let references = self.symbolic_references(
+                    bound.result().value(),
+                    semantics.result().value().selections(),
+                )?;
 
                 let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
                 let input = ConstantEvaluationInput::new(
-                    &semantics.result().value().0,
-                    &semantics.result().value().1,
+                    semantics.result().value().types(),
+                    semantics.result().value().selections(),
                 )
                 .with_references(references)
                 .with_call_resolver(&resolver);
 
-                let unit =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                        .map_err(|error| {
-                            FactQueryError::CheckerInfrastructure(
-                                bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                            )
-                        })?;
+                let unit = crate::compilation::unit::checker_unit_view(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                )?;
 
                 let checked =
                     checker_result(DefaultConstantChecker.check_constant_term(unit, &input))?;
@@ -367,7 +367,7 @@ impl Compilation {
 
         let types = substitute_expression_types(
             self.semantic_value_store()?,
-            &semantics.result().value().0,
+            semantics.result().value().types(),
             instance.substitution().substitution(),
         )?;
 
@@ -391,7 +391,7 @@ impl Compilation {
 
         let (references, dependency_diagnostics) = self.concrete_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             instance,
             limits,
             cancellation,
@@ -399,17 +399,16 @@ impl Compilation {
 
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
-        let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
+        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(limits);
 
-        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let unit = crate::compilation::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

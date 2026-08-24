@@ -16,6 +16,7 @@ use crate::constant::{
 };
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
+use crate::unit::semantic_inputs_match;
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn check_literal_values<C>(
@@ -25,7 +26,7 @@ pub(crate) fn check_literal_values<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if types.unit() != request.view().unit() || types.kind() != request.view().kind() {
+    if !semantic_inputs_match(request, [(types.unit(), types.kind())]) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidLiteralValueInput,
         );

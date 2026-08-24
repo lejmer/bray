@@ -18,6 +18,7 @@ use bray_symbols::{
 
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -38,11 +39,13 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if selections.unit() != request.unit().unit()
-        || selections.kind() != request.unit().key().kind()
-        || literals.unit() != request.unit().unit()
-        || literals.kind() != request.unit().key().kind()
-    {
+    if !semantic_inputs_match(
+        request,
+        [
+            (selections.unit(), selections.kind()),
+            (literals.unit(), literals.kind()),
+        ],
+    ) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
         );

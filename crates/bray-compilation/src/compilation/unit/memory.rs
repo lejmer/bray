@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{BoundUnitKey, CheckedMemoryOperations};
-use bray_checker::{
-    CheckerInfrastructureError, CheckerUnitView, DefaultMemoryOperationChecker,
-    MemoryOperationChecker,
-};
+use bray_checker::{DefaultMemoryOperationChecker, MemoryOperationChecker};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
-use super::semantic_unit_context_for;
+use super::{checker_unit_view, semantic_unit_context_for};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
@@ -26,38 +23,28 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                let selections =
-                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
-
-                // Literal and selection queries retain independent immutable unit identities.
-                let literals = self.literal_values_with_cancellation(key.clone(), cancellation)?;
+                let expressions =
+                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                let unit =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                        .map_err(|error| {
-                            FactQueryError::CheckerInfrastructure(
-                                CheckerInfrastructureError::InvalidUnitView(error),
-                            )
-                        })?;
+                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
                 let result =
                     checker_result(DefaultMemoryOperationChecker.check_memory_operations(
                         unit,
-                        selections.result().value(),
-                        literals.result().value(),
+                        expressions.result().value().selections(),
+                        expressions.result().value().literals(),
                     ))?;
 
                 let (operations, operation_diagnostics) = result.into_parts();
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
-                    selections.result().diagnostics(),
-                    literals.result().diagnostics(),
+                    expressions.result().diagnostics(),
                     &operation_diagnostics,
                 ]);
 

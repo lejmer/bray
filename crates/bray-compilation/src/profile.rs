@@ -15,8 +15,7 @@ pub use bray_profile::{
     CompilationProfileOutcome, CompilationProfileQueryDescriptor,
     CompilationProfileQueryStatistics, CompilationProfileReport,
     CompilationProfileSchedulerStatistics, CompilationProfileSubject,
-    CompilationProfileSubjectKind,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 pub(crate) use descriptor::{
     ProfileMetricKind, ProfileOperation, ProfileQueryKind, result_outcome,

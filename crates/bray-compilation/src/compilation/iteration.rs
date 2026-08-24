@@ -89,7 +89,7 @@ impl Compilation {
         let semantics = self
             .provisional_expression_semantics_with_cancellation(key.unit().clone(), cancellation)?;
 
-        let types = &semantics.result().value().0;
+        let types = semantics.result().value().types();
 
         let mut diagnostics = bound
             .result()
@@ -153,7 +153,7 @@ impl Compilation {
             CandidateSelection::Selected(selection) => {
                 let exact_count = iteration_exact_count(
                     bound.result().value(),
-                    &semantics.result().value().2,
+                    semantics.result().value().literals(),
                     binding_context.semantic_values(),
                     selection.source(),
                     selection.source_type(),
@@ -614,12 +614,7 @@ fn select_iteration(
 ) -> Result<DiagnosticResult<CandidateSelection<SelectedIterationSource>>, FactQueryError> {
     let semantic_context = semantic_unit_context_for(context.symbols(), bound)?;
 
-    let unit =
-        bray_checker::CheckerUnitView::new(bound, &semantic_context, context).map_err(|error| {
-            FactQueryError::CheckerInfrastructure(
-                bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-            )
-        })?;
+    let unit = super::unit::checker_unit_view(bound, &semantic_context, context)?;
 
     let request = IterationSourceSelectionRequest::new(expression, source, mode, candidates);
 

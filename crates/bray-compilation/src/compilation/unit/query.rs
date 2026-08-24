@@ -1,47 +1,32 @@
-// rust-style: allow(module-too-large, reason = "unit semantic queries share one demand-driven convergence pipeline")
-
 use std::sync::Arc;
 
-use bray_binder::{
-    BinderDependency, BindingQueryContext, BoundUnitComputation, SymbolQueryProvider,
-};
+use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, CheckedAsync, CheckedControlFlow, CheckedDependencyContracts,
-    CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
-    CheckedRefinements, CheckedSemanticSelections, DeclaredValueTypeTemplates, Liveness,
-    SemanticSelection, SemanticSelectionEntry, StorageFlow, StoragePlan, walk_bound_unit_view,
+    AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundWalkControl, BoundWalkEvent,
+    BoundWalkOutcome, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
+    CheckedPatterns, CheckedSemanticSelections, DeclaredValueTypeTemplates, StoragePlan,
+    walk_bound_unit_view,
 };
 use bray_checker::{
-    AsyncChecker, CheckerInfrastructureError, CheckerUnitView, DefaultAsyncChecker,
-    DefaultExpressionSemanticChecker, ExpressionSemanticChecker, IterationPatternType,
-    NestedCallableEvidence, PatternCheckInput, check_generic_arguments,
+    CheckerInfrastructureError, DefaultExpressionSemanticChecker, ExpressionSemanticChecker,
+    IterationPatternType, PatternCheckInput,
 };
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
-};
-use bray_source::SourceSpan;
-use bray_symbols::{
-    AnySymbolId, CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery,
-    GenericOwnerId, GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
-    ProofOutcome, StaticInstanceKey, StaticInstanceTemplateId, StaticReferenceSelection,
-    SymbolQueryRequest,
-};
-use bray_syntax::GenericArgumentListSyntax;
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 use super::support::{
-    bind_unit, check_control_flow, check_patterns, expression_candidates, map_binding_error,
-    semantic_unit_context_for,
+    bind_unit, check_control_flow, check_patterns, checker_unit_view, expression_candidates,
+    map_binding_error, semantic_unit_context_for,
 };
-use crate::compilation::binder::{
-    bind_declared_value_type_templates, binding_query_error, generic_parameter_ids, type_binder,
+use super::view::{
+    AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
+    LivenessView, RefinementsView, SemanticSelectionsView, StorageFlowView,
 };
+use crate::compilation::binder::{bind_declared_value_type_templates, binding_query_error};
 use crate::compilation::checker::checker_result;
 use crate::compilation::operation::operation_type_input;
-use crate::compilation::state::{CheckedExpressionSemantics, Compilation};
+use crate::compilation::state::Compilation;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
-    UnitQueryCache,
 };
 
 type ExpressionSemanticComputation = (
@@ -124,20 +109,19 @@ impl Compilation {
     pub fn expression_types(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedExpressionTypes>>, FactQueryError> {
-        let published = self.expression_types_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<ExpressionTypesView, FactQueryError> {
+        let published =
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(ExpressionTypesView::new(Arc::clone(published.result())))
     }
 
     /// Returns final source-literal values and their diagnostics for one bound semantic unit.
-    pub fn literal_values(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedLiteralValues>>, FactQueryError> {
-        let published = self.literal_values_with_cancellation(key, &self.state.cancellation)?;
+    pub fn literal_values(&self, key: BoundUnitKey) -> Result<LiteralValuesView, FactQueryError> {
+        let published =
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(LiteralValuesView::new(Arc::clone(published.result())))
     }
 
     /// Returns checked pattern and match-coverage analysis for one bound semantic unit.
@@ -154,11 +138,11 @@ impl Compilation {
     pub fn semantic_selections(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedSemanticSelections>>, FactQueryError> {
+    ) -> Result<SemanticSelectionsView, FactQueryError> {
         let published =
-            self.semantic_selections_with_cancellation(key, &self.state.cancellation)?;
+            self.expression_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(SemanticSelectionsView::new(Arc::clone(published.result())))
     }
 
     /// Returns storage identities, evaluated access plans, and their diagnostics for one unit.
@@ -172,44 +156,34 @@ impl Compilation {
     }
 
     /// Returns durable last-use and lexical scope-boundary decisions for one unit.
-    pub fn liveness(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<Liveness>>, FactQueryError> {
-        let published = self.liveness_with_cancellation(key, &self.state.cancellation)?;
+    pub fn liveness(&self, key: BoundUnitKey) -> Result<LivenessView, FactQueryError> {
+        let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(LivenessView::new(Arc::clone(published.result())))
     }
 
     /// Returns flow-sensitive analysis available at checked operation occurrences.
-    pub fn refinements(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedRefinements>>, FactQueryError> {
-        let published = self.refinements_with_cancellation(key, &self.state.cancellation)?;
+    pub fn refinements(&self, key: BoundUnitKey) -> Result<RefinementsView, FactQueryError> {
+        let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(RefinementsView::new(Arc::clone(published.result())))
     }
 
     /// Returns checked storage, ownership, movement, and borrow decisions for one unit.
-    pub fn storage_flow(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<StorageFlow>>, FactQueryError> {
-        let published = self.storage_flow_with_cancellation(key, &self.state.cancellation)?;
+    pub fn storage_flow(&self, key: BoundUnitKey) -> Result<StorageFlowView, FactQueryError> {
+        let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(StorageFlowView::new(Arc::clone(published.result())))
     }
 
     /// Returns normalized dependency contracts for semantic occurrences in one unit.
     pub fn dependency_contracts(
         &self,
         key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedDependencyContracts>>, FactQueryError> {
-        let published =
-            self.dependency_contracts_with_cancellation(key, &self.state.cancellation)?;
+    ) -> Result<DependencyContractsView, FactQueryError> {
+        let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(DependencyContractsView::new(Arc::clone(published.result())))
     }
 
     /// Returns compiler-provided memory operations selected for one bound semantic unit.
@@ -223,13 +197,10 @@ impl Compilation {
     }
 
     /// Returns async frame, suspension, task, and cleanup analysis for one unit.
-    pub fn async_analysis(
-        &self,
-        key: BoundUnitKey,
-    ) -> Result<Arc<DiagnosticResult<CheckedAsync>>, FactQueryError> {
-        let published = self.async_analysis_with_cancellation(key, &self.state.cancellation)?;
+    pub fn async_analysis(&self, key: BoundUnitKey) -> Result<AsyncAnalysisView, FactQueryError> {
+        let published = self.body_semantics_with_cancellation(key, &self.state.cancellation)?;
 
-        Ok(Arc::clone(published.result()))
+        Ok(AsyncAnalysisView::new(Arc::clone(published.result())))
     }
 
     /// Returns source-declared value type templates and equality constraints for one bound unit.
@@ -416,12 +387,7 @@ impl Compilation {
         let semantic_context =
             semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
-                    error,
-                ))
-            })?;
+        let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
         let result = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
             unit,
@@ -457,7 +423,12 @@ impl Compilation {
             )
         })?;
 
-        let value = (types, selections, literals);
+        let value =
+            CheckedExpressionSemantics::try_new(types, selections, literals).map_err(|_| {
+                FactQueryError::CheckerInfrastructure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                )
+            })?;
 
         let diagnostics = DiagnosticBag::merged_all([
             candidates.diagnostics(),
@@ -468,336 +439,6 @@ impl Compilation {
         let result = DiagnosticResult::new(value, diagnostics);
 
         Ok((result, Box::new([])))
-    }
-
-    fn static_instance_selections(
-        &self,
-        key: &BoundUnitKey,
-        cancellation: &CancellationToken,
-        bound: &BoundUnit,
-        semantic_context: &bray_checker::SemanticUnitContext,
-        checker_context: &impl bray_checker::CheckerRequestContext,
-    ) -> Result<(Vec<SemanticSelectionEntry>, DiagnosticBag), FactQueryError> {
-        let binding_context = self.binding_context_for(key, cancellation)?;
-
-        let owner = binding_context
-            .symbols()
-            .symbol_for_key(key.declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let unit =
-            CheckerUnitView::new(bound, semantic_context, checker_context).map_err(|error| {
-                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(
-                    error,
-                ))
-            })?;
-
-        let mut entries = Vec::new();
-        let mut diagnostics = DiagnosticBag::new();
-
-        for (expression, node) in bound.tree().expressions() {
-            let BoundExpression::Name(name) = node else {
-                continue;
-            };
-
-            let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Static(declaration)) =
-                name.target()
-            else {
-                continue;
-            };
-
-            let parameters = generic_parameter_ids(binding_context.symbols(), declaration.into())
-                .map_err(binding_query_error)?;
-
-            let source = name.origin().source_anchor().syntax();
-
-            let resolved = match name.generic_argument_list() {
-                Some(anchor) => {
-                    let arguments = anchor
-                        .find_descendant::<GenericArgumentListSyntax>(self.syntax_tree())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                    let arguments = arguments.generic_arguments().collect::<Vec<_>>();
-
-                    let bound_arguments = type_binder(&binding_context, owner)
-                        .map_err(binding_query_error)?
-                        .bind_call_generic_arguments(&arguments, &parameters)
-                        .map_err(binding_query_error)?;
-
-                    let (bound_arguments, argument_diagnostics) = bound_arguments.into_parts();
-
-                    diagnostics = diagnostics.merged(&argument_diagnostics);
-
-                    let resolved = checker_result(check_generic_arguments(unit, &bound_arguments))?;
-
-                    let (resolved, resolution_diagnostics) = resolved.into_parts();
-
-                    diagnostics = diagnostics.merged(&resolution_diagnostics);
-
-                    let Some(resolved) = resolved else {
-                        continue;
-                    };
-
-                    resolved
-                }
-                None if parameters.is_empty() => Vec::new(),
-                None => continue,
-            };
-
-            let substitution = GenericSubstitutionData::try_new(
-                GenericOwnerId::try_new(declaration.into())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
-                parameters,
-                resolved,
-            )
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-            let substitution = binding_context
-                .semantic_values()
-                .intern_generic_substitution(substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-            let (selection, selection_diagnostics) = self.static_reference_selection(
-                declaration,
-                substitution,
-                cancellation,
-                &binding_context,
-                source,
-            )?;
-
-            diagnostics = diagnostics.merged(&selection_diagnostics);
-
-            entries.push(SemanticSelectionEntry::new(
-                expression,
-                SemanticSelection::StaticReference(selection),
-            ));
-        }
-
-        Ok((entries, diagnostics))
-    }
-
-    pub(in crate::compilation) fn static_reference_selection(
-        &self,
-        declaration: bray_symbols::StaticSymbolId,
-        substitution: bray_symbols::GenericSubstitutionId,
-        cancellation: &CancellationToken,
-        binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
-        source: bray_declarations::SyntaxAnchor,
-    ) -> Result<(StaticReferenceSelection, DiagnosticBag), FactQueryError> {
-        let template = StaticInstanceTemplateId::new(declaration);
-        let target = self.requested_target().profile().identity().clone();
-
-        let Ok(concrete_substitution) = binding_context
-            .semantic_values()
-            .require_concrete_substitution(substitution)
-        else {
-            return Ok((
-                StaticReferenceSelection::open(template, substitution, [], target),
-                DiagnosticBag::new(),
-            ));
-        };
-
-        let (witnesses, diagnostics) = self.static_instance_witnesses(
-            declaration,
-            substitution,
-            cancellation,
-            binding_context,
-            source,
-        )?;
-
-        Ok((
-            StaticReferenceSelection::Closed(StaticInstanceKey::new(
-                template,
-                concrete_substitution,
-                witnesses,
-                target,
-            )),
-            diagnostics,
-        ))
-    }
-
-    pub(in crate::compilation) fn static_instance_witnesses(
-        &self,
-        declaration: bray_symbols::StaticSymbolId,
-        substitution: bray_symbols::GenericSubstitutionId,
-        cancellation: &CancellationToken,
-        binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
-        source: bray_declarations::SyntaxAnchor,
-    ) -> Result<(Vec<bray_symbols::ImplementationInstanceId>, DiagnosticBag), FactQueryError> {
-        let owner = GenericOwnerId::try_new(declaration.into())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let satisfaction = self.generic_constraint_satisfaction_with_cancellation(
-            GenericConstraintObligationKey::new(owner, substitution),
-            cancellation,
-        )?;
-
-        let constraints = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
-            .map_err(binding_query_error)?;
-
-        let mut diagnostics = satisfaction.diagnostics().merged(constraints.diagnostics());
-
-        if *satisfaction.value() != ProofOutcome::Proven {
-            let span = SourceSpan::new(source.source_id(), source.full_range());
-
-            diagnostics.add(
-                Diagnostic::new(
-                    DiagnosticId::new(span.start().bytes()),
-                    DiagnosticKind::CheckingStaticConstraintUnsatisfied,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(span),
-            );
-        }
-
-        let values = binding_context.semantic_values();
-        let mut witnesses = Vec::new();
-
-        for constraint in constraints.value().constraints() {
-            let CheckedConstraintKind::TraitSatisfaction {
-                subject,
-                application,
-            } = constraint.kind()
-            else {
-                continue;
-            };
-
-            let subject = values
-                .substitute_type(subject, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-            let application = values
-                .substitute_trait_application(application, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-            let selection = self.implementation_selection_result_with_cancellation(
-                ImplementationRequirementKey::new(subject, application),
-                cancellation,
-            )?;
-
-            diagnostics = diagnostics.merged(selection.diagnostics());
-
-            if let ImplementationSelection::Selected(witness) = selection.value() {
-                witnesses.push(*witness);
-            }
-        }
-
-        Ok((witnesses, diagnostics))
-    }
-
-    fn nested_callable_evidence(
-        &self,
-        bound: &BoundUnit,
-        cancellation: &CancellationToken,
-    ) -> Result<Vec<NestedCallableEvidence>, FactQueryError> {
-        let mut evidence = Vec::new();
-        let mut failure = None;
-
-        let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
-            if cancellation.is_cancelled() {
-                failure = Some(FactQueryError::Cancelled);
-
-                return BoundWalkControl::Stop;
-            }
-
-            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
-                return BoundWalkControl::Continue;
-            };
-
-            let Some(BoundExpression::AnonymousCallable(callable)) =
-                bound.view().expression(expression)
-            else {
-                return BoundWalkControl::Continue;
-            };
-
-            // Each independently demandable nested query owns its cache key.
-            let nested_bound =
-                match self.bound_unit_with_cancellation(callable.unit().clone(), cancellation) {
-                    Ok(nested) => nested,
-                    Err(error) => {
-                        failure = Some(error);
-
-                        return BoundWalkControl::Stop;
-                    }
-                };
-
-            let BoundUnitRoot::AnonymousCallable {
-                callable: callable_symbol,
-                ..
-            } = nested_bound.result().value().root()
-            else {
-                failure = Some(FactQueryError::InfrastructureFailure);
-
-                return BoundWalkControl::Stop;
-            };
-
-            let nested = match self.declared_value_type_templates_with_cancellation(
-                callable.unit().clone(),
-                cancellation,
-            ) {
-                Ok(nested) => nested,
-                Err(error) => {
-                    failure = Some(error);
-
-                    return BoundWalkControl::Stop;
-                }
-            };
-
-            let Some(callable_type) = nested.result().value().callable_type() else {
-                failure = Some(FactQueryError::InfrastructureFailure);
-
-                return BoundWalkControl::Stop;
-            };
-
-            // The outer expression query owns this template after the nested query handle drops.
-            evidence.push(NestedCallableEvidence::new(
-                expression,
-                callable_symbol,
-                callable_type.clone(),
-            ));
-
-            BoundWalkControl::Continue
-        });
-
-        if let Some(error) = failure {
-            return Err(error);
-        }
-
-        match outcome {
-            BoundWalkOutcome::Completed => Ok(evidence),
-            BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-                Err(FactQueryError::InfrastructureFailure)
-            }
-        }
-    }
-
-    pub(in crate::compilation) fn expression_types_with_cancellation(
-        &self,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedExpressionTypes>>, FactQueryError> {
-        self.expression_semantic_projection(
-            &self.state.checked_expression_types,
-            CompilationFactKey::CheckedExpressionTypes,
-            key,
-            cancellation,
-            |semantics| &semantics.0,
-        )
-    }
-
-    pub(in crate::compilation) fn literal_values_with_cancellation(
-        &self,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedLiteralValues>>, FactQueryError> {
-        self.expression_semantic_projection(
-            &self.state.checked_literal_values,
-            CompilationFactKey::CheckedLiteralValues,
-            key,
-            cancellation,
-            |semantics| &semantics.2,
-        )
     }
 
     pub(in crate::compilation) fn patterns_with_cancellation(
@@ -813,10 +454,9 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
 
-                let selections =
-                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+                let expressions =
+                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
                 let (input, _, iteration_diagnostics, _) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
@@ -826,18 +466,12 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                let unit =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                        .map_err(|error| {
-                            FactQueryError::CheckerInfrastructure(
-                                CheckerInfrastructureError::InvalidUnitView(error),
-                            )
-                        })?;
+                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
                 let (input, constant_diagnostics) = self.add_constant_pattern_evidence(
                     unit,
-                    types.result().value(),
-                    selections.result().value(),
+                    expressions.result().value().types(),
+                    expressions.result().value().selections(),
                     input,
                     cancellation,
                 )?;
@@ -846,7 +480,7 @@ impl Compilation {
                     bound.result().value(),
                     &semantic_context,
                     &context,
-                    types.result().value(),
+                    expressions.result().value().types(),
                     &input,
                 )?;
 
@@ -958,116 +592,6 @@ impl Compilation {
             diagnostics,
             has_iterations,
         ))
-    }
-
-    pub(in crate::compilation) fn semantic_selections_with_cancellation(
-        &self,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedSemanticSelections>>, FactQueryError> {
-        self.expression_semantic_projection(
-            &self.state.checked_semantic_selections,
-            CompilationFactKey::CheckedSemanticSelections,
-            key,
-            cancellation,
-            |semantics| &semantics.1,
-        )
-    }
-
-    fn expression_semantic_projection<T>(
-        &self,
-        cache: &UnitQueryCache<T>,
-        semantic_key: fn(BoundUnitKey) -> CompilationFactKey,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-        project: fn(&CheckedExpressionSemantics) -> &T,
-    ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError>
-    where
-        T: Clone + std::hash::Hash + Send + Sync,
-    {
-        let semantic_key = semantic_key(key.clone());
-
-        // Cache identity, unit publication, and the atomic computation retain the shared key.
-        self.unit_query(cache, semantic_key, key.clone(), cancellation, |_| {
-            let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
-
-            // The projection owns its immutable table after the atomic query handle drops.
-            let value = project(semantics.result().value()).clone();
-            let diagnostics = semantics.result().diagnostics().clone();
-
-            Ok((DiagnosticResult::new(value, diagnostics), Box::new([])))
-        })
-    }
-
-    pub(in crate::compilation) fn async_analysis_with_cancellation(
-        &self,
-        key: BoundUnitKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<CheckedAsync>>, FactQueryError> {
-        self.unit_query(
-            &self.state.async_analysis,
-            CompilationFactKey::AsyncAnalysis(key.clone()),
-            key.clone(),
-            cancellation,
-            |cancellation| {
-                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let types = self.expression_types_with_cancellation(key.clone(), cancellation)?;
-
-                let selections =
-                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
-
-                let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
-
-                let dependencies =
-                    self.dependency_contracts_with_cancellation(key.clone(), cancellation)?;
-
-                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-
-                let refinements = self.refinements_with_cancellation(key.clone(), cancellation)?;
-
-                let flow = self.storage_flow_with_cancellation(key.clone(), cancellation)?;
-
-                let context = self.checker_context_for(&key, cancellation)?;
-
-                let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
-
-                let unit =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                        .map_err(|error| {
-                            FactQueryError::CheckerInfrastructure(
-                                CheckerInfrastructureError::InvalidUnitView(error),
-                            )
-                        })?;
-
-                let result = checker_result(DefaultAsyncChecker.check_async_analysis(
-                    unit,
-                    types.result().value(),
-                    selections.result().value(),
-                    liveness.result().value(),
-                    dependencies.result().value(),
-                    storage.result().value(),
-                    refinements.result().value(),
-                    flow.result().value(),
-                ))?;
-
-                let (analysis, async_diagnostics) = result.into_parts();
-
-                let diagnostics = DiagnosticBag::merged_all([
-                    bound.result().diagnostics(),
-                    types.result().diagnostics(),
-                    selections.result().diagnostics(),
-                    liveness.result().diagnostics(),
-                    dependencies.result().diagnostics(),
-                    storage.result().diagnostics(),
-                    refinements.result().diagnostics(),
-                    flow.result().diagnostics(),
-                    &async_diagnostics,
-                ]);
-
-                Ok((DiagnosticResult::new(analysis, diagnostics), Box::new([])))
-            },
-        )
     }
 
     pub(in crate::compilation) fn declared_value_type_templates_with_cancellation(
@@ -1287,7 +811,7 @@ mod tests {
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
 
         assert!(
-            dependencies.contains(&crate::fact::CompilationFactKey::CheckedExpressionTypes(
+            dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
                 key.clone()
             ))
         );
@@ -1297,10 +821,6 @@ mod tests {
                 key.clone()
             ))
         );
-
-        assert!(dependencies.contains(
-            &crate::fact::CompilationFactKey::CheckedSemanticSelections(key)
-        ));
     }
 
     #[test]
@@ -1317,7 +837,7 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
-            compilation.state.checked_literal_values.is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
@@ -1327,7 +847,7 @@ mod tests {
         };
 
         assert_eq!(
-            compilation.state.checked_literal_values.is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(true)
         );
 
@@ -1408,7 +928,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.liveness.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let first = match compilation.liveness(key.clone()) {
             Ok(analysis) => analysis,
@@ -1430,12 +953,12 @@ mod tests {
             Err(error) => panic!("repeated liveness analysis must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.snapshot_address(), second.snapshot_address());
 
         let dependencies = match compilation
             .state
             .fact_runtime
-            .dependencies(&crate::fact::CompilationFactKey::Liveness(key.clone()))
+            .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
         {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published liveness must retain dependencies"),
@@ -1447,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn dependency_contracts_are_demanded_independently_and_reuse_their_publication() {
+    fn dependency_contracts_reuse_the_body_semantic_publication() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main(value: i32) -> i32\n",
@@ -1459,7 +982,7 @@ mod tests {
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
-            compilation.state.dependency_contracts.is_published(&key),
+            compilation.state.body_semantics.is_published(&key),
             Ok(false)
         );
 
@@ -1473,22 +996,46 @@ mod tests {
             Err(error) => panic!("repeated dependency contracts must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&first, &second));
+        let liveness = compilation
+            .liveness(key.clone())
+            .unwrap_or_else(|error| panic!("liveness must publish: {error:?}"));
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(
-            &crate::fact::CompilationFactKey::DependencyContracts(key.clone()),
-        ) {
+        let refinements = compilation
+            .refinements(key.clone())
+            .unwrap_or_else(|error| panic!("refinements must publish: {error:?}"));
+
+        let storage_flow = compilation
+            .storage_flow(key.clone())
+            .unwrap_or_else(|error| panic!("storage flow must publish: {error:?}"));
+
+        let asynchronous = compilation
+            .async_analysis(key.clone())
+            .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
+
+        assert_eq!(first.snapshot_address(), second.snapshot_address());
+        assert_eq!(first.snapshot_address(), liveness.snapshot_address());
+        assert_eq!(first.snapshot_address(), refinements.snapshot_address());
+        assert_eq!(first.snapshot_address(), storage_flow.snapshot_address());
+        assert_eq!(first.snapshot_address(), asynchronous.snapshot_address());
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
+        {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published dependency contracts must retain dependencies"),
             Err(error) => panic!("dependency contract dependencies must be readable: {error:?}"),
         };
 
-        assert!(dependencies.contains(
-            &crate::fact::CompilationFactKey::CheckedSemanticSelections(key.clone())
-        ));
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+                key.clone()
+            ))
+        );
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
-        assert!(dependencies.contains(&crate::fact::CompilationFactKey::StorageFlow(key)));
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::MemoryOperations(key)));
     }
 
     #[test]
@@ -1507,7 +1054,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.storage_flow.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let analysis = match compilation.storage_flow(key.clone()) {
             Ok(analysis) => analysis,
@@ -1539,12 +1089,12 @@ mod tests {
             Err(error) => panic!("repeated storage-flow checking must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&analysis, &repeated));
+        assert_eq!(analysis.snapshot_address(), repeated.snapshot_address());
 
         let dependencies = match compilation
             .state
             .fact_runtime
-            .dependencies(&crate::fact::CompilationFactKey::StorageFlow(key.clone()))
+            .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
         {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published storage flow must retain dependencies"),
@@ -1553,9 +1103,13 @@ mod tests {
 
         assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
 
-        assert!(dependencies.contains(&crate::fact::CompilationFactKey::Liveness(key.clone())));
+        assert!(
+            dependencies.contains(&crate::fact::CompilationFactKey::ExpressionSemantics(
+                key.clone()
+            ))
+        );
 
-        assert!(dependencies.contains(&crate::fact::CompilationFactKey::Refinements(key.clone())));
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::MemoryOperations(key)));
     }
 
     #[test]
@@ -1887,7 +1441,7 @@ mod tests {
             Err(error) => panic!("repeated async analysis must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&analysis, &repeated));
+        assert_eq!(analysis.snapshot_address(), repeated.snapshot_address());
     }
 
     #[test]
@@ -2338,7 +1892,10 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        assert_eq!(compilation.state.refinements.is_published(&key), Ok(false));
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&key),
+            Ok(false)
+        );
 
         let first = match compilation.refinements(key.clone()) {
             Ok(analysis) => analysis,
@@ -2362,12 +1919,12 @@ mod tests {
             Err(error) => panic!("repeated refinement analysis must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.snapshot_address(), second.snapshot_address());
 
         let dependencies = match compilation
             .state
             .fact_runtime
-            .dependencies(&crate::fact::CompilationFactKey::Refinements(key.clone()))
+            .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
         {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("published refinements must retain dependencies"),
@@ -2903,18 +2460,12 @@ mod tests {
         );
 
         assert_eq!(
-            compilation
-                .state
-                .checked_expression_types
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
         assert_eq!(
-            compilation
-                .state
-                .checked_semantic_selections
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
@@ -2991,8 +2542,19 @@ mod tests {
             Err(error) => panic!("repeated semantic selections must publish: {error:?}"),
         };
 
-        assert!(Arc::ptr_eq(&types, &repeated_types));
-        assert!(Arc::ptr_eq(&selections, &repeated_selections));
+        let literals = compilation
+            .literal_values(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("literal values must publish: {error:?}"));
+
+        assert_eq!(types.snapshot_address(), repeated_types.snapshot_address());
+
+        assert_eq!(
+            selections.snapshot_address(),
+            repeated_selections.snapshot_address()
+        );
+
+        assert_eq!(types.snapshot_address(), selections.snapshot_address());
+        assert_eq!(types.snapshot_address(), literals.snapshot_address());
     }
 
     #[test]
@@ -5475,18 +5037,12 @@ func main()
         );
 
         assert_eq!(
-            compilation
-                .state
-                .checked_expression_types
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 
         assert_eq!(
-            compilation
-                .state
-                .checked_semantic_selections
-                .is_published(&key),
+            compilation.state.expression_semantics.is_published(&key),
             Ok(false)
         );
 

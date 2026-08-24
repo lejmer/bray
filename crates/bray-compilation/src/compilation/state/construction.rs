@@ -12,9 +12,7 @@ use bray_declarations::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
-use bray_symbols::{
-    PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph,
-};
+use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph};
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
@@ -233,18 +231,10 @@ impl Compilation {
                 checked_control_flow: UnitQueryCache::new(),
                 provisional_expression_semantics: UnitQueryCache::new(),
                 expression_semantics: UnitQueryCache::new(),
-                checked_expression_types: UnitQueryCache::new(),
-                checked_literal_values: UnitQueryCache::new(),
                 checked_patterns: UnitQueryCache::new(),
-                checked_semantic_selections: UnitQueryCache::new(),
                 storage_plans: UnitQueryCache::new(),
-                liveness: UnitQueryCache::new(),
-                refinements: UnitQueryCache::new(),
-                storage_flow: UnitQueryCache::new(),
-                dependency_contracts: UnitQueryCache::new(),
                 memory_operations: UnitQueryCache::new(),
-                async_analysis: UnitQueryCache::new(),
-                body_behavior_contributions: UnitQueryCache::new(),
+                body_semantics: UnitQueryCache::new(),
                 checked_body_behaviors: UnitQueryCache::new(),
                 lowered_units: UnitQueryCache::new(),
                 codegen,

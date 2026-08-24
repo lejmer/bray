@@ -103,9 +103,9 @@ impl CompilationInputKey {
             Self::CodegenConfiguration => 12,
             Self::StandardLibrary => 13,
             Self::StandardLibraryProviders => 14,
-            Self::Source(_)
-            | Self::DependencyInterface(_)
-            | Self::DependencyImplementation(_) => return None,
+            Self::Source(_) | Self::DependencyInterface(_) | Self::DependencyImplementation(_) => {
+                return None;
+            }
         };
 
         Some(1 << index)

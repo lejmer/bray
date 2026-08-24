@@ -1,6 +1,6 @@
 use std::hash::Hash;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 #[cfg(test)]

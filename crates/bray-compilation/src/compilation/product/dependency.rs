@@ -50,13 +50,13 @@ pub(super) fn validate_public_expression_dependencies(
         // Both lazy query results own the same Arc-backed unit key independently.
         let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-        let selections = compilation.semantic_selections_with_cancellation(key, cancellation)?;
+        let expressions = compilation.expression_semantics_with_cancellation(key, cancellation)?;
 
-        diagnostics.add_range(selections.result().diagnostics().iter().cloned());
+        diagnostics.add_range(expressions.result().diagnostics().iter().cloned());
 
         if let Some(internal) = bound_expression_internal_dependency(
             bound.result().value(),
-            selections.result().value(),
+            expressions.result().value().selections(),
             semantic_values,
             symbols,
             declarations,

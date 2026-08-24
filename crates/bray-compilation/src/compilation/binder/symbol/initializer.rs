@@ -36,7 +36,10 @@ pub(super) fn validate_static_initializer_template(
 
     let references = context
         .compilation()
-        .symbolic_references(bound.result().value(), &semantics.result().value().1)
+        .symbolic_references(
+            bound.result().value(),
+            semantics.result().value().selections(),
+        )
         .map_err(binder_error)?;
 
     let resolver = crate::compilation::constant::CompilationConstantCallResolver::new(
@@ -44,11 +47,13 @@ pub(super) fn validate_static_initializer_template(
         context.cancellation(),
     );
 
-    let input =
-        ConstantEvaluationInput::new(&semantics.result().value().0, &semantics.result().value().1)
-            .with_references(references)
-            .with_call_resolver(&resolver)
-            .with_static_address_borrows();
+    let input = ConstantEvaluationInput::new(
+        semantics.result().value().types(),
+        semantics.result().value().selections(),
+    )
+    .with_references(references)
+    .with_call_resolver(&resolver)
+    .with_static_address_borrows();
 
     let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &checker_context)
         .map_err(|_| BindingQueryError::DependencyUnavailable)?;

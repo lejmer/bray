@@ -4,6 +4,7 @@ use bray_bound_tree::{
     SelectionKind,
 };
 
+use crate::unit::semantic_inputs_match;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{
@@ -317,8 +318,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     if input.kind() == SelectionKind::Callable
-        || types.unit() != request.view().unit()
-        || types.kind() != request.view().kind()
+        || !semantic_inputs_match(request, [(types.unit(), types.kind())])
         || !expression_matches_request(request, input)
     {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);

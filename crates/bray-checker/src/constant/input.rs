@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatterns,
-    CheckedSemanticSelections,
+    BoundBlockId, BoundExpressionId, CheckedExpressionSemantics, CheckedExpressionTypes,
+    CheckedPatterns, CheckedSemanticSelections,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
@@ -52,6 +52,19 @@ pub struct ConstantEvaluationInput<'input> {
 }
 
 impl<'input> ConstantEvaluationInput<'input> {
+    /// Creates an expression-rooted input from one semantic snapshot and its resolved dependencies.
+    pub fn for_expression(
+        semantics: &'input CheckedExpressionSemantics,
+        root: BoundExpressionId,
+        references: impl IntoIterator<Item = (BoundExpressionId, ConstantReferenceResolution)>,
+        resolver: &'input dyn ConstantCallResolver,
+    ) -> Self {
+        Self::new(semantics.types(), semantics.selections())
+            .with_root(root)
+            .with_references(references)
+            .with_call_resolver(resolver)
+    }
+
     /// Creates an evaluation input with the standard deterministic limits.
     pub fn new(
         expression_types: &'input CheckedExpressionTypes,

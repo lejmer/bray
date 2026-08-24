@@ -20,10 +20,16 @@ pub(crate) enum ProfileOperation {
     LinkInputStaging,
     EmissionLinking,
     ArtifactPublication,
+    NativeRootSelection,
+    NativeReachability,
+    NativeHostPreparation,
+    NativePartitioning,
+    NativeMapping,
+    NativePlanFinalization,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 13;
+    pub(crate) const COUNT: usize = 19;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -44,6 +50,12 @@ impl ProfileOperation {
             Self::LinkInputStaging => "compiler.emit.stage",
             Self::EmissionLinking => "compiler.emit.link",
             Self::ArtifactPublication => "compiler.emit.publish",
+            Self::NativeRootSelection => "compiler.native.roots",
+            Self::NativeReachability => "compiler.native.reachability",
+            Self::NativeHostPreparation => "compiler.native.host",
+            Self::NativePartitioning => "compiler.native.partition",
+            Self::NativeMapping => "compiler.native.mapping",
+            Self::NativePlanFinalization => "compiler.native.finalize",
         }
     }
 
@@ -62,6 +74,12 @@ impl ProfileOperation {
             Self::LinkInputStaging => 11,
             Self::EmissionLinking => 12,
             Self::ArtifactPublication => 13,
+            Self::NativeRootSelection => 14,
+            Self::NativeReachability => 15,
+            Self::NativeHostPreparation => 16,
+            Self::NativePartitioning => 17,
+            Self::NativeMapping => 18,
+            Self::NativePlanFinalization => 19,
         }
     }
 
@@ -78,7 +96,13 @@ impl ProfileOperation {
             | Self::EmissionCodeGeneration
             | Self::LinkInputStaging
             | Self::EmissionLinking
-            | Self::ArtifactPublication => CompilationProfileCategory::Work,
+            | Self::ArtifactPublication
+            | Self::NativeRootSelection
+            | Self::NativeReachability
+            | Self::NativeHostPreparation
+            | Self::NativePartitioning
+            | Self::NativeMapping
+            | Self::NativePlanFinalization => CompilationProfileCategory::Work,
         }
     }
 
@@ -102,7 +126,13 @@ impl ProfileOperation {
             Self::Linking
             | Self::InterfaceExport
             | Self::EmissionCodeGeneration
-            | Self::EmissionLinking => &[Product],
+            | Self::EmissionLinking
+            | Self::NativeRootSelection
+            | Self::NativeReachability
+            | Self::NativeHostPreparation
+            | Self::NativePartitioning
+            | Self::NativeMapping
+            | Self::NativePlanFinalization => &[Product],
             Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
                 &[Product, Artifact]
             }
@@ -124,6 +154,12 @@ impl ProfileOperation {
             Self::LinkInputStaging,
             Self::EmissionLinking,
             Self::ArtifactPublication,
+            Self::NativeRootSelection,
+            Self::NativeReachability,
+            Self::NativeHostPreparation,
+            Self::NativePartitioning,
+            Self::NativeMapping,
+            Self::NativePlanFinalization,
         ]
     }
 }
@@ -445,18 +481,9 @@ define_profile_query_kinds! {
     ConstantCall = 1012 => "constant_call",
     ConstantCallCycle = 1013 => "constant_call_cycle",
     CheckedControlFlow = 1014 => "checked_control_flow",
-    CheckedExpressionTypes = 1015 => "checked_expression_types",
-    CheckedLiteralValues = 1016 => "checked_literal_values",
     CheckedPatterns = 1017 => "checked_patterns",
-    CheckedSemanticSelections = 1018 => "checked_semantic_selections",
     StoragePlan = 1019 => "storage_plan",
-    Liveness = 1020 => "liveness",
-    Refinements = 1021 => "refinements",
-    StorageFlow = 1022 => "storage_flow",
-    DependencyContracts = 1023 => "dependency_contracts",
     MemoryOperations = 1024 => "memory_operations",
-    AsyncAnalysis = 1025 => "async_analysis",
-    BodyBehaviorContributions = 1026 => "body_behavior_contributions",
     CheckedBodyBehavior = 1027 => "checked_body_behavior",
     LoweredUnit = 1028 => "lowered_unit",
     CodegenArtifact = 1029 => "codegen_artifact",
@@ -502,6 +529,7 @@ define_profile_query_kinds! {
     Symbol = 1070 => "symbol",
     SyntaxTree = 1071 => "syntax_tree",
     ForeignStaticContract = 1072 => "foreign_static_contract",
+    BodySemantics = 1073 => "body_semantics",
 }
 
 impl ProfileQueryKind {
@@ -527,18 +555,10 @@ impl ProfileQueryKind {
             CompilationFactKey::ConstantCall(_) => Self::ConstantCall,
             CompilationFactKey::ConstantCallCycle(_) => Self::ConstantCallCycle,
             CompilationFactKey::CheckedControlFlow(_) => Self::CheckedControlFlow,
-            CompilationFactKey::CheckedExpressionTypes(_) => Self::CheckedExpressionTypes,
-            CompilationFactKey::CheckedLiteralValues(_) => Self::CheckedLiteralValues,
             CompilationFactKey::CheckedPatterns(_) => Self::CheckedPatterns,
-            CompilationFactKey::CheckedSemanticSelections(_) => Self::CheckedSemanticSelections,
             CompilationFactKey::StoragePlan(_) => Self::StoragePlan,
-            CompilationFactKey::Liveness(_) => Self::Liveness,
-            CompilationFactKey::Refinements(_) => Self::Refinements,
-            CompilationFactKey::StorageFlow(_) => Self::StorageFlow,
-            CompilationFactKey::DependencyContracts(_) => Self::DependencyContracts,
             CompilationFactKey::MemoryOperations(_) => Self::MemoryOperations,
-            CompilationFactKey::AsyncAnalysis(_) => Self::AsyncAnalysis,
-            CompilationFactKey::BodyBehaviorContributions(_) => Self::BodyBehaviorContributions,
+            CompilationFactKey::BodySemantics(_) => Self::BodySemantics,
             CompilationFactKey::CheckedBodyBehavior(_) => Self::CheckedBodyBehavior,
             CompilationFactKey::LoweredUnit(_) => Self::LoweredUnit,
             CompilationFactKey::CodegenArtifact(_) => Self::CodegenArtifact,
@@ -618,7 +638,9 @@ mod tests {
     fn descriptor_ids_are_schema_locked() {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            [
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+            ]
         );
 
         assert_eq!(
@@ -633,12 +655,12 @@ mod tests {
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
             [
-                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012,
-                1_013, 1_014, 1_015, 1_016, 1_017, 1_018, 1_019, 1_020, 1_021, 1_022, 1_023, 1_024,
-                1_025, 1_026, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036,
-                1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048,
-                1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060,
-                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
+                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012, 1_013, 1_014,
+                1_017, 1_019, 1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035,
+                1_036, 1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047,
+                1_048, 1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059,
+                1_060, 1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
+                1_073,
             ]
         );
     }

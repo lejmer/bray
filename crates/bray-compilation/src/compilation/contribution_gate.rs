@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_binder::malformed_directive_argument_diagnostic;
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, BoundUnitKind};
 use bray_checker::{
-    CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator, ConstantReferenceResolution,
+    ConstantEvaluationInput, ConstantEvaluator, ConstantReferenceResolution,
     DefaultConstantEvaluator,
 };
 use bray_compiler_known::RepresentationRole;
@@ -235,7 +235,7 @@ impl Compilation {
 
         let references = collect_constant_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             |expression, target| {
                 let (resolution, dependency) = self.target_gate_reference(target)?;
 
@@ -248,17 +248,13 @@ impl Compilation {
         )?;
 
         let input = ConstantEvaluationInput::new(
-            &semantics.result().value().0,
-            &semantics.result().value().1,
+            semantics.result().value().types(),
+            semantics.result().value().selections(),
         )
         .with_references(references);
 
-        let unit = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-            .map_err(|error| {
-                FactQueryError::CheckerInfrastructure(
-                    bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                )
-            })?;
+        let unit =
+            super::unit::checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

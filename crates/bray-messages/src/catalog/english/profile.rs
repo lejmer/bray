@@ -262,19 +262,17 @@ fn write_scheduling_wave_table(output: &mut String, report: &CompilationProfileR
     );
 
     for class in &report.scheduler.wave_classes {
-        let context = if let Some(descriptor) = class
-            .query_id
-            .and_then(|id| report.query_descriptor(id))
-        {
-            display_name(&descriptor.name)
-        } else if let Some(descriptor) = class
-            .operation_id
-            .and_then(|id| report.operation_descriptor(id))
-        {
-            display_name(&descriptor.name)
-        } else {
-            "unscoped".to_owned()
-        };
+        let context =
+            if let Some(descriptor) = class.query_id.and_then(|id| report.query_descriptor(id)) {
+                display_name(&descriptor.name)
+            } else if let Some(descriptor) = class
+                .operation_id
+                .and_then(|id| report.operation_descriptor(id))
+            {
+                display_name(&descriptor.name)
+            } else {
+                "unscoped".to_owned()
+            };
 
         let _ = writeln!(
             output,

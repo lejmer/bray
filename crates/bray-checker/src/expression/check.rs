@@ -22,6 +22,7 @@ use crate::expression::check_literal_values;
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
+use crate::unit::semantic_inputs_match;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
@@ -48,9 +49,7 @@ where
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
-    if declared_types.unit() != request.view().unit()
-        || declared_types.kind() != request.view().kind()
-    {
+    if !semantic_inputs_match(request, [(declared_types.unit(), declared_types.kind())]) {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
         );

@@ -110,7 +110,7 @@ impl Compilation {
 
         let (references, dependency_diagnostics) = self.concrete_embedded_references(
             bound.result().value(),
-            &semantics.result().value().1,
+            semantics.result().value().selections(),
             bray_checker::ConstantEvaluationLimits::default(),
             cancellation,
         )?;
@@ -118,19 +118,17 @@ impl Compilation {
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
         let input = ConstantEvaluationInput::new(
-            &semantics.result().value().0,
-            &semantics.result().value().1,
+            semantics.result().value().types(),
+            semantics.result().value().selections(),
         )
         .with_references(references)
         .with_call_resolver(&resolver);
 
-        let unit =
-            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-                .map_err(|error| {
-                    FactQueryError::CheckerInfrastructure(
-                        bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-                    )
-                })?;
+        let unit = crate::compilation::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
 
         let evaluated = checker_result(DefaultConstantEvaluator.evaluate_constant(unit, &input))?;
 
