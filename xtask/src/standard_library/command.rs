@@ -1,6 +1,8 @@
 mod core;
 mod error;
+mod options;
 mod platform;
+mod profile;
 mod reuse;
 mod verification;
 

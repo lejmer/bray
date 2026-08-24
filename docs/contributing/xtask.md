@@ -178,6 +178,17 @@ The bundle records the exact source, dependency, compiler, and packaging inputs 
 authenticate the manifest and every published artifact, then reuse a current bundle that contains all requested
 targets.
 
+Profile the compiler work for a standard-library build with:
+
+```text
+cargo xtask standard-library build --output <directory> --profile summary --profile-output profiles/standard-library-build
+```
+
+Profiling bypasses bundle reuse so that every requested target is compiled and measured. The profile directory receives
+one JSON report per target. Select `trace` after a summary identifies scheduling or dependency waits that require a
+causal timeline. Inspect and compare the reports with the commands described in
+[Compiler profiling](profiling.md).
+
 To produce the installed layout expected by Bray Tack beside release binaries in `target/release/`, run:
 
 ```text

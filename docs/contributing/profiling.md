@@ -61,6 +61,15 @@ bray profile show profiles/current/hello_world-application-x86_64-pc-windows-msv
 `profile show` validates the schema and descriptor references, then renders the same bounded human report used during
 collection. It does not compile the project and can run outside the project that produced the report.
 
+To profile the compiler while constructing the standard-library bundle, run:
+
+```text
+cargo xtask standard-library build --output target/release/lib/bray/standard-library --profile summary --profile-output profiles/standard-library-build
+```
+
+The standard-library command writes one report per target and bypasses current-bundle reuse for profiled builds. Use
+`--profile trace` with the same output option when the aggregate report indicates that a causal event timeline is needed.
+
 ## Read the summary
 
 Every report begins with its compilation identity:
