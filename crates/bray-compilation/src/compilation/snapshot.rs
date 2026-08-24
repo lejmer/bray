@@ -192,13 +192,6 @@ fn reuse_fixed_cells(
     reuse!(product_semantics, CompilationFactKey::ProductSemantics);
 
     reuse!(
-        compiler_known_symbols,
-        CompilationFactKey::CompilerKnownSymbols
-    );
-
-    reuse!(selected_target, CompilationFactKey::SelectedTarget);
-
-    reuse!(
         discovery_symbol_graph,
         CompilationFactKey::DiscoverySymbolGraph
     );
@@ -908,13 +901,6 @@ mod tests {
                 .shares_storage_with(&updated.state.source_unit_syntax[0])
         );
 
-        assert!(
-            !previous
-                .state
-                .selected_target
-                .shares_storage_with(&updated.state.selected_target)
-        );
-
         assert_eq!(
             previous.selected_target().target().runtime_abi(),
             RuntimeAbiVersion::new(1, 0)
@@ -946,12 +932,7 @@ mod tests {
                 .shares_storage_with(&updated.state.source_unit_syntax[0])
         );
 
-        assert!(
-            previous
-                .state
-                .selected_target
-                .shares_storage_with(&updated.state.selected_target)
-        );
+        assert_eq!(previous.state.selected_target, updated.state.selected_target);
 
         assert!(
             !previous

@@ -433,11 +433,9 @@ macro_rules! define_profile_query_kinds {
 }
 
 define_profile_query_kinds! {
-    SelectedTarget = 1000 => "selected_target",
     TargetValidity = 1001 => "target_validity",
     ModuleContributionGate = 1002 => "module_contribution_gate",
     CallableTypeDirectives = 1003 => "callable_type_directives",
-    CompilerKnownSymbols = 1004 => "compiler_known_symbols",
     BoundUnit = 1006 => "bound_unit",
     CheckDiagnostics = 1007 => "check_diagnostics",
     ConstantTemplateKeys = 1008 => "constant_template_keys",
@@ -517,11 +515,9 @@ impl ProfileQueryKind {
 
     pub(crate) const fn from_key(key: &CompilationFactKey) -> Self {
         match key {
-            CompilationFactKey::SelectedTarget => Self::SelectedTarget,
             CompilationFactKey::TargetValidity(_) => Self::TargetValidity,
             CompilationFactKey::ModuleContributionGate(_) => Self::ModuleContributionGate,
             CompilationFactKey::CallableTypeDirectives(_) => Self::CallableTypeDirectives,
-            CompilationFactKey::CompilerKnownSymbols => Self::CompilerKnownSymbols,
             CompilationFactKey::BoundUnit(_) => Self::BoundUnit,
             CompilationFactKey::CheckDiagnostics => Self::CheckDiagnostics,
             CompilationFactKey::ConstantTemplateKeys => Self::ConstantTemplateKeys,
@@ -637,7 +633,7 @@ mod tests {
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
             [
-                1_000, 1_001, 1_002, 1_003, 1_004, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012,
+                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012,
                 1_013, 1_014, 1_015, 1_016, 1_017, 1_018, 1_019, 1_020, 1_021, 1_022, 1_023, 1_024,
                 1_025, 1_026, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036,
                 1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048,

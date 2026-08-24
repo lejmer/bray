@@ -13,17 +13,15 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, PackageIdentity, ProductIdentity,
-    SemanticValueStore, SymbolGraph,
+    PackageIdentity, ProductIdentity, SemanticValueStore, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey, FactCell,
-    FactCellMap, FactQueryError, FactRuntime, PublishedUnitResult, UnitQueryCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactCellMap,
+    FactQueryError, FactRuntime, PublishedUnitResult, UnitQueryCache,
 };
-use crate::request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
-use crate::worker::WorkerBudget;
+use crate::request::{CompilationRequest, DependencyInterfaceInput};
 
 use crate::compilation::binder::CompilationSymbolSemantics;
 use crate::compilation::load::{
@@ -156,6 +154,16 @@ impl Compilation {
             profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
         }
 
+        let compiler_known_symbols = super::inputs::shared_catalog();
+        let selected_target = options.selected_target().clone();
+
+        // The filtered view and compilation state retain the shared generated catalog.
+        let available_compiler_known_symbols = Arc::clone(&compiler_known_symbols)
+            .available_symbols(|rule| selected_target.supports(rule));
+
+        let selected_target =
+            crate::SelectedTargetContext::new(selected_target, available_compiler_known_symbols);
+
         if let Some(span) = load_span {
             span.finish(crate::CompilationProfileOutcome::Completed);
         }
@@ -183,8 +191,8 @@ impl Compilation {
                 product_source_graph: FactCell::new(),
                 product_semantics: FactCell::new(),
                 test_discoveries: FactCellMap::new(),
-                compiler_known_symbols: FactCell::new(),
-                selected_target: FactCell::new(),
+                compiler_known_symbols,
+                selected_target,
                 target_validity: FactCellMap::new(),
                 module_contribution_gates: FactCellMap::new(),
                 callable_type_directives: FactCellMap::new(),
@@ -263,75 +271,6 @@ impl Compilation {
         Self::load(CompilationRequest::new(package_identity, sources))
     }
 
-    /// Returns the source package identity selected for this compilation.
-    pub fn package_identity(&self) -> &PackageIdentity {
-        self.record_input(CompilationInputKey::PackageIdentity);
-
-        &self.state.package_identity
-    }
-
-    /// Returns the authority governing this source package's identity.
-    pub fn package_source_authority(&self) -> crate::PackageSourceAuthority {
-        self.record_input(CompilationInputKey::PackageSourceAuthority);
-
-        self.state.package_source_authority
-    }
-
-    /// Returns an immutable profile snapshot when profiling is enabled.
-    pub fn profile_report(&self) -> Option<crate::CompilationProfileReport> {
-        self.state.fact_runtime.profile_report()
-    }
-
-    /// Returns the compilation options.
-    pub fn options(&self) -> &CompilationOptions {
-        &self.state.options
-    }
-
-    /// Returns the compiler-owned CPU worker budget.
-    pub fn worker_budget(&self) -> WorkerBudget {
-        self.state.options.worker_budget()
-    }
-
-    /// Returns the selected target and its available compiler-known declarations.
-    pub fn selected_target(&self) -> &crate::SelectedTargetContext {
-        self.evaluate_query(
-            CompilationFactKey::SelectedTarget,
-            &self.state.selected_target,
-            || {
-                let provider = match self.compiler_known_provider() {
-                    Ok(provider) => Arc::clone(provider),
-                    // Generated catalog validation makes provider failure a compiler invariant.
-                    Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
-                };
-
-                // The published result retains its target independently of request options.
-                let target = self.requested_target().clone();
-                let available = provider.available_symbols(|rule| target.supports(rule));
-
-                crate::SelectedTargetContext::new(target, available)
-            },
-        )
-    }
-
-    /// Returns the compiler-known symbols available for the selected target.
-    pub fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
-        self.selected_target().available_compiler_known_symbols()
-    }
-
-    /// Returns the loaded source snapshots.
-    pub fn sources(&self) -> &SourceStore {
-        self.record_input(CompilationInputKey::SourceSet);
-
-        &self.state.sources
-    }
-
-    /// Returns diagnostics produced while loading source inputs.
-    pub fn source_diagnostics(&self) -> &DiagnosticBag {
-        self.record_input(CompilationInputKey::SourceDiagnostics);
-
-        &self.state.source_diagnostics
-    }
-
     /// Returns the syntax result for one source unit.
     pub fn source_unit_syntax(&self, source_id: SourceId) -> Option<&SourceUnitSyntaxResult> {
         self.state.sources.get(source_id)?;
@@ -369,7 +308,7 @@ impl Compilation {
 
     /// Returns the syntax tree result for all loaded source units.
     pub fn syntax_tree_result(&self) -> &SyntaxTreeResult {
-        self.evaluate_query(
+        self.evaluate_established_query(
             CompilationFactKey::SyntaxTree,
             &self.state.syntax_tree_result,
             || {
@@ -496,11 +435,11 @@ impl Compilation {
 
     /// Returns the compilation-wide symbol graph.
     pub fn symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
-        self.evaluate_query(
+        self.evaluate_established_query(
             CompilationFactKey::SymbolGraph,
             &self.state.symbol_graph,
             || {
-                let provider = self.compiler_known_provider().map(Arc::clone)?;
+                let provider = Arc::clone(self.compiler_known_provider());
 
                 // The graph owns the Arc-backed package identity after compilation retains its input.
                 SymbolGraph::build_source_with_provider(
@@ -519,11 +458,11 @@ impl Compilation {
     pub(in crate::compilation) fn discovery_symbol_graph(
         &self,
     ) -> Result<&SymbolGraph, FactQueryError> {
-        self.evaluate_query(
+        self.evaluate_established_query(
             CompilationFactKey::DiscoverySymbolGraph,
             &self.state.discovery_symbol_graph,
             || {
-                let provider = self.compiler_known_provider().map(Arc::clone)?;
+                let provider = Arc::clone(self.compiler_known_provider());
 
                 SymbolGraph::build_source_with_provider(
                     self.package_identity().clone(),
@@ -547,16 +486,6 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
-    fn compiler_known_provider(&self) -> Result<&Arc<CompilerKnownSymbolProvider>, FactQueryError> {
-        self.evaluate_query(
-            CompilationFactKey::CompilerKnownSymbols,
-            &self.state.compiler_known_symbols,
-            || CompilerKnownSymbolProvider::build().map(Arc::new),
-        )
-        .as_ref()
-        .map_err(|_| FactQueryError::InfrastructureFailure)
-    }
-
     pub(in crate::compilation) fn bound_unit_id(
         &self,
         key: &BoundUnitKey,
@@ -569,34 +498,6 @@ impl Compilation {
             .as_ref()
             .map_err(Clone::clone)?
             .unit_id(key)
-    }
-
-    /// Returns the loaded source snapshot for `source_id`.
-    pub fn source(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
-        self.record_input(CompilationInputKey::Source(source_id));
-
-        self.state.sources.get(source_id)
-    }
-
-    /// Returns the loaded source text for `source_id`.
-    pub fn source_text(&self, source_id: SourceId) -> Option<&str> {
-        self.record_input(CompilationInputKey::Source(source_id));
-
-        self.state.sources.text(source_id)
-    }
-
-    /// Returns the number of loaded source snapshots.
-    pub fn source_count(&self) -> usize {
-        self.record_input(CompilationInputKey::SourceSet);
-
-        self.state.sources.len()
-    }
-
-    /// Returns whether this compilation has no source snapshots.
-    pub fn is_empty(&self) -> bool {
-        self.record_input(CompilationInputKey::SourceSet);
-
-        self.state.sources.is_empty()
     }
 
     pub(in crate::compilation) fn evaluate_query<'a, T>(
@@ -638,6 +539,29 @@ impl Compilation {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
         }
+    }
+
+    pub(in crate::compilation) fn evaluate_established_query<'a, T>(
+        &self,
+        key: CompilationFactKey,
+        cache: &'a FactCell<T>,
+        compute: impl FnOnce() -> T + Send,
+    ) -> &'a T
+    where
+        T: std::hash::Hash + Send,
+    {
+        if let Some(value) = cache.get_if_published() {
+            self.state
+                .fact_runtime
+                .record_established_fact(&key)
+                .unwrap_or_else(|error| {
+                    panic!("established compilation dependency tracking must succeed: {error:?}")
+                });
+
+            return value;
+        }
+
+        self.evaluate_query(key, cache, compute)
     }
 
     pub(in crate::compilation) fn query_with_cancellation<'a, T>(
@@ -808,7 +732,7 @@ mod tests {
     };
     use bray_syntax::SourceSyntaxNode;
 
-    use crate::fact::{CompilationFactKey, FactQueryError};
+    use crate::fact::{CompilationFactKey, CompilationInputKey, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
         diagnostic_kinds, package_identity, source_callable_body_key,
@@ -1166,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_targets_are_lazy_cached_without_requesting_source_queries() {
+    fn selected_targets_are_snapshot_inputs_without_requesting_source_queries() {
         let compilation = match Compilation::load_sources(
             package_identity(),
             vec![source_input("module app;", 0)],
@@ -1175,7 +1099,6 @@ mod tests {
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
 
-        assert!(compilation.state.selected_target.get().is_none());
         assert!(compilation.state.syntax_tree_result.get().is_none());
         assert!(compilation.state.declaration_table_result.get().is_none());
 
@@ -1193,19 +1116,8 @@ mod tests {
             64
         );
 
-        assert!(compilation.state.selected_target.get().is_some());
         assert!(compilation.state.syntax_tree_result.get().is_none());
         assert!(compilation.state.declaration_table_result.get().is_none());
-
-        assert_eq!(
-            compilation
-                .state
-                .fact_runtime
-                .dependencies(&CompilationFactKey::SelectedTarget),
-            Ok(Some(
-                vec![CompilationFactKey::CompilerKnownSymbols].into_boxed_slice()
-            ))
-        );
 
         let graph = match compilation.symbol_graph() {
             Ok(graph) => graph,
@@ -1522,14 +1434,14 @@ mod tests {
         let dependencies = match compilation
             .state
             .fact_runtime
-            .dependencies(&CompilationFactKey::CheckedControlFlow(key))
+            .input_dependencies(&CompilationFactKey::CheckedControlFlow(key))
         {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("checked control flow must publish its dependencies"),
             Err(error) => panic!("checked control-flow dependencies must be readable: {error:?}"),
         };
 
-        assert!(!dependencies.contains(&CompilationFactKey::SelectedTarget));
+        assert!(!dependencies.contains(&CompilationInputKey::SelectedTarget));
     }
 
     #[test]

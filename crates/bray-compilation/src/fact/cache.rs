@@ -1,5 +1,6 @@
 use std::hash::Hash;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 #[cfg(test)]
@@ -21,6 +22,7 @@ pub(crate) struct FactCell<T> {
 #[derive(Debug)]
 struct FactCellStorage<T> {
     value: OnceLock<T>,
+    published: AtomicBool,
     state: Mutex<FactCellState>,
     changed: Condvar,
     #[cfg(test)]
@@ -74,6 +76,7 @@ impl<T> FactCell<T> {
         Self {
             storage: Arc::new(FactCellStorage {
                 value: OnceLock::new(),
+                published: AtomicBool::new(false),
                 state: Mutex::new(FactCellState::Vacant),
                 changed: Condvar::new(),
                 #[cfg(test)]
@@ -83,6 +86,14 @@ impl<T> FactCell<T> {
     }
 
     pub(crate) fn get(&self) -> Option<&T> {
+        self.storage.value.get()
+    }
+
+    pub(crate) fn get_if_published(&self) -> Option<&T> {
+        if !self.storage.published.load(Ordering::Acquire) {
+            return None;
+        }
+
         self.storage.value.get()
     }
 
@@ -428,6 +439,9 @@ impl<T> FactCell<T> {
         commit.commit();
 
         *state = FactCellState::Ready(key);
+
+        // Release publication exposes both the value and dependency record to lock-free readers.
+        self.storage.published.store(true, Ordering::Release);
 
         self.storage.changed.notify_all();
 

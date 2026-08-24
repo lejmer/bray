@@ -14,7 +14,8 @@ use std::fmt;
 use super::scheduler::FactScheduler;
 use super::task::{
     FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
-    current_cycle, record_input, record_request_with_cycle_key, run_with_evaluations,
+    current_cycle, record_established_fact, record_input, record_request_with_cycle_key,
+    run_with_evaluations,
 };
 use super::{
     CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle, FactDependencyRecord,
@@ -136,7 +137,24 @@ impl FactRuntime {
     }
 
     pub(crate) fn record_input(&self, key: CompilationInputKey) -> Result<(), FactQueryError> {
-        record_input(self.identity(), &key, self.inputs.get(&key))
+        let fingerprint = key
+            .fixed_bit()
+            .is_none()
+            .then(|| self.inputs.get(&key))
+            .flatten();
+
+        record_input(self.identity(), &key, fingerprint)
+    }
+
+    pub(crate) fn record_established_fact(
+        &self,
+        key: &CompilationFactKey,
+    ) -> Result<(), FactQueryError> {
+        let bit = key
+            .established_bit()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        record_established_fact(self.identity(), bit)
     }
 
     #[inline(always)]
@@ -410,8 +428,30 @@ impl FactRuntime {
 
         let dependencies = context.finish()?;
 
-        let facts = dependencies
-            .facts
+        let mut input_dependencies = dependencies.inputs;
+
+        for (index, input) in CompilationInputKey::FIXED.iter().enumerate() {
+            if dependencies.fixed_inputs & (1 << index) == 0 {
+                continue;
+            }
+
+            let fingerprint = self
+                .inputs
+                .get(input)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            input_dependencies.insert(input.clone(), fingerprint);
+        }
+
+        let mut fact_dependencies = dependencies.facts;
+
+        for (index, fact) in CompilationFactKey::ESTABLISHED.iter().enumerate() {
+            if dependencies.established_facts & (1 << index) != 0 {
+                fact_dependencies.insert(fact.clone());
+            }
+        }
+
+        let facts = fact_dependencies
             .iter()
             .map(|dependency| {
                 state
@@ -424,7 +464,7 @@ impl FactRuntime {
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
         let record =
-            FactDependencyRecord::new(fact_fingerprint(key, value), facts, dependencies.inputs);
+            FactDependencyRecord::new(fact_fingerprint(key, value), facts, input_dependencies);
 
         // The commit owns the key while coordinating runtime and cache publication locks.
         Ok(EvaluationCommit {
@@ -462,6 +502,19 @@ impl FactRuntime {
             .records
             .get(key)
             .map(|record| record.facts().keys().cloned().collect::<Box<[_]>>()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn input_dependencies(
+        &self,
+        key: &CompilationFactKey,
+    ) -> Result<Option<Box<[CompilationInputKey]>>, FactQueryError> {
+        let state = self.state()?;
+
+        Ok(state
+            .records
+            .get(key)
+            .map(|record| record.inputs().keys().cloned().collect::<Box<[_]>>()))
     }
 }
 
@@ -892,7 +945,7 @@ mod tests {
         let mut runtime = FactRuntime::default();
         let deep_root = source_syntax_key(0);
         let wide_root = CompilationFactKey::SyntaxTree;
-        let unrelated = CompilationFactKey::SelectedTarget;
+        let unrelated = CompilationFactKey::CheckDiagnostics;
 
         let mut previous_inputs = CompilationInputs::default();
         previous_inputs.insert(CompilationInputKey::SourceDiagnostics, &0_u8);

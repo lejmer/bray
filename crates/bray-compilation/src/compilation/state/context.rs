@@ -18,8 +18,8 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult};
 use bray_source::SourceStore;
 use bray_symbols::{
     AnyConstantDefinitionId, CallableDefinitionId, CallableTypeDirectiveKey,
-    CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider, ConstantExpressionExpectedType,
-    ConstantExpressionOccurrenceKey, ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface,
+    CompilerKnownSymbolProvider, ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey,
+    ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface,
     ForeignCallableContract, ForeignStaticContract, FunctionSymbolId,
     GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
     ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
@@ -79,9 +79,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) product_semantics: FactCell<DiagnosticResult<ProductSemantics>>,
     pub(in crate::compilation) test_discoveries:
         FactCellMap<ProductIdentity, Arc<DiagnosticResult<TestDiscovery>>>,
-    pub(in crate::compilation) compiler_known_symbols:
-        FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
-    pub(in crate::compilation) selected_target: FactCell<crate::SelectedTargetContext>,
+    pub(in crate::compilation) compiler_known_symbols: Arc<CompilerKnownSymbolProvider>,
+    pub(in crate::compilation) selected_target: crate::SelectedTargetContext,
     pub(in crate::compilation) target_validity:
         FactCellMap<TargetValidityRequest, Arc<DiagnosticResult<TargetValidity>>>,
     pub(in crate::compilation) module_contribution_gates:

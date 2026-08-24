@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::{CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError};
@@ -19,6 +20,8 @@ struct FactTaskData {
     identity: FactTaskIdentity,
     key: CompilationFactKey,
     cycle_key: CompilationFactKey,
+    fixed_inputs: AtomicU32,
+    established_facts: AtomicU8,
     state: Mutex<FactTaskState>,
 }
 
@@ -32,6 +35,8 @@ struct FactTaskState {
 pub(crate) struct RecordedDependencies {
     pub(crate) facts: BTreeSet<CompilationFactKey>,
     pub(crate) inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
+    pub(crate) fixed_inputs: u32,
+    pub(crate) established_facts: u8,
 }
 
 impl FactTaskContext {
@@ -47,6 +52,8 @@ impl FactTaskContext {
                 identity,
                 key,
                 cycle_key,
+                fixed_inputs: AtomicU32::new(0),
+                established_facts: AtomicU8::new(0),
                 state: Mutex::new(FactTaskState {
                     accepting_dependencies: true,
                     dependencies: BTreeSet::new(),
@@ -76,6 +83,8 @@ impl FactTaskContext {
         Ok(RecordedDependencies {
             facts: std::mem::take(&mut state.dependencies),
             inputs: std::mem::take(&mut state.inputs),
+            fixed_inputs: self.data.fixed_inputs.load(Ordering::Acquire),
+            established_facts: self.data.established_facts.load(Ordering::Acquire),
         })
     }
 
@@ -135,6 +144,14 @@ impl FactTaskContext {
         }
     }
 
+    fn record_fixed_input(&self, bit: u32) {
+        self.data.fixed_inputs.fetch_or(bit, Ordering::AcqRel);
+    }
+
+    fn record_established_fact(&self, bit: u8) {
+        self.data.established_facts.fetch_or(bit, Ordering::AcqRel);
+    }
+
     fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
         self.data
             .state
@@ -185,10 +202,33 @@ pub(crate) fn record_input(
             return Ok(());
         }
 
+        if let Some(bit) = key.fixed_bit() {
+            context.record_fixed_input(bit);
+
+            return Ok(());
+        }
+
         context.record_input(
             key,
             fingerprint.ok_or(FactQueryError::InfrastructureFailure)?,
         )
+    })
+}
+
+pub(crate) fn record_established_fact(
+    runtime: RuntimeIdentity,
+    bit: u8,
+) -> Result<(), FactQueryError> {
+    local_evaluations(|active| {
+        let Some(context) = active.last() else {
+            return Ok(());
+        };
+
+        if context.data.runtime == runtime {
+            context.record_established_fact(bit);
+        }
+
+        Ok(())
     })
 }
 

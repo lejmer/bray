@@ -395,13 +395,13 @@ impl First
         let dependencies = compilation
             .state
             .fact_runtime
-            .dependencies(&CompilationFactKey::ImplementationParticipation(domain))
+            .input_dependencies(&CompilationFactKey::ImplementationParticipation(domain))
             .unwrap_or_else(|error| {
                 panic!("participation dependencies must be readable: {error:?}")
             })
             .unwrap_or_else(|| panic!("participation result must be published"));
 
-        assert!(dependencies.contains(&CompilationFactKey::SelectedTarget));
+        assert!(dependencies.contains(&crate::fact::CompilationInputKey::SelectedTarget));
     }
 
     #[test]
