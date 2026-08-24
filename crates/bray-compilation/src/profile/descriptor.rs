@@ -20,10 +20,16 @@ pub(crate) enum ProfileOperation {
     LinkInputStaging,
     EmissionLinking,
     ArtifactPublication,
+    NativeRootSelection,
+    NativeReachability,
+    NativeHostPreparation,
+    NativePartitioning,
+    NativeMapping,
+    NativePlanFinalization,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 13;
+    pub(crate) const COUNT: usize = 19;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -44,6 +50,12 @@ impl ProfileOperation {
             Self::LinkInputStaging => "compiler.emit.stage",
             Self::EmissionLinking => "compiler.emit.link",
             Self::ArtifactPublication => "compiler.emit.publish",
+            Self::NativeRootSelection => "compiler.native.roots",
+            Self::NativeReachability => "compiler.native.reachability",
+            Self::NativeHostPreparation => "compiler.native.host",
+            Self::NativePartitioning => "compiler.native.partition",
+            Self::NativeMapping => "compiler.native.mapping",
+            Self::NativePlanFinalization => "compiler.native.finalize",
         }
     }
 
@@ -62,6 +74,12 @@ impl ProfileOperation {
             Self::LinkInputStaging => 11,
             Self::EmissionLinking => 12,
             Self::ArtifactPublication => 13,
+            Self::NativeRootSelection => 14,
+            Self::NativeReachability => 15,
+            Self::NativeHostPreparation => 16,
+            Self::NativePartitioning => 17,
+            Self::NativeMapping => 18,
+            Self::NativePlanFinalization => 19,
         }
     }
 
@@ -78,7 +96,13 @@ impl ProfileOperation {
             | Self::EmissionCodeGeneration
             | Self::LinkInputStaging
             | Self::EmissionLinking
-            | Self::ArtifactPublication => CompilationProfileCategory::Work,
+            | Self::ArtifactPublication
+            | Self::NativeRootSelection
+            | Self::NativeReachability
+            | Self::NativeHostPreparation
+            | Self::NativePartitioning
+            | Self::NativeMapping
+            | Self::NativePlanFinalization => CompilationProfileCategory::Work,
         }
     }
 
@@ -102,7 +126,13 @@ impl ProfileOperation {
             Self::Linking
             | Self::InterfaceExport
             | Self::EmissionCodeGeneration
-            | Self::EmissionLinking => &[Product],
+            | Self::EmissionLinking
+            | Self::NativeRootSelection
+            | Self::NativeReachability
+            | Self::NativeHostPreparation
+            | Self::NativePartitioning
+            | Self::NativeMapping
+            | Self::NativePlanFinalization => &[Product],
             Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
                 &[Product, Artifact]
             }
@@ -124,6 +154,12 @@ impl ProfileOperation {
             Self::LinkInputStaging,
             Self::EmissionLinking,
             Self::ArtifactPublication,
+            Self::NativeRootSelection,
+            Self::NativeReachability,
+            Self::NativeHostPreparation,
+            Self::NativePartitioning,
+            Self::NativeMapping,
+            Self::NativePlanFinalization,
         ]
     }
 }
@@ -602,7 +638,9 @@ mod tests {
     fn descriptor_ids_are_schema_locked() {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            [
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+            ]
         );
 
         assert_eq!(
@@ -617,12 +655,11 @@ mod tests {
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
             [
-                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012,
-                1_013, 1_014, 1_017, 1_019, 1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032,
-                1_033, 1_034, 1_035, 1_036,
-                1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048,
-                1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060,
-                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
+                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012, 1_013, 1_014,
+                1_017, 1_019, 1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035,
+                1_036, 1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047,
+                1_048, 1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059,
+                1_060, 1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
                 1_073,
             ]
         );

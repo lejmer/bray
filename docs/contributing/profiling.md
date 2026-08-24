@@ -145,6 +145,10 @@ individual unit. Use `Total` to understand an operation's whole subtree, while r
 work can overlap other rows. Orchestration operations can therefore have large inclusive totals without representing
 additional elapsed time.
 
+Native-product planning reports root selection, reachability, executable-host preparation, partitioning, mapping, and
+final plan construction as separate operations. Compare those rows before attributing a `native_product` query-time
+change to semantic checking or backend preparation.
+
 ### Top queries
 
 `Top queries by evaluation self time` ranks up to ten query kinds by exclusive same-thread evaluation work:
