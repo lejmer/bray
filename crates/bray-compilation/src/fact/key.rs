@@ -354,16 +354,12 @@ impl ConstantInstanceQueryKey {
 /// concurrent requests.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum CompilationFactKey {
-    /// The selected target and its target-filtered compiler-known declaration view.
-    SelectedTarget,
     /// Post-selection validity of one exact target requirement.
     TargetValidity(TargetValidityRequest),
     /// The selected product and target result for one source module contribution.
     ModuleContributionGate(ModulePartId),
     /// Source-backed directives attached to one callable type occurrence.
     CallableTypeDirectives(CallableTypeDirectiveKey),
-    /// The complete canonical compiler-known symbol and semantics provider.
-    CompilerKnownSymbols,
     /// One canonical immutable bound unit selected by its exact stable key.
     BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
@@ -498,6 +494,26 @@ pub(crate) enum CompilationFactKey {
 }
 
 impl CompilationFactKey {
+    /// Snapshot-frozen roots that use compact ready-path dependency tracking.
+    pub(super) const FROZEN: [Self; 4] = [
+        Self::SyntaxTree,
+        Self::ProductSourceGraph,
+        Self::DiscoverySymbolGraph,
+        Self::SymbolGraph,
+    ];
+
+    pub(super) const fn frozen_bit(&self) -> Option<u8> {
+        let index = match self {
+            Self::SyntaxTree => 0,
+            Self::ProductSourceGraph => 1,
+            Self::DiscoverySymbolGraph => 2,
+            Self::SymbolGraph => 3,
+            _ => return None,
+        };
+
+        Some(1 << index)
+    }
+
     pub(crate) const fn has_stable_snapshot_identity(&self) -> bool {
         !matches!(
             self,
@@ -544,11 +560,9 @@ impl CompilationFactKey {
             | Self::SymbolicConstantTerm(key) => Some(key),
             Self::IterationSource(key) => Some(key.unit()),
             Self::OperationSelection(key) => Some(key.unit()),
-            Self::SelectedTarget
-            | Self::TargetValidity(_)
+            Self::TargetValidity(_)
             | Self::ModuleContributionGate(_)
             | Self::CallableTypeDirectives(_)
-            | Self::CompilerKnownSymbols
             | Self::CheckDiagnostics
             | Self::ConstantTemplateKeys
             | Self::CallableBodyKeys
@@ -636,5 +650,14 @@ mod tests {
         assert_send_sync::<ConstantInstanceQueryKey>();
         assert_send_sync::<ImportedSemanticRecordKey>();
         assert_send_sync::<SymbolQueryKey>();
+    }
+
+    #[test]
+    fn frozen_fact_bits_follow_the_declared_fact_order() {
+        for (index, fact) in CompilationFactKey::FROZEN.iter().enumerate() {
+            assert_eq!(fact.frozen_bit(), Some(1 << index));
+        }
+
+        assert_eq!(CompilationFactKey::CheckDiagnostics.frozen_bit(), None);
     }
 }

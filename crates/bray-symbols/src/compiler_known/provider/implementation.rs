@@ -114,7 +114,10 @@ macro_rules! define_compiler_known_records {
 
 for_each_declaration_symbol!(define_compiler_known_records);
 
-/// Immutable compilation-local provider for generated compiler-known symbols and semantics.
+/// Immutable provider for generated compiler-known symbols and semantics.
+///
+/// Its identities come from canonical catalog tables, so one instance can be shared across
+/// compilation snapshots in the same process.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownSymbolProvider {
     catalog: &'static CompilerKnownCatalog,
@@ -148,7 +151,7 @@ struct BuiltCompilerKnownDeclarations {
 }
 
 impl CompilerKnownSymbolProvider {
-    /// Constructs one compilation-local provider from checked-in generated catalog tables.
+    /// Constructs a shareable provider from checked-in generated catalog tables.
     pub fn build() -> Result<Self, CompilerKnownSymbolBuildError> {
         Self::build_from_catalog(&COMPILER_KNOWN_CATALOG)
     }
@@ -355,7 +358,7 @@ impl CompilerKnownSymbolProvider {
         &self.symbol_keys
     }
 
-    /// Returns compilation-local typed routes for compiler-known semantic roles.
+    /// Returns stable typed routes for compiler-known semantic roles.
     pub const fn role_registry(&self) -> &CompilerKnownSymbolRoleRegistry {
         &self.role_registry
     }

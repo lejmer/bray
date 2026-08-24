@@ -706,7 +706,7 @@ mod tests {
 
         assert!(stderr.contains("Compiler profile:"));
         assert!(stderr.contains("Top operations by worker self time"));
-        assert!(stderr.contains("Top queries by evaluation time"));
+        assert!(stderr.contains("Top queries by evaluation self time"));
         assert!(stderr.contains("Trace:"));
     }
 

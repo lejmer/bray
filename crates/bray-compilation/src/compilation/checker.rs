@@ -1031,7 +1031,7 @@ mod tests {
             Err(error) => panic!("unconditional target validity must be available: {error:?}"),
         };
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(&key) {
+        let dependencies = match compilation.state.fact_runtime.input_dependencies(&key) {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("target-validity dependencies must be published"),
             Err(error) => panic!("target-validity dependencies must be readable: {error:?}"),
@@ -1059,7 +1059,7 @@ mod tests {
             Err(error) => panic!("target validity must be available: {error:?}"),
         };
 
-        let dependencies = match compilation.state.fact_runtime.dependencies(&key) {
+        let dependencies = match compilation.state.fact_runtime.input_dependencies(&key) {
             Ok(Some(dependencies)) => dependencies,
             Ok(None) => panic!("target-validity dependencies must be published"),
             Err(error) => panic!("target-validity dependencies must be readable: {error:?}"),
@@ -1081,7 +1081,13 @@ mod tests {
             Some(source.syntax().full_range())
         );
 
-        assert_eq!(dependencies.as_ref(), [CompilationFactKey::SelectedTarget]);
+        assert_eq!(
+            dependencies.as_ref(),
+            [
+                crate::fact::CompilationInputKey::Source(bray_source::SourceId::new(0)),
+                crate::fact::CompilationInputKey::SelectedTarget,
+            ]
+        );
     }
 
     #[test]

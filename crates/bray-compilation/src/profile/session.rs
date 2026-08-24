@@ -1017,6 +1017,8 @@ mod tests {
     }
 
     mod integration {
+        use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+
         use crate::profile::{CompilationProfileConfiguration, CompilationProfileMode};
         use crate::test_support::{package_identity, source_input};
         use crate::{Compilation, CompilationRequest};
@@ -1108,7 +1110,10 @@ mod tests {
         fn updated_snapshots_report_reuse_and_invalidation() {
             let request = CompilationRequest::new(
                 package_identity(),
-                vec![source_input("module test.package;\n", 1)],
+                vec![
+                    revision("module test.package;\n", 1, 1),
+                    revision("module test.stable;\n", 2, 1),
+                ],
             )
             .with_profile(CompilationProfileConfiguration::new(
                 CompilationProfileMode::Summary,
@@ -1118,12 +1123,13 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
 
             let _ = compilation.check_diagnostics();
+            let _ = compilation.source_unit_syntax(bray_source::SourceId::new(1));
 
             let updated = compilation
-                .updated_sources(vec![source_input(
-                    "module test.package;\nfn added() {}\n",
-                    2,
-                )])
+                .updated_sources(vec![
+                    revision("module test.package;\nfn added() {}\n", 1, 2),
+                    revision("module test.stable;\n", 2, 1),
+                ])
                 .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
             let report = updated
@@ -1138,6 +1144,75 @@ mod tests {
             );
 
             assert!(report.queries.iter().any(|query| query.invalidations > 0));
+        }
+
+        #[test]
+        fn immutable_inputs_and_frozen_graphs_avoid_ready_query_traffic() {
+            let request = CompilationRequest::new(
+                package_identity(),
+                vec![source_input("module test.package;\n", 1)],
+            )
+            .with_profile(CompilationProfileConfiguration::new(
+                CompilationProfileMode::Summary,
+            ));
+
+            let compilation = Compilation::load(request)
+                .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+            for _ in 0..8 {
+                let _ = compilation.selected_target();
+            }
+
+            for _ in 0..2 {
+                let _ = compilation.syntax_tree();
+
+                compilation
+                    .product_source_graph()
+                    .unwrap_or_else(|error| panic!("source graph must build: {error:?}"));
+
+                compilation
+                    .symbol_graph()
+                    .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
+            }
+
+            let report = compilation
+                .profile_report()
+                .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+
+            for name in [
+                "syntax_tree",
+                "product_source_graph",
+                "discovery_symbol_graph",
+                "symbol_graph",
+            ] {
+                let requests = report
+                    .queries
+                    .iter()
+                    .find(|query| {
+                        report
+                            .query_descriptor(query.id)
+                            .is_some_and(|descriptor| descriptor.name == name)
+                    })
+                    .map(|query| query.requests);
+
+                assert_eq!(requests, Some(1), "unexpected request count for {name}");
+            }
+
+            assert!(report.descriptors.queries.iter().all(|descriptor| {
+                !matches!(
+                    descriptor.name.as_str(),
+                    "selected_target" | "compiler_known_symbols"
+                )
+            }));
+        }
+
+        fn revision(text: &str, identity: u32, version: u64) -> SourceInput {
+            SourceInput::virtual_text(
+                SourceIdentity::new(identity),
+                format!("source-{identity}"),
+                SourceVersion::new(version),
+                text,
+            )
         }
 
         #[test]

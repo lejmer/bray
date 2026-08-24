@@ -68,6 +68,49 @@ impl CompilationInputs {
 }
 
 impl CompilationInputKey {
+    pub(super) const FIXED: [Self; 15] = [
+        Self::PackageIdentity,
+        Self::PackageSourceAuthority,
+        Self::SourceSet,
+        Self::SourceDiagnostics,
+        Self::ProductKind,
+        Self::SelectedTarget,
+        Self::NativeLinkInputs,
+        Self::SemanticRecursionLimit,
+        Self::SemanticPairwiseLimit,
+        Self::DependencySet,
+        Self::PlatformServices,
+        Self::PackageInterfaceExport,
+        Self::CodegenConfiguration,
+        Self::StandardLibrary,
+        Self::StandardLibraryProviders,
+    ];
+
+    pub(super) const fn fixed_bit(&self) -> Option<u32> {
+        let index = match self {
+            Self::PackageIdentity => 0,
+            Self::PackageSourceAuthority => 1,
+            Self::SourceSet => 2,
+            Self::SourceDiagnostics => 3,
+            Self::ProductKind => 4,
+            Self::SelectedTarget => 5,
+            Self::NativeLinkInputs => 6,
+            Self::SemanticRecursionLimit => 7,
+            Self::SemanticPairwiseLimit => 8,
+            Self::DependencySet => 9,
+            Self::PlatformServices => 10,
+            Self::PackageInterfaceExport => 11,
+            Self::CodegenConfiguration => 12,
+            Self::StandardLibrary => 13,
+            Self::StandardLibraryProviders => 14,
+            Self::Source(_)
+            | Self::DependencyInterface(_)
+            | Self::DependencyImplementation(_) => return None,
+        };
+
+        Some(1 << index)
+    }
+
     const fn affects_identity_namespace(&self) -> bool {
         matches!(
             self,
@@ -176,5 +219,17 @@ mod tests {
         second.insert(CompilationInputKey::StandardLibrary, &"semantics-b");
 
         assert!(!first.has_same_identity_namespace(&second));
+    }
+
+    #[test]
+    fn fixed_input_bits_follow_the_declared_input_order() {
+        for (index, input) in CompilationInputKey::FIXED.iter().enumerate() {
+            assert_eq!(input.fixed_bit(), Some(1 << index));
+        }
+
+        assert_eq!(
+            CompilationInputKey::Source(bray_source::SourceId::new(0)).fixed_bit(),
+            None
+        );
     }
 }
