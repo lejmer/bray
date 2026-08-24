@@ -1147,7 +1147,7 @@ mod tests {
         }
 
         #[test]
-        fn immutable_inputs_and_established_graphs_avoid_ready_query_traffic() {
+        fn immutable_inputs_and_frozen_graphs_avoid_ready_query_traffic() {
             let request = CompilationRequest::new(
                 package_identity(),
                 vec![source_input("module test.package;\n", 1)],

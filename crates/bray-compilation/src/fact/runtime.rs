@@ -14,7 +14,7 @@ use std::fmt;
 use super::scheduler::FactScheduler;
 use super::task::{
     FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
-    current_cycle, record_established_fact, record_input, record_request_with_cycle_key,
+    current_cycle, record_frozen_fact, record_input, record_request_with_cycle_key,
     run_with_evaluations,
 };
 use super::{
@@ -146,15 +146,15 @@ impl FactRuntime {
         record_input(self.identity(), &key, fingerprint)
     }
 
-    pub(crate) fn record_established_fact(
+    pub(crate) fn record_frozen_fact(
         &self,
         key: &CompilationFactKey,
     ) -> Result<(), FactQueryError> {
         let bit = key
-            .established_bit()
+            .frozen_bit()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        record_established_fact(self.identity(), bit)
+        record_frozen_fact(self.identity(), bit)
     }
 
     #[inline(always)]
@@ -445,8 +445,8 @@ impl FactRuntime {
 
         let mut fact_dependencies = dependencies.facts;
 
-        for (index, fact) in CompilationFactKey::ESTABLISHED.iter().enumerate() {
-            if dependencies.established_facts & (1 << index) != 0 {
+        for (index, fact) in CompilationFactKey::FROZEN.iter().enumerate() {
+            if dependencies.frozen_facts & (1 << index) != 0 {
                 fact_dependencies.insert(fact.clone());
             }
         }

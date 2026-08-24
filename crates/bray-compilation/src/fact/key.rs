@@ -494,14 +494,15 @@ pub(crate) enum CompilationFactKey {
 }
 
 impl CompilationFactKey {
-    pub(super) const ESTABLISHED: [Self; 4] = [
+    /// Snapshot-frozen roots that use compact ready-path dependency tracking.
+    pub(super) const FROZEN: [Self; 4] = [
         Self::SyntaxTree,
         Self::ProductSourceGraph,
         Self::DiscoverySymbolGraph,
         Self::SymbolGraph,
     ];
 
-    pub(super) const fn established_bit(&self) -> Option<u8> {
+    pub(super) const fn frozen_bit(&self) -> Option<u8> {
         let index = match self {
             Self::SyntaxTree => 0,
             Self::ProductSourceGraph => 1,
@@ -652,11 +653,11 @@ mod tests {
     }
 
     #[test]
-    fn established_fact_bits_follow_the_declared_fact_order() {
-        for (index, fact) in CompilationFactKey::ESTABLISHED.iter().enumerate() {
-            assert_eq!(fact.established_bit(), Some(1 << index));
+    fn frozen_fact_bits_follow_the_declared_fact_order() {
+        for (index, fact) in CompilationFactKey::FROZEN.iter().enumerate() {
+            assert_eq!(fact.frozen_bit(), Some(1 << index));
         }
 
-        assert_eq!(CompilationFactKey::CheckDiagnostics.established_bit(), None);
+        assert_eq!(CompilationFactKey::CheckDiagnostics.frozen_bit(), None);
     }
 }

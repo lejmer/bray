@@ -21,7 +21,7 @@ struct FactTaskData {
     key: CompilationFactKey,
     cycle_key: CompilationFactKey,
     fixed_inputs: AtomicU32,
-    established_facts: AtomicU8,
+    frozen_facts: AtomicU8,
     state: Mutex<FactTaskState>,
 }
 
@@ -36,7 +36,7 @@ pub(crate) struct RecordedDependencies {
     pub(crate) facts: BTreeSet<CompilationFactKey>,
     pub(crate) inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
     pub(crate) fixed_inputs: u32,
-    pub(crate) established_facts: u8,
+    pub(crate) frozen_facts: u8,
 }
 
 impl FactTaskContext {
@@ -53,7 +53,7 @@ impl FactTaskContext {
                 key,
                 cycle_key,
                 fixed_inputs: AtomicU32::new(0),
-                established_facts: AtomicU8::new(0),
+                frozen_facts: AtomicU8::new(0),
                 state: Mutex::new(FactTaskState {
                     accepting_dependencies: true,
                     dependencies: BTreeSet::new(),
@@ -84,7 +84,7 @@ impl FactTaskContext {
             facts: std::mem::take(&mut state.dependencies),
             inputs: std::mem::take(&mut state.inputs),
             fixed_inputs: self.data.fixed_inputs.load(Ordering::Acquire),
-            established_facts: self.data.established_facts.load(Ordering::Acquire),
+            frozen_facts: self.data.frozen_facts.load(Ordering::Acquire),
         })
     }
 
@@ -148,8 +148,8 @@ impl FactTaskContext {
         self.data.fixed_inputs.fetch_or(bit, Ordering::AcqRel);
     }
 
-    fn record_established_fact(&self, bit: u8) {
-        self.data.established_facts.fetch_or(bit, Ordering::AcqRel);
+    fn record_frozen_fact(&self, bit: u8) {
+        self.data.frozen_facts.fetch_or(bit, Ordering::AcqRel);
     }
 
     fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
@@ -215,7 +215,7 @@ pub(crate) fn record_input(
     })
 }
 
-pub(crate) fn record_established_fact(
+pub(crate) fn record_frozen_fact(
     runtime: RuntimeIdentity,
     bit: u8,
 ) -> Result<(), FactQueryError> {
@@ -225,7 +225,7 @@ pub(crate) fn record_established_fact(
         };
 
         if context.data.runtime == runtime {
-            context.record_established_fact(bit);
+            context.record_frozen_fact(bit);
         }
 
         Ok(())

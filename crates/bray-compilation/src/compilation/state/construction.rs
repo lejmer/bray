@@ -308,7 +308,7 @@ impl Compilation {
 
     /// Returns the syntax tree result for all loaded source units.
     pub fn syntax_tree_result(&self) -> &SyntaxTreeResult {
-        self.evaluate_established_query(
+        self.evaluate_frozen_query(
             CompilationFactKey::SyntaxTree,
             &self.state.syntax_tree_result,
             || {
@@ -435,7 +435,7 @@ impl Compilation {
 
     /// Returns the compilation-wide symbol graph.
     pub fn symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
-        self.evaluate_established_query(
+        self.evaluate_frozen_query(
             CompilationFactKey::SymbolGraph,
             &self.state.symbol_graph,
             || {
@@ -458,7 +458,7 @@ impl Compilation {
     pub(in crate::compilation) fn discovery_symbol_graph(
         &self,
     ) -> Result<&SymbolGraph, FactQueryError> {
-        self.evaluate_established_query(
+        self.evaluate_frozen_query(
             CompilationFactKey::DiscoverySymbolGraph,
             &self.state.discovery_symbol_graph,
             || {
@@ -541,7 +541,7 @@ impl Compilation {
         }
     }
 
-    pub(in crate::compilation) fn evaluate_established_query<'a, T>(
+    pub(in crate::compilation) fn evaluate_frozen_query<'a, T>(
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
@@ -553,9 +553,9 @@ impl Compilation {
         if let Some(value) = cache.get_if_published() {
             self.state
                 .fact_runtime
-                .record_established_fact(&key)
+                .record_frozen_fact(&key)
                 .unwrap_or_else(|error| {
-                    panic!("established compilation dependency tracking must succeed: {error:?}")
+                    panic!("frozen compilation dependency tracking must succeed: {error:?}")
                 });
 
             return value;
