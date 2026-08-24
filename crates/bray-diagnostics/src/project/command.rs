@@ -296,6 +296,10 @@ pub enum DiagnosticProfileValidationProblem {
     InvalidRuntimeArtifactIdentity { index: usize },
     /// Runtime artifacts are duplicated or are not in canonical identity order.
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    /// Scheduler aggregates contradict the configured worker budget or ready-work counts.
+    InvalidSchedulerStatistics,
+    /// Query aggregates contradict their request, evaluation, or distribution counts.
+    InvalidQueryStatistics { id: u16 },
 }
 
 /// Exact structured cause of a failed project command operation.

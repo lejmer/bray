@@ -56,10 +56,24 @@ where
     > {
         let key = CompilationFactKey::from(SymbolQueryKey::new(request.symbol(), request.kind()));
 
+        let profile = runtime
+            .profile()
+            .map(|profile| (profile, crate::profile::ProfileQueryKind::from_key(&key)));
+
         let cell = self.cells.cell(request.owner())?;
 
-        let published =
-            cell.get_or_compute(runtime, key, cancellation, || compute().map(Arc::new))?;
+        let published = cell.get_or_compute(runtime, key, cancellation, || {
+            let result = compute()?;
+
+            crate::profile::record_query_diagnostic_collection(profile, result.diagnostics().len());
+
+            Ok(Arc::new(result))
+        })?;
+
+        crate::profile::record_query_result_copy::<bray_diagnostics::DiagnosticResult<C::Value>>(
+            profile,
+            published.diagnostics().len(),
+        );
 
         // The returned value must outlive the short-lived cache-cell borrow.
         Ok(Arc::clone(published))

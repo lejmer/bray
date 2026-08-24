@@ -1277,6 +1277,7 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             dependency_wait_nanoseconds: 0,
             external_work_nanoseconds: 0,
         },
+        scheduler: bray_profile::CompilationProfileSchedulerStatistics::default(),
         descriptors: CompilationProfileDescriptorCatalog {
             operations: vec![CompilationProfileOperationDescriptor {
                 id: 1,
@@ -1306,6 +1307,7 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             total_nanoseconds: elapsed_nanoseconds,
             self_nanoseconds: elapsed_nanoseconds,
             maximum_nanoseconds: elapsed_nanoseconds,
+            maximum_active_workers: 1,
         }],
         queries: Vec::new(),
         metrics: vec![CompilationProfileMetric { id: 2, value: 3 }],

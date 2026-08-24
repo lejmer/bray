@@ -23,6 +23,28 @@ pub struct CompilationProfileQueryTotals {
     pub cross_snapshot_reuses: u64,
     /// Total invalidated preceding-snapshot values.
     pub invalidations: u64,
+    /// Total time spent reaching already-published values.
+    pub ready_value_nanoseconds: u64,
+    /// Total immutable values published by query cells.
+    pub published_values: u64,
+    /// Total inline bytes occupied by published query-cell values.
+    pub published_inline_bytes: u64,
+    /// Total query-result diagnostic collections observed at publication.
+    pub diagnostic_collections: u64,
+    /// Total diagnostic instances attached to computed query results.
+    pub result_diagnostics: u64,
+    /// Total query-result ownership handles copied for callers.
+    pub cloned_values: u64,
+    /// Total inline bytes occupied by copied query-result ownership handles.
+    pub cloned_inline_bytes: u64,
+    /// Total query-result diagnostic collections copied for callers.
+    pub diagnostic_copies: u64,
+    /// Total diagnostic instances carried by copied query results.
+    pub cloned_diagnostics: u64,
+    /// Total attributed diagnostic merge boundaries.
+    pub diagnostic_merges: u64,
+    /// Total diagnostic inputs supplied across attributed merge boundaries.
+    pub merged_diagnostics: u64,
 }
 
 /// Presentation-neutral analysis of one compiler profile.
@@ -58,6 +80,48 @@ impl<'profile> CompilationProfileSummary<'profile> {
                     .saturating_add(query.cross_snapshot_reuses);
 
                 totals.invalidations = totals.invalidations.saturating_add(query.invalidations);
+
+                totals.ready_value_nanoseconds = totals
+                    .ready_value_nanoseconds
+                    .saturating_add(query.ready_value_nanoseconds);
+
+                totals.published_values = totals
+                    .published_values
+                    .saturating_add(query.published_values);
+
+                totals.published_inline_bytes = totals
+                    .published_inline_bytes
+                    .saturating_add(query.published_inline_bytes);
+
+                totals.diagnostic_collections = totals
+                    .diagnostic_collections
+                    .saturating_add(query.diagnostic_collections);
+
+                totals.result_diagnostics = totals
+                    .result_diagnostics
+                    .saturating_add(query.result_diagnostics);
+
+                totals.cloned_values = totals.cloned_values.saturating_add(query.cloned_values);
+
+                totals.cloned_inline_bytes = totals
+                    .cloned_inline_bytes
+                    .saturating_add(query.cloned_inline_bytes);
+
+                totals.diagnostic_copies = totals
+                    .diagnostic_copies
+                    .saturating_add(query.diagnostic_copies);
+
+                totals.cloned_diagnostics = totals
+                    .cloned_diagnostics
+                    .saturating_add(query.cloned_diagnostics);
+
+                totals.diagnostic_merges = totals
+                    .diagnostic_merges
+                    .saturating_add(query.diagnostic_merges);
+
+                totals.merged_diagnostics = totals
+                    .merged_diagnostics
+                    .saturating_add(query.merged_diagnostics);
 
                 totals
             },
@@ -97,7 +161,7 @@ impl<'profile> CompilationProfileSummary<'profile> {
         operations
     }
 
-    /// Returns observed queries ranked by descending evaluation time.
+    /// Returns observed queries ranked by descending same-thread evaluation self time.
     pub fn top_queries(
         self,
         limit: usize,
@@ -119,9 +183,122 @@ impl<'profile> CompilationProfileSummary<'profile> {
         queries.sort_by(|left, right| {
             right
                 .1
-                .evaluation_nanoseconds
-                .cmp(&left.1.evaluation_nanoseconds)
+                .evaluation_self_nanoseconds
+                .cmp(&left.1.evaluation_self_nanoseconds)
+                .then_with(|| {
+                    right
+                        .1
+                        .evaluation_nanoseconds
+                        .cmp(&left.1.evaluation_nanoseconds)
+                })
                 .then_with(|| right.1.wait_nanoseconds.cmp(&left.1.wait_nanoseconds))
+                .then_with(|| left.0.id.cmp(&right.0.id))
+        });
+
+        queries.truncate(limit);
+
+        queries
+    }
+
+    /// Returns query kinds ranked by time spent reaching already-published values.
+    pub fn top_ready_queries(
+        self,
+        limit: usize,
+    ) -> Vec<(
+        &'profile CompilationProfileQueryDescriptor,
+        &'profile CompilationProfileQueryStatistics,
+    )> {
+        let mut queries = self
+            .report
+            .queries
+            .iter()
+            .filter(|statistics| statistics.cache_hits > 0)
+            .filter_map(|statistics| {
+                self.report
+                    .query_descriptor(statistics.id)
+                    .map(|descriptor| (descriptor, statistics))
+            })
+            .collect::<Vec<_>>();
+
+        queries.sort_by(|left, right| {
+            right
+                .1
+                .ready_value_nanoseconds
+                .cmp(&left.1.ready_value_nanoseconds)
+                .then_with(|| right.1.cache_hits.cmp(&left.1.cache_hits))
+                .then_with(|| left.0.id.cmp(&right.0.id))
+        });
+
+        queries.truncate(limit);
+
+        queries
+    }
+
+    /// Returns query kinds ranked by result publication and ownership-copy volume.
+    pub fn top_query_propagation(
+        self,
+        limit: usize,
+    ) -> Vec<(
+        &'profile CompilationProfileQueryDescriptor,
+        &'profile CompilationProfileQueryStatistics,
+    )> {
+        let mut queries = self
+            .report
+            .queries
+            .iter()
+            .filter(|statistics| {
+                statistics.published_values > 0
+                    || statistics.cloned_values > 0
+            })
+            .filter_map(|statistics| {
+                self.report
+                    .query_descriptor(statistics.id)
+                    .map(|descriptor| (descriptor, statistics))
+            })
+            .collect::<Vec<_>>();
+
+        queries.sort_by(|left, right| {
+            result_propagation_volume(right.1)
+                .cmp(&result_propagation_volume(left.1))
+                .then_with(|| left.0.id.cmp(&right.0.id))
+        });
+
+        queries.truncate(limit);
+
+        queries
+    }
+
+    /// Returns query kinds ranked by diagnostic collection, copy, and merge volume.
+    pub fn top_query_diagnostics(
+        self,
+        limit: usize,
+    ) -> Vec<(
+        &'profile CompilationProfileQueryDescriptor,
+        &'profile CompilationProfileQueryStatistics,
+    )> {
+        let mut queries = self
+            .report
+            .queries
+            .iter()
+            .filter(|statistics| {
+                statistics.diagnostic_collections > 0
+                    || statistics.diagnostic_copies > 0
+                    || statistics.diagnostic_merges > 0
+            })
+            .filter_map(|statistics| {
+                self.report
+                    .query_descriptor(statistics.id)
+                    .map(|descriptor| (descriptor, statistics))
+            })
+            .collect::<Vec<_>>();
+
+        queries.sort_by(|left, right| {
+            diagnostic_instance_volume(right.1)
+                .cmp(&diagnostic_instance_volume(left.1))
+                .then_with(|| right.1.diagnostic_merges.cmp(&left.1.diagnostic_merges))
+                .then_with(|| {
+                    diagnostic_event_volume(right.1).cmp(&diagnostic_event_volume(left.1))
+                })
                 .then_with(|| left.0.id.cmp(&right.0.id))
         });
 
@@ -178,10 +355,18 @@ pub struct CompilationProfileQueryChange<'profile> {
     pub before_evaluation_nanoseconds: u64,
     /// Newer evaluation time.
     pub after_evaluation_nanoseconds: u64,
+    /// Older same-thread evaluation self time.
+    pub before_evaluation_self_nanoseconds: u64,
+    /// Newer same-thread evaluation self time.
+    pub after_evaluation_self_nanoseconds: u64,
     /// Older wait time.
     pub before_wait_nanoseconds: u64,
     /// Newer wait time.
     pub after_wait_nanoseconds: u64,
+    /// Older time spent reaching already-published values.
+    pub before_ready_value_nanoseconds: u64,
+    /// Newer time spent reaching already-published values.
+    pub after_ready_value_nanoseconds: u64,
 }
 
 /// Change in one metric between two reports.
@@ -275,25 +460,29 @@ impl<'profile> CompilationProfileComparison<'profile> {
         changes
     }
 
-    /// Returns query changes ranked by descending absolute evaluation-time change.
+    /// Returns query changes ranked by descending absolute evaluation self-time change.
     pub fn top_query_changes(self, limit: usize) -> Vec<CompilationProfileQueryChange<'profile>> {
         let mut changes = query_ids(self.before, self.after)
             .into_iter()
             .filter_map(|id| query_change(self.before, self.after, id))
             .filter(|change| {
-                change.before_evaluation_nanoseconds != change.after_evaluation_nanoseconds
+                change.before_evaluation_self_nanoseconds
+                    != change.after_evaluation_self_nanoseconds
+                    || change.before_evaluation_nanoseconds != change.after_evaluation_nanoseconds
                     || change.before_wait_nanoseconds != change.after_wait_nanoseconds
+                    || change.before_ready_value_nanoseconds
+                        != change.after_ready_value_nanoseconds
             })
             .collect::<Vec<_>>();
 
         changes.sort_by(|left, right| {
             absolute_difference(
-                right.before_evaluation_nanoseconds,
-                right.after_evaluation_nanoseconds,
+                right.before_evaluation_self_nanoseconds,
+                right.after_evaluation_self_nanoseconds,
             )
             .cmp(&absolute_difference(
-                left.before_evaluation_nanoseconds,
-                left.after_evaluation_nanoseconds,
+                left.before_evaluation_self_nanoseconds,
+                left.after_evaluation_self_nanoseconds,
             ))
             .then_with(|| left.descriptor.id.cmp(&right.descriptor.id))
         });
@@ -446,8 +635,16 @@ fn query_change<'profile>(
             .map_or(0, |entry| entry.evaluation_nanoseconds),
         after_evaluation_nanoseconds: after_statistics
             .map_or(0, |entry| entry.evaluation_nanoseconds),
+        before_evaluation_self_nanoseconds: before_statistics
+            .map_or(0, |entry| entry.evaluation_self_nanoseconds),
+        after_evaluation_self_nanoseconds: after_statistics
+            .map_or(0, |entry| entry.evaluation_self_nanoseconds),
         before_wait_nanoseconds: before_statistics.map_or(0, |entry| entry.wait_nanoseconds),
         after_wait_nanoseconds: after_statistics.map_or(0, |entry| entry.wait_nanoseconds),
+        before_ready_value_nanoseconds: before_statistics
+            .map_or(0, |entry| entry.ready_value_nanoseconds),
+        after_ready_value_nanoseconds: after_statistics
+            .map_or(0, |entry| entry.ready_value_nanoseconds),
     })
 }
 
@@ -479,9 +676,31 @@ const fn absolute_difference(left: u64, right: u64) -> u64 {
     left.abs_diff(right)
 }
 
+const fn result_propagation_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+    statistics
+        .cloned_values
+        .saturating_add(statistics.published_values)
+}
+
+const fn diagnostic_instance_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+    statistics
+        .result_diagnostics
+        .saturating_add(statistics.cloned_diagnostics)
+        .saturating_add(statistics.merged_diagnostics)
+}
+
+const fn diagnostic_event_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+    statistics
+        .diagnostic_collections
+        .saturating_add(statistics.diagnostic_copies)
+        .saturating_add(statistics.diagnostic_merges)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CompilationProfileComparison, CompilationProfileComparisonError};
+    use super::{
+        CompilationProfileComparison, CompilationProfileComparisonError, CompilationProfileSummary,
+    };
     use crate::test_support::report;
 
     #[test]
@@ -501,6 +720,15 @@ mod tests {
         assert_eq!(operation.before_self_nanoseconds, 1_000_000);
         assert_eq!(operation.after_self_nanoseconds, 1_500_000);
 
+        let query = comparison
+            .top_query_changes(1)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("changed query must be ranked"));
+
+        assert_eq!(query.before_evaluation_self_nanoseconds, 1_000_000);
+        assert_eq!(query.after_evaluation_self_nanoseconds, 1_500_000);
+
         let mut other_target = report(1_500_000);
         other_target.context.target = "aarch64-test".to_owned();
 
@@ -508,5 +736,31 @@ mod tests {
             CompilationProfileComparison::new(&before, &other_target),
             Err(CompilationProfileComparisonError::Context { .. })
         ));
+    }
+
+    #[test]
+    fn result_and_diagnostic_rankings_preserve_distinct_domains() {
+        let mut report = report(1_000_000);
+        report.queries[0].cloned_values = 100;
+        report.queries[0].diagnostic_collections = 0;
+
+        let mut diagnostic_descriptor = report.descriptors.queries[0].clone();
+        diagnostic_descriptor.id = 1_001;
+        diagnostic_descriptor.name = "check_diagnostics".to_owned();
+
+        let mut diagnostic_query = report.queries[0].clone();
+        diagnostic_query.id = 1_001;
+        diagnostic_query.published_values = 0;
+        diagnostic_query.cloned_values = 0;
+        diagnostic_query.diagnostic_collections = 1;
+        diagnostic_query.diagnostic_merges = 1;
+
+        report.descriptors.queries.push(diagnostic_descriptor);
+        report.queries.push(diagnostic_query);
+
+        let summary = CompilationProfileSummary::new(&report);
+
+        assert_eq!(summary.top_query_propagation(1)[0].0.id, 1_000);
+        assert_eq!(summary.top_query_diagnostics(1)[0].0.id, 1_001);
     }
 }

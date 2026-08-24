@@ -985,22 +985,18 @@ impl Compilation {
     where
         T: Clone + std::hash::Hash + Send + Sync,
     {
+        let semantic_key = semantic_key(key.clone());
+
         // Cache identity, unit publication, and the atomic computation retain the shared key.
-        self.unit_query(
-            cache,
-            semantic_key(key.clone()),
-            key.clone(),
-            cancellation,
-            |_| {
-                let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
+        self.unit_query(cache, semantic_key, key.clone(), cancellation, |_| {
+            let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
-                // The projection owns its immutable table after the atomic query handle drops.
-                let value = project(semantics.result().value()).clone();
-                let diagnostics = semantics.result().diagnostics().clone();
+            // The projection owns its immutable table after the atomic query handle drops.
+            let value = project(semantics.result().value()).clone();
+            let diagnostics = semantics.result().diagnostics().clone();
 
-                Ok((DiagnosticResult::new(value, diagnostics), Box::new([])))
-            },
-        )
+            Ok((DiagnosticResult::new(value, diagnostics), Box::new([])))
+        })
     }
 
     pub(in crate::compilation) fn async_analysis_with_cancellation(

@@ -12,6 +12,11 @@ pub(in crate::standard_library) enum BuildError {
     Usage,
     UnexpectedArgument(String),
     MissingValue(&'static str),
+    MissingRequiredOption {
+        option: &'static str,
+        required_by: &'static str,
+    },
+    InvalidProfileMode(String),
     BuildOptions(NativeBuildOptionsError),
     Workspace(String),
     InputIdentity(String),
@@ -34,6 +39,8 @@ pub(in crate::standard_library) enum BuildError {
     EmissionRequest(String),
     Emission(String),
     MissingEmittedArtifact(ArtifactKind),
+    MissingCompilerProfile(TargetIdentity),
+    CompilerProfile(String),
     InvalidArtifactPath(PathBuf),
     InvalidIdentity,
     MissingProduct,
@@ -145,6 +152,14 @@ impl fmt::Display for BuildError {
                 write!(formatter, "unexpected argument: {argument}")
             }
             Self::MissingValue(option) => write!(formatter, "missing value for {option}"),
+            Self::MissingRequiredOption {
+                option,
+                required_by,
+            } => write!(formatter, "{option} is required with {required_by}"),
+            Self::InvalidProfileMode(mode) => write!(
+                formatter,
+                "invalid compiler profile mode '{mode}', expected 'summary' or 'trace'"
+            ),
             Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
             Self::InputIdentity(error) => formatter.write_str(error),
@@ -208,6 +223,17 @@ impl fmt::Display for BuildError {
             }
             Self::MissingEmittedArtifact(kind) => {
                 write!(formatter, "standard library emission omitted {kind:?}")
+            }
+            Self::MissingCompilerProfile(target) => write!(
+                formatter,
+                "standard library compilation produced no compiler profile for {}",
+                target.as_str()
+            ),
+            Self::CompilerProfile(error) => {
+                write!(
+                    formatter,
+                    "standard library compiler profile failed: {error}"
+                )
             }
             Self::InvalidArtifactPath(path) => {
                 write!(formatter, "artifact path is invalid: {}", path.display())

@@ -63,6 +63,8 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProfileValidationProblemJ
     UnknownDescriptor { kind: &'static str, id: u16 },
     InvalidRuntimeArtifactIdentity { index: usize },
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    InvalidSchedulerStatistics,
+    InvalidQueryStatistics { id: u16 },
 }
 
 impl DiagnosticProfileValidationProblemJson {
@@ -97,6 +99,8 @@ impl DiagnosticProfileValidationProblemJson {
                     second: second.clone(),
                 }
             }
+            Problem::InvalidSchedulerStatistics => Self::InvalidSchedulerStatistics,
+            Problem::InvalidQueryStatistics { id } => Self::InvalidQueryStatistics { id: *id },
         }
     }
 }

@@ -4,8 +4,8 @@ use std::process::ExitCode;
 
 use bray_codegen::{BackendIdentity, CodegenTarget};
 use bray_compilation::{
-    BuildConfiguration, CompilationOptions, CompilationRequest, ProductEmissionInputs,
-    SelectedTarget, WorkerBudget,
+    BuildConfiguration, CompilationOptions, CompilationProfileReport, CompilationRequest,
+    ProductEmissionInputs, SelectedTarget, WorkerBudget,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, OutputSink,
@@ -30,11 +30,14 @@ use bray_target::{
 use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
 
 use super::error::BuildError;
-use crate::bundle::{DirectoryPublication, NativeBuildOptions, NativeBuildOptionsBuilder};
+use super::options::{BuildOptions, BuildProfileOptions, path_argument, required_argument};
+use super::profile::write_compiler_profiles;
+use crate::bundle::DirectoryPublication;
 use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
-    <build --output <directory> [--source <directory>] [--target <triple>] | \
+    <build --output <directory> [--source <directory>] [--target <triple>] \
+        [--profile <summary|trace> --profile-output <directory>] | \
     os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
     test [--part <provider-retention|interoperability|api|outcomes>] [--profile-output <directory>] | verify>";
 
@@ -110,68 +113,6 @@ fn native_test_options(
     Ok((parts, profile_output))
 }
 
-struct BuildOptions {
-    native: NativeBuildOptions,
-    source: PathBuf,
-}
-
-impl BuildOptions {
-    fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, BuildError> {
-        let mut source = None;
-        let mut native = NativeBuildOptionsBuilder::default();
-
-        while let Some(argument) = arguments.next() {
-            if native
-                .parse_option(&argument, &mut arguments)
-                .map_err(BuildError::BuildOptions)?
-            {
-                continue;
-            }
-
-            match argument.as_str() {
-                "--source" if source.is_none() => {
-                    source = Some(path_argument(&mut arguments, "--source")?);
-                }
-                _ => return Err(BuildError::UnexpectedArgument(argument)),
-            }
-        }
-
-        let native = native.finish().map_err(BuildError::BuildOptions)?;
-
-        let source = match source {
-            Some(source) => source,
-            None => workspace::root()
-                .map_err(BuildError::Workspace)?
-                .join("standard-library"),
-        };
-
-        Ok(Self { native, source })
-    }
-
-    fn build(self) -> Result<PathBuf, BuildError> {
-        match self.native.target() {
-            Some(target) => build_target_bundle_inner(&self.source, self.native.output(), target),
-            None => build(&self.source, self.native.output()),
-        }
-    }
-}
-
-fn path_argument(
-    arguments: &mut impl Iterator<Item = String>,
-    option: &'static str,
-) -> Result<PathBuf, BuildError> {
-    required_argument(arguments, option).map(PathBuf::from)
-}
-
-fn required_argument(
-    arguments: &mut impl Iterator<Item = String>,
-    option: &'static str,
-) -> Result<String, BuildError> {
-    arguments
-        .next()
-        .ok_or(BuildError::MissingValue(option))
-}
-
 pub(in crate::standard_library) fn compare_bundles(
     first: &Path,
     second: &Path,
@@ -242,13 +183,37 @@ pub(in crate::standard_library) fn build(
     source: &Path,
     output: &Path,
 ) -> Result<PathBuf, BuildError> {
+    build_selected_targets(source, output, None, None)
+}
+
+pub(super) fn build_selected_targets(
+    source: &Path,
+    output: &Path,
+    target: Option<NativeTarget>,
+    profile: Option<&BuildProfileOptions>,
+) -> Result<PathBuf, BuildError> {
     let graph = load_standard_library_project_graph(source)
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
     let product = standard_library_product(&graph)?;
     let version = standard_library_version(&graph)?;
 
-    build_product_bundle(product, version, source, output, product.targets())
+    match target {
+        Some(target) => {
+            let target =
+                TargetIdentity::try_new(target.as_str()).ok_or(BuildError::InvalidIdentity)?;
+
+            build_product_bundle(
+                product,
+                version,
+                source,
+                output,
+                std::slice::from_ref(&target),
+                profile,
+            )
+        }
+        None => build_product_bundle(product, version, source, output, product.targets(), profile),
+    }
 }
 
 pub(crate) fn build_target_bundle(
@@ -256,28 +221,7 @@ pub(crate) fn build_target_bundle(
     output: &Path,
     target: NativeTarget,
 ) -> Result<PathBuf, String> {
-    build_target_bundle_inner(source, output, target).map_err(|error| error.to_string())
-}
-
-fn build_target_bundle_inner(
-    source: &Path,
-    output: &Path,
-    target: NativeTarget,
-) -> Result<PathBuf, BuildError> {
-    let graph = load_standard_library_project_graph(source)
-        .map_err(|error| BuildError::Project(format!("{error:?}")))?;
-
-    let product = standard_library_product(&graph)?;
-    let version = standard_library_version(&graph)?;
-    let target = TargetIdentity::try_new(target.as_str()).ok_or(BuildError::InvalidIdentity)?;
-
-    build_product_bundle(
-        product,
-        version,
-        source,
-        output,
-        std::slice::from_ref(&target),
-    )
+    build_selected_targets(source, output, Some(target), None).map_err(|error| error.to_string())
 }
 
 fn build_product_bundle(
@@ -286,10 +230,11 @@ fn build_product_bundle(
     source: &Path,
     output: &Path,
     targets: &[TargetIdentity],
+    profile: Option<&BuildProfileOptions>,
 ) -> Result<PathBuf, BuildError> {
     let input = super::reuse::input_identity(source)?;
 
-    if super::reuse::current(output, &input, targets)? {
+    if profile.is_none() && super::reuse::current(output, &input, targets)? {
         crate::progress::message("Reusing standard library bundle");
 
         return Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME));
@@ -298,13 +243,14 @@ fn build_product_bundle(
     let publication = DirectoryPublication::begin(output, "bray-standard-library-")
         .map_err(BuildError::Publication)?;
 
-    let manifest = build_bundle(
+    let (manifest, profiles) = build_bundle(
         product,
         version,
         source,
         targets,
         publication.work(),
         publication.contents(),
+        profile,
     )?;
 
     let bundle = publication.contents();
@@ -320,6 +266,10 @@ fn build_product_bundle(
 
     let published = publication.publish().map_err(BuildError::Publication)?;
 
+    if let Some(profile) = profile {
+        write_compiler_profiles(&profile.output, &profiles)?;
+    }
+
     Ok(published.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
 }
 
@@ -330,7 +280,14 @@ fn build_bundle(
     targets: &[TargetIdentity],
     work: &Path,
     bundle: &Path,
-) -> Result<StandardLibraryBundleManifest, BuildError> {
+    profile: Option<&BuildProfileOptions>,
+) -> Result<
+    (
+        StandardLibraryBundleManifest,
+        Vec<(TargetIdentity, CompilationProfileReport)>,
+    ),
+    BuildError,
+> {
     let source_paths: Vec<_> = product
         .sources()
         .iter()
@@ -338,6 +295,7 @@ fn build_bundle(
         .collect();
 
     let mut built_targets = Vec::new();
+    let mut profiles = Vec::new();
 
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let temporal_provenance_path = root.join("third-party/temporal/provenance.json");
@@ -354,7 +312,7 @@ fn build_bundle(
 
         let built = crate::progress::run(
             &format!("Compiling the {} standard library", target.as_str()),
-            || build_target(product, version, &source_paths, target, work),
+            || build_target(product, version, &source_paths, target, work, profile),
         )?;
 
         let BuiltTarget {
@@ -367,7 +325,12 @@ fn build_bundle(
             archive_bytes,
             optimization,
             platform_archives,
+            compiler_profile,
         } = built;
+
+        if let Some(compiler_profile) = compiler_profile {
+            profiles.push((target.clone(), compiler_profile));
+        }
 
         let abi = selected.runtime_abi();
         let target_path = standard_library_target_artifact_directory(target, abi);
@@ -476,8 +439,10 @@ fn build_bundle(
         built_targets.push(target);
     }
 
-    StandardLibraryBundleManifest::try_new(built_targets)
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))
+    let manifest = StandardLibraryBundleManifest::try_new(built_targets)
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+    Ok((manifest, profiles))
 }
 
 struct BuiltTarget {
@@ -490,6 +455,7 @@ struct BuiltTarget {
     archive_bytes: Vec<u8>,
     optimization: super::super::optimization::BuiltOptimizationArchive,
     platform_archives: Vec<super::platform::BuiltPlatformArchive>,
+    compiler_profile: Option<CompilationProfileReport>,
 }
 
 fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
@@ -510,6 +476,7 @@ fn build_target(
     source_paths: &[PathBuf],
     target: &TargetIdentity,
     work: &Path,
+    profile: Option<&BuildProfileOptions>,
 ) -> Result<BuiltTarget, BuildError> {
     let temporal_provider_required = super::platform::is_required(product.platform_services());
 
@@ -548,6 +515,13 @@ fn build_target(
         &selected,
         WorkerBudget::default(),
     )?;
+
+    let request = match profile {
+        Some(profile) => request
+            .with_profile(profile.configuration)
+            .with_profile_product(product.identity().clone()),
+        None => request,
+    };
 
     let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
@@ -634,6 +608,14 @@ fn build_target(
         ));
     }
 
+    let compiler_profile = profile
+        .map(|_| {
+            compilation
+                .profile_report()
+                .ok_or_else(|| BuildError::MissingCompilerProfile(target.clone()))
+        })
+        .transpose()?;
+
     let required_path = |kind| {
         emitted_paths(&outcome, kind)
             .into_iter()
@@ -682,6 +664,7 @@ fn build_target(
         archive_bytes,
         optimization,
         platform_archives: platform,
+        compiler_profile,
     })
 }
 
@@ -799,67 +782,14 @@ pub(in crate::standard_library) fn write_bundle_artifact(
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
 
     use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
     use bray_target::NativeTarget;
 
     use super::{
-        BuildError, BuildOptions, build, compare_bundles, native_test_options,
-        platform_abi_archive_name, read_manifest, standard_library_archive_name,
+        BuildError, build, compare_bundles, native_test_options, platform_abi_archive_name,
+        read_manifest, standard_library_archive_name,
     };
-
-    #[test]
-    fn build_options_require_an_output_and_reject_unknown_arguments() {
-        assert!(matches!(
-            BuildOptions::parse(std::iter::empty()),
-            Err(BuildError::BuildOptions(
-                crate::bundle::NativeBuildOptionsError::MissingOutput
-            ))
-        ));
-
-        assert!(matches!(
-            BuildOptions::parse(["--unknown".to_owned()].into_iter()),
-            Err(BuildError::UnexpectedArgument(argument)) if argument == "--unknown"
-        ));
-    }
-
-    #[test]
-    fn build_options_accept_explicit_source_and_output_roots() {
-        let options = BuildOptions::parse(
-            [
-                "--source".to_owned(),
-                "source".to_owned(),
-                "--output".to_owned(),
-                "output".to_owned(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_or_else(|error| panic!("build options must parse: {error}"));
-
-        assert_eq!(options.source, PathBuf::from("source"));
-        assert_eq!(options.native.output(), PathBuf::from("output"));
-        assert_eq!(options.native.target(), None);
-    }
-
-    #[test]
-    fn build_options_accept_one_exact_native_target() {
-        let options = BuildOptions::parse(
-            [
-                "--output".to_owned(),
-                "output".to_owned(),
-                "--target".to_owned(),
-                "x86_64-pc-windows-msvc".to_owned(),
-            ]
-            .into_iter(),
-        )
-        .unwrap_or_else(|error| panic!("build options must parse: {error}"));
-
-        assert_eq!(
-            options.native.target(),
-            Some(NativeTarget::X86_64WindowsMsvc)
-        );
-    }
 
     #[test]
     fn native_test_parts_and_profile_output_are_explicit() {

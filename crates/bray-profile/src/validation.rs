@@ -37,6 +37,10 @@ pub enum CompilationProfileValidationError {
     InvalidRuntimeArtifactIdentity { index: usize },
     /// Selected runtime artifacts are duplicated or not in canonical identity order.
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    /// Scheduler aggregates contradict the configured worker budget or ready-work counts.
+    InvalidSchedulerStatistics,
+    /// Query aggregates contradict their request, evaluation, or distribution counts.
+    InvalidQueryStatistics { id: u16 },
 }
 
 impl CompilationProfileReport {
@@ -69,6 +73,18 @@ impl CompilationProfileReport {
             self.descriptors.operations.iter().map(|entry| entry.id),
             CompilationProfileDescriptorKind::Operation,
         )?;
+
+        if !valid_scheduler_statistics(self) {
+            return Err(CompilationProfileValidationError::InvalidSchedulerStatistics);
+        }
+
+        if let Some(query) = self
+            .queries
+            .iter()
+            .find(|query| !valid_query_statistics(query))
+        {
+            return Err(CompilationProfileValidationError::InvalidQueryStatistics { id: query.id });
+        }
 
         validate_observations(
             self.queries.iter().map(|entry| entry.id),
@@ -127,6 +143,117 @@ impl CompilationProfileReport {
     }
 }
 
+fn valid_scheduler_statistics(report: &CompilationProfileReport) -> bool {
+    let scheduler = &report.scheduler;
+
+    if scheduler.worker_budget == 0
+        || scheduler.maximum_active_workers > scheduler.worker_budget
+        || scheduler.maximum_ready_width > scheduler.ready_items
+    {
+        return false;
+    }
+
+    if scheduler.ready_waves == 0
+        && (scheduler.ready_items != 0 || scheduler.maximum_ready_width != 0)
+    {
+        return false;
+    }
+
+    let mut classes = BTreeSet::new();
+    let mut waves = 0_u64;
+    let mut ready_items = 0_u64;
+    let mut maximum_ready_width = 0_u64;
+
+    if scheduler.wave_classes.windows(2).any(|classes| {
+        (classes[0].operation_id, classes[0].query_id)
+            >= (classes[1].operation_id, classes[1].query_id)
+    }) {
+        return false;
+    }
+
+    for class in &scheduler.wave_classes {
+        if !classes.insert((class.operation_id, class.query_id))
+            || class.ready_items > class.planned_items
+            || class.ready_width.samples != class.waves
+            || class.active_workers.samples != class.waves
+            || class.ready_width.maximum > class.planned_items
+            || class.active_workers.maximum > scheduler.worker_budget
+            || !valid_count_distribution(class.ready_width)
+            || !valid_count_distribution(class.active_workers)
+            || class
+                .operation_id
+                .is_some_and(|id| report.operation_descriptor(id).is_none())
+            || class
+                .query_id
+                .is_some_and(|id| report.query_descriptor(id).is_none())
+        {
+            return false;
+        }
+
+        waves = waves.saturating_add(class.waves);
+        ready_items = ready_items.saturating_add(class.ready_items);
+        maximum_ready_width = maximum_ready_width.max(class.ready_width.maximum);
+    }
+
+    waves == scheduler.ready_waves
+        && ready_items == scheduler.ready_items
+        && maximum_ready_width == scheduler.maximum_ready_width
+}
+
+fn valid_count_distribution(distribution: crate::CompilationProfileCountDistribution) -> bool {
+    if distribution.samples == 0 {
+        return distribution == crate::CompilationProfileCountDistribution::default();
+    }
+
+    distribution.minimum <= distribution.maximum
+        && distribution.minimum <= distribution.median_upper_bound
+        && distribution.median_upper_bound <= distribution.p95_upper_bound
+}
+
+fn valid_query_statistics(query: &crate::CompilationProfileQueryStatistics) -> bool {
+    if query.cache_hits.saturating_add(query.cache_misses) > query.requests
+        || query.evaluations > query.cache_misses
+        || query.evaluation_latency.samples != query.evaluations
+        || query.published_values > query.evaluations
+        || query.diagnostic_collections > query.published_values
+        || query.diagnostic_copies > query.cloned_values
+    {
+        return false;
+    }
+
+    if query.diagnostic_collections == 0 && query.result_diagnostics > 0 {
+        return false;
+    }
+
+    if query.diagnostic_copies == 0 && query.cloned_diagnostics > 0 {
+        return false;
+    }
+
+    if query.cache_hits == 0
+        && (query.ready_value_nanoseconds > 0 || query.ready_value_maximum_nanoseconds > 0)
+    {
+        return false;
+    }
+
+    if query.ready_value_maximum_nanoseconds > query.ready_value_nanoseconds {
+        return false;
+    }
+
+    if query.evaluations == 0 {
+        return query.evaluation_nanoseconds == 0
+            && query.evaluation_self_nanoseconds == 0
+            && query.evaluation_latency
+                == crate::CompilationProfileDurationDistribution::default();
+    }
+
+    query.evaluation_latency.minimum_nanoseconds <= query.evaluation_latency.maximum_nanoseconds
+        && query.evaluation_latency.minimum_nanoseconds
+            <= query.evaluation_latency.median_upper_bound_nanoseconds
+        && query.evaluation_latency.median_upper_bound_nanoseconds
+            <= query.evaluation_latency.p95_upper_bound_nanoseconds
+        && query.evaluation_self_nanoseconds <= query.evaluation_nanoseconds
+}
+
 fn validate_unique(
     ids: impl IntoIterator<Item = u16>,
     kind: CompilationProfileDescriptorKind,
@@ -166,7 +293,10 @@ fn validate_observations(
 #[cfg(test)]
 mod tests {
     use super::{CompilationProfileDescriptorKind, CompilationProfileValidationError};
-    use crate::test_support::report;
+    use crate::{
+        CompilationProfileCountDistribution, CompilationProfileSchedulingWaveStatistics,
+        test_support::report,
+    };
 
     #[test]
     fn validation_rejects_unknown_and_duplicate_observation_descriptors() {
@@ -228,6 +358,65 @@ mod tests {
                     second: "runtime.host".to_owned(),
                 }
             )
+        );
+    }
+
+    #[test]
+    fn validation_rejects_inconsistent_scheduler_statistics() {
+        let mut invalid = report(1_000_000);
+
+        invalid.scheduler.maximum_active_workers = 2;
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidSchedulerStatistics)
+        );
+    }
+
+    #[test]
+    fn validation_rejects_noncanonical_scheduling_wave_classes() {
+        let mut invalid = report(1_000_000);
+
+        let distribution = CompilationProfileCountDistribution {
+            samples: 1,
+            minimum: 1,
+            median_upper_bound: 1,
+            p95_upper_bound: 1,
+            maximum: 1,
+        };
+
+        let class = CompilationProfileSchedulingWaveStatistics {
+            operation_id: Some(1),
+            query_id: Some(1_000),
+            waves: 1,
+            planned_items: 1,
+            ready_items: 1,
+            ready_width: distribution,
+            active_workers: distribution,
+        };
+
+        invalid.scheduler.ready_waves = 2;
+        invalid.scheduler.ready_items = 2;
+        invalid.scheduler.maximum_ready_width = 1;
+        invalid.scheduler.wave_classes = vec![class.clone(), class];
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidSchedulerStatistics)
+        );
+    }
+
+    #[test]
+    fn validation_rejects_inconsistent_query_statistics() {
+        let mut invalid = report(1_000_000);
+
+        invalid.queries[0].evaluation_latency.samples = 2;
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidQueryStatistics {
+                id: invalid.queries[0].id,
+            })
         );
     }
 }

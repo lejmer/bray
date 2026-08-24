@@ -217,6 +217,38 @@ pub struct CompilationProfileOperationStatistics {
     pub self_nanoseconds: u64,
     /// Longest observed execution duration.
     pub maximum_nanoseconds: u64,
+    /// Greatest number of compiler workers executing this operation concurrently.
+    pub maximum_active_workers: u64,
+}
+
+/// Bounded latency distribution derived from a fixed logarithmic histogram.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileDurationDistribution {
+    /// Number of observed durations.
+    pub samples: u64,
+    /// Shortest observed duration.
+    pub minimum_nanoseconds: u64,
+    /// Upper bound of the histogram bucket containing the median observation.
+    pub median_upper_bound_nanoseconds: u64,
+    /// Upper bound of the histogram bucket containing the ninety-fifth percentile observation.
+    pub p95_upper_bound_nanoseconds: u64,
+    /// Longest observed duration.
+    pub maximum_nanoseconds: u64,
+}
+
+/// Bounded count distribution derived from a fixed logarithmic histogram.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileCountDistribution {
+    /// Number of observed values.
+    pub samples: u64,
+    /// Smallest observed value.
+    pub minimum: u64,
+    /// Upper bound of the histogram bucket containing the median observation.
+    pub median_upper_bound: u64,
+    /// Upper bound of the histogram bucket containing the ninety-fifth percentile observation.
+    pub p95_upper_bound: u64,
+    /// Greatest observed value.
+    pub maximum: u64,
 }
 
 /// Aggregate behavior for one observed compiler query kind.
@@ -240,8 +272,93 @@ pub struct CompilationProfileQueryStatistics {
     pub waits: u64,
     /// Time spent evaluating this query kind.
     pub evaluation_nanoseconds: u64,
+    /// Same-thread evaluation time excluding nested profiled operations.
+    pub evaluation_self_nanoseconds: u64,
+    /// Distribution of individual evaluation durations.
+    pub evaluation_latency: CompilationProfileDurationDistribution,
     /// Time spent waiting for this query kind.
     pub wait_nanoseconds: u64,
+    /// Time spent reaching an already-published value after a query request began.
+    pub ready_value_nanoseconds: u64,
+    /// Longest time spent reaching one already-published value.
+    pub ready_value_maximum_nanoseconds: u64,
+    /// Number of immutable values published by this query kind.
+    pub published_values: u64,
+    /// Inline bytes occupied by published fact-cell values.
+    pub published_inline_bytes: u64,
+    /// Number of query-result diagnostic collections observed at publication.
+    pub diagnostic_collections: u64,
+    /// Number of diagnostic instances attached to computed results where the query exposes them.
+    pub result_diagnostics: u64,
+    /// Number of query-result ownership handles copied for callers.
+    pub cloned_values: u64,
+    /// Inline bytes occupied by copied query-result ownership handles.
+    pub cloned_inline_bytes: u64,
+    /// Number of query-result diagnostic collections copied for callers.
+    pub diagnostic_copies: u64,
+    /// Number of diagnostics carried by copied query results.
+    pub cloned_diagnostics: u64,
+    /// Number of diagnostic merge boundaries attributed to this query kind.
+    pub diagnostic_merges: u64,
+    /// Number of diagnostics supplied across attributed merge boundaries.
+    pub merged_diagnostics: u64,
+}
+
+/// Aggregate scheduling behavior for one compiler invocation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileSchedulerStatistics {
+    /// Configured compiler worker budget.
+    pub worker_budget: u64,
+    /// Sum of time during which scheduler slots executed compiler work.
+    pub active_worker_nanoseconds: u64,
+    /// Greatest number of scheduler slots executing concurrently.
+    pub maximum_active_workers: u64,
+    /// Number of explicitly scheduled ready-work waves.
+    pub ready_waves: u64,
+    /// Number of work items submitted across ready-work waves.
+    pub ready_items: u64,
+    /// Greatest number of items exposed by one ready-work wave.
+    pub maximum_ready_width: u64,
+    /// Bounded scheduling observations grouped by their active query or compiler phase.
+    pub wave_classes: Vec<CompilationProfileSchedulingWaveStatistics>,
+    /// Longest observed rooted query evaluation, including its required dependencies.
+    pub query_critical_path_nanoseconds: u64,
+}
+
+impl Default for CompilationProfileSchedulerStatistics {
+    fn default() -> Self {
+        Self {
+            worker_budget: 1,
+            active_worker_nanoseconds: 0,
+            maximum_active_workers: 0,
+            ready_waves: 0,
+            ready_items: 0,
+            maximum_ready_width: 0,
+            wave_classes: Vec::new(),
+            query_critical_path_nanoseconds: 0,
+        }
+    }
+}
+
+/// Scheduling waves attributed to one active query or compiler phase.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileSchedulingWaveStatistics {
+    /// Active operation descriptor for phase-owned work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<u16>,
+    /// Active query descriptor for dependency-owned work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_id: Option<u16>,
+    /// Number of scheduling waves in this class.
+    pub waves: u64,
+    /// Number of work items planned across these waves.
+    pub planned_items: u64,
+    /// Number of work items that became ready and began evaluation.
+    pub ready_items: u64,
+    /// Distribution of ready work-item counts per wave.
+    pub ready_width: CompilationProfileCountDistribution,
+    /// Distribution of simultaneous workers per wave.
+    pub active_workers: CompilationProfileCountDistribution,
 }
 
 /// One observed compiler unit or size statistic.
@@ -316,6 +433,8 @@ pub struct CompilationProfileReport {
     pub elapsed_nanoseconds: u64,
     /// Derived time categories for parallel and nested work.
     pub time: CompilationProfileTimeBreakdown,
+    /// Worker occupancy, ready-work width, and query critical-path measurements.
+    pub scheduler: CompilationProfileSchedulerStatistics,
     /// Descriptor metadata declared once for this report.
     pub descriptors: CompilationProfileDescriptorCatalog,
     /// Sparse operation aggregates with zero-observation kinds omitted.

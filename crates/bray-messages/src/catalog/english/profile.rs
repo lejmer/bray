@@ -27,9 +27,13 @@ pub(crate) fn summary(report: &CompilationProfileReport) -> String {
     );
 
     write_time_breakdown(&mut output, report);
+    write_scheduler_summary(&mut output, report);
+    write_scheduling_wave_table(&mut output, report);
     write_cache_summary(&mut output, summary);
     write_operation_table(&mut output, summary);
     write_query_table(&mut output, summary);
+    write_ready_query_table(&mut output, summary);
+    write_query_propagation_table(&mut output, summary);
     write_runtime_artifacts(&mut output, report);
     write_metric_table(&mut output, summary);
 
@@ -65,6 +69,8 @@ fn write_runtime_artifacts(output: &mut String, report: &CompilationProfileRepor
 pub(crate) fn comparison(comparison: CompilationProfileComparison<'_>) -> String {
     let before = comparison.before();
     let after = comparison.after();
+    let before_queries = CompilationProfileSummary::new(before).query_totals();
+    let after_queries = CompilationProfileSummary::new(after).query_totals();
     let mut output = String::new();
 
     let _ = writeln!(
@@ -119,6 +125,27 @@ pub(crate) fn comparison(comparison: CompilationProfileComparison<'_>) -> String
         "External tools",
         before.time.external_work_nanoseconds,
         after.time.external_work_nanoseconds,
+    );
+
+    write_duration_change(
+        &mut output,
+        "Scheduled worker activity",
+        before.scheduler.active_worker_nanoseconds,
+        after.scheduler.active_worker_nanoseconds,
+    );
+
+    write_duration_change(
+        &mut output,
+        "Query critical path",
+        before.scheduler.query_critical_path_nanoseconds,
+        after.scheduler.query_critical_path_nanoseconds,
+    );
+
+    write_duration_change(
+        &mut output,
+        "Ready-value access",
+        before_queries.ready_value_nanoseconds,
+        after_queries.ready_value_nanoseconds,
     );
 
     write_operation_changes(&mut output, comparison);
@@ -178,6 +205,88 @@ fn write_cache_summary(output: &mut String, summary: CompilationProfileSummary<'
             grouped(totals.invalidations)
         );
     }
+
+    if totals.ready_value_nanoseconds > 0 {
+        let _ = writeln!(
+            output,
+            "Ready-value access: {} across {} hits",
+            duration(totals.ready_value_nanoseconds),
+            grouped(totals.cache_hits)
+        );
+    }
+}
+
+fn write_scheduler_summary(output: &mut String, report: &CompilationProfileReport) {
+    let scheduler = &report.scheduler;
+
+    let available = report
+        .elapsed_nanoseconds
+        .saturating_mul(scheduler.worker_budget);
+
+    let _ = writeln!(
+        output,
+        "Worker occupancy             {} of {} active at peak, {} of available worker time",
+        grouped(scheduler.maximum_active_workers),
+        grouped(scheduler.worker_budget),
+        percentage(scheduler.active_worker_nanoseconds, available)
+    );
+
+    let _ = writeln!(
+        output,
+        "Query critical path          {}",
+        duration(scheduler.query_critical_path_nanoseconds)
+    );
+
+    if scheduler.ready_waves > 0 {
+        let _ = writeln!(
+            output,
+            "Ready work                   {} waves, {} items, {} maximum width",
+            grouped(scheduler.ready_waves),
+            grouped(scheduler.ready_items),
+            grouped(scheduler.maximum_ready_width)
+        );
+    }
+}
+
+fn write_scheduling_wave_table(output: &mut String, report: &CompilationProfileReport) {
+    if report.scheduler.wave_classes.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "\nScheduling waves by active query or phase");
+
+    let _ = writeln!(
+        output,
+        "  {:<NAME_WIDTH$} {:>8} {:>10} {:>10} {:>10} {:>10}",
+        "Context", "Waves", "Planned", "Ready", "P95 width", "Max workers"
+    );
+
+    for class in &report.scheduler.wave_classes {
+        let context = if let Some(descriptor) = class
+            .query_id
+            .and_then(|id| report.query_descriptor(id))
+        {
+            display_name(&descriptor.name)
+        } else if let Some(descriptor) = class
+            .operation_id
+            .and_then(|id| report.operation_descriptor(id))
+        {
+            display_name(&descriptor.name)
+        } else {
+            "unscoped".to_owned()
+        };
+
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>8} {:>10} {:>10} {:>10} {:>10}",
+            context,
+            grouped(class.waves),
+            grouped(class.planned_items),
+            grouped(class.ready_items),
+            grouped(class.ready_width.p95_upper_bound),
+            grouped(class.active_workers.maximum)
+        );
+    }
 }
 
 fn write_operation_table(output: &mut String, summary: CompilationProfileSummary<'_>) {
@@ -191,19 +300,20 @@ fn write_operation_table(output: &mut String, summary: CompilationProfileSummary
 
     let _ = writeln!(
         output,
-        "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12}",
-        "Operation", "Calls", "Total", "Self", "Maximum"
+        "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>8}",
+        "Operation", "Calls", "Total", "Self", "Maximum", "Workers"
     );
 
     for (descriptor, statistics) in operations {
         let _ = writeln!(
             output,
-            "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12}",
+            "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>8}",
             display_name(&descriptor.name),
             grouped(statistics.executions),
             duration(statistics.total_nanoseconds),
             duration(statistics.self_nanoseconds),
-            duration(statistics.maximum_nanoseconds)
+            duration(statistics.maximum_nanoseconds),
+            grouped(statistics.maximum_active_workers)
         );
     }
 }
@@ -215,24 +325,24 @@ fn write_query_table(output: &mut String, summary: CompilationProfileSummary<'_>
         return;
     }
 
-    let _ = writeln!(output, "\nTop queries by evaluation time");
+    let _ = writeln!(output, "\nTop queries by evaluation self time");
 
     let _ = writeln!(
         output,
-        "  {:<NAME_WIDTH$} {:>10} {:>10} {:>9} {:>12} {:>12}",
-        "Query", "Requests", "Evals", "Hit rate", "Evaluation", "Wait"
+        "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>12}",
+        "Query", "Evals", "Evaluation", "Self", "Median <=", "P95 <="
     );
 
-    for (descriptor, statistics) in queries {
+    for &(descriptor, statistics) in &queries {
         let _ = writeln!(
             output,
-            "  {:<NAME_WIDTH$} {:>10} {:>10} {:>9} {:>12} {:>12}",
+            "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>12}",
             display_name(&descriptor.name),
-            grouped(statistics.requests),
             grouped(statistics.evaluations),
-            percentage(statistics.cache_hits, statistics.requests),
             duration(statistics.evaluation_nanoseconds),
-            duration(statistics.wait_nanoseconds)
+            duration(statistics.evaluation_self_nanoseconds),
+            duration(statistics.evaluation_latency.median_upper_bound_nanoseconds),
+            duration(statistics.evaluation_latency.p95_upper_bound_nanoseconds)
         );
     }
 
@@ -240,6 +350,91 @@ fn write_query_table(output: &mut String, summary: CompilationProfileSummary<'_>
         output,
         "  Evaluation times are inclusive and can overlap through nesting and parallel work"
     );
+}
+
+fn write_ready_query_table(output: &mut String, summary: CompilationProfileSummary<'_>) {
+    let queries = summary.top_ready_queries(RANKED_ENTRY_LIMIT);
+
+    if queries.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "\nTop queries by ready-value access time");
+
+    let _ = writeln!(
+        output,
+        "  {:<NAME_WIDTH$} {:>12} {:>9} {:>12} {:>12}",
+        "Query", "Hits", "Hit rate", "Ready time", "Maximum"
+    );
+
+    for &(descriptor, statistics) in &queries {
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>12} {:>9} {:>12} {:>12}",
+            display_name(&descriptor.name),
+            grouped(statistics.cache_hits),
+            percentage(statistics.cache_hits, statistics.requests),
+            duration(statistics.ready_value_nanoseconds),
+            duration(statistics.ready_value_maximum_nanoseconds)
+        );
+    }
+}
+
+fn write_query_propagation_table(output: &mut String, summary: CompilationProfileSummary<'_>) {
+    let queries = summary.top_query_propagation(RANKED_ENTRY_LIMIT);
+    let diagnostic_queries = summary.top_query_diagnostics(RANKED_ENTRY_LIMIT);
+
+    if queries.is_empty() && diagnostic_queries.is_empty() {
+        return;
+    }
+
+    if !queries.is_empty() {
+        let _ = writeln!(output, "\nTop query publication and result-copy volume");
+
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
+            "Query", "Published", "Published bytes", "Copies", "Copied bytes"
+        );
+
+        for (descriptor, statistics) in queries {
+            let _ = writeln!(
+                output,
+                "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
+                display_name(&descriptor.name),
+                grouped(statistics.published_values),
+                bytes(statistics.published_inline_bytes),
+                grouped(statistics.cloned_values),
+                bytes(statistics.cloned_inline_bytes)
+            );
+        }
+    }
+
+    if diagnostic_queries.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "\nTop query diagnostic propagation volume");
+
+    let _ = writeln!(
+        output,
+        "  {:<NAME_WIDTH$} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "Query", "Collects", "Diags", "Copies", "Diags", "Merges", "Inputs"
+    );
+
+    for (descriptor, statistics) in diagnostic_queries {
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            display_name(&descriptor.name),
+            grouped(statistics.diagnostic_collections),
+            grouped(statistics.result_diagnostics),
+            grouped(statistics.diagnostic_copies),
+            grouped(statistics.cloned_diagnostics),
+            grouped(statistics.diagnostic_merges),
+            grouped(statistics.merged_diagnostics)
+        );
+    }
 }
 
 fn write_metric_table(output: &mut String, summary: CompilationProfileSummary<'_>) {
@@ -293,7 +488,7 @@ fn write_query_changes(output: &mut String, comparison: CompilationProfileCompar
         return;
     }
 
-    let _ = writeln!(output, "\nLargest query evaluation-time changes");
+    let _ = writeln!(output, "\nLargest query evaluation self-time changes");
 
     let _ = writeln!(
         output,
@@ -305,8 +500,8 @@ fn write_query_changes(output: &mut String, comparison: CompilationProfileCompar
         write_named_duration_change(
             output,
             &display_name(&change.descriptor.name),
-            change.before_evaluation_nanoseconds,
-            change.after_evaluation_nanoseconds,
+            change.before_evaluation_self_nanoseconds,
+            change.after_evaluation_self_nanoseconds,
         );
     }
 }

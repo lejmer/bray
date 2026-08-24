@@ -103,9 +103,11 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
-            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-            | FactQueryError::AtomicInitializerResultUnavailable
-            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+            Err(
+                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+                | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::ImportedExecutableTemplateMismatch),
+            ) => {
                 panic!("semantic diagnostics failed: {error}")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
@@ -142,9 +144,11 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
             }
-            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-            | FactQueryError::AtomicInitializerResultUnavailable
-            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+            Err(
+                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+                | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::ImportedExecutableTemplateMismatch),
+            ) => {
                 panic!("check diagnostics failed: {error}")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
@@ -190,7 +194,10 @@ impl Compilation {
 
         let diagnostics = diagnostics.into_iter().collect::<Result<Vec<_>, _>>()?;
 
-        Ok(DiagnosticBag::merged_all(diagnostics))
+        Ok(crate::profile::merge_diagnostics(
+            self.state.fact_runtime.profile(),
+            diagnostics,
+        ))
     }
 
     fn compute_semantic_diagnostics(
@@ -294,22 +301,27 @@ impl Compilation {
             sources.extend(unit_querys);
         }
 
-        let query_diagnostics =
-            DiagnosticBag::merged_all(sources.iter().map(SemanticDiagnosticSource::diagnostics));
+        let query_diagnostics = crate::profile::merge_diagnostics(
+            self.state.fact_runtime.profile(),
+            sources.iter().map(SemanticDiagnosticSource::diagnostics),
+        );
 
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
         let product = self.product_semantics_with_cancellation(cancellation)?;
 
-        Ok(DiagnosticBag::merged_all([
-            source_graph.diagnostics(),
-            &query_diagnostics,
-            coherence,
-            callable_overloads,
-            foreign_callables,
-            product.diagnostics(),
-        ]))
+        Ok(crate::profile::merge_diagnostics(
+            self.state.fact_runtime.profile(),
+            [
+                source_graph.diagnostics(),
+                &query_diagnostics,
+                coherence,
+                callable_overloads,
+                foreign_callables,
+                product.diagnostics(),
+            ],
+        ))
     }
 
     pub(super) fn semantic_unit_diagnostics_with_cancellation(
@@ -319,7 +331,8 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         let (_, sources) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
 
-        Ok(DiagnosticBag::merged_all(
+        Ok(crate::profile::merge_diagnostics(
+            self.state.fact_runtime.profile(),
             sources.iter().map(SemanticDiagnosticSource::diagnostics),
         ))
     }

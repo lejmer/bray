@@ -80,6 +80,29 @@ impl FactScheduler {
     where
         T: Send,
     {
+        let Some(profile) = self.profile.as_deref() else {
+            return self.map_indexed_core(priority, len, operation);
+        };
+
+        let wave = profile.start_scheduling_wave(len);
+
+        self.map_indexed_core(priority, len, |index| {
+            let _worker = wave.start_ready_item();
+
+            operation(index)
+        })
+    }
+
+    fn map_indexed_core<T>(
+        &self,
+        priority: QueryPriority,
+        len: usize,
+        operation: impl Fn(usize) -> T + Send + Sync,
+    ) -> Result<Vec<T>, FactQueryError>
+    where
+        T: Send,
+    {
+
         let slots = (0..len)
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<T>>>>();
@@ -156,6 +179,11 @@ impl FactScheduler {
                 scope.spawn(move |_| {
                     let _slot = slot;
 
+                    let _worker_activity = self
+                        .profile
+                        .as_deref()
+                        .map(ProfileSession::start_worker_activity);
+
                     let _active = ActiveSchedulerGuard::enter(self.identity(), priority)
                         .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
 
@@ -216,6 +244,11 @@ impl FactScheduler {
         if let Some(span) = queue_span {
             span.finish(CompilationProfileOutcome::Completed);
         }
+
+        let _worker_activity = self
+            .profile
+            .as_deref()
+            .map(ProfileSession::start_worker_activity);
 
         let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())
             .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));

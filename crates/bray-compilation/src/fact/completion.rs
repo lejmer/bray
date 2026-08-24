@@ -88,7 +88,10 @@ where
 
     let diagnostics = evaluate_scheduled(plan.requests(), runtime, cancellation, evaluator)?;
 
-    Ok(DiagnosticBag::merged_all(diagnostics.iter()))
+    Ok(crate::profile::merge_diagnostics(
+        runtime.profile(),
+        diagnostics.iter(),
+    ))
 }
 
 fn evaluate_scheduled<F>(

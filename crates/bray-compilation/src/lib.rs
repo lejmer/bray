@@ -29,11 +29,13 @@ pub use fact::{
 };
 pub use profile::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,
-    CompilationProfileContext, CompilationProfileDescriptorCatalog, CompilationProfileEvent,
-    CompilationProfileMetric, CompilationProfileMetricDescriptor, CompilationProfileMode,
+    CompilationProfileContext, CompilationProfileDescriptorCatalog,
+    CompilationProfileDurationDistribution, CompilationProfileEvent, CompilationProfileMetric,
+    CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
     CompilationProfileOutcome, CompilationProfileQueryDescriptor,
-    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
+    CompilationProfileQueryStatistics, CompilationProfileReport,
+    CompilationProfileSchedulerStatistics, CompilationProfileSubject,
     CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 pub use request::{

@@ -107,6 +107,13 @@ where
             return Err(FactQueryError::InfrastructureFailure);
         }
 
+        let profile = runtime.profile().map(|profile| {
+            (
+                profile,
+                crate::profile::ProfileQueryKind::from_key(&semantic_key),
+            )
+        });
+
         // The map owns the immutable unit identity independently of the caller's request.
         let cell = self.cells.cell(unit_key.clone())?;
 
@@ -117,6 +124,11 @@ where
             priority,
             |shared_cancellation| {
                 let computation = compute(shared_cancellation)?;
+
+                crate::profile::record_query_diagnostic_collection(
+                    profile,
+                    computation.0.diagnostics().len(),
+                );
 
                 #[cfg(test)]
                 let (result, dependencies) = computation;
@@ -131,6 +143,11 @@ where
                 }))
             },
         )?;
+
+        crate::profile::record_query_result_copy::<PublishedUnitResult<T>>(
+            profile,
+            published.result().diagnostics().len(),
+        );
 
         // Publication must outlive the short-lived map and cell borrows returned by this query.
         Ok(Arc::clone(published))

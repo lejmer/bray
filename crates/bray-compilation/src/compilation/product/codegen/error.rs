@@ -330,8 +330,7 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
-        NativeProductPlanningError, fact_query_failure_kind,
-        native_product_preparation_diagnostic,
+        NativeProductPlanningError, fact_query_failure_kind, native_product_preparation_diagnostic,
     };
     use crate::fact::FactQueryError;
 

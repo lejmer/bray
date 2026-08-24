@@ -136,6 +136,12 @@ fn load_profile(path: &Path) -> Result<CompilationProfileReport, DiagnosticBag> 
                     first,
                     second,
                 },
+                CompilationProfileValidationError::InvalidSchedulerStatistics => {
+                    DiagnosticProfileValidationProblem::InvalidSchedulerStatistics
+                }
+                CompilationProfileValidationError::InvalidQueryStatistics { id } => {
+                    DiagnosticProfileValidationProblem::InvalidQueryStatistics { id }
+                }
             },
         })
     })?;
@@ -176,10 +182,12 @@ mod tests {
     use bray_profile::{
         COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
         CompilationProfileCategory, CompilationProfileContext, CompilationProfileDescriptorCatalog,
-        CompilationProfileMetric, CompilationProfileMetricDescriptor, CompilationProfileMode,
+        CompilationProfileDurationDistribution, CompilationProfileMetric,
+        CompilationProfileMetricDescriptor, CompilationProfileMode,
         CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
         CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics,
-        CompilationProfileReport, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+        CompilationProfileReport, CompilationProfileSchedulerStatistics,
+        CompilationProfileTimeBreakdown, CompilationProfileUnit,
     };
 
     use super::run_profile_command;
@@ -201,6 +209,16 @@ mod tests {
                 scheduler_queue_nanoseconds: 0,
                 dependency_wait_nanoseconds: 0,
                 external_work_nanoseconds: 0,
+            },
+            scheduler: CompilationProfileSchedulerStatistics {
+                worker_budget: 1,
+                active_worker_nanoseconds: elapsed_nanoseconds,
+                maximum_active_workers: 1,
+                ready_waves: 0,
+                ready_items: 0,
+                maximum_ready_width: 0,
+                wave_classes: Vec::new(),
+                query_critical_path_nanoseconds: elapsed_nanoseconds,
             },
             descriptors: CompilationProfileDescriptorCatalog {
                 operations: vec![CompilationProfileOperationDescriptor {
@@ -234,6 +252,7 @@ mod tests {
                 total_nanoseconds: elapsed_nanoseconds,
                 self_nanoseconds: elapsed_nanoseconds,
                 maximum_nanoseconds: elapsed_nanoseconds,
+                maximum_active_workers: 1,
             }],
             queries: vec![CompilationProfileQueryStatistics {
                 id: 1_000,
@@ -245,7 +264,27 @@ mod tests {
                 evaluations: 1,
                 waits: 0,
                 evaluation_nanoseconds: elapsed_nanoseconds,
+                evaluation_self_nanoseconds: elapsed_nanoseconds,
+                evaluation_latency: CompilationProfileDurationDistribution {
+                    samples: 1,
+                    minimum_nanoseconds: elapsed_nanoseconds,
+                    median_upper_bound_nanoseconds: elapsed_nanoseconds,
+                    p95_upper_bound_nanoseconds: elapsed_nanoseconds,
+                    maximum_nanoseconds: elapsed_nanoseconds,
+                },
                 wait_nanoseconds: 0,
+                ready_value_nanoseconds: 0,
+                ready_value_maximum_nanoseconds: 0,
+                published_values: 0,
+                published_inline_bytes: 0,
+                diagnostic_collections: 0,
+                result_diagnostics: 0,
+                cloned_values: 0,
+                cloned_inline_bytes: 0,
+                diagnostic_copies: 0,
+                cloned_diagnostics: 0,
+                diagnostic_merges: 0,
+                merged_diagnostics: 0,
             }],
             metrics: vec![CompilationProfileMetric {
                 id: 2_000,
@@ -282,7 +321,13 @@ mod tests {
         );
 
         assert!(shown.diagnostics().is_empty());
-        assert!(shown.stdout().contains("Top queries by evaluation time"));
+
+        assert!(
+            shown
+                .stdout()
+                .contains("Top queries by evaluation self time")
+        );
+
         assert!(shown.stdout().contains("Compilation units and artifacts"));
 
         let compared = run_profile_command(
@@ -297,7 +342,7 @@ mod tests {
         assert!(
             compared
                 .stdout()
-                .contains("Largest query evaluation-time changes")
+                .contains("Largest query evaluation self-time changes")
         );
     }
 

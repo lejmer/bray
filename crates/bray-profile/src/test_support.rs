@@ -1,10 +1,11 @@
 use crate::{
     COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
-    CompilationProfileContext, CompilationProfileDescriptorCatalog, CompilationProfileMetric,
+    CompilationProfileContext, CompilationProfileDescriptorCatalog,
+    CompilationProfileDurationDistribution, CompilationProfileMetric,
     CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
     CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileSchedulerStatistics, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 
 pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {
@@ -24,6 +25,16 @@ pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             scheduler_queue_nanoseconds: 0,
             dependency_wait_nanoseconds: 0,
             external_work_nanoseconds: 0,
+        },
+        scheduler: CompilationProfileSchedulerStatistics {
+            worker_budget: 1,
+            active_worker_nanoseconds: elapsed_nanoseconds,
+            maximum_active_workers: 1,
+            ready_waves: 0,
+            ready_items: 0,
+            maximum_ready_width: 0,
+            wave_classes: Vec::new(),
+            query_critical_path_nanoseconds: elapsed_nanoseconds,
         },
         descriptors: CompilationProfileDescriptorCatalog {
             operations: vec![CompilationProfileOperationDescriptor {
@@ -57,6 +68,7 @@ pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             total_nanoseconds: elapsed_nanoseconds,
             self_nanoseconds: elapsed_nanoseconds,
             maximum_nanoseconds: elapsed_nanoseconds,
+            maximum_active_workers: 1,
         }],
         queries: vec![CompilationProfileQueryStatistics {
             id: 1_000,
@@ -68,7 +80,27 @@ pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             evaluations: 1,
             waits: 0,
             evaluation_nanoseconds: elapsed_nanoseconds,
+            evaluation_self_nanoseconds: elapsed_nanoseconds,
+            evaluation_latency: CompilationProfileDurationDistribution {
+                samples: 1,
+                minimum_nanoseconds: elapsed_nanoseconds,
+                median_upper_bound_nanoseconds: elapsed_nanoseconds,
+                p95_upper_bound_nanoseconds: elapsed_nanoseconds,
+                maximum_nanoseconds: elapsed_nanoseconds,
+            },
             wait_nanoseconds: 0,
+            ready_value_nanoseconds: 1,
+            ready_value_maximum_nanoseconds: 1,
+            published_values: 1,
+            published_inline_bytes: 8,
+            diagnostic_collections: 1,
+            result_diagnostics: 0,
+            cloned_values: 0,
+            cloned_inline_bytes: 0,
+            diagnostic_copies: 0,
+            cloned_diagnostics: 0,
+            diagnostic_merges: 0,
+            merged_diagnostics: 0,
         }],
         metrics: vec![CompilationProfileMetric {
             id: 2_000,

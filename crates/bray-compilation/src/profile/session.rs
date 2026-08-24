@@ -1,20 +1,28 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
 use std::time::Instant;
 
+use super::aggregate::{
+    ActiveSpan, ProfileAggregate, ProfileEventRecord, ProfileQueryAggregate,
+    ProfileSchedulerAggregate, ProfileSchedulingWaveAggregate, ProfileSchedulingWaveKey,
+    ProfileShard, available_shard, finish_active_span, merge_aggregates, merge_metrics,
+    merge_queries,
+};
+use super::concurrency::ProfileConcurrency;
 use super::descriptor::{ProfileMetricKind, ProfileOperation, ProfileQueryKind, records_trace};
+use super::report::{
+    descriptor_catalog, event_reports, metric_reports, operation_reports, query_reports,
+    scheduler_report, time_breakdown,
+};
 use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
+use bray_diagnostics::DiagnosticBag;
 use bray_profile::{
-    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
-    CompilationProfileConfiguration, CompilationProfileContext,
-    CompilationProfileDescriptorCatalog, CompilationProfileEvent, CompilationProfileMetric,
-    CompilationProfileMetricDescriptor, CompilationProfileOperationDescriptor,
-    CompilationProfileOperationStatistics, CompilationProfileOutcome,
-    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
-    CompilationProfileRuntimeArtifact, CompilationProfileSubject, CompilationProfileTimeBreakdown,
-    CompilationProfileUnit,
+    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileConfiguration,
+    CompilationProfileContext, CompilationProfileOutcome, CompilationProfileReport,
+    CompilationProfileRuntimeArtifact,
 };
 
 #[inline(always)]
@@ -36,11 +44,56 @@ pub(crate) fn profile_operation<T>(
     result
 }
 
+pub(crate) fn merge_diagnostics<'diagnostic>(
+    session: Option<&ProfileSession>,
+    diagnostics: impl IntoIterator<Item = &'diagnostic DiagnosticBag>,
+) -> DiagnosticBag {
+    let Some(session) = session else {
+        return DiagnosticBag::merged_all(diagnostics);
+    };
+
+    let diagnostics = diagnostics.into_iter().collect::<Vec<_>>();
+
+    let volume = diagnostics
+        .iter()
+        .fold(0_usize, |total, diagnostics| {
+            total.saturating_add(diagnostics.len())
+        });
+
+    let merged = DiagnosticBag::merged_all(diagnostics);
+
+    session.record_diagnostic_merge(volume);
+
+    merged
+}
+
+#[inline(always)]
+pub(crate) fn record_query_diagnostic_collection(
+    profile: Option<(&ProfileSession, ProfileQueryKind)>,
+    diagnostics: usize,
+) {
+    if let Some((session, query)) = profile {
+        session.record_query_diagnostics(query, diagnostics);
+    }
+}
+
+#[inline(always)]
+pub(crate) fn record_query_result_copy<T>(
+    profile: Option<(&ProfileSession, ProfileQueryKind)>,
+    diagnostics: usize,
+) {
+    if let Some((session, query)) = profile {
+        session.record_query_clone(query, std::mem::size_of::<Arc<T>>(), diagnostics);
+    }
+}
+
 pub(crate) struct ProfileSession {
     configuration: CompilationProfileConfiguration,
     context: CompilationProfileContext,
+    worker_budget: usize,
     clock: Arc<dyn ProfileClock>,
     shards: Box<[Mutex<ProfileShard>]>,
+    concurrency: ProfileConcurrency,
     runtime_artifacts: Mutex<BTreeMap<String, u64>>,
 }
 
@@ -95,7 +148,9 @@ impl ProfileSession {
         Arc::new(Self {
             configuration,
             context,
+            worker_budget: worker_count.max(1),
             clock,
+            concurrency: ProfileConcurrency::new(),
             shards,
             runtime_artifacts: Mutex::new(BTreeMap::new()),
         })
@@ -135,6 +190,8 @@ impl ProfileSession {
         let thread = std::thread::current().id();
         let started_at = self.clock.now_nanoseconds();
 
+        self.concurrency.begin_operation(operation);
+
         let span_id = {
             let mut shard = available_shard(&self.shards[worker]);
             let span_id = shard.next_span;
@@ -144,6 +201,8 @@ impl ProfileSession {
             shard.spans.push(ActiveSpan {
                 id: span_id,
                 thread,
+                operation,
+                query,
                 child_nanoseconds: 0,
             });
 
@@ -163,18 +222,33 @@ impl ProfileSession {
         }
     }
 
-    pub(crate) fn record_query_request(&self, query: ProfileQueryKind) {
+    pub(crate) fn start_query_request(&self, query: ProfileQueryKind) -> ProfileQueryRequest<'_> {
         let mut shard = self.shard();
         let statistics = &mut shard.queries[query.index()];
 
         statistics.requests = statistics.requests.saturating_add(1);
+
+        drop(shard);
+
+        ProfileQueryRequest {
+            session: self,
+            query,
+            started_at: self.clock.now_nanoseconds(),
+        }
     }
 
-    pub(crate) fn record_query_cache_hit(&self, query: ProfileQueryKind) {
+    fn record_query_cache_hit(&self, query: ProfileQueryKind, started_at: u64) {
+        let duration = self.clock.now_nanoseconds().saturating_sub(started_at);
         let mut shard = self.shard();
         let statistics = &mut shard.queries[query.index()];
 
         statistics.cache_hits = statistics.cache_hits.saturating_add(1);
+
+        statistics.ready_value_nanoseconds =
+            statistics.ready_value_nanoseconds.saturating_add(duration);
+
+        statistics.ready_value_maximum_nanoseconds =
+            statistics.ready_value_maximum_nanoseconds.max(duration);
     }
 
     pub(crate) fn record_query_cache_miss(&self, query: ProfileQueryKind) {
@@ -196,6 +270,104 @@ impl ProfileSession {
         let statistics = &mut shard.queries[query.index()];
 
         statistics.invalidations = statistics.invalidations.saturating_add(1);
+    }
+
+    pub(crate) fn record_query_publication(&self, query: ProfileQueryKind, inline_bytes: usize) {
+        let mut shard = self.shard();
+        let statistics = &mut shard.queries[query.index()];
+
+        statistics.published_values = statistics.published_values.saturating_add(1);
+
+        statistics.published_inline_bytes = statistics
+            .published_inline_bytes
+            .saturating_add(u64::try_from(inline_bytes).unwrap_or(u64::MAX));
+    }
+
+    pub(crate) fn record_query_diagnostics(&self, query: ProfileQueryKind, diagnostics: usize) {
+        let mut shard = self.shard();
+        let statistics = &mut shard.queries[query.index()];
+
+        statistics.diagnostic_collections =
+            statistics.diagnostic_collections.saturating_add(1);
+
+        statistics.result_diagnostics = statistics
+            .result_diagnostics
+            .saturating_add(u64::try_from(diagnostics).unwrap_or(u64::MAX));
+    }
+
+    pub(crate) fn record_query_clone(
+        &self,
+        query: ProfileQueryKind,
+        inline_bytes: usize,
+        diagnostics: usize,
+    ) {
+        let mut shard = self.shard();
+        let statistics = &mut shard.queries[query.index()];
+
+        statistics.cloned_values = statistics.cloned_values.saturating_add(1);
+
+        statistics.cloned_inline_bytes = statistics
+            .cloned_inline_bytes
+            .saturating_add(u64::try_from(inline_bytes).unwrap_or(u64::MAX));
+
+        statistics.diagnostic_copies = statistics.diagnostic_copies.saturating_add(1);
+
+        statistics.cloned_diagnostics = statistics
+            .cloned_diagnostics
+            .saturating_add(u64::try_from(diagnostics).unwrap_or(u64::MAX));
+    }
+
+    pub(crate) fn record_diagnostic_merge(&self, diagnostics: usize) {
+        let Some(query) = self.current_span_context().1 else {
+            return;
+        };
+
+        let mut shard = self.shard();
+        let statistics = &mut shard.queries[query.index()];
+
+        statistics.diagnostic_merges = statistics.diagnostic_merges.saturating_add(1);
+
+        statistics.merged_diagnostics = statistics
+            .merged_diagnostics
+            .saturating_add(u64::try_from(diagnostics).unwrap_or(u64::MAX));
+    }
+
+    fn current_span_context(&self) -> (Option<ProfileOperation>, Option<ProfileQueryKind>) {
+        let thread = std::thread::current().id();
+        let shard = self.shard();
+
+        shard
+            .spans
+            .iter()
+            .rev()
+            .find(|span| span.thread == thread)
+            .map_or((None, None), |span| (Some(span.operation), span.query))
+    }
+
+    pub(crate) fn start_scheduling_wave(&self, planned: usize) -> ProfileSchedulingWave<'_> {
+        let (operation, query) = self.current_span_context();
+
+        ProfileSchedulingWave {
+            session: self,
+            key: ProfileSchedulingWaveKey {
+                operation_id: operation.map(ProfileOperation::id),
+                query_id: query.map(ProfileQueryKind::id),
+            },
+            planned: u64::try_from(planned).unwrap_or(u64::MAX),
+            ready: AtomicU64::new(0),
+            active_workers: AtomicU64::new(0),
+            maximum_active_workers: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn start_worker_activity(&self) -> ProfileWorkerActivity<'_> {
+        self.concurrency.begin_worker();
+
+        ProfileWorkerActivity {
+            session: self,
+            worker: self.worker_index(),
+            started_at: self.clock.now_nanoseconds(),
+        }
     }
 
     pub(crate) fn record_metric(&self, metric: ProfileMetricKind, value: u64) {
@@ -247,6 +419,8 @@ impl ProfileSession {
         let mut operations = [ProfileAggregate::default(); ProfileOperation::COUNT];
         let mut queries = [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT];
         let mut metrics = [0_u64; ProfileMetricKind::COUNT];
+        let mut scheduler = ProfileSchedulerAggregate::default();
+        let mut scheduling_waves = BTreeMap::new();
         let mut events = Vec::new();
         let mut dropped_events = 0_u64;
 
@@ -256,6 +430,14 @@ impl ProfileSession {
             merge_aggregates(&mut operations, &shard.operations);
             merge_queries(&mut queries, &shard.queries);
             merge_metrics(&mut metrics, &shard.metrics);
+            scheduler.merge(shard.scheduler);
+
+            for (key, aggregate) in &shard.scheduling_waves {
+                scheduling_waves
+                    .entry(*key)
+                    .or_insert_with(ProfileSchedulingWaveAggregate::default)
+                    .merge(*aggregate);
+            }
 
             dropped_events = dropped_events.saturating_add(shard.dropped_events);
             events.extend(shard.events.iter().copied());
@@ -285,8 +467,15 @@ impl ProfileSession {
                 .then_some(self.configuration.trace_event_limit()),
             elapsed_nanoseconds: self.clock.now_nanoseconds(),
             time: time_breakdown(&operations),
+            scheduler: scheduler_report(
+                scheduler,
+                self.worker_budget,
+                self.concurrency.maximum_workers(),
+                &queries,
+                scheduling_waves,
+            ),
             descriptors: descriptor_catalog(),
-            operations: operation_reports(&operations),
+            operations: operation_reports(&operations, &self.concurrency),
             queries: query_reports(&queries),
             metrics: metric_reports(&metrics),
             runtime_artifacts,
@@ -323,6 +512,12 @@ impl ProfileSession {
                     statistics.evaluation_nanoseconds =
                         statistics.evaluation_nanoseconds.saturating_add(duration);
 
+                    statistics.evaluation_self_nanoseconds = statistics
+                        .evaluation_self_nanoseconds
+                        .saturating_add(self_nanoseconds);
+
+                    statistics.evaluation_latency.record(duration);
+
                     if outcome == CompilationProfileOutcome::Completed
                         && let Some(metric) = query.completed_unit_metric()
                     {
@@ -339,6 +534,8 @@ impl ProfileSession {
                 _ => {}
             }
         }
+
+        self.concurrency.finish_operation(operation);
 
         if !records_trace(self.configuration.mode()) {
             return;
@@ -374,6 +571,107 @@ impl ProfileSession {
 
     fn shard(&self) -> MutexGuard<'_, ProfileShard> {
         available_shard(&self.shards[self.worker_index()])
+    }
+}
+
+pub(crate) struct ProfileQueryRequest<'session> {
+    session: &'session ProfileSession,
+    query: ProfileQueryKind,
+    started_at: u64,
+}
+
+impl ProfileQueryRequest<'_> {
+    pub(crate) fn finish_hit(self) {
+        self.session
+            .record_query_cache_hit(self.query, self.started_at);
+    }
+
+    pub(crate) fn finish_miss(self) {
+        self.session.record_query_cache_miss(self.query);
+    }
+}
+
+pub(crate) struct ProfileSchedulingWave<'session> {
+    session: &'session ProfileSession,
+    key: ProfileSchedulingWaveKey,
+    planned: u64,
+    ready: AtomicU64,
+    active_workers: AtomicU64,
+    maximum_active_workers: AtomicU64,
+}
+
+impl ProfileSchedulingWave<'_> {
+    pub(crate) fn start_ready_item(&self) -> ProfileSchedulingWaveWorker<'_> {
+        self.ready.fetch_add(1, Ordering::Relaxed);
+
+        let active = self
+            .active_workers
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+
+        self.maximum_active_workers
+            .fetch_max(active, Ordering::Relaxed);
+
+        ProfileSchedulingWaveWorker {
+            active_workers: &self.active_workers,
+        }
+    }
+}
+
+impl Drop for ProfileSchedulingWave<'_> {
+    fn drop(&mut self) {
+        let ready = self.ready.load(Ordering::Relaxed);
+        let active_workers = self.maximum_active_workers.load(Ordering::Relaxed);
+        let mut shard = self.session.shard();
+
+        shard
+            .scheduling_waves
+            .entry(self.key)
+            .or_default()
+            .record(self.planned, ready, active_workers);
+
+        let scheduler = &mut shard.scheduler;
+
+        scheduler.ready_waves = scheduler.ready_waves.saturating_add(1);
+        scheduler.ready_items = scheduler.ready_items.saturating_add(ready);
+        scheduler.maximum_ready_width = scheduler.maximum_ready_width.max(ready);
+    }
+}
+
+pub(crate) struct ProfileSchedulingWaveWorker<'wave> {
+    active_workers: &'wave AtomicU64,
+}
+
+impl Drop for ProfileSchedulingWaveWorker<'_> {
+    fn drop(&mut self) {
+        self.active_workers.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+pub(crate) struct ProfileWorkerActivity<'session> {
+    session: &'session ProfileSession,
+    worker: usize,
+    started_at: u64,
+}
+
+impl Drop for ProfileWorkerActivity<'_> {
+    fn drop(&mut self) {
+        let duration = self
+            .session
+            .clock
+            .now_nanoseconds()
+            .saturating_sub(self.started_at);
+
+        let mut shard = available_shard(&self.session.shards[self.worker]);
+
+        shard.scheduler.active_worker_nanoseconds = shard
+            .scheduler
+            .active_worker_nanoseconds
+            .saturating_add(duration);
+
+        drop(shard);
+
+        self.session.concurrency.finish_worker();
     }
 }
 
@@ -445,354 +743,6 @@ impl ProfileClock for MonotonicClock {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct ProfileAggregate {
-    executions: u64,
-    completed: u64,
-    failed: u64,
-    cancelled: u64,
-    abandoned: u64,
-    total_nanoseconds: u64,
-    self_nanoseconds: u64,
-    maximum_nanoseconds: u64,
-}
-
-impl ProfileAggregate {
-    fn record(&mut self, duration: u64, self_nanoseconds: u64, outcome: CompilationProfileOutcome) {
-        self.executions = self.executions.saturating_add(1);
-        self.total_nanoseconds = self.total_nanoseconds.saturating_add(duration);
-        self.self_nanoseconds = self.self_nanoseconds.saturating_add(self_nanoseconds);
-        self.maximum_nanoseconds = self.maximum_nanoseconds.max(duration);
-
-        let outcome_count = match outcome {
-            CompilationProfileOutcome::Completed => &mut self.completed,
-            CompilationProfileOutcome::Failed => &mut self.failed,
-            CompilationProfileOutcome::Cancelled => &mut self.cancelled,
-            CompilationProfileOutcome::Abandoned => &mut self.abandoned,
-        };
-
-        *outcome_count = outcome_count.saturating_add(1);
-    }
-
-    fn merge(&mut self, other: Self) {
-        self.executions = self.executions.saturating_add(other.executions);
-        self.completed = self.completed.saturating_add(other.completed);
-        self.failed = self.failed.saturating_add(other.failed);
-        self.cancelled = self.cancelled.saturating_add(other.cancelled);
-        self.abandoned = self.abandoned.saturating_add(other.abandoned);
-
-        self.total_nanoseconds = self
-            .total_nanoseconds
-            .saturating_add(other.total_nanoseconds);
-
-        self.self_nanoseconds = self.self_nanoseconds.saturating_add(other.self_nanoseconds);
-
-        self.maximum_nanoseconds = self.maximum_nanoseconds.max(other.maximum_nanoseconds);
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct ProfileQueryAggregate {
-    requests: u64,
-    cache_hits: u64,
-    cache_misses: u64,
-    cross_snapshot_reuses: u64,
-    invalidations: u64,
-    evaluations: u64,
-    waits: u64,
-    evaluation_nanoseconds: u64,
-    wait_nanoseconds: u64,
-}
-
-impl ProfileQueryAggregate {
-    fn merge(&mut self, other: Self) {
-        self.requests = self.requests.saturating_add(other.requests);
-        self.cache_hits = self.cache_hits.saturating_add(other.cache_hits);
-        self.cache_misses = self.cache_misses.saturating_add(other.cache_misses);
-
-        self.cross_snapshot_reuses = self
-            .cross_snapshot_reuses
-            .saturating_add(other.cross_snapshot_reuses);
-
-        self.invalidations = self.invalidations.saturating_add(other.invalidations);
-        self.evaluations = self.evaluations.saturating_add(other.evaluations);
-        self.waits = self.waits.saturating_add(other.waits);
-
-        self.evaluation_nanoseconds = self
-            .evaluation_nanoseconds
-            .saturating_add(other.evaluation_nanoseconds);
-
-        self.wait_nanoseconds = self.wait_nanoseconds.saturating_add(other.wait_nanoseconds);
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ProfileEventRecord {
-    started_at: u64,
-    duration: u64,
-    operation: ProfileOperation,
-    query: Option<ProfileQueryKind>,
-    subject: Option<ProfileSubjectRecord>,
-    outcome: CompilationProfileOutcome,
-    worker: u32,
-    sequence: u64,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ActiveSpan {
-    id: u64,
-    thread: ThreadId,
-    child_nanoseconds: u64,
-}
-
-#[derive(Debug)]
-struct ProfileShard {
-    operations: [ProfileAggregate; ProfileOperation::COUNT],
-    queries: [ProfileQueryAggregate; ProfileQueryKind::COUNT],
-    metrics: [u64; ProfileMetricKind::COUNT],
-    events: Vec<ProfileEventRecord>,
-    spans: Vec<ActiveSpan>,
-    next_span: u64,
-    next_sequence: u64,
-    dropped_events: u64,
-}
-
-impl ProfileShard {
-    fn new(trace_capacity: usize) -> Self {
-        Self {
-            operations: [ProfileAggregate::default(); ProfileOperation::COUNT],
-            queries: [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT],
-            metrics: [0; ProfileMetricKind::COUNT],
-            events: Vec::with_capacity(trace_capacity),
-            spans: Vec::new(),
-            next_span: 0,
-            next_sequence: 0,
-            dropped_events: 0,
-        }
-    }
-}
-
-fn available_shard(shard: &Mutex<ProfileShard>) -> MutexGuard<'_, ProfileShard> {
-    shard
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn finish_active_span(
-    spans: &mut Vec<ActiveSpan>,
-    thread: ThreadId,
-    span_id: u64,
-    duration: u64,
-) -> u64 {
-    let Some(index) = spans
-        .iter()
-        .rposition(|span| span.thread == thread && span.id == span_id)
-    else {
-        return duration;
-    };
-
-    let span = spans.remove(index);
-
-    if let Some(parent) = spans[..index]
-        .iter_mut()
-        .rfind(|parent| parent.thread == thread)
-    {
-        parent.child_nanoseconds = parent.child_nanoseconds.saturating_add(duration);
-    }
-
-    duration.saturating_sub(span.child_nanoseconds)
-}
-
-fn merge_aggregates(
-    destination: &mut [ProfileAggregate; ProfileOperation::COUNT],
-    source: &[ProfileAggregate; ProfileOperation::COUNT],
-) {
-    for (destination, source) in destination.iter_mut().zip(source) {
-        destination.merge(*source);
-    }
-}
-
-fn merge_queries(
-    destination: &mut [ProfileQueryAggregate; ProfileQueryKind::COUNT],
-    source: &[ProfileQueryAggregate; ProfileQueryKind::COUNT],
-) {
-    for (destination, source) in destination.iter_mut().zip(source) {
-        destination.merge(*source);
-    }
-}
-
-fn merge_metrics(
-    destination: &mut [u64; ProfileMetricKind::COUNT],
-    source: &[u64; ProfileMetricKind::COUNT],
-) {
-    for metric in ProfileMetricKind::all() {
-        let index = metric.index();
-
-        destination[index] = metric.merge(destination[index], source[index]);
-    }
-}
-
-fn operation_reports(
-    aggregates: &[ProfileAggregate; ProfileOperation::COUNT],
-) -> Vec<CompilationProfileOperationStatistics> {
-    ProfileOperation::all()
-        .into_iter()
-        .zip(aggregates)
-        .filter(|(_, aggregate)| aggregate.executions > 0)
-        .map(
-            |(operation, aggregate)| CompilationProfileOperationStatistics {
-                id: operation.id(),
-                executions: aggregate.executions,
-                completed: aggregate.completed,
-                failed: aggregate.failed,
-                cancelled: aggregate.cancelled,
-                abandoned: aggregate.abandoned,
-                total_nanoseconds: aggregate.total_nanoseconds,
-                self_nanoseconds: aggregate.self_nanoseconds,
-                maximum_nanoseconds: aggregate.maximum_nanoseconds,
-            },
-        )
-        .collect()
-}
-
-fn query_reports(
-    aggregates: &[ProfileQueryAggregate; ProfileQueryKind::COUNT],
-) -> Vec<CompilationProfileQueryStatistics> {
-    ProfileQueryKind::all()
-        .into_iter()
-        .zip(aggregates)
-        .filter(|(_, aggregate)| {
-            aggregate.requests > 0
-                || aggregate.cross_snapshot_reuses > 0
-                || aggregate.invalidations > 0
-        })
-        .map(|(query, aggregate)| CompilationProfileQueryStatistics {
-            id: query.id(),
-            requests: aggregate.requests,
-            cache_hits: aggregate.cache_hits,
-            cache_misses: aggregate.cache_misses,
-            cross_snapshot_reuses: aggregate.cross_snapshot_reuses,
-            invalidations: aggregate.invalidations,
-            evaluations: aggregate.evaluations,
-            waits: aggregate.waits,
-            evaluation_nanoseconds: aggregate.evaluation_nanoseconds,
-            wait_nanoseconds: aggregate.wait_nanoseconds,
-        })
-        .collect()
-}
-
-fn metric_reports(values: &[u64; ProfileMetricKind::COUNT]) -> Vec<CompilationProfileMetric> {
-    ProfileMetricKind::all()
-        .into_iter()
-        .zip(values)
-        .filter(|(_, value)| **value > 0)
-        .map(|(metric, value)| CompilationProfileMetric {
-            id: metric.id(),
-            value: *value,
-        })
-        .collect()
-}
-
-fn event_reports(records: Vec<ProfileEventRecord>) -> Vec<CompilationProfileEvent> {
-    records
-        .into_iter()
-        .map(|record| CompilationProfileEvent {
-            start_nanoseconds: record.started_at,
-            duration_nanoseconds: record.duration,
-            operation_id: record.operation.id(),
-            query_id: record.query.map(ProfileQueryKind::id),
-            subject: record.subject.map(|subject| CompilationProfileSubject {
-                kind: subject.kind,
-                fingerprint: format!("{:016x}", subject.fingerprint),
-            }),
-            outcome: record.outcome,
-            worker: record.worker,
-            sequence: record.sequence,
-        })
-        .collect()
-}
-
-fn descriptor_catalog() -> CompilationProfileDescriptorCatalog {
-    let operations = ProfileOperation::all()
-        .into_iter()
-        .map(|operation| CompilationProfileOperationDescriptor {
-            id: operation.id(),
-            name: operation.name().to_owned(),
-            category: operation.category(),
-            unit: CompilationProfileUnit::Nanoseconds,
-            aggregation: CompilationProfileAggregation::SumAndMaximum,
-            allowed_subjects: operation.allowed_subjects().to_vec(),
-        })
-        .collect();
-
-    let queries = ProfileQueryKind::all()
-        .into_iter()
-        .map(|query| CompilationProfileQueryDescriptor {
-            id: query.id(),
-            name: query.name().to_owned(),
-        })
-        .collect();
-
-    let metrics = ProfileMetricKind::all()
-        .into_iter()
-        .map(|metric| {
-            let (name, unit) = metric.descriptor();
-
-            CompilationProfileMetricDescriptor {
-                id: metric.id(),
-                name: name.to_owned(),
-                unit,
-                category: CompilationProfileCategory::Measurement,
-                aggregation: metric.aggregation(),
-                allowed_subjects: metric.allowed_subjects().to_vec(),
-            }
-        })
-        .collect();
-
-    CompilationProfileDescriptorCatalog {
-        operations,
-        queries,
-        metrics,
-    }
-}
-
-fn time_breakdown(
-    aggregates: &[ProfileAggregate; ProfileOperation::COUNT],
-) -> CompilationProfileTimeBreakdown {
-    let mut active_work_nanoseconds = 0_u64;
-    let mut same_thread_self_nanoseconds = 0_u64;
-    let mut external_work_nanoseconds = 0_u64;
-
-    for (operation, aggregate) in ProfileOperation::all().into_iter().zip(aggregates) {
-        match operation.category() {
-            CompilationProfileCategory::Work => {
-                active_work_nanoseconds =
-                    active_work_nanoseconds.saturating_add(aggregate.self_nanoseconds);
-            }
-            CompilationProfileCategory::External => {
-                external_work_nanoseconds =
-                    external_work_nanoseconds.saturating_add(aggregate.total_nanoseconds);
-            }
-            CompilationProfileCategory::Wait
-            | CompilationProfileCategory::Cache
-            | CompilationProfileCategory::Measurement => {}
-        }
-
-        same_thread_self_nanoseconds =
-            same_thread_self_nanoseconds.saturating_add(aggregate.self_nanoseconds);
-    }
-
-    CompilationProfileTimeBreakdown {
-        active_work_nanoseconds,
-        same_thread_self_nanoseconds,
-        scheduler_queue_nanoseconds: aggregates[ProfileOperation::SchedulerQueue.index()]
-            .total_nanoseconds,
-        dependency_wait_nanoseconds: aggregates[ProfileOperation::DependencyWait.index()]
-            .total_nanoseconds,
-        external_work_nanoseconds,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -844,9 +794,28 @@ mod tests {
             clock.clone(),
         );
 
-        session.record_query_request(ProfileQueryKind::SyntaxTree);
-        session.record_query_cache_hit(ProfileQueryKind::SyntaxTree);
+        let ready = session.start_query_request(ProfileQueryKind::SyntaxTree);
+        clock.advance(3);
+        ready.finish_hit();
+
+        session
+            .start_query_request(ProfileQueryKind::SyntaxTree)
+            .finish_miss();
+
         session.record_metric(ProfileMetricKind::SourceUnits, 2);
+
+        {
+            let wave = session.start_scheduling_wave(4);
+
+            for _ in 0..4 {
+                let _worker = wave.start_ready_item();
+            }
+        }
+
+        {
+            let _activity = session.start_worker_activity();
+            clock.advance(11);
+        }
 
         let span = session.start(
             ProfileOperation::QueryEvaluation,
@@ -855,16 +824,44 @@ mod tests {
 
         clock.advance(17);
         span.finish(CompilationProfileOutcome::Completed);
+        session.record_query_publication(ProfileQueryKind::SyntaxTree, 24);
+        session.record_query_diagnostics(ProfileQueryKind::SyntaxTree, 2);
+        session.record_query_clone(ProfileQueryKind::SyntaxTree, 16, 2);
 
         let report = session.report();
 
-        assert_eq!(report.elapsed_nanoseconds, 17);
+        assert_eq!(report.elapsed_nanoseconds, 31);
         assert_eq!(report.operations[0].total_nanoseconds, 17);
         assert_eq!(report.operations[0].self_nanoseconds, 17);
-        assert_eq!(report.queries[0].requests, 1);
+        assert_eq!(report.queries[0].requests, 2);
         assert_eq!(report.queries[0].cache_hits, 1);
+        assert_eq!(report.queries[0].cache_misses, 1);
         assert_eq!(report.queries[0].evaluations, 1);
+        assert_eq!(report.queries[0].evaluation_self_nanoseconds, 17);
+        assert_eq!(report.queries[0].evaluation_latency.samples, 1);
+        assert_eq!(report.queries[0].evaluation_latency.minimum_nanoseconds, 17);
+        assert_eq!(report.queries[0].evaluation_latency.maximum_nanoseconds, 17);
+        assert_eq!(report.queries[0].ready_value_nanoseconds, 3);
+        assert_eq!(report.queries[0].published_values, 1);
+        assert_eq!(report.queries[0].published_inline_bytes, 24);
+        assert_eq!(report.queries[0].diagnostic_collections, 1);
+        assert_eq!(report.queries[0].result_diagnostics, 2);
+        assert_eq!(report.queries[0].cloned_values, 1);
+        assert_eq!(report.queries[0].cloned_inline_bytes, 16);
+        assert_eq!(report.queries[0].diagnostic_copies, 1);
+        assert_eq!(report.queries[0].cloned_diagnostics, 2);
         assert_eq!(report.metrics[0].value, 2);
+        assert_eq!(report.scheduler.active_worker_nanoseconds, 11);
+        assert_eq!(report.scheduler.maximum_active_workers, 1);
+        assert_eq!(report.scheduler.ready_waves, 1);
+        assert_eq!(report.scheduler.ready_items, 4);
+        assert_eq!(report.scheduler.maximum_ready_width, 4);
+        assert_eq!(report.scheduler.wave_classes.len(), 1);
+        assert_eq!(report.scheduler.wave_classes[0].planned_items, 4);
+        assert_eq!(report.scheduler.wave_classes[0].ready_width.maximum, 4);
+        assert_eq!(report.scheduler.wave_classes[0].active_workers.maximum, 1);
+        assert_eq!(report.scheduler.query_critical_path_nanoseconds, 17);
+        assert!(report.validate().is_ok());
         assert!(report.events.is_empty());
     }
 
@@ -1017,5 +1014,161 @@ mod tests {
 
         assert_eq!(codegen.executions, 256);
         assert_eq!(codegen.completed, 256);
+    }
+
+    mod integration {
+        use crate::profile::{CompilationProfileConfiguration, CompilationProfileMode};
+        use crate::test_support::{package_identity, source_input};
+        use crate::{Compilation, CompilationRequest};
+
+        #[test]
+        fn disabled_compilations_do_not_create_profile_state() {
+            let compilation = Compilation::load(CompilationRequest::new(
+                package_identity(),
+                vec![source_input("module test.package;\n", 1)],
+            ))
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+            let _ = compilation.check_diagnostics();
+
+            assert!(compilation.profile_report().is_none());
+        }
+
+        #[test]
+        fn profiling_preserves_compilation_diagnostics() {
+            let baseline = Compilation::load(CompilationRequest::new(
+                package_identity(),
+                vec![source_input("module test.package;\nfn broken( {\n", 1)],
+            ))
+            .unwrap_or_else(|error| panic!("baseline compilation must load: {error:?}"));
+
+            let profiled = Compilation::load(
+                CompilationRequest::new(
+                    package_identity(),
+                    vec![source_input("module test.package;\nfn broken( {\n", 1)],
+                )
+                .with_profile(CompilationProfileConfiguration::new(
+                    CompilationProfileMode::Trace,
+                )),
+            )
+            .unwrap_or_else(|error| panic!("profiled compilation must load: {error:?}"));
+
+            assert_eq!(baseline.check_diagnostics(), profiled.check_diagnostics());
+        }
+
+        #[test]
+        fn enabled_compilations_report_queries_metrics_and_selected_detail() {
+            let request = CompilationRequest::new(
+                package_identity(),
+                vec![source_input("module test.package;\n", 1)],
+            )
+            .with_profile(CompilationProfileConfiguration::new(
+                CompilationProfileMode::Summary,
+            ));
+
+            let compilation = Compilation::load(request)
+                .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+            let _ = compilation.check_diagnostics();
+
+            let report = compilation
+                .profile_report()
+                .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+
+            assert_eq!(report.mode, CompilationProfileMode::Summary);
+            assert!(report.queries.iter().any(|query| query.requests > 0));
+            assert!(report.queries.iter().any(|query| query.cache_misses > 0));
+
+            assert!(report.queries.iter().any(|query| {
+                query.diagnostic_collections > 0
+                    && query.cloned_values > 0
+                    && query.diagnostic_copies > 0
+            }));
+
+            assert!(report.queries.iter().any(|query| query.diagnostic_merges > 0));
+
+            assert!(report.scheduler.wave_classes.iter().any(|class| {
+                class.waves > 0
+                    && class.planned_items >= class.ready_items
+                    && class.ready_width.samples == class.waves
+                    && class.active_workers.samples == class.waves
+            }));
+
+            assert!(report.metrics.iter().any(|metric| {
+                metric.value == 1
+                    && report
+                        .metric_descriptor(metric.id)
+                        .is_some_and(|descriptor| descriptor.name == "compiler.source.units")
+            }));
+
+            assert!(report.events.is_empty());
+        }
+
+        #[test]
+        fn updated_snapshots_report_reuse_and_invalidation() {
+            let request = CompilationRequest::new(
+                package_identity(),
+                vec![source_input("module test.package;\n", 1)],
+            )
+            .with_profile(CompilationProfileConfiguration::new(
+                CompilationProfileMode::Summary,
+            ));
+
+            let compilation = Compilation::load(request)
+                .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+            let _ = compilation.check_diagnostics();
+
+            let updated = compilation
+                .updated_sources(vec![source_input(
+                    "module test.package;\nfn added() {}\n",
+                    2,
+                )])
+                .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+            let report = updated
+                .profile_report()
+                .unwrap_or_else(|| panic!("updated compilation must retain profiling"));
+
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .any(|query| query.cross_snapshot_reuses > 0)
+            );
+
+            assert!(report.queries.iter().any(|query| query.invalidations > 0));
+        }
+
+        #[test]
+        fn profile_reports_round_trip_through_the_machine_schema() {
+            for mode in [
+                CompilationProfileMode::Summary,
+                CompilationProfileMode::Trace,
+            ] {
+                let request = CompilationRequest::new(
+                    package_identity(),
+                    vec![source_input("module test.package;\n", 1)],
+                )
+                .with_profile(CompilationProfileConfiguration::new(mode));
+
+                let compilation = Compilation::load(request)
+                    .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+                let _ = compilation.syntax_tree_result();
+
+                let report = compilation
+                    .profile_report()
+                    .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+
+                let encoded = serde_json::to_vec(&report)
+                    .unwrap_or_else(|error| panic!("profile report must serialize: {error:?}"));
+
+                let decoded = serde_json::from_slice(&encoded)
+                    .unwrap_or_else(|error| panic!("profile report must deserialize: {error:?}"));
+
+                assert_eq!(report, decoded);
+            }
+        }
     }
 }
