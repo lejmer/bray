@@ -382,29 +382,36 @@ fn write_ready_query_table(output: &mut String, summary: CompilationProfileSumma
 
 fn write_query_propagation_table(output: &mut String, summary: CompilationProfileSummary<'_>) {
     let queries = summary.top_query_propagation(RANKED_ENTRY_LIMIT);
+    let diagnostic_queries = summary.top_query_diagnostics(RANKED_ENTRY_LIMIT);
 
-    if queries.is_empty() {
+    if queries.is_empty() && diagnostic_queries.is_empty() {
         return;
     }
 
-    let _ = writeln!(output, "\nTop query publication and result-copy volume");
+    if !queries.is_empty() {
+        let _ = writeln!(output, "\nTop query publication and result-copy volume");
 
-    let _ = writeln!(
-        output,
-        "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
-        "Query", "Published", "Published bytes", "Copies", "Copied bytes"
-    );
-
-    for &(descriptor, statistics) in &queries {
         let _ = writeln!(
             output,
             "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
-            display_name(&descriptor.name),
-            grouped(statistics.published_values),
-            bytes(statistics.published_inline_bytes),
-            grouped(statistics.cloned_values),
-            bytes(statistics.cloned_inline_bytes)
+            "Query", "Published", "Published bytes", "Copies", "Copied bytes"
         );
+
+        for (descriptor, statistics) in queries {
+            let _ = writeln!(
+                output,
+                "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
+                display_name(&descriptor.name),
+                grouped(statistics.published_values),
+                bytes(statistics.published_inline_bytes),
+                grouped(statistics.cloned_values),
+                bytes(statistics.cloned_inline_bytes)
+            );
+        }
+    }
+
+    if diagnostic_queries.is_empty() {
+        return;
     }
 
     let _ = writeln!(output, "\nTop query diagnostic propagation volume");
@@ -415,7 +422,7 @@ fn write_query_propagation_table(output: &mut String, summary: CompilationProfil
         "Query", "Collects", "Diags", "Copies", "Diags", "Merges", "Inputs"
     );
 
-    for (descriptor, statistics) in queries {
+    for (descriptor, statistics) in diagnostic_queries {
         let _ = writeln!(
             output,
             "  {:<NAME_WIDTH$} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",

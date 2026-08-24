@@ -234,7 +234,7 @@ impl<'profile> CompilationProfileSummary<'profile> {
         queries
     }
 
-    /// Returns query kinds ranked by diagnostic and semantic-value propagation volume.
+    /// Returns query kinds ranked by result publication and ownership-copy volume.
     pub fn top_query_propagation(
         self,
         limit: usize,
@@ -248,11 +248,7 @@ impl<'profile> CompilationProfileSummary<'profile> {
             .iter()
             .filter(|statistics| {
                 statistics.published_values > 0
-                    || statistics.result_diagnostics > 0
                     || statistics.cloned_values > 0
-                    || statistics.cloned_diagnostics > 0
-                    || statistics.diagnostic_merges > 0
-                    || statistics.merged_diagnostics > 0
             })
             .filter_map(|statistics| {
                 self.report
@@ -262,8 +258,47 @@ impl<'profile> CompilationProfileSummary<'profile> {
             .collect::<Vec<_>>();
 
         queries.sort_by(|left, right| {
-            propagation_volume(right.1)
-                .cmp(&propagation_volume(left.1))
+            result_propagation_volume(right.1)
+                .cmp(&result_propagation_volume(left.1))
+                .then_with(|| left.0.id.cmp(&right.0.id))
+        });
+
+        queries.truncate(limit);
+
+        queries
+    }
+
+    /// Returns query kinds ranked by diagnostic collection, copy, and merge volume.
+    pub fn top_query_diagnostics(
+        self,
+        limit: usize,
+    ) -> Vec<(
+        &'profile CompilationProfileQueryDescriptor,
+        &'profile CompilationProfileQueryStatistics,
+    )> {
+        let mut queries = self
+            .report
+            .queries
+            .iter()
+            .filter(|statistics| {
+                statistics.diagnostic_collections > 0
+                    || statistics.diagnostic_copies > 0
+                    || statistics.diagnostic_merges > 0
+            })
+            .filter_map(|statistics| {
+                self.report
+                    .query_descriptor(statistics.id)
+                    .map(|descriptor| (descriptor, statistics))
+            })
+            .collect::<Vec<_>>();
+
+        queries.sort_by(|left, right| {
+            diagnostic_instance_volume(right.1)
+                .cmp(&diagnostic_instance_volume(left.1))
+                .then_with(|| right.1.diagnostic_merges.cmp(&left.1.diagnostic_merges))
+                .then_with(|| {
+                    diagnostic_event_volume(right.1).cmp(&diagnostic_event_volume(left.1))
+                })
                 .then_with(|| left.0.id.cmp(&right.0.id))
         });
 
@@ -641,21 +676,31 @@ const fn absolute_difference(left: u64, right: u64) -> u64 {
     left.abs_diff(right)
 }
 
-const fn propagation_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+const fn result_propagation_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+    statistics
+        .cloned_values
+        .saturating_add(statistics.published_values)
+}
+
+const fn diagnostic_instance_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
     statistics
         .result_diagnostics
         .saturating_add(statistics.cloned_diagnostics)
         .saturating_add(statistics.merged_diagnostics)
-        .saturating_add(statistics.diagnostic_collections)
+}
+
+const fn diagnostic_event_volume(statistics: &CompilationProfileQueryStatistics) -> u64 {
+    statistics
+        .diagnostic_collections
         .saturating_add(statistics.diagnostic_copies)
         .saturating_add(statistics.diagnostic_merges)
-        .saturating_add(statistics.cloned_values)
-        .saturating_add(statistics.published_values)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CompilationProfileComparison, CompilationProfileComparisonError};
+    use super::{
+        CompilationProfileComparison, CompilationProfileComparisonError, CompilationProfileSummary,
+    };
     use crate::test_support::report;
 
     #[test]
@@ -691,5 +736,31 @@ mod tests {
             CompilationProfileComparison::new(&before, &other_target),
             Err(CompilationProfileComparisonError::Context { .. })
         ));
+    }
+
+    #[test]
+    fn result_and_diagnostic_rankings_preserve_distinct_domains() {
+        let mut report = report(1_000_000);
+        report.queries[0].cloned_values = 100;
+        report.queries[0].diagnostic_collections = 0;
+
+        let mut diagnostic_descriptor = report.descriptors.queries[0].clone();
+        diagnostic_descriptor.id = 1_001;
+        diagnostic_descriptor.name = "check_diagnostics".to_owned();
+
+        let mut diagnostic_query = report.queries[0].clone();
+        diagnostic_query.id = 1_001;
+        diagnostic_query.published_values = 0;
+        diagnostic_query.cloned_values = 0;
+        diagnostic_query.diagnostic_collections = 1;
+        diagnostic_query.diagnostic_merges = 1;
+
+        report.descriptors.queries.push(diagnostic_descriptor);
+        report.queries.push(diagnostic_query);
+
+        let summary = CompilationProfileSummary::new(&report);
+
+        assert_eq!(summary.top_query_propagation(1)[0].0.id, 1_000);
+        assert_eq!(summary.top_query_diagnostics(1)[0].0.id, 1_001);
     }
 }
