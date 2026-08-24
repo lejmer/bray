@@ -80,9 +80,28 @@ impl FactScheduler {
     where
         T: Send,
     {
-        if let Some(profile) = self.profile.as_deref() {
-            profile.record_ready_wave(len);
-        }
+        let Some(profile) = self.profile.as_deref() else {
+            return self.map_indexed_core(priority, len, operation);
+        };
+
+        let wave = profile.start_scheduling_wave(len);
+
+        self.map_indexed_core(priority, len, |index| {
+            let _worker = wave.start_ready_item();
+
+            operation(index)
+        })
+    }
+
+    fn map_indexed_core<T>(
+        &self,
+        priority: QueryPriority,
+        len: usize,
+        operation: impl Fn(usize) -> T + Send + Sync,
+    ) -> Result<Vec<T>, FactQueryError>
+    where
+        T: Send,
+    {
 
         let slots = (0..len)
             .map(|_| Mutex::new(None))

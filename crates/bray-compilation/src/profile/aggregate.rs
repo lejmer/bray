@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 use std::thread::ThreadId;
 
 use bray_profile::CompilationProfileOutcome;
 
 use super::descriptor::{ProfileMetricKind, ProfileOperation, ProfileQueryKind};
-use super::distribution::DurationHistogram;
+use super::distribution::{CountHistogram, DurationHistogram};
 use super::subject::ProfileSubjectRecord;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -74,10 +75,14 @@ pub(super) struct ProfileQueryAggregate {
     pub(super) ready_value_maximum_nanoseconds: u64,
     pub(super) published_values: u64,
     pub(super) published_inline_bytes: u64,
+    pub(super) diagnostic_collections: u64,
     pub(super) result_diagnostics: u64,
     pub(super) cloned_values: u64,
     pub(super) cloned_inline_bytes: u64,
+    pub(super) diagnostic_copies: u64,
     pub(super) cloned_diagnostics: u64,
+    pub(super) diagnostic_merges: u64,
+    pub(super) merged_diagnostics: u64,
 }
 
 impl ProfileQueryAggregate {
@@ -119,6 +124,10 @@ impl ProfileQueryAggregate {
             .published_inline_bytes
             .saturating_add(other.published_inline_bytes);
 
+        self.diagnostic_collections = self
+            .diagnostic_collections
+            .saturating_add(other.diagnostic_collections);
+
         self.result_diagnostics = self
             .result_diagnostics
             .saturating_add(other.result_diagnostics);
@@ -129,9 +138,21 @@ impl ProfileQueryAggregate {
             .cloned_inline_bytes
             .saturating_add(other.cloned_inline_bytes);
 
+        self.diagnostic_copies = self
+            .diagnostic_copies
+            .saturating_add(other.diagnostic_copies);
+
         self.cloned_diagnostics = self
             .cloned_diagnostics
             .saturating_add(other.cloned_diagnostics);
+
+        self.diagnostic_merges = self
+            .diagnostic_merges
+            .saturating_add(other.diagnostic_merges);
+
+        self.merged_diagnostics = self
+            .merged_diagnostics
+            .saturating_add(other.merged_diagnostics);
     }
 }
 
@@ -155,6 +176,39 @@ impl ProfileSchedulerAggregate {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct ProfileSchedulingWaveKey {
+    pub(super) operation_id: Option<u16>,
+    pub(super) query_id: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ProfileSchedulingWaveAggregate {
+    pub(super) waves: u64,
+    pub(super) planned_items: u64,
+    pub(super) ready_items: u64,
+    pub(super) ready_width: CountHistogram,
+    pub(super) active_workers: CountHistogram,
+}
+
+impl ProfileSchedulingWaveAggregate {
+    pub(super) fn record(&mut self, planned: u64, ready: u64, active_workers: u64) {
+        self.waves = self.waves.saturating_add(1);
+        self.planned_items = self.planned_items.saturating_add(planned);
+        self.ready_items = self.ready_items.saturating_add(ready);
+        self.ready_width.record(ready);
+        self.active_workers.record(active_workers);
+    }
+
+    pub(super) fn merge(&mut self, other: Self) {
+        self.waves = self.waves.saturating_add(other.waves);
+        self.planned_items = self.planned_items.saturating_add(other.planned_items);
+        self.ready_items = self.ready_items.saturating_add(other.ready_items);
+        self.ready_width.merge(&other.ready_width);
+        self.active_workers.merge(&other.active_workers);
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ProfileEventRecord {
     pub(super) started_at: u64,
@@ -171,6 +225,8 @@ pub(super) struct ProfileEventRecord {
 pub(super) struct ActiveSpan {
     pub(super) id: u64,
     pub(super) thread: ThreadId,
+    pub(super) operation: ProfileOperation,
+    pub(super) query: Option<ProfileQueryKind>,
     pub(super) child_nanoseconds: u64,
 }
 
@@ -180,6 +236,8 @@ pub(super) struct ProfileShard {
     pub(super) queries: [ProfileQueryAggregate; ProfileQueryKind::COUNT],
     pub(super) metrics: [u64; ProfileMetricKind::COUNT],
     pub(super) scheduler: ProfileSchedulerAggregate,
+    pub(super) scheduling_waves:
+        BTreeMap<ProfileSchedulingWaveKey, ProfileSchedulingWaveAggregate>,
     pub(super) events: Vec<ProfileEventRecord>,
     pub(super) spans: Vec<ActiveSpan>,
     pub(super) next_span: u64,
@@ -194,6 +252,7 @@ impl ProfileShard {
             queries: [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT],
             metrics: [0; ProfileMetricKind::COUNT],
             scheduler: ProfileSchedulerAggregate::default(),
+            scheduling_waves: BTreeMap::new(),
             events: Vec::with_capacity(trace_capacity),
             spans: Vec::new(),
             next_span: 0,

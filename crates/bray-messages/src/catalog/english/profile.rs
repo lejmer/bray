@@ -28,6 +28,7 @@ pub(crate) fn summary(report: &CompilationProfileReport) -> String {
 
     write_time_breakdown(&mut output, report);
     write_scheduler_summary(&mut output, report);
+    write_scheduling_wave_table(&mut output, report);
     write_cache_summary(&mut output, summary);
     write_operation_table(&mut output, summary);
     write_query_table(&mut output, summary);
@@ -216,7 +217,7 @@ fn write_cache_summary(output: &mut String, summary: CompilationProfileSummary<'
 }
 
 fn write_scheduler_summary(output: &mut String, report: &CompilationProfileReport) {
-    let scheduler = report.scheduler;
+    let scheduler = &report.scheduler;
 
     let available = report
         .elapsed_nanoseconds
@@ -243,6 +244,47 @@ fn write_scheduler_summary(output: &mut String, report: &CompilationProfileRepor
             grouped(scheduler.ready_waves),
             grouped(scheduler.ready_items),
             grouped(scheduler.maximum_ready_width)
+        );
+    }
+}
+
+fn write_scheduling_wave_table(output: &mut String, report: &CompilationProfileReport) {
+    if report.scheduler.wave_classes.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "\nScheduling waves by active query or phase");
+
+    let _ = writeln!(
+        output,
+        "  {:<NAME_WIDTH$} {:>8} {:>10} {:>10} {:>10} {:>10}",
+        "Context", "Waves", "Planned", "Ready", "P95 width", "Max workers"
+    );
+
+    for class in &report.scheduler.wave_classes {
+        let context = if let Some(descriptor) = class
+            .query_id
+            .and_then(|id| report.query_descriptor(id))
+        {
+            display_name(&descriptor.name)
+        } else if let Some(descriptor) = class
+            .operation_id
+            .and_then(|id| report.operation_descriptor(id))
+        {
+            display_name(&descriptor.name)
+        } else {
+            "unscoped".to_owned()
+        };
+
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>8} {:>10} {:>10} {:>10} {:>10}",
+            context,
+            grouped(class.waves),
+            grouped(class.planned_items),
+            grouped(class.ready_items),
+            grouped(class.ready_width.p95_upper_bound),
+            grouped(class.active_workers.maximum)
         );
     }
 }
@@ -291,7 +333,7 @@ fn write_query_table(output: &mut String, summary: CompilationProfileSummary<'_>
         "Query", "Evals", "Evaluation", "Self", "Median <=", "P95 <="
     );
 
-    for (descriptor, statistics) in queries {
+    for &(descriptor, statistics) in &queries {
         let _ = writeln!(
             output,
             "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>12} {:>12}",
@@ -325,7 +367,7 @@ fn write_ready_query_table(output: &mut String, summary: CompilationProfileSumma
         "Query", "Hits", "Hit rate", "Ready time", "Maximum"
     );
 
-    for (descriptor, statistics) in queries {
+    for &(descriptor, statistics) in &queries {
         let _ = writeln!(
             output,
             "  {:<NAME_WIDTH$} {:>12} {:>9} {:>12} {:>12}",
@@ -345,38 +387,47 @@ fn write_query_propagation_table(output: &mut String, summary: CompilationProfil
         return;
     }
 
-    let _ = writeln!(output, "\nTop query publication and propagation volume");
+    let _ = writeln!(output, "\nTop query publication and result-copy volume");
 
     let _ = writeln!(
         output,
-        "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>10} {:>12} {:>12}",
-        "Query",
-        "Published",
-        "Inline bytes",
-        "Result diags",
-        "Cloned",
-        "Clone bytes",
-        "Cloned diags"
+        "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
+        "Query", "Published", "Published bytes", "Copies", "Copied bytes"
+    );
+
+    for &(descriptor, statistics) in &queries {
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>10} {:>14} {:>12} {:>14}",
+            display_name(&descriptor.name),
+            grouped(statistics.published_values),
+            bytes(statistics.published_inline_bytes),
+            grouped(statistics.cloned_values),
+            bytes(statistics.cloned_inline_bytes)
+        );
+    }
+
+    let _ = writeln!(output, "\nTop query diagnostic propagation volume");
+
+    let _ = writeln!(
+        output,
+        "  {:<NAME_WIDTH$} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "Query", "Collects", "Diags", "Copies", "Diags", "Merges", "Inputs"
     );
 
     for (descriptor, statistics) in queries {
         let _ = writeln!(
             output,
-            "  {:<NAME_WIDTH$} {:>10} {:>12} {:>12} {:>10} {:>12} {:>12}",
+            "  {:<NAME_WIDTH$} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
             display_name(&descriptor.name),
-            grouped(statistics.published_values),
-            bytes(statistics.published_inline_bytes),
+            grouped(statistics.diagnostic_collections),
             grouped(statistics.result_diagnostics),
-            grouped(statistics.cloned_values),
-            bytes(statistics.cloned_inline_bytes),
-            grouped(statistics.cloned_diagnostics)
+            grouped(statistics.diagnostic_copies),
+            grouped(statistics.cloned_diagnostics),
+            grouped(statistics.diagnostic_merges),
+            grouped(statistics.merged_diagnostics)
         );
     }
-
-    let _ = writeln!(
-        output,
-        "  Inline bytes cover each directly stored result value"
-    );
 }
 
 fn write_metric_table(output: &mut String, summary: CompilationProfileSummary<'_>) {

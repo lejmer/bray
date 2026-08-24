@@ -29,14 +29,22 @@ pub struct CompilationProfileQueryTotals {
     pub published_values: u64,
     /// Total inline bytes occupied by published query-cell values.
     pub published_inline_bytes: u64,
+    /// Total query-result diagnostic collections observed at publication.
+    pub diagnostic_collections: u64,
     /// Total diagnostic instances attached to computed query results.
     pub result_diagnostics: u64,
-    /// Total explicitly cloned semantic values.
+    /// Total query-result ownership handles copied for callers.
     pub cloned_values: u64,
-    /// Total inline bytes occupied by explicitly cloned semantic values.
+    /// Total inline bytes occupied by copied query-result ownership handles.
     pub cloned_inline_bytes: u64,
-    /// Total diagnostic instances copied with explicitly cloned semantic values.
+    /// Total query-result diagnostic collections copied for callers.
+    pub diagnostic_copies: u64,
+    /// Total diagnostic instances carried by copied query results.
     pub cloned_diagnostics: u64,
+    /// Total attributed diagnostic merge boundaries.
+    pub diagnostic_merges: u64,
+    /// Total diagnostic inputs supplied across attributed merge boundaries.
+    pub merged_diagnostics: u64,
 }
 
 /// Presentation-neutral analysis of one compiler profile.
@@ -85,6 +93,10 @@ impl<'profile> CompilationProfileSummary<'profile> {
                     .published_inline_bytes
                     .saturating_add(query.published_inline_bytes);
 
+                totals.diagnostic_collections = totals
+                    .diagnostic_collections
+                    .saturating_add(query.diagnostic_collections);
+
                 totals.result_diagnostics = totals
                     .result_diagnostics
                     .saturating_add(query.result_diagnostics);
@@ -95,9 +107,21 @@ impl<'profile> CompilationProfileSummary<'profile> {
                     .cloned_inline_bytes
                     .saturating_add(query.cloned_inline_bytes);
 
+                totals.diagnostic_copies = totals
+                    .diagnostic_copies
+                    .saturating_add(query.diagnostic_copies);
+
                 totals.cloned_diagnostics = totals
                     .cloned_diagnostics
                     .saturating_add(query.cloned_diagnostics);
+
+                totals.diagnostic_merges = totals
+                    .diagnostic_merges
+                    .saturating_add(query.diagnostic_merges);
+
+                totals.merged_diagnostics = totals
+                    .merged_diagnostics
+                    .saturating_add(query.merged_diagnostics);
 
                 totals
             },
@@ -227,6 +251,8 @@ impl<'profile> CompilationProfileSummary<'profile> {
                     || statistics.result_diagnostics > 0
                     || statistics.cloned_values > 0
                     || statistics.cloned_diagnostics > 0
+                    || statistics.diagnostic_merges > 0
+                    || statistics.merged_diagnostics > 0
             })
             .filter_map(|statistics| {
                 self.report
@@ -619,6 +645,10 @@ const fn propagation_volume(statistics: &CompilationProfileQueryStatistics) -> u
     statistics
         .result_diagnostics
         .saturating_add(statistics.cloned_diagnostics)
+        .saturating_add(statistics.merged_diagnostics)
+        .saturating_add(statistics.diagnostic_collections)
+        .saturating_add(statistics.diagnostic_copies)
+        .saturating_add(statistics.diagnostic_merges)
         .saturating_add(statistics.cloned_values)
         .saturating_add(statistics.published_values)
 }

@@ -987,13 +987,6 @@ impl Compilation {
     {
         let semantic_key = semantic_key(key.clone());
 
-        let profile = self.state.fact_runtime.profile().map(|profile| {
-            (
-                profile,
-                crate::profile::ProfileQueryKind::from_key(&semantic_key),
-            )
-        });
-
         // Cache identity, unit publication, and the atomic computation retain the shared key.
         self.unit_query(cache, semantic_key, key.clone(), cancellation, |_| {
             let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
@@ -1001,14 +994,6 @@ impl Compilation {
             // The projection owns its immutable table after the atomic query handle drops.
             let value = project(semantics.result().value()).clone();
             let diagnostics = semantics.result().diagnostics().clone();
-
-            if let Some((profile, profile_query)) = profile {
-                profile.record_query_clone(
-                    profile_query,
-                    std::mem::size_of::<T>(),
-                    diagnostics.len(),
-                );
-            }
 
             Ok((DiagnosticResult::new(value, diagnostics), Box::new([])))
         })

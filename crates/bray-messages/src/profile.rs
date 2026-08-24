@@ -64,6 +64,7 @@ mod tests {
                 ready_waves: 0,
                 ready_items: 0,
                 maximum_ready_width: 0,
+                wave_classes: Vec::new(),
                 query_critical_path_nanoseconds: 1_000_000,
             },
             descriptors: bray_profile::CompilationProfileDescriptorCatalog {

@@ -125,9 +125,10 @@ where
             |shared_cancellation| {
                 let computation = compute(shared_cancellation)?;
 
-                if let Some((profile, query)) = profile {
-                    profile.record_query_diagnostics(query, computation.0.diagnostics().len());
-                }
+                crate::profile::record_query_diagnostic_collection(
+                    profile,
+                    computation.0.diagnostics().len(),
+                );
 
                 #[cfg(test)]
                 let (result, dependencies) = computation;
@@ -142,6 +143,11 @@ where
                 }))
             },
         )?;
+
+        crate::profile::record_query_result_copy::<PublishedUnitResult<T>>(
+            profile,
+            published.result().diagnostics().len(),
+        );
 
         // Publication must outlive the short-lived map and cell borrows returned by this query.
         Ok(Arc::clone(published))

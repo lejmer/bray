@@ -217,6 +217,7 @@ mod tests {
                 ready_waves: 0,
                 ready_items: 0,
                 maximum_ready_width: 0,
+                wave_classes: Vec::new(),
                 query_critical_path_nanoseconds: elapsed_nanoseconds,
             },
             descriptors: CompilationProfileDescriptorCatalog {
@@ -276,10 +277,14 @@ mod tests {
                 ready_value_maximum_nanoseconds: 0,
                 published_values: 0,
                 published_inline_bytes: 0,
+                diagnostic_collections: 0,
                 result_diagnostics: 0,
                 cloned_values: 0,
                 cloned_inline_bytes: 0,
+                diagnostic_copies: 0,
                 cloned_diagnostics: 0,
+                diagnostic_merges: 0,
+                merged_diagnostics: 0,
             }],
             metrics: vec![CompilationProfileMetric {
                 id: 2_000,

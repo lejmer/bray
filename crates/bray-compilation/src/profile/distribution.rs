@@ -1,4 +1,4 @@
-use bray_profile::CompilationProfileDurationDistribution;
+use bray_profile::{CompilationProfileCountDistribution, CompilationProfileDurationDistribution};
 
 const EXACT_BUCKETS: usize = 16;
 const SUBDIVISIONS: usize = 4;
@@ -6,14 +6,80 @@ const DURATION_BUCKETS: usize = EXACT_BUCKETS + (u64::BITS as usize - 4) * SUBDI
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct DurationHistogram {
+    values: BoundedHistogram,
+}
+
+impl DurationHistogram {
+    pub(super) const fn new() -> Self {
+        Self {
+            values: BoundedHistogram::new(),
+        }
+    }
+
+    pub(super) fn record(&mut self, duration: u64) {
+        self.values.record(duration);
+    }
+
+    pub(super) fn merge(&mut self, other: &Self) {
+        self.values.merge(&other.values);
+    }
+
+    pub(super) fn report(&self) -> CompilationProfileDurationDistribution {
+        let summary = self.values.summary();
+
+        CompilationProfileDurationDistribution {
+            samples: summary.samples,
+            minimum_nanoseconds: summary.minimum,
+            median_upper_bound_nanoseconds: summary.median_upper_bound,
+            p95_upper_bound_nanoseconds: summary.p95_upper_bound,
+            maximum_nanoseconds: summary.maximum,
+        }
+    }
+}
+
+impl Default for DurationHistogram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct CountHistogram {
+    values: BoundedHistogram,
+}
+
+impl CountHistogram {
+    pub(super) fn record(&mut self, value: u64) {
+        self.values.record(value);
+    }
+
+    pub(super) fn merge(&mut self, other: &Self) {
+        self.values.merge(&other.values);
+    }
+
+    pub(super) fn report(&self) -> CompilationProfileCountDistribution {
+        let summary = self.values.summary();
+
+        CompilationProfileCountDistribution {
+            samples: summary.samples,
+            minimum: summary.minimum,
+            median_upper_bound: summary.median_upper_bound,
+            p95_upper_bound: summary.p95_upper_bound,
+            maximum: summary.maximum,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BoundedHistogram {
     buckets: [u64; DURATION_BUCKETS],
     samples: u64,
     minimum: u64,
     maximum: u64,
 }
 
-impl DurationHistogram {
-    pub(super) const fn new() -> Self {
+impl BoundedHistogram {
+    const fn new() -> Self {
         Self {
             buckets: [0; DURATION_BUCKETS],
             samples: 0,
@@ -22,16 +88,16 @@ impl DurationHistogram {
         }
     }
 
-    pub(super) fn record(&mut self, duration: u64) {
-        let bucket = duration_bucket(duration);
+    fn record(&mut self, value: u64) {
+        let bucket = value_bucket(value);
 
         self.buckets[bucket] = self.buckets[bucket].saturating_add(1);
         self.samples = self.samples.saturating_add(1);
-        self.minimum = self.minimum.min(duration);
-        self.maximum = self.maximum.max(duration);
+        self.minimum = self.minimum.min(value);
+        self.maximum = self.maximum.max(value);
     }
 
-    pub(super) fn merge(&mut self, other: &Self) {
+    fn merge(&mut self, other: &Self) {
         for (destination, source) in self.buckets.iter_mut().zip(other.buckets) {
             *destination = destination.saturating_add(source);
         }
@@ -44,17 +110,17 @@ impl DurationHistogram {
         }
     }
 
-    pub(super) fn report(&self) -> CompilationProfileDurationDistribution {
+    fn summary(&self) -> DistributionSummary {
         if self.samples == 0 {
-            return CompilationProfileDurationDistribution::default();
+            return DistributionSummary::default();
         }
 
-        CompilationProfileDurationDistribution {
+        DistributionSummary {
             samples: self.samples,
-            minimum_nanoseconds: self.minimum,
-            median_upper_bound_nanoseconds: self.quantile_upper_bound(50, 100),
-            p95_upper_bound_nanoseconds: self.quantile_upper_bound(95, 100),
-            maximum_nanoseconds: self.maximum,
+            minimum: self.minimum,
+            median_upper_bound: self.quantile_upper_bound(50, 100),
+            p95_upper_bound: self.quantile_upper_bound(95, 100),
+            maximum: self.maximum,
         }
     }
 
@@ -71,7 +137,7 @@ impl DurationHistogram {
             observed = observed.saturating_add(count);
 
             if observed >= rank {
-                return duration_bucket_upper_bound(bucket);
+                return value_bucket_upper_bound(bucket);
             }
         }
 
@@ -79,26 +145,35 @@ impl DurationHistogram {
     }
 }
 
-impl Default for DurationHistogram {
+impl Default for BoundedHistogram {
     fn default() -> Self {
         Self::new()
     }
 }
 
-const fn duration_bucket(duration: u64) -> usize {
-    if duration < EXACT_BUCKETS as u64 {
-        return duration as usize;
+#[derive(Clone, Copy, Debug, Default)]
+struct DistributionSummary {
+    samples: u64,
+    minimum: u64,
+    median_upper_bound: u64,
+    p95_upper_bound: u64,
+    maximum: u64,
+}
+
+const fn value_bucket(value: u64) -> usize {
+    if value < EXACT_BUCKETS as u64 {
+        return value as usize;
     }
 
-    let exponent = (u64::BITS - 1 - duration.leading_zeros()) as usize;
+    let exponent = (u64::BITS - 1 - value.leading_zeros()) as usize;
     let base = 1_u64 << exponent;
     let step = base / SUBDIVISIONS as u64;
-    let subdivision = ((duration - base) / step) as usize;
+    let subdivision = ((value - base) / step) as usize;
 
     EXACT_BUCKETS + (exponent - 4) * SUBDIVISIONS + subdivision
 }
 
-const fn duration_bucket_upper_bound(bucket: usize) -> u64 {
+const fn value_bucket_upper_bound(bucket: usize) -> u64 {
     if bucket < EXACT_BUCKETS {
         return bucket as u64;
     }
@@ -118,7 +193,23 @@ const fn duration_bucket_upper_bound(bucket: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::DurationHistogram;
+    use super::{CountHistogram, DurationHistogram};
+
+    #[test]
+    fn count_histograms_share_bounded_distribution_semantics() {
+        let mut histogram = CountHistogram::default();
+
+        for value in [0, 4, 8, 16] {
+            histogram.record(value);
+        }
+
+        let report = histogram.report();
+
+        assert_eq!(report.samples, 4);
+        assert_eq!(report.minimum, 0);
+        assert_eq!(report.median_upper_bound, 4);
+        assert_eq!(report.maximum, 16);
+    }
 
     #[test]
     fn duration_histograms_report_bounded_quantiles_and_exact_extrema() {

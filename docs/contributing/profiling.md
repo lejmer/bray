@@ -107,8 +107,10 @@ dependency wait are both small.
 evaluation, so it approximates the longest serial query chain without adding nested query durations together.
 
 `Ready work` describes explicit batches submitted to the compiler scheduler. Its wave count, total item count, and
-maximum width show how much parallel work the current architecture exposes. These measurements cover scheduler batches
-that exist today. A low maximum width means the compiler did not expose broad work to the scheduler during that run.
+maximum width show how much parallel work the current architecture exposes. The scheduling-wave table groups bounded
+observations by the active query or compiler phase. It compares planned items with items that actually began evaluation,
+reports the ninety-fifth-percentile ready width, and records the greatest number of workers active within each class.
+A narrow class with many planned items points to scheduling or dependency structure that limits available parallelism.
 
 The `Workers` column in the operation table reports the greatest number of workers that executed the same operation at
 once. It distinguishes a costly parallel phase from a costly phase that remained serial.
@@ -164,11 +166,14 @@ dependency subtree. Do not sum query rows.
 already-published value. This includes fact-cell synchronization and ready-value retrieval. It reveals query families
 where a high hit rate still carries meaningful overhead.
 
-`Top query publication and propagation volume` attributes immutable result publication and known semantic projection
-clones to query kinds. Published and clone byte counts cover the directly stored result value or projection.
-They do not estimate heap allocations reachable through that value. Diagnostic counts show diagnostics attached to
-published query results and copied with projected semantic values. Large values here identify query boundaries where
-ownership or result granularity deserves inspection.
+`Top query publication and result-copy volume` attributes immutable result publication and query-result ownership copies
+to query kinds. Byte counts cover the directly stored result value or copied ownership handle. They do not estimate heap
+allocations reachable through that value.
+
+`Top query diagnostic propagation volume` counts diagnostic collections at query publication, copies at query-result
+return boundaries, and inputs supplied to central diagnostic merges. These are propagation events rather than a final
+diagnostic cardinality. Large values identify query boundaries where ownership, result granularity, or repeated
+aggregation deserves inspection.
 
 ### Compilation units and artifacts
 

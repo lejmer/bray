@@ -236,6 +236,21 @@ pub struct CompilationProfileDurationDistribution {
     pub maximum_nanoseconds: u64,
 }
 
+/// Bounded count distribution derived from a fixed logarithmic histogram.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileCountDistribution {
+    /// Number of observed values.
+    pub samples: u64,
+    /// Smallest observed value.
+    pub minimum: u64,
+    /// Upper bound of the histogram bucket containing the median observation.
+    pub median_upper_bound: u64,
+    /// Upper bound of the histogram bucket containing the ninety-fifth percentile observation.
+    pub p95_upper_bound: u64,
+    /// Greatest observed value.
+    pub maximum: u64,
+}
+
 /// Aggregate behavior for one observed compiler query kind.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileQueryStatistics {
@@ -271,18 +286,26 @@ pub struct CompilationProfileQueryStatistics {
     pub published_values: u64,
     /// Inline bytes occupied by published fact-cell values.
     pub published_inline_bytes: u64,
+    /// Number of query-result diagnostic collections observed at publication.
+    pub diagnostic_collections: u64,
     /// Number of diagnostic instances attached to computed results where the query exposes them.
     pub result_diagnostics: u64,
-    /// Number of explicitly cloned semantic values attributed to this query kind.
+    /// Number of query-result ownership handles copied for callers.
     pub cloned_values: u64,
-    /// Inline bytes occupied by explicitly cloned semantic values.
+    /// Inline bytes occupied by copied query-result ownership handles.
     pub cloned_inline_bytes: u64,
-    /// Number of diagnostics copied with explicitly cloned semantic values.
+    /// Number of query-result diagnostic collections copied for callers.
+    pub diagnostic_copies: u64,
+    /// Number of diagnostics carried by copied query results.
     pub cloned_diagnostics: u64,
+    /// Number of diagnostic merge boundaries attributed to this query kind.
+    pub diagnostic_merges: u64,
+    /// Number of diagnostics supplied across attributed merge boundaries.
+    pub merged_diagnostics: u64,
 }
 
 /// Aggregate scheduling behavior for one compiler invocation.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileSchedulerStatistics {
     /// Configured compiler worker budget.
     pub worker_budget: u64,
@@ -296,6 +319,8 @@ pub struct CompilationProfileSchedulerStatistics {
     pub ready_items: u64,
     /// Greatest number of items exposed by one ready-work wave.
     pub maximum_ready_width: u64,
+    /// Bounded scheduling observations grouped by their active query or compiler phase.
+    pub wave_classes: Vec<CompilationProfileSchedulingWaveStatistics>,
     /// Longest observed rooted query evaluation, including its required dependencies.
     pub query_critical_path_nanoseconds: u64,
 }
@@ -309,9 +334,31 @@ impl Default for CompilationProfileSchedulerStatistics {
             ready_waves: 0,
             ready_items: 0,
             maximum_ready_width: 0,
+            wave_classes: Vec::new(),
             query_critical_path_nanoseconds: 0,
         }
     }
+}
+
+/// Scheduling waves attributed to one active query or compiler phase.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileSchedulingWaveStatistics {
+    /// Active operation descriptor for phase-owned work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<u16>,
+    /// Active query descriptor for dependency-owned work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_id: Option<u16>,
+    /// Number of scheduling waves in this class.
+    pub waves: u64,
+    /// Number of work items planned across these waves.
+    pub planned_items: u64,
+    /// Number of work items that became ready and began evaluation.
+    pub ready_items: u64,
+    /// Distribution of ready work-item counts per wave.
+    pub ready_width: CompilationProfileCountDistribution,
+    /// Distribution of simultaneous workers per wave.
+    pub active_workers: CompilationProfileCountDistribution,
 }
 
 /// One observed compiler unit or size statistic.
