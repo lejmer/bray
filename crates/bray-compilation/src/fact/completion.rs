@@ -1,3 +1,5 @@
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionPlanError,
@@ -84,11 +86,16 @@ where
         }
     };
 
-    let diagnostics = runtime
-        .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
+    let scheduled = catch_unwind(AssertUnwindSafe(|| {
+        runtime.complete_batch(plan.requests().iter().copied(), cancellation, |request| {
             evaluator.evaluate(*request).map(BatchWork::leaf)
         })
-        .map_err(symbol_completion_error)?;
+    }));
+
+    let diagnostics = match scheduled {
+        Ok(result) => result.map_err(symbol_completion_error)?,
+        Err(_) => return Err(SymbolCompletionError::WorkerFailure),
+    };
 
     Ok(crate::profile::merge_diagnostics(
         runtime.profile(),
@@ -105,9 +112,7 @@ fn symbol_completion_error<E>(
             request: key,
             error,
         },
-        BatchCompletionError::Scheduler(_) | BatchCompletionError::WorkerFailure => {
-            SymbolCompletionError::WorkerFailure
-        }
+        BatchCompletionError::Scheduler(_) => SymbolCompletionError::WorkerFailure,
     }
 }
 

@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::{CancellationToken, FactQueryError, FactRuntime};
 
@@ -32,7 +31,6 @@ pub(crate) enum BatchCompletionError<K, E> {
     Cancelled,
     Evaluation { key: K, error: E },
     Scheduler(FactQueryError),
-    WorkerFailure,
 }
 
 impl<K> BatchCompletionError<K, FactQueryError> {
@@ -40,7 +38,6 @@ impl<K> BatchCompletionError<K, FactQueryError> {
         match self {
             Self::Cancelled => FactQueryError::Cancelled,
             Self::Evaluation { error, .. } | Self::Scheduler(error) => error,
-            Self::WorkerFailure => FactQueryError::InfrastructureFailure,
         }
     }
 }
@@ -69,23 +66,18 @@ impl FactRuntime {
                 return Err(BatchCompletionError::Cancelled);
             }
 
-            let scheduled = catch_unwind(AssertUnwindSafe(|| {
-                self.map_indexed(wave.len(), |index| {
-                    if cancellation.is_cancelled() {
-                        None
-                    } else {
-                        Some(evaluator(&wave[index]))
-                    }
-                })
-            }));
-
-            let outcomes = match scheduled {
-                Ok(Ok(outcomes)) => outcomes,
-                Ok(Err(FactQueryError::Cancelled)) => {
+            let outcomes = match self.map_indexed(wave.len(), |index| {
+                if cancellation.is_cancelled() {
+                    None
+                } else {
+                    Some(evaluator(&wave[index]))
+                }
+            }) {
+                Ok(outcomes) => outcomes,
+                Err(FactQueryError::Cancelled) => {
                     return Err(BatchCompletionError::Cancelled);
                 }
-                Ok(Err(error)) => return Err(BatchCompletionError::Scheduler(error)),
-                Err(_) => return Err(BatchCompletionError::WorkerFailure),
+                Err(error) => return Err(BatchCompletionError::Scheduler(error)),
             };
 
             let mut completed = Vec::with_capacity(wave.len());
@@ -171,6 +163,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
@@ -237,6 +230,20 @@ mod tests {
         });
 
         assert_eq!(completed, Ok(vec![(1, Some(QueryPriority::Interactive))]));
+    }
+
+    #[test]
+    fn evaluator_panics_remain_invariant_failures() {
+        let runtime = FactRuntime::new(WorkerBudget::serial());
+        let cancellation = CancellationToken::new();
+
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            runtime.complete_batch([1], &cancellation, |_| -> Result<BatchWork<u32, ()>, ()> {
+                panic!("test evaluator invariant failed")
+            })
+        }));
+
+        assert!(outcome.is_err());
     }
 
     #[test]
