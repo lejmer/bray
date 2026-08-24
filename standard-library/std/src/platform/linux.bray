@@ -206,5 +206,24 @@ trusted internal func linux_error_code() -> i32
 
 trusted internal func linux_error_status() -> PlatformStatus
 {
-    return native_error_status(linux_error_code() as i64);
+    return unix_error_status_from(linux_error_code());
+}
+
+trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
+{
+    let category: u32 = match code
+    {
+        case std.os.linux.ENOSYS | std.os.linux.ENOTSUP { yield 1; }
+        case std.os.linux.EACCES | std.os.linux.EPERM { yield 2; }
+        case std.os.linux.ENOENT { yield 3; }
+        case std.os.linux.EEXIST { yield 4; }
+        case std.os.linux.EINVAL { yield 5; }
+        case std.os.linux.EINTR { yield 6; }
+        case std.os.linux.ENOMEM { yield 7; }
+        case std.os.linux.EPIPE { yield 8; }
+        case std.os.linux.ETIMEDOUT { yield 9; }
+        case _ { yield 10; }
+    };
+
+    return native_status(category = category, code = code as i64);
 }

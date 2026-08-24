@@ -421,9 +421,7 @@ trusted internal func platform_directory_next(
                 return Ok(exhausted);
             }
 
-            return Error(
-                internal std.io.platform_status_error(internal std.platform.native_error_status(error as i64))
-            );
+            return Error(internal std.io.platform_status_error(internal std.platform.windows_error_status_from(error)));
         }
 
         let name: RawPointer<u16> = trusted std.memory.reinterpret<u16, u8>(

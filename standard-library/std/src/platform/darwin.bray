@@ -191,5 +191,24 @@ trusted internal func darwin_error_code() -> i32
 
 trusted internal func darwin_error_status() -> PlatformStatus
 {
-    return native_error_status(darwin_error_code() as i64);
+    return unix_error_status_from(darwin_error_code());
+}
+
+trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
+{
+    let category: u32 = match code
+    {
+        case std.os.darwin.ENOSYS | std.os.darwin.ENOTSUP { yield 1; }
+        case std.os.darwin.EACCES | std.os.darwin.EPERM { yield 2; }
+        case std.os.darwin.ENOENT { yield 3; }
+        case std.os.darwin.EEXIST { yield 4; }
+        case std.os.darwin.EINVAL { yield 5; }
+        case std.os.darwin.EINTR { yield 6; }
+        case std.os.darwin.ENOMEM { yield 7; }
+        case std.os.darwin.EPIPE { yield 8; }
+        case std.os.darwin.ETIMEDOUT { yield 9; }
+        case _ { yield 10; }
+    };
+
+    return native_status(category = category, code = code as i64);
 }

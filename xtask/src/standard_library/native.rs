@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 85;
+const API_TEST_COUNT: usize = 86;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const OUTCOME_CASES: [OutcomeCase; 6] = [
     OutcomeCase::new(
@@ -581,6 +581,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
             "buffered_file_io_preserves_order_and_flushes",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",
+            "child_processes_accept_an_empty_environment",
             "child_processes_capture_output_and_reap_cleanly",
             "string_operations",
         ]

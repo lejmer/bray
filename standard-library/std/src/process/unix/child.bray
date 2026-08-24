@@ -109,7 +109,7 @@ trusted internal func platform_child_spawn(
         trusted internal release_descriptors(input);
         trusted internal release_descriptors(output);
         trusted internal release_descriptors(error);
-        return internal std.platform.native_error_status(initialized as i64);
+        return internal std.platform.unix_error_status_from(initialized);
     }
 
     let configured: i32 = trusted internal configure_spawn_actions(
@@ -126,7 +126,7 @@ trusted internal func platform_child_spawn(
         trusted internal release_descriptors(input);
         trusted internal release_descriptors(output);
         trusted internal release_descriptors(error);
-        return internal std.platform.native_error_status(configured as i64);
+        return internal std.platform.unix_error_status_from(configured);
     }
 
     let mut process: i32 = 0;
@@ -149,7 +149,7 @@ trusted internal func platform_child_spawn(
         trusted internal release_parent_descriptors(input);
         trusted internal release_parent_descriptors(output);
         trusted internal release_parent_descriptors(error);
-        return internal std.platform.native_error_status(spawned as i64);
+        return internal std.platform.unix_error_status_from(spawned);
     }
 
     if destroyed != 0 || process <= 0
@@ -163,7 +163,7 @@ trusted internal func platform_child_spawn(
 
         if destroyed != 0
         {
-            return internal std.platform.native_error_status(destroyed as i64);
+            return internal std.platform.unix_error_status_from(destroyed);
         }
 
         return internal std.platform.other_status();

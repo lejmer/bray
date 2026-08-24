@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
 use std::time::Instant;
 
 use super::super::corpus::{
@@ -342,8 +341,7 @@ fn execute_process_sample(
 ) -> Result<u64, String> {
     let started = Instant::now();
 
-    let output = Command::new(executable)
-        .current_dir(working_directory)
+    let output = super::super::execution::workload_command(executable, working_directory)
         .output()
         .map_err(|error| format!("could not execute {}: {error}", executable.display()))?;
 

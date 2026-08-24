@@ -19,7 +19,15 @@ trusted internal func windows_environment(
         PlatformEnvironmentEntry
     >(&mut ordered);
 
-    let mut total: usize = 2;
+    let mut total: usize = if count == 0
+    {
+        yield 4;
+    }
+    else
+    {
+        yield 2;
+    };
+
     let mut index: usize = 0;
 
     while index < count
@@ -45,32 +53,7 @@ trusted internal func windows_environment(
     }
 
     trusted std.memory.set_initialized_count<PlatformEnvironmentEntry>(&mut ordered, count = count);
-
-    {
-        let values: &mut [PlatformEnvironmentEntry] = trusted std.memory.initialized_slice_mut<
-            PlatformEnvironmentEntry
-        >(&mut ordered);
-
-        index = 1;
-
-        while index < count
-        {
-            let selected: PlatformEnvironmentEntry = values[index];
-            let mut destination: usize = index;
-
-            while destination > 0 && trusted internal windows_environment_precedes(
-                selected.key,
-                values[destination - 1].key
-            )
-            {
-                values[destination] = values[destination - 1];
-                destination -= 1;
-            }
-
-            values[destination] = selected;
-            index += 1;
-        }
-    };
+    trusted internal sort_windows_environment_entries(&mut ordered, count = count);
 
     let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(total);
     let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
@@ -106,6 +89,44 @@ trusted internal func windows_environment(
 
     trusted internal write_windows_unit(destination, index = offset / 2, value = 0);
     return Ok(storage);
+}
+
+trusted internal func sort_windows_environment_entries(
+    pos entries: &mut std.memory.RawBuffer<PlatformEnvironmentEntry>,
+    count: usize,
+) -> unit
+{
+    let values: &mut [PlatformEnvironmentEntry] = trusted std.memory.initialized_slice_mut<PlatformEnvironmentEntry>(
+        entries
+    );
+
+    let mut index: usize = 1;
+
+    while index < count
+    {
+        let mut destination: usize = index;
+
+        while destination > 0
+        {
+            let precedes: bool = trusted internal windows_environment_precedes(
+                values[destination].key,
+                values[destination - 1].key,
+            );
+
+            if !precedes
+            {
+                break;
+            }
+
+            let displaced: PlatformEnvironmentEntry = values[destination - 1];
+
+            values[destination - 1] = values[destination];
+            values[destination] = displaced;
+            destination -= 1;
+        }
+
+        index += 1;
+    }
 }
 
 trusted internal func windows_environment_precedes(pos left: PlatformNativeText, pos right: PlatformNativeText) -> bool

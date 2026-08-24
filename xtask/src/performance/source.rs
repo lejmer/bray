@@ -185,12 +185,12 @@ func main() -> Result<unit, std.io.IoError>
 {
     let arguments: std.process.Arguments = std.process.arguments();
 
-    if arguments.length() > 1
+    if arguments.length() > 0
     {
         return run_pipe_child();
     }
 
-    return run_pipe_parent(arguments);
+    return run_pipe_parent();
 }
 
 func run_pipe_child() -> Result<unit, std.io.IoError>
@@ -204,10 +204,20 @@ func run_pipe_child() -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 
-func run_pipe_parent(pos arguments: std.process.Arguments) -> Result<unit, std.io.IoError>
+func run_pipe_parent() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
-    let executable_text: std.path.NativeText = match consume arguments.value_at(0)
+    let executable_key: std.path.NativeText = match consume std.path.NativeText.from_string(
+        &"BRAY_PERFORMANCE_EXECUTABLE"
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("performance executable key must be valid"); }
+    };
+
+    let environment: std.process.Environment = std.process.environment();
+
+    let executable_text: std.path.NativeText = match consume environment.value(&executable_key)
     {
         case ?value { yield value; }
         case none { panic("performance executable path must be present"); }

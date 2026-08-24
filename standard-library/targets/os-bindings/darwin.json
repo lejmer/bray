@@ -8,6 +8,72 @@
       ],
       "constants": [
         {
+          "name": "EACCES",
+          "native": "EACCES",
+          "type": "i32",
+          "value": 13
+        },
+        {
+          "name": "EEXIST",
+          "native": "EEXIST",
+          "type": "i32",
+          "value": 17
+        },
+        {
+          "name": "EINTR",
+          "native": "EINTR",
+          "type": "i32",
+          "value": 4
+        },
+        {
+          "name": "EINVAL",
+          "native": "EINVAL",
+          "type": "i32",
+          "value": 22
+        },
+        {
+          "name": "ENOENT",
+          "native": "ENOENT",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "ENOMEM",
+          "native": "ENOMEM",
+          "type": "i32",
+          "value": 12
+        },
+        {
+          "name": "ENOSYS",
+          "native": "ENOSYS",
+          "type": "i32",
+          "value": 78
+        },
+        {
+          "name": "ENOTSUP",
+          "native": "ENOTSUP",
+          "type": "i32",
+          "value": 45
+        },
+        {
+          "name": "EPERM",
+          "native": "EPERM",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "EPIPE",
+          "native": "EPIPE",
+          "type": "i32",
+          "value": 32
+        },
+        {
+          "name": "ETIMEDOUT",
+          "native": "ETIMEDOUT",
+          "type": "i32",
+          "value": 60
+        },
+        {
           "name": "F_DUPFD_CLOEXEC",
           "native": "F_DUPFD_CLOEXEC",
           "type": "i32",

@@ -285,6 +285,11 @@ trusted internal func windows_error_status() -> PlatformStatus
 {
     let code: u32 = trusted std.os.windows.get_last_error();
 
+    return windows_error_status_from(code);
+}
+
+internal func windows_error_status_from(pos code: u32) -> PlatformStatus
+{
     return native_status(category = windows_error_category(code), code = code as i64);
 }
 

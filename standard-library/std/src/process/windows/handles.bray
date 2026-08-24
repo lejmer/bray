@@ -20,12 +20,28 @@ trusted internal func windows_child_handles(
                 return Error(trusted internal std.platform.windows_error_status());
             }
 
+            let process: RawPointer<u8> = trusted std.os.windows.get_current_process();
+            let mut child: RawPointer<u8> = std.memory.null<u8>();
+
+            if trusted std.os.windows.duplicate_handle(
+                process,
+                source = handle,
+                target_process = process,
+                target = std.memory.address_of_mut<RawPointer<u8>>(&mut child),
+                access = 0,
+                inherit = 1,
+                options = std.os.windows.DUPLICATE_SAME_ACCESS,
+            ) == 0
+            {
+                return Error(trusted internal std.platform.windows_error_status());
+            }
+
             return Ok(
                 {
                     parent = std.memory.null<u8>(),
-                    child = handle,
+                    child = child,
                     parent_owned = false,
-                    child_owned = false,
+                    child_owned = true,
                 }
             );
         }

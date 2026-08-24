@@ -13,19 +13,13 @@ struct Id
     internal state: ProcessIdState;
 }
 
-internal struct ProcessContextTable
-{
-    entries: std.memory.RawBuffer<std.platform.NativeTextPair>;
-    storage: std.memory.RawBuffer<u8>;
-}
-
 struct Arguments
 {
     internal state: ProcessContextTable;
 
     func length() -> usize
     {
-        return std.memory.initialized_count<std.platform.NativeTextPair>(&self.state.entries);
+        return self.state.count;
     }
 
     func value_at(pos index: usize) -> std.path.NativeText?
@@ -35,7 +29,7 @@ struct Arguments
             return none;
         }
 
-        let entry: std.platform.NativeTextPair = trusted internal table_entry(&self.state, index = index);
+        let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
 
         let bytes: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
             entry.key.address,
@@ -63,7 +57,7 @@ struct Environment
 
     func length() -> usize
     {
-        return std.memory.initialized_count<std.platform.NativeTextPair>(&self.state.entries);
+        return self.state.count;
     }
 
     func value(pos key: &std.path.NativeText) -> std.path.NativeText?
@@ -73,7 +67,7 @@ struct Environment
 
         while index < self.length()
         {
-            let entry: std.platform.NativeTextPair = trusted internal table_entry(&self.state, index = index);
+            let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
 
             if trusted internal std.platform.environment_key_equals_span(expected, right = entry.key)
             {
@@ -103,7 +97,7 @@ struct Environment
             return none;
         }
 
-        let native_entry: std.platform.NativeTextPair = trusted internal table_entry(&self.state, index = index);
+        let native_entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
 
         let key: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
             native_entry.key.address,
@@ -144,7 +138,7 @@ func arguments() -> Arguments
 {
     return
     {
-        state = trusted internal context_table(trusted internal std.platform.argument_storage(), environment = false),
+        state = trusted internal argument_context_table(),
     };
 }
 
@@ -152,14 +146,20 @@ func environment() -> Environment
 {
     return
     {
-        state = trusted internal context_table(trusted internal std.platform.environment_storage(), environment = true),
+        state = trusted internal environment_context_table(),
     };
 }
 
 func current_directory() -> std.path.Path
 {
-    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.working_directory_storage();
-    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&context);
+    let directory_span: std.platform.NativeTextSpan = trusted internal directory_context();
+
+    let directory: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
+        directory_span.address,
+        length = directory_span.length,
+    );
+
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&directory);
     let path: Result<std.path.Path, std.path.PathError> = trusted internal std.path.path_from_bytes(bytes);
 
     match consume path
@@ -167,209 +167,6 @@ func current_directory() -> std.path.Path
         case Ok(value) { return value; }
         case Error(_) { panic("the platform startup working directory is invalid"); }
     }
-}
-
-trusted internal func context_table(pos storage: std.memory.RawBuffer<u8>, environment: bool) -> ProcessContextTable
-{
-    let width: usize = trusted internal std.platform.native_text_width() / 8;
-    let bytes: usize = std.memory.initialized_count<u8>(&storage);
-
-    if width == 0 || bytes % width != 0
-    {
-        panic("the platform process context contains invalid native text");
-    }
-
-    let count: usize = trusted internal context_entry_count(&storage, width = width);
-
-    let created: Result<std.memory.RawBuffer<std.platform.NativeTextPair>, std.memory.MemoryLayoutError> =
-        trusted std.memory.RawBuffer<std.platform.NativeTextPair>(capacity = count);
-
-    let mut entries: std.memory.RawBuffer<std.platform.NativeTextPair> = match consume created
-    {
-        case Ok(buffer) { yield buffer; }
-        case Error(_) { panic("the platform process context cannot be allocated"); }
-    };
-
-    let base: RawPointer<u8> = std.memory.pointer<u8>(&storage);
-
-    let destination: RawPointer<std.platform.NativeTextPair> = trusted std.memory.spare_pointer<
-        std.platform.NativeTextPair
-    >(&mut entries);
-
-    let mut start: usize = 0;
-    let mut index: usize = 0;
-    let mut entry_index: usize = 0;
-
-    while index < bytes
-    {
-        if trusted internal native_unit_is_zero(base, index = index, width = width)
-        {
-            let pair: std.platform.NativeTextPair = trusted internal context_pair(
-                base,
-                start = start,
-                end = index,
-                width = width,
-                environment = environment,
-            );
-
-            trusted std.memory.write<std.platform.NativeTextPair>(
-                std.memory.offset<std.platform.NativeTextPair>(
-                    destination,
-                    elements = std.truncate_to<isize>(entry_index),
-                ),
-                value = pair,
-            );
-
-            entry_index += 1;
-            start = index + width;
-        }
-
-        index += width;
-    }
-
-    if start != bytes || entry_index != count
-    {
-        panic("the platform process context contains invalid native text");
-    }
-
-    trusted std.memory.set_initialized_count<std.platform.NativeTextPair>(&mut entries, count = count);
-
-    return
-    {
-        entries = entries,
-        storage = storage,
-    };
-}
-
-trusted internal func context_entry_count(pos storage: &std.memory.RawBuffer<u8>, width: usize) -> usize
-{
-    let pointer: RawPointer<u8> = std.memory.pointer<u8>(storage);
-    let bytes: usize = std.memory.initialized_count<u8>(storage);
-
-    let mut count: usize = 0;
-    let mut index: usize = 0;
-
-    while index < bytes
-    {
-        if trusted internal native_unit_is_zero(pointer, index = index, width = width)
-        {
-            count += 1;
-        }
-
-        index += width;
-    }
-
-    return count;
-}
-
-trusted internal func context_pair(
-    pos base: RawPointer<u8>,
-    start: usize,
-    end: usize,
-    width: usize,
-    environment: bool,
-) -> std.platform.NativeTextPair
-{
-    let mut separator: usize = end;
-
-    if environment
-    {
-        let mut index: usize = start;
-
-        while index < end
-        {
-            if trusted internal native_unit_is_equals(base, index = index, width = width)
-            {
-                separator = index;
-                break;
-            }
-
-            index += width;
-        }
-
-        if separator == end
-        {
-            panic("the platform process environment contains an invalid entry");
-        }
-    }
-
-    let key: std.platform.NativeTextSpan = trusted internal context_native_span(base, start = start, end = separator);
-
-    let value_start: usize = if environment
-    {
-        yield separator + width;
-    }
-    else
-    {
-        yield end;
-    };
-
-    return
-    {
-        key = key,
-        value = trusted internal context_native_span(base, start = value_start, end = end),
-    };
-}
-
-trusted internal func context_native_span(
-    pos base: RawPointer<u8>,
-    start: usize,
-    end: usize,
-) -> std.platform.NativeTextSpan
-{
-    return
-    {
-        address = std.memory.offset<u8>(base, elements = std.truncate_to<isize>(start)),
-        length = (end - start) as u64,
-    };
-}
-
-trusted internal func native_unit_is_zero(pos pointer: RawPointer<u8>, index: usize, width: usize) -> bool
-{
-    let mut byte: usize = 0;
-
-    while byte < width
-    {
-        if trusted internal std.memory.byte_buffer_read(pointer, index = index + byte) != 0
-        {
-            return false;
-        }
-
-        byte += 1;
-    }
-
-    return true;
-}
-
-trusted internal func native_unit_is_equals(pos pointer: RawPointer<u8>, index: usize, width: usize) -> bool
-{
-    if trusted internal std.memory.byte_buffer_read(pointer, index = index) != 61
-    {
-        return false;
-    }
-
-    let mut byte: usize = 1;
-
-    while byte < width
-    {
-        if trusted internal std.memory.byte_buffer_read(pointer, index = index + byte) != 0
-        {
-            return false;
-        }
-
-        byte += 1;
-    }
-
-    return true;
-}
-
-trusted internal func table_entry(pos table: &ProcessContextTable, index: usize) -> std.platform.NativeTextPair
-{
-    let entries: &[std.platform.NativeTextPair] = trusted std.memory.initialized_slice<std.platform.NativeTextPair>(
-        &table.entries
-    );
-
-    return entries[index];
 }
 
 trusted internal func required_native_text(pos context: std.memory.RawBuffer<u8>) -> std.path.NativeText

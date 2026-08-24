@@ -218,6 +218,12 @@
           "value": 1
         },
         {
+          "name": "DUPLICATE_SAME_ACCESS",
+          "native": "DUPLICATE_SAME_ACCESS",
+          "type": "u32",
+          "value": 2
+        },
+        {
           "name": "MOVEFILE_REPLACE_EXISTING",
           "native": "MOVEFILE_REPLACE_EXISTING",
           "type": "u32",
@@ -844,6 +850,58 @@
           ]
         },
         {
+          "name": "duplicate_handle",
+          "native": "DuplicateHandle",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "source_process",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "source",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "target_process",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "target",
+              "type": "RawPointer<RawPointer<u8>>",
+              "native_type": "LPHANDLE"
+            },
+            {
+              "name": "access",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "inherit",
+              "type": "i32",
+              "native_type": "BOOL"
+            },
+            {
+              "name": "options",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "ownership": "success returns one caller-owned duplicate in target",
+          "initialization": "success initializes target",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
           "name": "find_next_file_w",
           "native": "FindNextFileW",
           "abi": "system",
@@ -933,6 +991,21 @@
           "dependencies": [
             "foreign_call",
             "raw_memory"
+          ]
+        },
+        {
+          "name": "get_current_process",
+          "native": "GetCurrentProcess",
+          "abi": "system",
+          "parameters": [],
+          "result": "RawPointer<u8>",
+          "native_result": "HANDLE",
+          "link": "Kernel32",
+          "error_state": "returns the current process pseudo handle",
+          "ownership": "the process owns the returned pseudo handle",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
           ]
         },
         {
