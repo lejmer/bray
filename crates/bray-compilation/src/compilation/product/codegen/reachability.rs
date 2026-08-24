@@ -6,9 +6,9 @@ use bray_codegen::{
 };
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 
-use super::error::NativeProductPlanningError;
 use super::super::super::Compilation;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
+use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
