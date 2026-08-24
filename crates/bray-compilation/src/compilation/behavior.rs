@@ -161,7 +161,7 @@ impl Compilation {
         let contributions = self.body_semantics_with_cancellation(key, cancellation)?;
 
         let mut capabilities = BTreeMap::<_, BTreeSet<_>>::new();
-        let mut diagnostics = contributions.result().diagnostics().clone();
+        let mut diagnostics = DiagnosticBag::new();
         let mut is_recovered = contributions.result().value().behavior().is_recovered();
         let binding_context = self.binding_context(cancellation)?;
         let symbols = self.symbol_graph()?;
@@ -270,8 +270,6 @@ impl Compilation {
 
             let contributions = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
             let behavior = contributions.result().value().behavior();
-
-            diagnostics = diagnostics.merged(contributions.result().diagnostics());
 
             builder.merge_contributions(behavior);
 
@@ -592,6 +590,8 @@ const fn binding_query_error(error: bray_binder::BindingQueryError) -> FactQuery
 mod tests {
     use std::sync::Arc;
 
+    use bray_diagnostics::DiagnosticKind;
+
     use super::Compilation;
     use crate::test_support::{compilation, source_callable_body_key};
 
@@ -633,6 +633,40 @@ mod tests {
         assert!(behavior.diagnostics().is_empty());
         assert!(behavior.value().effects().is_empty());
         assert!(!behavior.value().is_recovered());
+    }
+
+    #[test]
+    fn body_behavior_does_not_republish_body_semantic_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    await child();\n",
+            "}\n",
+            "async func child() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let behavior = compilation
+            .body_behavior(key.clone())
+            .unwrap_or_else(|error| panic!("body behavior must publish: {error:?}"));
+
+        let body = compilation
+            .async_analysis(key)
+            .unwrap_or_else(|error| panic!("body semantics must publish: {error:?}"));
+
+        assert!(behavior.diagnostics().is_empty());
+
+        assert_eq!(
+            body.diagnostics()
+                .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
+                .count(),
+            1
+        );
     }
 
     #[test]
