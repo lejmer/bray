@@ -103,7 +103,11 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
         let available_destination: &mut [u8] = &mut destination[writer.length..writer.length + accepted];
         let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available_destination);
 
-        trusted internal std.memory.byte_slice_copy(source = accepted_source, destination = destination_pointer);
+        trusted internal std.memory.byte_buffer_copy(
+            source = internal std.memory.byte_slice_pointer(accepted_source),
+            destination = destination_pointer,
+            count = accepted,
+        );
     }
 
     writer.length += accepted;

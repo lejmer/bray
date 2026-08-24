@@ -1,0 +1,2 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;

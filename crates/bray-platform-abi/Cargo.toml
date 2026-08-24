@@ -9,59 +9,20 @@ rust-version.workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [features]
-default = ["core", "filesystem", "process", "standard-streams"]
-core = [
-    "dep:bray-platform",
-    "bray-platform/clock",
-    "bray-platform/entropy",
-    "dep:bray-platform-abi-support",
-    "dep:bray-platform-abi-temporal",
-    "dep:bray-runtime-abi",
-    "dep:libc",
-    "dep:windows-sys",
-]
-filesystem = [
-    "dep:bray-platform",
-    "bray-platform/clock",
-    "dep:bray-platform-abi-support",
-    "dep:bray-runtime-abi",
-]
-process = [
-    "dep:bray-platform",
-    "bray-platform/process",
-    "dep:bray-platform-abi-support",
-    "dep:bray-runtime-abi",
-]
-standard-streams = []
+default = ["temporal"]
+temporal = ["dep:bray-platform-abi-temporal"]
 
 [dependencies]
-bray-platform = {
-    path = "../bray-platform",
-    optional = true,
-    default-features = false,
-}
-bray-platform-abi-support = { path = "../bray-platform-abi-support", optional = true }
 bray-platform-abi-temporal = { path = "../bray-platform-abi-temporal", optional = true }
-bray-runtime-abi = { path = "../bray-runtime-abi", optional = true }
 
 [dev-dependencies]
-bray-testing = { path = "../bray-testing" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
 
 [build-dependencies]
 cc = "1.2.48"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10.9"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = {
-    version = "0.61.2",
-    features = ["Win32_Globalization", "Win32_System_WindowsProgramming"],
-    optional = true,
-}
-
-[target.'cfg(unix)'.dependencies]
-libc = { version = "0.2", optional = true }
 
 [lints]
 workspace = true

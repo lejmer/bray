@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
+use std::path::Component;
+use std::path::Path;
 use std::path::PathBuf;
 
 use bray_base::NonEmptySharedStr;
 use bray_base::lowercase_hex;
 use sha2::{Digest, Sha256};
 
-use super::model::{Description, LinkKind};
+use super::model::{Description, LinkKind, Manifest, Source};
 use super::render::{RenderedTarget, render_all};
 use super::validation::validate;
 use crate::workspace;
@@ -60,21 +62,83 @@ fn read_description() -> Result<DescriptionFile, String> {
     let root = workspace::root()?;
     let input = root.join(INPUT_PATH);
 
-    let bytes =
-        std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
-
-    let description: Description = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("could not parse {}: {error}", input.display()))?;
-
-    validate(&description)?;
-
-    let digest = lowercase_hex(&Sha256::digest(&bytes));
+    let (description, digest) = read_input(&input)?;
 
     Ok(DescriptionFile {
         root,
         description,
         digest,
     })
+}
+
+fn read_input(input: &Path) -> Result<(Description, String), String> {
+    let manifest_bytes =
+        std::fs::read(input).map_err(|error| workspace::io_error("read", input, error))?;
+
+    let manifest = serde_json::from_slice::<Manifest>(&manifest_bytes)
+        .map_err(|error| format!("could not parse {}: {error}", input.display()))?;
+
+    if manifest.sources.is_empty() {
+        return Err(format!(
+            "OS binding manifest {} has no sources",
+            input.display()
+        ));
+    }
+
+    let parent = input
+        .parent()
+        .ok_or_else(|| format!("{} has no parent", input.display()))?;
+
+    let mut names = BTreeSet::new();
+    let mut sources = Vec::with_capacity(manifest.sources.len());
+    let mut digest = Sha256::new();
+
+    digest.update(&manifest_bytes);
+
+    for name in &manifest.sources {
+        let relative = Path::new(name);
+
+        if relative
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("json")
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!(
+                "OS binding source path {name} must be a relative JSON path"
+            ));
+        }
+
+        if !names.insert(relative.to_path_buf()) {
+            return Err(format!("OS binding source path {name} is repeated"));
+        }
+
+        let path = parent.join(relative);
+
+        let bytes =
+            std::fs::read(&path).map_err(|error| workspace::io_error("read", &path, error))?;
+
+        let source = serde_json::from_slice::<Source>(&bytes)
+            .map_err(|error| format!("could not parse {}: {error}", path.display()))?;
+
+        if source.groups.is_empty() && source.targets.is_empty() {
+            return Err(format!("OS binding source {} is empty", path.display()));
+        }
+
+        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(name.as_bytes());
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(&bytes);
+        sources.push(source);
+    }
+
+    let description = Description::from_sources(manifest.format, sources).expand_groups()?;
+
+    validate(&description)?;
+
+    Ok((description, lowercase_hex(&digest.finalize())))
 }
 
 pub(super) fn generate(check: bool) -> Result<(), String> {
@@ -250,7 +314,49 @@ fn obsolete_managed_files(files: &[GeneratedFile]) -> Result<Vec<PathBuf>, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{GeneratedFile, check_files, synchronize_files};
+    use super::{GeneratedFile, check_files, read_description, read_input, synchronize_files};
+
+    #[test]
+    fn checked_in_description_covers_every_native_target() {
+        read_description()
+            .unwrap_or_else(|error| panic!("binding description must be valid: {error}"));
+    }
+
+    #[test]
+    fn manifest_sources_stay_beneath_the_manifest_directory() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+
+        let manifest = directory.path().join("os-bindings.json");
+
+        std::fs::write(&manifest, r#"{"format":1,"sources":["../outside.json"]}"#)
+            .unwrap_or_else(|error| panic!("manifest must be written: {error}"));
+
+        assert!(read_input(&manifest).is_err());
+    }
+
+    #[test]
+    fn manifest_source_paths_are_unique() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+
+        let manifest = directory.path().join("os-bindings.json");
+        let source = directory.path().join("shared.json");
+
+        std::fs::write(
+            &manifest,
+            r#"{"format":1,"sources":["shared.json","shared.json"]}"#,
+        )
+        .unwrap_or_else(|error| panic!("manifest must be written: {error}"));
+
+        std::fs::write(
+            &source,
+            r#"{"groups":[{"name":"shared","targets":["first","second"]}]}"#,
+        )
+        .unwrap_or_else(|error| panic!("source must be written: {error}"));
+
+        assert!(read_input(&manifest).is_err());
+    }
 
     #[test]
     fn managed_directories_reject_and_remove_obsolete_outputs() {

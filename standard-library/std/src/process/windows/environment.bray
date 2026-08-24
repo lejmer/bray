@@ -1,0 +1,144 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+trusted internal func windows_environment(
+    pos entries: &[PlatformEnvironmentEntry],
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    let count: usize = internal std.memory.slice_length<PlatformEnvironmentEntry>(entries);
+
+    let mut ordered: std.memory.RawBuffer<PlatformEnvironmentEntry> = match trusted std.memory.RawBuffer<
+        PlatformEnvironmentEntry
+    >(capacity = count)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    let ordered_pointer: RawPointer<PlatformEnvironmentEntry> = trusted std.memory.spare_pointer<
+        PlatformEnvironmentEntry
+    >(&mut ordered);
+
+    let mut total: usize = if count == 0
+    {
+        yield 4;
+    }
+    else
+    {
+        yield 2;
+    };
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let entry: PlatformEnvironmentEntry = entries[index];
+        let key_units: usize = try internal windows_text_units(entry.key, allow_empty = false, allow_equals = false);
+        let value_units: usize = try internal windows_text_units(entry.value, allow_empty = true, allow_equals = true);
+        let bytes: usize = (key_units + value_units + 2) * 2;
+
+        if total > 18_446_744_073_709_551_615 - bytes
+        {
+            return Error(internal std.platform.exhausted_status());
+        }
+
+        total += bytes;
+
+        trusted std.memory.write<PlatformEnvironmentEntry>(
+            std.memory.offset<PlatformEnvironmentEntry>(ordered_pointer, elements = std.truncate_to<isize>(index)),
+            value = entry,
+        );
+
+        index += 1;
+    }
+
+    trusted std.memory.set_initialized_count<PlatformEnvironmentEntry>(&mut ordered, count = count);
+    trusted internal sort_windows_environment_entries(&mut ordered, count = count);
+
+    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(total);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
+    let values: &[PlatformEnvironmentEntry] = trusted std.memory.initialized_slice<PlatformEnvironmentEntry>(&ordered);
+    let mut offset: usize = 0;
+    index = 0;
+
+    while index < count
+    {
+        let entry: PlatformEnvironmentEntry = values[index];
+
+        trusted internal std.memory.byte_buffer_copy(
+            entry.key.address,
+            destination = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset)),
+            count = std.truncate_to<usize>(entry.key.length)
+        );
+
+        offset += std.truncate_to<usize>(entry.key.length);
+        trusted internal write_windows_unit(destination, index = offset / 2, value = 61);
+        offset += 2;
+
+        trusted internal std.memory.byte_buffer_copy(
+            entry.value.address,
+            destination = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset)),
+            count = std.truncate_to<usize>(entry.value.length)
+        );
+
+        offset += std.truncate_to<usize>(entry.value.length);
+        trusted internal write_windows_unit(destination, index = offset / 2, value = 0);
+        offset += 2;
+        index += 1;
+    }
+
+    trusted internal write_windows_unit(destination, index = offset / 2, value = 0);
+    return Ok(storage);
+}
+
+trusted internal func sort_windows_environment_entries(
+    pos entries: &mut std.memory.RawBuffer<PlatformEnvironmentEntry>,
+    count: usize,
+) -> unit
+{
+    let values: &mut [PlatformEnvironmentEntry] = trusted std.memory.initialized_slice_mut<PlatformEnvironmentEntry>(
+        entries
+    );
+
+    let mut index: usize = 1;
+
+    while index < count
+    {
+        let mut destination: usize = index;
+
+        while destination > 0
+        {
+            let precedes: bool = trusted internal windows_environment_precedes(
+                values[destination].key,
+                values[destination - 1].key,
+            );
+
+            if !precedes
+            {
+                break;
+            }
+
+            let displaced: PlatformEnvironmentEntry = values[destination - 1];
+
+            values[destination - 1] = values[destination];
+            values[destination] = displaced;
+            destination -= 1;
+        }
+
+        index += 1;
+    }
+}
+
+trusted internal func windows_environment_precedes(pos left: PlatformNativeText, pos right: PlatformNativeText) -> bool
+    uses(foreign_call)
+{
+    let comparison: i32 = trusted std.os.windows.compare_string_ordinal(
+        trusted std.memory.reinterpret<u16, u8>(left.address),
+        left_length = std.truncate_to<i32>(left.length / 2),
+        right = trusted std.memory.reinterpret<u16, u8>(right.address),
+        right_length = std.truncate_to<i32>(right.length / 2),
+        ignore_case = 1,
+    );
+
+    return comparison == 1;
+}

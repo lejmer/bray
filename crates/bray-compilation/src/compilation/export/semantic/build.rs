@@ -211,7 +211,7 @@ fn executable_templates(
         };
 
         let (family_templates, family_requirement) =
-            export_executable_template_family(compilation, owner, root, export)?;
+            export_executable_template_family(compilation, graph, owner, root, export)?;
 
         templates.extend(family_templates);
 
@@ -227,6 +227,7 @@ fn executable_templates(
 
 fn export_executable_template_family(
     compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
     owner: InterfaceSymbolId,
     root: BoundUnitKey,
     export: &mut SemanticExporter<'_>,
@@ -269,6 +270,26 @@ fn export_executable_template_family(
             .get(&key)
             .copied()
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        let platform_service = if identity == bray_ir::MirExecutableTemplateId::ROOT {
+            graph
+                .symbol_for_key(key.declared_owner())
+                .and_then(|symbol| match symbol {
+                    AnySymbolId::Function(function) => Some(function),
+                    _ => None,
+                })
+                .map(|function| {
+                    crate::compilation::foreign::platform::platform_service_role(
+                        compilation,
+                        function,
+                    )
+                })
+                .transpose()
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+                .flatten()
+        } else {
+            None
+        };
 
         let lowered = compilation
             .lowered_unit(key)
@@ -321,6 +342,7 @@ fn export_executable_template_family(
             })?;
 
         let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
+            .map(|template| template.with_platform_service(platform_service))
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
 
         templates.push(template);

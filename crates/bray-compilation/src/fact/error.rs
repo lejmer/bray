@@ -89,6 +89,12 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
+    /// The atomic initializer argument has no available compile-time value.
+    AtomicInitializerArgumentUnavailable,
+    /// The atomic initializer result cannot be retained as a compile-time value.
+    AtomicInitializerResultUnavailable,
+    /// An imported native operation does not match its compiled definition.
+    ImportedExecutableTemplateMismatch,
     /// Semantic-context construction found an inconsistent bound unit.
     SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
@@ -106,6 +112,15 @@ impl std::fmt::Display for FactQueryError {
             ),
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+            Self::AtomicInitializerArgumentUnavailable => {
+                formatter.write_str("the atomic initializer argument is unavailable")
+            }
+            Self::AtomicInitializerResultUnavailable => {
+                formatter.write_str("the atomic initializer result cannot be retained")
+            }
+            Self::ImportedExecutableTemplateMismatch => {
+                formatter.write_str("an imported native operation has a mismatched template")
             }
             Self::SemanticUnitContext(error) => {
                 write!(formatter, "semantic unit context failed: {error:?}")

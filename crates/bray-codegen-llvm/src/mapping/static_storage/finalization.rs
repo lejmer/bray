@@ -92,6 +92,7 @@ fn declare_static_finalizer_start<'context>(
         &name,
         "static.finalize",
         context.i32_type().fn_type(&[usize.into()], false),
+        types,
     );
 
     let builder = context.create_builder();
@@ -224,6 +225,7 @@ fn declare_static_finalizer_resolver<'context>(
         context
             .i32_type()
             .fn_type(&[usize.into(), usize.into()], false),
+        types,
     );
 
     let builder = context.create_builder();
@@ -452,6 +454,7 @@ fn declare_static_incident_reporter<'context>(
         &name,
         "static.finalize.incident.report",
         context.i32_type().fn_type(&[usize.into()], false),
+        types,
     );
 
     let reporter = module
@@ -519,6 +522,7 @@ fn declare_static_incident_destroyer<'context>(
         &name,
         "static.finalize.incident.destroy",
         context.void_type().fn_type(&[usize.into()], false),
+        types,
     );
 
     let builder = context.create_builder();

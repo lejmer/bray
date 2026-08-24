@@ -45,6 +45,7 @@ pub(super) fn compute_payload_hash(
     prefix.write_u16(crate::InterfaceSectionRevision::CURRENT.raw());
     prefix.write_bytes(&entry.discriminator);
     prefix.write_u32(entry.family_size);
+    prefix.write_u32(entry.platform_service.map_or(0, |role| role.id()));
     prefix.write_u64(entry.decoded_length);
     prefix.write_u64(entry.record_count);
     prefix.write_u64(u64::try_from(payload.len()).unwrap_or(u64::MAX));
@@ -81,6 +82,7 @@ pub(super) fn compute_content_hash(
         entry_prefix.write_u8(entry.raw_kind);
         entry_prefix.write_bytes(&entry.discriminator);
         entry_prefix.write_u32(entry.family_size);
+        entry_prefix.write_u32(entry.platform_service.map_or(0, |role| role.id()));
         entry_prefix.write_u64(entry.decoded_length);
         entry_prefix.write_u64(entry.record_count);
         entry_prefix.write_bytes(&entry.content_hash);

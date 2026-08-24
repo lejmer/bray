@@ -1,12 +1,150 @@
+use std::collections::BTreeSet;
+
 use serde::Deserialize;
 
 pub(super) const FORMAT: u32 = 1;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+pub(super) fn abi_integer_representation(ty: &str) -> Option<(u64, bool)> {
+    match ty {
+        "i8" => Some((1, true)),
+        "i16" => Some((2, true)),
+        "i32" => Some((4, true)),
+        "i64" | "isize" => Some((8, true)),
+        "u8" => Some((1, false)),
+        "u16" => Some((2, false)),
+        "u32" => Some((4, false)),
+        "u64" | "usize" => Some((8, false)),
+        _ => None,
+    }
+}
+
+pub(super) fn is_primitive_abi_type(ty: &str) -> bool {
+    abi_integer_representation(ty).is_some() || matches!(ty, "r32" | "r64")
+}
+
 pub(super) struct Description {
     pub(super) format: u32,
+    pub(super) groups: Vec<BindingGroupDescription>,
     pub(super) targets: Vec<TargetDescription>,
+}
+
+impl Description {
+    pub(super) fn from_sources(format: u32, sources: Vec<Source>) -> Self {
+        let mut groups = Vec::new();
+        let mut targets = Vec::new();
+
+        for source in sources {
+            groups.extend(source.groups);
+            targets.extend(source.targets);
+        }
+
+        Self {
+            format,
+            groups,
+            targets,
+        }
+    }
+
+    pub(super) fn expand_groups(mut self) -> Result<Self, String> {
+        validate_group_identities(&self.groups, &self.targets)?;
+
+        for group in &self.groups {
+            for target_name in &group.targets {
+                let target = self
+                    .targets
+                    .iter_mut()
+                    .find(|target| target.target == *target_name)
+                    .ok_or_else(|| {
+                        format!(
+                            "OS binding group {} selects unknown target {target_name}",
+                            group.name
+                        )
+                    })?;
+
+                target.constants.extend(group.constants.iter().cloned());
+                target.functions.extend(group.functions.iter().cloned());
+            }
+        }
+
+        for target in &mut self.targets {
+            target
+                .constants
+                .sort_by(|left, right| left.name.cmp(&right.name));
+
+            target
+                .functions
+                .sort_by(|left, right| left.name.cmp(&right.name));
+        }
+
+        Ok(self)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Manifest {
+    pub(super) format: u32,
+    pub(super) sources: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Source {
+    #[serde(default)]
+    pub(super) groups: Vec<BindingGroupDescription>,
+    #[serde(default)]
+    pub(super) targets: Vec<TargetDescription>,
+}
+
+fn validate_group_identities(
+    groups: &[BindingGroupDescription],
+    targets: &[TargetDescription],
+) -> Result<(), String> {
+    let mut names = BTreeSet::new();
+
+    let target_names = targets
+        .iter()
+        .map(|target| target.target.as_str())
+        .collect::<BTreeSet<_>>();
+
+    for group in groups {
+        if group.name.is_empty() || !names.insert(group.name.as_str()) {
+            return Err("OS binding group names must be nonempty and unique".to_owned());
+        }
+
+        let selected = group
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+
+        if selected.len() != group.targets.len() || selected.len() < 2 {
+            return Err(format!(
+                "OS binding group {} must select at least two unique targets",
+                group.name
+            ));
+        }
+
+        if let Some(target) = selected.difference(&target_names).next() {
+            return Err(format!(
+                "OS binding group {} selects unknown target {target}",
+                group.name
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BindingGroupDescription {
+    pub(super) name: String,
+    pub(super) targets: Vec<String>,
+    #[serde(default)]
+    pub(super) constants: Vec<ConstantDescription>,
+    #[serde(default)]
+    pub(super) functions: Vec<FunctionDescription>,
 }
 
 #[derive(Deserialize)]
@@ -121,7 +259,7 @@ pub(super) struct ScalarDescription {
     pub(super) signed: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ConstantDescription {
     pub(super) name: String,
@@ -278,7 +416,7 @@ pub(super) struct CallbackDescription {
     pub(super) native_result: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FunctionDescription {
     pub(super) name: String,
@@ -299,6 +437,10 @@ pub(super) struct FunctionDescription {
     #[serde(default)]
     pub(super) initialization: Option<String>,
     #[serde(default)]
+    pub(super) requires: Vec<String>,
+    #[serde(default)]
+    pub(super) ensures: Vec<String>,
+    #[serde(default)]
     pub(super) dependencies: Vec<String>,
 }
 
@@ -318,7 +460,7 @@ impl CallableAbi {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ParameterDescription {
     pub(super) name: String,
@@ -347,7 +489,7 @@ pub(super) struct StaticDescription {
     pub(super) dependencies: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SymbolDescription {
     #[serde(default)]

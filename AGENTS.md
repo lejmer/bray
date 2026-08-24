@@ -22,6 +22,8 @@ Keep reviews bounded by the issue contract. Fix correctness defects, architectur
 
 Do not construct user-facing English text inside compiler logic. Emit structured message IDs and typed arguments instead. User-facing text must be rendered through `bray-messages`.
 
+Every failure path must preserve the most specific known cause through error and diagnostic conversions. When a useful diagnostic needs context that the successful path does not otherwise require, carry enough identity to retrieve it and perform that lookup only while constructing the failure. Put complex or repeated diagnostic-context lookup in a helper. Reserve broad categories such as `InfrastructureFailure` for failures that remain genuinely broad after the available context has been examined.
+
 ## Coding conventions
 
 If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).

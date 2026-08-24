@@ -1,7 +1,7 @@
 pub(in crate::compilation) mod diagnostic;
 mod directive;
 mod layout;
-mod platform;
+pub(in crate::compilation) mod platform;
 mod query;
 mod static_storage;
 mod validation;

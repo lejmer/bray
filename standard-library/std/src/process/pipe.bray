@@ -20,7 +20,6 @@ struct ChildInput
     }
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.state.is_open
         {
@@ -54,7 +53,6 @@ struct ChildOutput
     }
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.state.is_open
         {
@@ -143,7 +141,6 @@ internal func child_output(handle: u64) -> ChildOutput?
 
 trusted internal func child_input_write(pos input: &mut ChildInput, pos source: &[u8]) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !input.state.is_open
     {
@@ -169,7 +166,6 @@ trusted internal func child_input_write(pos input: &mut ChildInput, pos source: 
 
 trusted internal func child_input_flush(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !input.state.is_open
     {
@@ -184,7 +180,6 @@ trusted internal func child_output_read(
     pos destination: &mut [u8],
 ) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !output.state.is_open
     {
@@ -211,7 +206,6 @@ trusted internal func child_output_read(
 
 trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !input.state.is_open
     {
@@ -229,7 +223,6 @@ trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<un
 
 trusted internal func close_child_output(pos output: &mut ChildOutput) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     if !output.state.is_open
     {

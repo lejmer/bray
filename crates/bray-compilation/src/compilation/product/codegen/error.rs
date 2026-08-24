@@ -276,8 +276,34 @@ const fn fact_query_failure_kind(
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::AtomicInitializerArgumentUnavailable => {
+            Some(Kind::EvaluationAtomicInitializerArgumentUnavailable)
+        }
+        FactQueryError::AtomicInitializerResultUnavailable => {
+            Some(Kind::EvaluationAtomicInitializerResultUnavailable)
+        }
+        FactQueryError::ImportedExecutableTemplateMismatch => {
+            Some(Kind::EvaluationImportedExecutableTemplateMismatch)
+        }
         FactQueryError::SemanticUnitContext(_) => Some(Kind::SemanticContextFailure),
-        FactQueryError::CheckerInfrastructure(_) => Some(Kind::CheckingInfrastructureFailure),
+        FactQueryError::CheckerInfrastructure(error) => Some(match error {
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
+                Kind::EvaluationAtomicRepresentationTypeUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
+                Kind::EvaluationAtomicRepresentationArgumentsUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
+                Kind::EvaluationAtomicInitializerArgumentUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
+                Kind::EvaluationAtomicInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
+                Kind::EvaluationImportedExecutableTemplateMismatch
+            }
+            _ => Kind::CheckingInfrastructureFailure,
+        }),
     }
 }
 
@@ -295,6 +321,7 @@ impl From<super::super::super::CodegenPreparationError> for NativeProductPlannin
 
 #[cfg(test)]
 mod tests {
+    use bray_checker::CheckerInfrastructureError;
     use bray_diagnostics::{
         DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticNativeProductFailureKind,
         DiagnosticNoteKind,
@@ -302,7 +329,47 @@ mod tests {
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::{NativeProductPlanningError, native_product_preparation_diagnostic};
+    use super::{
+        NativeProductPlanningError, fact_query_failure_kind,
+        native_product_preparation_diagnostic,
+    };
+    use crate::fact::FactQueryError;
+
+    #[test]
+    fn native_product_evaluation_failures_preserve_specific_reasons() {
+        use DiagnosticNativeProductFailureKind as Kind;
+
+        let cases = [
+            (
+                FactQueryError::CheckerInfrastructure(
+                    CheckerInfrastructureError::AtomicRepresentationTypeUnavailable,
+                ),
+                Kind::EvaluationAtomicRepresentationTypeUnavailable,
+            ),
+            (
+                FactQueryError::CheckerInfrastructure(
+                    CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable,
+                ),
+                Kind::EvaluationAtomicRepresentationArgumentsUnavailable,
+            ),
+            (
+                FactQueryError::AtomicInitializerArgumentUnavailable,
+                Kind::EvaluationAtomicInitializerArgumentUnavailable,
+            ),
+            (
+                FactQueryError::AtomicInitializerResultUnavailable,
+                Kind::EvaluationAtomicInitializerResultUnavailable,
+            ),
+            (
+                FactQueryError::ImportedExecutableTemplateMismatch,
+                Kind::EvaluationImportedExecutableTemplateMismatch,
+            ),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(fact_query_failure_kind(&error), Some(expected));
+        }
+    }
 
     #[test]
     fn native_product_failures_preserve_exact_product_target_and_reason() {

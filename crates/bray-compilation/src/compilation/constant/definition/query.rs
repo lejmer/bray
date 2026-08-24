@@ -820,8 +820,9 @@ impl Compilation {
                         .symbol_for_key(key.declared_owner())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let definition = constant_definition_id(symbol)
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                    let Some(definition) = constant_definition_id(symbol) else {
+                        continue;
+                    };
 
                     if templates.insert(definition, key).is_some() {
                         return Err(FactQueryError::InfrastructureFailure);

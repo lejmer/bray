@@ -159,22 +159,22 @@ Named timezone loading is demand-driven and thread-safe. The runtime may intern 
 stable name. Repeated loads reuse provider state without changing observable behavior. A failed lookup is also cacheable
 for one pinned database version.
 
-Compiled package interfaces expose only ordinary public `std.time` declarations. They do not contain native provider
-identities, timezone handles, C++ names, source paths, or the physical timezone database location.
+Compiled package interfaces expose only ordinary public `std.time` declarations. They do not contain third-party
+provider identities, timezone handles, C++ names, source paths, or the physical timezone database location.
 
 Every standard-library target artifact set includes temporal-provider provenance. The record identifies the shared
 provider source, the capability partition for each native translation unit, the timezone database, host-zone mapping
-data, and verified content digests used to build that target. The stable partition inventory drives native provider
+data, and verified content digests used to build that target. The stable partition inventory drives temporal-provider
 construction. It is toolchain metadata rather than a runtime dependency.
 
 Civil-date operations, deterministic parsing and formatting, and named-timezone operations occupy separate native
-retention partitions. The embedded timezone database belongs only to the named-timezone partition. Native provider
+retention partitions. The embedded timezone database belongs only to the named-timezone partition. Third-party provider
 compilation emits independently discardable function and immutable-data contributions for COFF, ELF, and Mach-O so a
 product retains only demanded provider capabilities and their data.
 
 Temporal platform ABI exports occupy a linkable component separate from unrelated platform mechanisms. Selecting an
 ordinary filesystem, stream, process, clock, or entropy service cannot introduce a reference to the temporal provider.
-Linker-map conformance enters through the public platform ABI and verifies that a product with no temporal demand
+Linker-map conformance enters through the private temporal ABI and verifies that a product with no temporal demand
 retains no temporal provider partition.
 
 ## Testing

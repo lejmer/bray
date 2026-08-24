@@ -1,0 +1,229 @@
+@target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
+trusted internal module std.platform;
+
+trusted internal func process_identity() -> u64
+    uses(foreign_call)
+{
+    let identity: i32 = trusted internal std.os.linux.getpid();
+
+    if identity <= 0
+    {
+        panic("the platform process identity is unavailable");
+    }
+
+    return std.truncate_to<u64>(identity);
+}
+
+trusted internal func environment_pointer() -> RawPointer<RawPointer<u8>>
+{
+    return trusted internal read_native_pointer<RawPointer<u8>>(std.os.linux.ENVIRON);
+}
+
+trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
+    uses(foreign_call)
+{
+    let path: [u8; 19] = [47, 112, 114, 111, 99, 47, 115, 101, 108, 102, 47, 99, 109, 100, 108, 105, 110, 101, 0];
+
+    return trusted internal read_process_file(std.memory.address_of<u8>(&path[0]));
+}
+
+trusted internal func current_thread_identity() -> u64
+    uses(foreign_call)
+{
+    return trusted internal std.os.linux.pthread_self();
+}
+
+trusted internal func unix_error_status() -> PlatformStatus
+{
+    return linux_error_status();
+}
+
+trusted internal func unix_error_code() -> i32
+{
+    return linux_error_code();
+}
+
+trusted internal func clear_unix_error() -> unit
+    uses(foreign_call)
+{
+    trusted std.memory.write<i32>(trusted internal std.os.linux.errno_location(), value = 0);
+}
+
+@abi(c)
+trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
+    uses(foreign_call)
+{
+    let mut observed: std.os.linux.Timespec =
+    {
+        seconds = 0,
+        nanoseconds = 0,
+    };
+
+    if trusted internal std.os.linux.clock_gettime(
+        1,
+        time = std.memory.address_of_mut<std.os.linux.Timespec>(&mut observed),
+    ) != 0
+    {
+        return linux_error_status();
+    }
+
+    if observed.seconds < 0 || 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
+    {
+        return other_status();
+    }
+
+    let seconds: u64 = std.truncate_to<u64>(observed.seconds);
+    let observed_nanoseconds: u64 = std.truncate_to<u64>(observed.nanoseconds);
+
+    if seconds > (18_446_744_073_709_551_615 - observed_nanoseconds) / 1_000_000_000
+    {
+        return other_status();
+    }
+
+    trusted std.memory.write<u64>(ticks, value = seconds * 1_000_000_000 + observed_nanoseconds);
+
+    return success_status();
+}
+
+@abi(c)
+trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
+    uses(foreign_call)
+{
+    let mut observed: std.os.linux.Timespec =
+    {
+        seconds = 0,
+        nanoseconds = 0,
+    };
+
+    if trusted internal std.os.linux.clock_gettime(
+        0,
+        time = std.memory.address_of_mut<std.os.linux.Timespec>(&mut observed),
+    ) != 0
+    {
+        return linux_error_status();
+    }
+
+    if 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
+    {
+        return other_status();
+    }
+
+    trusted std.memory.write<i64>(seconds, value = observed.seconds);
+    trusted std.memory.write<u32>(nanoseconds, value = std.truncate_to<u32>(observed.nanoseconds));
+
+    return success_status();
+}
+
+@abi(c)
+trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
+    uses(foreign_call)
+{
+    if nanoseconds >= 1_000_000_000 || seconds > 9_223_372_036_854_775_807
+    {
+        return invalid_input_status();
+    }
+
+    let mut duration: std.os.linux.Timespec =
+    {
+        seconds = std.truncate_to<i64>(seconds),
+        nanoseconds = nanoseconds as i64,
+    };
+
+    let mut remaining: std.os.linux.Timespec =
+    {
+        seconds = 0,
+        nanoseconds = 0,
+    };
+
+    while trusted internal std.os.linux.nanosleep(
+        std.memory.address_of_mut<std.os.linux.Timespec>(&mut duration),
+        remaining = std.memory.address_of_mut<std.os.linux.Timespec>(&mut remaining),
+    ) != 0
+    {
+        if linux_error_code() != 4
+        {
+            return linux_error_status();
+        }
+
+        duration = remaining;
+    }
+
+    return success_status();
+}
+
+@abi(c)
+trusted internal func entropy_fill(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    let count: usize = std.truncate_to<usize>(length);
+
+    if count as u64 != length || count > 9_223_372_036_854_775_807
+    {
+        return invalid_input_status();
+    }
+
+    let mut completed: usize = 0;
+
+    while completed < count
+    {
+        let address: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(completed));
+        let result: isize = trusted internal std.os.linux.getrandom(address, length = count - completed, flags = 0);
+
+        if result < 0
+        {
+            if linux_error_code() == 4
+            {
+                continue;
+            }
+
+            return linux_error_status();
+        }
+
+        if result == 0
+        {
+            return other_status();
+        }
+
+        completed += std.truncate_to<usize>(result);
+    }
+
+    trusted std.memory.write<u64>(transferred, value = completed as u64);
+
+    return success_status();
+}
+
+trusted internal func linux_error_code() -> i32
+    uses(foreign_call)
+{
+    return trusted internal read_native_i32(trusted internal std.os.linux.errno_location());
+}
+
+trusted internal func linux_error_status() -> PlatformStatus
+{
+    return unix_error_status_from(linux_error_code());
+}
+
+trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
+{
+    let category: u32 = match code
+    {
+        case std.os.linux.ENOSYS | std.os.linux.ENOTSUP { yield 1; }
+        case std.os.linux.EACCES | std.os.linux.EPERM { yield 2; }
+        case std.os.linux.ENOENT { yield 3; }
+        case std.os.linux.EEXIST { yield 4; }
+        case std.os.linux.EINVAL { yield 5; }
+        case std.os.linux.EINTR { yield 6; }
+        case std.os.linux.ENOMEM { yield 7; }
+        case std.os.linux.EPIPE { yield 8; }
+        case std.os.linux.ETIMEDOUT { yield 9; }
+        case _ { yield 10; }
+    };
+
+    return native_status(category = category, code = code as i64);
+}

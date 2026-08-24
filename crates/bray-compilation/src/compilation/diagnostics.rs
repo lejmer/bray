@@ -103,6 +103,11 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("semantic diagnostics failed: {error}")
+            }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
             }
@@ -136,6 +141,11 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
+            }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("check diagnostics failed: {error}")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("check diagnostic semantic unit context failed: {error:?}")
@@ -895,12 +905,18 @@ mod tests {
     use bray_checker::SemanticUnitContext;
     use bray_diagnostics::DiagnosticKind;
     use bray_source::TextSize;
-    use bray_symbols::{CallableContractClauseKind, ConstantTermData};
+    use bray_symbols::{
+        CallableContractClauseKind, ConstantTermData, PackageIdentity, ProductKind,
+    };
+    use bray_target::NativeTarget;
 
-    use crate::WorkerBudget;
     use crate::fact::FactCellTestEvent;
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget, diagnostic_kinds,
+        source_input,
+    };
+    use crate::{
+        Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
     };
 
     #[test]
@@ -966,6 +982,110 @@ mod tests {
             Some(key.source().syntax().full_range().start()),
             initializer_start
         );
+    }
+
+    #[test]
+    fn static_initializers_do_not_prevent_constant_pattern_analysis() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static LOCK_STATE: u32 = 0;\n",
+            "const ONE: u32 = 1;\n",
+            "func is_one(pos value: u32) -> bool\n",
+            "{\n",
+            "    return match value\n",
+            "    {\n",
+            "        case ONE { yield true; }\n",
+            "        case _ { yield false; }\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let diagnostics = compilation
+            .semantic_diagnostics_with_cancellation(&compilation.state.cancellation)
+            .unwrap_or_else(|error| {
+                panic!("static and constant diagnostics must be available: {error:?}")
+            });
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn target_gated_nested_module_values_resolve_across_source_units() {
+        let sources = [
+            concat!(
+                "@target(target.identity.NAME == \"x86_64-unknown-linux-gnu\")\n",
+                "trusted module std.os.linux;\n",
+                "const FLAG: u32 = 1;\n",
+                "extern trusted func native_value() -> u32 uses(foreign_call);\n",
+            ),
+            concat!(
+                "@target(target.identity.NAME == \"x86_64-unknown-linux-gnu\")\n",
+                "trusted module std.platform;\n",
+                "using std.os.linux;\n",
+                "trusted func value() -> u32\n",
+                "{\n",
+                "    return trusted std.os.linux.native_value() + std.os.linux.FLAG;\n",
+                "}\n",
+            ),
+        ];
+
+        let compilation =
+            compilation_with_sources_and_worker_budget(&sources, WorkerBudget::serial());
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn static_atomic_storage_uses_constant_initialization() {
+        let source = concat!(
+            "module app;\n",
+            "static INPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
+            "static OUTPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
+            "static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
+        );
+
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let request =
+            CompilationRequest::with_options(package, vec![source_input(source, 0)], options)
+                .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request).unwrap_or_else(|error| {
+            panic!("standard library test compilation must load: {error:?}")
+        });
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("atomic static symbols must publish: {error:?}"));
+
+        for declaration in symbols.statics().iter().map(bray_symbols::StaticSymbol::id) {
+            let template = compilation
+                .static_instance_template(declaration)
+                .unwrap_or_else(|error| panic!("atomic static template must publish: {error:?}"));
+
+            assert!(
+                template.diagnostics().is_empty(),
+                "{:#?}",
+                template.diagnostics()
+            );
+        }
     }
 
     #[test]

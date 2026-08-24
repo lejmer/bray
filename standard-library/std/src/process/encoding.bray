@@ -1,0 +1,464 @@
+trusted module std.process;
+
+using std.memory;
+using std.path;
+
+trusted internal func context_table(pos storage: std.memory.RawBuffer<u8>, environment: bool) -> ProcessContextTable
+    uses(manual_alloc)
+{
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+    let text: std.platform.NativeTextSpan = trusted internal persistent_context_text(storage);
+    let bytes: usize = std.truncate_to<usize>(text.length);
+
+    if width == 0 || bytes % width != 0
+    {
+        panic("the platform process context contains invalid native text");
+    }
+
+    let source_count: usize = trusted internal context_entry_count(text.address, bytes = bytes, width = width);
+
+    let skipped: usize = if !environment && source_count > 0
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let count: usize = source_count - skipped;
+
+    let created: Result<std.memory.RawBuffer<std.platform.NativeTextPair>, std.memory.MemoryLayoutError> =
+        trusted std.memory.RawBuffer<std.platform.NativeTextPair>(capacity = count);
+
+    let mut entries: std.memory.RawBuffer<std.platform.NativeTextPair> = match consume created
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the platform process context cannot be allocated"); }
+    };
+
+    let destination: RawPointer<std.platform.NativeTextPair> = trusted std.memory.spare_pointer<
+        std.platform.NativeTextPair
+    >(&mut entries);
+
+    let mut start: usize = 0;
+    let mut index: usize = 0;
+    let mut source_entry_index: usize = 0;
+    let mut entry_index: usize = 0;
+
+    while index < bytes
+    {
+        if trusted internal native_unit_is_zero(text.address, index = index, width = width)
+        {
+            if source_entry_index >= skipped
+            {
+                let pair: std.platform.NativeTextPair = trusted internal context_pair(
+                    text.address,
+                    start = start,
+                    end = index,
+                    width = width,
+                    environment = environment,
+                );
+
+                trusted std.memory.write<std.platform.NativeTextPair>(
+                    std.memory.offset<std.platform.NativeTextPair>(
+                        destination,
+                        elements = std.truncate_to<isize>(entry_index),
+                    ),
+                    value = pair,
+                );
+
+                entry_index += 1;
+            }
+
+            source_entry_index += 1;
+            start = index + width;
+        }
+
+        index += width;
+    }
+
+    if start != bytes || source_entry_index != source_count || entry_index != count
+    {
+        panic("the platform process context contains invalid native text");
+    }
+
+    trusted std.memory.set_initialized_count<std.platform.NativeTextPair>(&mut entries, count = count);
+
+    if environment
+    {
+        trusted internal sort_context_entries(&mut entries, count = count, width = width);
+    }
+
+    return
+    {
+        entries = trusted internal persistent_context_entries(entries),
+        count = count,
+    };
+}
+
+trusted internal func persistent_context_entries(
+    pos entries: std.memory.RawBuffer<std.platform.NativeTextPair>,
+) -> RawPointer<u8>
+    uses(intrinsic, manual_alloc)
+{
+    let count: usize = std.memory.initialized_count<std.platform.NativeTextPair>(&entries);
+
+    if count == 0
+    {
+        return std.memory.null<u8>();
+    }
+
+    if count > 4_611_686_018_427_387_903
+    {
+        panic("the platform process context cannot be allocated");
+    }
+
+    let word_count: usize = count * 4;
+
+    let created: Result<std.memory.RawBuffer<u64>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u64>(
+        capacity = word_count
+    );
+
+    let mut words: std.memory.RawBuffer<u64> = match consume created
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the platform process context cannot be allocated"); }
+    };
+
+    let destination: RawPointer<u64> = trusted std.memory.spare_pointer<u64>(&mut words);
+
+    let values: &[std.platform.NativeTextPair] = trusted std.memory.initialized_slice<std.platform.NativeTextPair>(
+        &entries
+    );
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let entry: std.platform.NativeTextPair = values[index];
+        let word: usize = index * 4;
+
+        trusted std.memory.write<u64>(
+            std.memory.offset<u64>(destination, elements = std.truncate_to<isize>(word)),
+            value = trusted core.target.expose_address<u8>(entry.key.address) as u64,
+        );
+
+        trusted std.memory.write<u64>(
+            std.memory.offset<u64>(destination, elements = std.truncate_to<isize>(word + 1)),
+            value = entry.key.length,
+        );
+
+        trusted std.memory.write<u64>(
+            std.memory.offset<u64>(destination, elements = std.truncate_to<isize>(word + 2)),
+            value = trusted core.target.expose_address<u8>(entry.value.address) as u64,
+        );
+
+        trusted std.memory.write<u64>(
+            std.memory.offset<u64>(destination, elements = std.truncate_to<isize>(word + 3)),
+            value = entry.value.length,
+        );
+
+        index += 1;
+    }
+
+    trusted std.memory.set_initialized_count<u64>(&mut words, count = word_count);
+
+    let bytes: usize = word_count * 8;
+    let allocated: RawPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = 8);
+
+    if std.memory.is_null<u8>(allocated)
+    {
+        panic("the platform process context cannot be allocated");
+    }
+
+    trusted internal std.memory.byte_buffer_copy(
+        trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&words)),
+        destination = allocated,
+        count = bytes,
+    );
+
+    return allocated;
+}
+
+trusted internal func persistent_context_text(pos storage: std.memory.RawBuffer<u8>) -> std.platform.NativeTextSpan
+    uses(manual_alloc)
+{
+    let bytes: usize = std.memory.initialized_count<u8>(&storage);
+
+    if bytes == 0
+    {
+        return
+        {
+            address = std.memory.null<u8>(),
+            length = 0,
+        };
+    }
+
+    let destination: RawPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = 1);
+
+    if std.memory.is_null<u8>(destination)
+    {
+        panic("the platform process context cannot be allocated");
+    }
+
+    trusted internal std.memory.byte_buffer_copy(
+        std.memory.pointer<u8>(&storage),
+        destination = destination,
+        count = bytes,
+    );
+
+    return
+    {
+        address = destination,
+        length = bytes as u64,
+    };
+}
+
+trusted internal func sort_context_entries(
+    pos entries: &mut std.memory.RawBuffer<std.platform.NativeTextPair>,
+    count: usize,
+    width: usize,
+) -> unit
+{
+    let values: &mut [std.platform.NativeTextPair] = trusted std.memory.initialized_slice_mut<
+        std.platform.NativeTextPair
+    >(entries);
+
+    let mut index: usize = 1;
+
+    while index < count
+    {
+        let mut destination: usize = index;
+
+        while destination > 0
+        {
+            let precedes: bool = trusted internal context_span_precedes(
+                values[destination].key,
+                right = values[destination - 1].key,
+                width = width,
+            );
+
+            if !precedes
+            {
+                break;
+            }
+
+            let displaced: std.platform.NativeTextPair = values[destination - 1];
+
+            values[destination - 1] = values[destination];
+            values[destination] = displaced;
+            destination -= 1;
+        }
+
+        index += 1;
+    }
+}
+
+trusted internal func context_span_precedes(
+    pos left: std.platform.NativeTextSpan,
+    right: std.platform.NativeTextSpan,
+    width: usize,
+) -> bool
+{
+    let left_units: usize = std.truncate_to<usize>(left.length) / width;
+    let right_units: usize = std.truncate_to<usize>(right.length) / width;
+
+    let common: usize = if left_units < right_units
+    {
+        yield left_units;
+    }
+    else
+    {
+        yield right_units;
+    };
+
+    let mut index: usize = 0;
+
+    while index < common
+    {
+        let left_value: u32 = trusted internal context_native_unit(left.address, index = index, width = width);
+        let right_value: u32 = trusted internal context_native_unit(right.address, index = index, width = width);
+
+        if left_value != right_value
+        {
+            return left_value < right_value;
+        }
+
+        index += 1;
+    }
+
+    return left_units < right_units;
+}
+
+trusted internal func context_native_unit(pos pointer: RawPointer<u8>, index: usize, width: usize) -> u32
+{
+    let offset: usize = index * width;
+    let mut value: u32 = 0;
+    let mut byte: usize = 0;
+
+    while byte < width
+    {
+        value |= trusted internal std.memory.byte_buffer_read(pointer, index = offset + byte) as u32 <<
+            (std.truncate_to<u32>(byte) * 8);
+
+        byte += 1;
+    }
+
+    return value;
+}
+
+trusted internal func context_entry_count(pos pointer: RawPointer<u8>, bytes: usize, width: usize) -> usize
+{
+    let mut count: usize = 0;
+    let mut index: usize = 0;
+
+    while index < bytes
+    {
+        if trusted internal native_unit_is_zero(pointer, index = index, width = width)
+        {
+            count += 1;
+        }
+
+        index += width;
+    }
+
+    return count;
+}
+
+trusted internal func context_pair(
+    pos base: RawPointer<u8>,
+    start: usize,
+    end: usize,
+    width: usize,
+    environment: bool,
+) -> std.platform.NativeTextPair
+{
+    let mut separator: usize = end;
+
+    if environment
+    {
+        let mut index: usize = start;
+
+        while index < end
+        {
+            if trusted internal native_unit_is_equals(base, index = index, width = width)
+            {
+                separator = index;
+                break;
+            }
+
+            index += width;
+        }
+
+        if separator == end
+        {
+            panic("the platform process environment contains an invalid entry");
+        }
+    }
+
+    let key: std.platform.NativeTextSpan = trusted internal context_native_span(base, start = start, end = separator);
+
+    let value_start: usize = if environment
+    {
+        yield separator + width;
+    }
+    else
+    {
+        yield end;
+    };
+
+    return
+    {
+        key = key,
+        value = trusted internal context_native_span(base, start = value_start, end = end),
+    };
+}
+
+trusted internal func context_native_span(
+    pos base: RawPointer<u8>,
+    start: usize,
+    end: usize,
+) -> std.platform.NativeTextSpan
+{
+    return
+    {
+        address = std.memory.offset<u8>(base, elements = std.truncate_to<isize>(start)),
+        length = (end - start) as u64,
+    };
+}
+
+trusted internal func native_unit_is_zero(pos pointer: RawPointer<u8>, index: usize, width: usize) -> bool
+{
+    let mut byte: usize = 0;
+
+    while byte < width
+    {
+        if trusted internal std.memory.byte_buffer_read(pointer, index = index + byte) != 0
+        {
+            return false;
+        }
+
+        byte += 1;
+    }
+
+    return true;
+}
+
+trusted internal func native_unit_is_equals(pos pointer: RawPointer<u8>, index: usize, width: usize) -> bool
+{
+    if trusted internal std.memory.byte_buffer_read(pointer, index = index) != 61
+    {
+        return false;
+    }
+
+    let mut byte: usize = 1;
+
+    while byte < width
+    {
+        if trusted internal std.memory.byte_buffer_read(pointer, index = index + byte) != 0
+        {
+            return false;
+        }
+
+        byte += 1;
+    }
+
+    return true;
+}
+
+trusted internal func table_entry(pos table: ProcessContextTable, index: usize) -> std.platform.NativeTextPair
+    uses(intrinsic)
+{
+    let offset: usize = index * std.memory.size_of<std.platform.NativeTextPair>();
+
+    let key_address: u64 = trusted internal std.platform.read_native_u64(
+        std.memory.offset<u8>(table.entries, elements = std.truncate_to<isize>(offset))
+    );
+
+    let key_length: u64 = trusted internal std.platform.read_native_u64(
+        std.memory.offset<u8>(table.entries, elements = std.truncate_to<isize>(offset + 8))
+    );
+
+    let value_address: u64 = trusted internal std.platform.read_native_u64(
+        std.memory.offset<u8>(table.entries, elements = std.truncate_to<isize>(offset + 16))
+    );
+
+    let value_length: u64 = trusted internal std.platform.read_native_u64(
+        std.memory.offset<u8>(table.entries, elements = std.truncate_to<isize>(offset + 24))
+    );
+
+    return
+    {
+        key =
+        {
+            address = trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(key_address)),
+            length = key_length,
+        },
+        value =
+        {
+            address = trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(value_address)),
+            length = value_length,
+        },
+    };
+}

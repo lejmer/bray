@@ -28,6 +28,7 @@ pub(crate) struct ProjectCompiler<'project> {
     worker_count: usize,
     output_format: OutputFormat,
     profile: Option<&'project TackProfileConfiguration>,
+    native_link_inputs: Vec<String>,
     executor: &'project dyn ToolExecutor,
     interfaces: BTreeMap<(ProductIdentity, TargetIdentity), PathBuf>,
     checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
@@ -62,10 +63,17 @@ impl<'project> ProjectCompiler<'project> {
             worker_count,
             output_format,
             profile,
+            native_link_inputs: Vec::new(),
             executor,
             interfaces: BTreeMap::new(),
             checked: BTreeSet::new(),
         }
+    }
+
+    pub(crate) fn with_native_link_inputs(mut self, native_link_inputs: Vec<String>) -> Self {
+        self.native_link_inputs = native_link_inputs;
+
+        self
     }
 
     pub(crate) fn check(
@@ -381,6 +389,10 @@ impl<'project> ProjectCompiler<'project> {
                 binding.role().as_str(),
                 binding.dotted_path()
             ));
+        }
+
+        for input in &self.native_link_inputs {
+            request.arg("--native-link-input").arg(input);
         }
 
         if let Some(profile) = self.profile {

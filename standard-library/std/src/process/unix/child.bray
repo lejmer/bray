@@ -1,0 +1,286 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module std.process;
+
+@copy
+internal struct ChildDescriptors
+{
+    parent: i32;
+    child: i32;
+    target: i32;
+}
+
+internal struct SpawnStorage
+{
+    text: std.memory.RawBuffer<u8>;
+    arguments: std.memory.RawBuffer<RawPointer<u8>>;
+    environment: std.memory.RawBuffer<RawPointer<u8>>;
+    executable: RawPointer<u8>;
+    working_directory: RawPointer<u8>;
+}
+
+trusted internal func platform_child_spawn(
+    pos executable: PlatformNativeText,
+    pos arguments: &[PlatformNativeText],
+    pos environment: &[PlatformEnvironmentEntry],
+    pos child: RawPointer<u64>,
+    pos standard_input: RawPointer<u64>,
+    pos standard_output: RawPointer<u64>,
+    pos standard_error: RawPointer<u64>,
+    working_directory: PlatformNativeText,
+    standard_input_policy: u32,
+    standard_output_policy: u32,
+    standard_error_policy: u32,
+) -> std.platform.PlatformStatus
+{
+    trusted std.memory.write<u64>(child, value = 0);
+    trusted std.memory.write<u64>(standard_input, value = 0);
+    trusted std.memory.write<u64>(standard_output, value = 0);
+    trusted std.memory.write<u64>(standard_error, value = 0);
+
+    let storage: SpawnStorage = match trusted internal spawn_storage(
+        executable,
+        arguments,
+        environment,
+        working_directory_span = working_directory,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let input: ChildDescriptors = match trusted internal child_descriptors(
+        standard_input_policy,
+        target = 0,
+        reads = true,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let output: ChildDescriptors = match trusted internal child_descriptors(
+        standard_output_policy,
+        target = 1,
+        reads = false,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            trusted internal release_descriptors(input);
+            return status;
+        }
+    };
+
+    let error: ChildDescriptors = match trusted internal child_descriptors(
+        standard_error_policy,
+        target = 2,
+        reads = false,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            trusted internal release_descriptors(input);
+            trusted internal release_descriptors(output);
+            return status;
+        }
+    };
+
+    let mut actions: std.memory.RawBuffer<u64> = match trusted std.memory.RawBuffer<u64>(
+        capacity = std.os.unix.SPAWN_FILE_ACTION_WORDS
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_)
+        {
+            trusted internal release_descriptors(input);
+            trusted internal release_descriptors(output);
+            trusted internal release_descriptors(error);
+            return internal std.platform.exhausted_status();
+        }
+    };
+
+    let actions_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&actions));
+    let initialized: i32 = trusted std.os.unix.initialize_spawn_actions(actions_pointer);
+
+    if initialized != 0
+    {
+        trusted internal release_descriptors(input);
+        trusted internal release_descriptors(output);
+        trusted internal release_descriptors(error);
+        return internal std.platform.unix_error_status_from(initialized);
+    }
+
+    let configured: i32 = trusted internal configure_spawn_actions(
+        actions_pointer,
+        working_directory = storage.working_directory,
+        input = input,
+        output = output,
+        error = error,
+    );
+
+    if configured != 0
+    {
+        let _: i32 = trusted std.os.unix.destroy_spawn_actions(actions_pointer);
+        trusted internal release_descriptors(input);
+        trusted internal release_descriptors(output);
+        trusted internal release_descriptors(error);
+        return internal std.platform.unix_error_status_from(configured);
+    }
+
+    let mut process: i32 = 0;
+
+    let spawned: i32 = trusted std.os.unix.spawn(
+        std.memory.address_of_mut<i32>(&mut process),
+        executable = storage.executable,
+        actions = actions_pointer,
+        arguments = std.memory.pointer<RawPointer<u8>>(&storage.arguments),
+        environment = std.memory.pointer<RawPointer<u8>>(&storage.environment),
+    );
+
+    let destroyed: i32 = trusted std.os.unix.destroy_spawn_actions(actions_pointer);
+    trusted internal release_child_descriptors(input);
+    trusted internal release_child_descriptors(output);
+    trusted internal release_child_descriptors(error);
+
+    if spawned != 0
+    {
+        trusted internal release_parent_descriptors(input);
+        trusted internal release_parent_descriptors(output);
+        trusted internal release_parent_descriptors(error);
+        return internal std.platform.unix_error_status_from(spawned);
+    }
+
+    if destroyed != 0 || process <= 0
+    {
+        let _: i32 = trusted std.os.unix.signal(process, force = true);
+        let mut ignored: i32 = 0;
+        let _: i32 = trusted std.os.unix.wait(process, std.memory.address_of_mut<i32>(&mut ignored));
+        trusted internal release_parent_descriptors(input);
+        trusted internal release_parent_descriptors(output);
+        trusted internal release_parent_descriptors(error);
+
+        if destroyed != 0
+        {
+            return internal std.platform.unix_error_status_from(destroyed);
+        }
+
+        return internal std.platform.other_status();
+    }
+
+    trusted std.memory.write<u64>(child, value = std.truncate_to<u64>(process));
+    trusted std.memory.write<u64>(standard_input, value = trusted internal descriptor_handle(input.parent));
+    trusted std.memory.write<u64>(standard_output, value = trusted internal descriptor_handle(output.parent));
+    trusted std.memory.write<u64>(standard_error, value = trusted internal descriptor_handle(error.parent));
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_child_wait(
+    pos child: u64,
+    pos terminal: RawPointer<u32>,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+{
+    let process: i32 = match internal std.platform.checked_descriptor(child)
+    {
+        case Ok(value) { yield value; }
+        case Error(error) { return error; }
+    };
+
+    let mut native_status: i32 = 0;
+
+    loop
+    {
+        let waited: i32 = trusted std.os.unix.wait(process, std.memory.address_of_mut<i32>(&mut native_status));
+
+        if waited == process
+        {
+            break;
+        }
+
+        if waited < 0 && trusted internal std.platform.unix_error_code() == 4
+        {
+            continue;
+        }
+
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    trusted std.memory.write<u32>(terminal, value = 1);
+    trusted std.memory.write<PlatformExitStatus>(status, value = internal unix_exit_status(native_status));
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) -> std.platform.PlatformStatus
+{
+    if mode > 1
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let process: i32 = match internal std.platform.checked_descriptor(child)
+    {
+        case Ok(value) { yield value; }
+        case Error(error) { return error; }
+    };
+
+    if trusted std.os.unix.signal(process, force = mode == 1) != 0
+    {
+        return trusted internal std.platform.unix_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_child_reap(
+    pos child: u64,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+{
+    match internal std.platform.checked_descriptor(child)
+    {
+        case Ok(_) {}
+        case Error(error) { return error; }
+    }
+
+    if std.memory.is_null<PlatformExitStatus>(status)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
+{
+    let process: i32 = match internal std.platform.checked_descriptor(child)
+    {
+        case Ok(value) { yield value; }
+        case Error(error) { return error; }
+    };
+
+    let _: i32 = trusted std.os.unix.signal(process, force = true);
+    let mut status: i32 = 0;
+
+    loop
+    {
+        let waited: i32 = trusted std.os.unix.wait(process, std.memory.address_of_mut<i32>(&mut status));
+
+        if waited == process
+        {
+            return internal std.platform.success_status();
+        }
+
+        if waited < 0 && trusted internal std.platform.unix_error_code() == 4
+        {
+            continue;
+        }
+
+        return trusted internal std.platform.unix_error_status();
+    }
+}

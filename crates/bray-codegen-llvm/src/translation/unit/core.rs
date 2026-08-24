@@ -2,8 +2,9 @@ use super::support::{llvm, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
-    CodegenFailure, CodegenFieldLayout, CodegenInstance, CodegenParameterMapping, CodegenRequest,
-    CodegenResultMapping, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping,
+    CodegenFailure, CodegenFieldLayout, CodegenInstance, CodegenLinkage, CodegenParameterMapping,
+    CodegenRequest, CodegenResultMapping, CodegenSymbolMapping, CodegenTypeKind,
+    CodegenTypeMapping,
 };
 use bray_ir::{
     MirBlockId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
@@ -23,6 +24,13 @@ pub(crate) enum TranslationError {
     Failed(CodegenFailure),
 }
 
+struct PreparedInstance<'context, 'request> {
+    symbol: &'request CodegenSymbolMapping,
+    function: FunctionValue<'context>,
+    trampoline: Option<FunctionValue<'context>>,
+    translate: bool,
+}
+
 pub(crate) fn translate_instances<'context, 'request>(
     context: &'context Context,
     module: &Module<'context>,
@@ -30,6 +38,8 @@ pub(crate) fn translate_instances<'context, 'request>(
     types: &mut LlvmTypeMappings<'context, 'request>,
     debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), TranslationError> {
+    let mut prepared = Vec::with_capacity(request.unit().instances().len());
+
     for instance in request.unit().instances() {
         if request.cancellation().is_cancelled() {
             return Err(TranslationError::Cancelled);
@@ -37,13 +47,46 @@ pub(crate) fn translate_instances<'context, 'request>(
 
         types.select_instance(instance.key());
 
+        if instance.protected_frame_identity().is_some() {
+            prepared.push(None);
+
+            continue;
+        }
+
         let (symbol, function) =
             instance_function(module, request, instance).map_err(TranslationError::Failed)?;
 
-        apply_instance_optimization_attributes(function, instance, types)
-            .map_err(TranslationError::Failed)?;
+        let translate = symbol.linkage() != CodegenLinkage::Import;
+
+        let (function, trampoline) = if translate {
+            super::callback::prepare(module, request, symbol, function, types)
+                .map_err(TranslationError::Failed)?
+        } else {
+            (function, None)
+        };
+
+        prepared.push(Some(PreparedInstance {
+            symbol,
+            function,
+            trampoline,
+            translate,
+        }));
+    }
+
+    for (instance, prepared) in request.unit().instances().iter().zip(prepared) {
+        if request.cancellation().is_cancelled() {
+            return Err(TranslationError::Cancelled);
+        }
+
+        types.select_instance(instance.key());
 
         if instance.protected_frame_identity().is_some() {
+            let (_, function) =
+                instance_function(module, request, instance).map_err(TranslationError::Failed)?;
+
+            apply_instance_optimization_attributes(function, instance, types)
+                .map_err(TranslationError::Failed)?;
+
             super::super::frame::translate_protected_instance(
                 context, module, request, instance, types, debug,
             )
@@ -52,8 +95,24 @@ pub(crate) fn translate_instances<'context, 'request>(
             continue;
         }
 
+        let PreparedInstance {
+            symbol,
+            function,
+            trampoline,
+            translate,
+        } = prepared.ok_or(TranslationError::Failed(
+            CodegenFailure::GeneratedModuleInvariant,
+        ))?;
+
+        if !translate {
+            continue;
+        }
+
+        apply_instance_optimization_attributes(function, instance, types)
+            .map_err(TranslationError::Failed)?;
+
         translate_instance(
-            context, module, request, instance, symbol, function, types, debug,
+            context, module, request, instance, symbol, function, trampoline, types, debug,
         )
         .map_err(TranslationError::Failed)?;
     }
@@ -85,12 +144,10 @@ fn translate_instance<'context, 'request>(
     instance: &'request CodegenInstance,
     symbol: &'request CodegenSymbolMapping,
     function: FunctionValue<'context>,
+    trampoline: Option<FunctionValue<'context>>,
     types: &mut LlvmTypeMappings<'context, 'request>,
     debug: Option<&LlvmDebugInfo<'context>>,
 ) -> Result<(), CodegenFailure> {
-    let (function, trampoline) =
-        super::callback::prepare(module, request, symbol, function, types)?;
-
     let source = instance
         .mir()
         .blocks()

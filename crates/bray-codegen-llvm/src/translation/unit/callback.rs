@@ -26,7 +26,7 @@ pub(super) fn prepare<'context, 'request>(
 ) -> Result<(FunctionValue<'context>, Option<FunctionValue<'context>>), CodegenFailure> {
     if !matches!(
         symbol.linkage(),
-        CodegenLinkage::Export | CodegenLinkage::Weak
+        CodegenLinkage::Export | CodegenLinkage::Weak | CodegenLinkage::Fallback
     ) || symbol.signature().abi() == CallableAbi::Bray
     {
         return Ok((function, None));

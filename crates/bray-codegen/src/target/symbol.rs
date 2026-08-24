@@ -13,6 +13,8 @@ pub enum CodegenLinkage {
     External,
     /// Weak externally visible definition.
     Weak,
+    /// Native platform definition used when the execution environment supplies no override.
+    Fallback,
     /// Deduplicated definition emitted in multiple codegen units.
     LinkOnce,
     /// Common zero-initialized storage.

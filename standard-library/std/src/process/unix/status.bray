@@ -1,0 +1,24 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module std.process;
+
+internal func unix_exit_status(pos status: i32) -> PlatformExitStatus
+{
+    let code: i32 = status & 127;
+
+    if code == 0
+    {
+        return
+        {
+            tag = 0,
+            reserved = 0,
+            payload = ((status >> 8) & 255) as i64,
+        };
+    }
+
+    return
+    {
+        tag = 1,
+        reserved = 0,
+        payload = code as i64,
+    };
+}

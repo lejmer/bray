@@ -2,21 +2,23 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerUnitView,
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerUnitView, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
+    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantEvaluator,
+    EvaluatedConstantCall, evaluate_constant_callable_template,
     resolve_callable_signature_template,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureQuery, ImportedSymbolSkeleton, SymbolKey, SymbolKeyData,
-    SymbolQueryRequest, TypeData,
+    CallableConstness, CallableSignatureQuery, ConstantValueData, ConstantValueKind,
+    ImportedSymbolSkeleton, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
 };
 
 use super::super::Compilation;
 use super::super::binder::binding_query_error;
-use super::super::checker::checker_result;
+use super::super::checker::{checker_result, query_error_with_fallback};
 use super::super::unit::semantic_unit_context_for;
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
@@ -184,15 +186,10 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
 }
 
 fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
-    match error {
-        FactQueryError::Cancelled => CheckerQueryError::Cancelled,
-        FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::InvalidConstantEvaluationInput,
-        ),
-    }
+    query_error_with_fallback(
+        error,
+        CheckerInfrastructureError::InvalidConstantEvaluationInput,
+    )
 }
 
 impl Compilation {
@@ -300,6 +297,21 @@ impl Compilation {
 
         if callable_type.constness() != CallableConstness::Constant {
             return Ok(DiagnosticResult::without_diagnostics(None));
+        }
+
+        if let Some(evaluated) = self.compiler_known_constant_call(
+            *callable,
+            key.arguments(),
+            key.result_type(),
+            cancellation,
+        )? {
+            return Ok(DiagnosticResult::new(
+                Some(evaluated),
+                DiagnosticBag::merged_all([
+                    signature_result.diagnostics(),
+                    checked_terms.diagnostics(),
+                ]),
+            ));
         }
 
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
@@ -445,5 +457,59 @@ impl Compilation {
             )),
             diagnostics,
         ))
+    }
+
+    fn compiler_known_constant_call(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        arguments: &[bray_symbols::ConstantValueId],
+        result_type: bray_symbols::TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<EvaluatedConstantCall>, FactQueryError> {
+        let context = self.checker_context(cancellation)?;
+
+        let hook = context
+            .implementation_hook(callable.definition().callable_symbol().into_any())
+            .map_err(checker_constant_query_error)?;
+
+        let Some(hook) = hook.filter(|hook| hook.is_available()) else {
+            return Ok(None);
+        };
+
+        let (ImplementationHook::AtomicInitialize, [argument]) = (hook.hook(), arguments) else {
+            return Ok(None);
+        };
+
+        let values = self.semantic_value_store()?;
+
+        let argument = values
+            .constant_value_data(*argument)
+            .map_err(|_| FactQueryError::AtomicInitializerArgumentUnavailable)?;
+
+        if !matches!(
+            argument.kind(),
+            ConstantValueKind::Boolean(_)
+                | ConstantValueKind::Integer(_)
+                | ConstantValueKind::StaticAddress(_)
+        ) {
+            return Ok(None);
+        }
+
+        // The accepted variants contain only scalar values or one interned static address.
+        let value = values
+            .intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))
+            .map_err(|_| FactQueryError::AtomicInitializerResultUnavailable)?;
+
+        Ok(Some(EvaluatedConstantCall::new(
+            value,
+            ConstantEvaluationUsage::default(),
+        )))
+    }
+}
+
+fn checker_constant_query_error(error: CheckerQueryError) -> FactQueryError {
+    match error {
+        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
+        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
     }
 }

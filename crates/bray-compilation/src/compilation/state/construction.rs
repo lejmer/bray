@@ -468,6 +468,11 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("scheduled query infrastructure failed")
             }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("scheduled query failed: {error}")
+            }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("scheduled semantic unit context failed: {error:?}")
             }
@@ -616,6 +621,11 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("compilation query infrastructure failed")
+            }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("compilation query failed: {error}")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")

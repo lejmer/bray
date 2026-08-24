@@ -27,38 +27,6 @@
       ],
       "platform_services": [
         {
-          "role": "platform.context.identity",
-          "declaration": "std.platform.context_identity"
-        },
-        {
-          "role": "platform.context.native_text_width",
-          "declaration": "std.platform.context_native_text_width"
-        },
-        {
-          "role": "platform.context.working_directory",
-          "declaration": "std.platform.context_working_directory"
-        },
-        {
-          "role": "platform.context.argument_count",
-          "declaration": "std.platform.context_argument_count"
-        },
-        {
-          "role": "platform.context.argument",
-          "declaration": "std.platform.context_argument"
-        },
-        {
-          "role": "platform.context.environment_count",
-          "declaration": "std.platform.context_environment_count"
-        },
-        {
-          "role": "platform.context.environment_entry",
-          "declaration": "std.platform.context_environment_entry"
-        },
-        {
-          "role": "platform.context.environment_key_equals",
-          "declaration": "std.platform.environment_key_equals"
-        },
-        {
           "role": "platform.standard_input.read",
           "declaration": "std.io.platform_standard_input_read"
         },
@@ -127,26 +95,6 @@
           "declaration": "std.fs.platform_file_open"
         },
         {
-          "role": "platform.file.metadata",
-          "declaration": "std.fs.platform_file_metadata"
-        },
-        {
-          "role": "platform.path.metadata",
-          "declaration": "std.fs.platform_path_metadata"
-        },
-        {
-          "role": "platform.directory.open",
-          "declaration": "std.fs.platform_directory_open"
-        },
-        {
-          "role": "platform.directory.next",
-          "declaration": "std.fs.platform_directory_next"
-        },
-        {
-          "role": "platform.directory.close",
-          "declaration": "std.fs.platform_directory_close"
-        },
-        {
           "role": "platform.path.create_directory",
           "declaration": "std.fs.platform_path_create_directory"
         },
@@ -161,10 +109,6 @@
         {
           "role": "platform.path.rename",
           "declaration": "std.fs.platform_path_rename"
-        },
-        {
-          "role": "platform.child.spawn",
-          "declaration": "std.process.platform_child_spawn"
         },
         {
           "role": "platform.process_pipe.read",

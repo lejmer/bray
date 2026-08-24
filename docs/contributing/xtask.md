@@ -190,6 +190,14 @@ Run native standard-library integration tests with:
 cargo xtask standard-library test
 ```
 
+Use one or more `--part` options to run only the needed phases. Available parts are `provider-retention`,
+`interoperability`, `api`, and `outcomes`. Omitting `--part` runs every phase. For example, run only the public API tests
+with:
+
+```text
+cargo xtask standard-library test --part api
+```
+
 Native compiler workflows build and use optimized `bray` and `brayc` tools. To retain one bounded compiler trace for
 every build invocation under a distinct phase directory, run:
 
@@ -198,14 +206,11 @@ cargo xtask standard-library test --profile-output profiles/standard-library-nat
 ```
 
 The profiling form preserves the same test contract and streams Bray build progress while it runs. Inspect the resulting
-reports
-with the profile commands described in [Compiler profiling](profiling.md).
+reports with the profile commands described in [Compiler profiling](profiling.md).
 
-The target bundle publishes separate core, standard-stream, filesystem, and process platform archives. Each archive
-records its exact native platform capabilities and direct native dependencies in the manifest. The build fails if that
-inventory is incomplete or overlaps another archive.
-
-Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
+The target bundle records the Bray standard-library archive, its direct native link requirements, and the separate
+third-party temporal provider. The build fails when a target that declares temporal roles does not declare the complete
+temporal role inventory.
 
 Build, execute, validate, and measure the compiler performance corpus with:
 
@@ -225,7 +230,7 @@ The command writes phase and workload progress to standard error while keeping t
 standard output line.
 
 The first run prepares a target-specific runtime and standard-library toolchain under Cargo's target directory. Later
-runs reuse that toolchain when the compiler, Cargo lockfile, runtime, platform providers, standard library, and selected
+runs reuse that toolchain when the compiler, Cargo lockfile, runtime, temporal provider, standard library, and selected
 target are unchanged. Changing report options such as `--warmup`, `--samples`, `--workload`, or `--output` does not
 rebuild it.
 
@@ -312,8 +317,9 @@ Regenerate the checked-in target-specific operating-system bindings and native p
 cargo xtask standard-library os-bindings generate
 ```
 
-The generator reads `standard-library/targets/os-bindings.json`. That model names the pinned SDK authority, revision,
-and header set for every exact native target. It writes Bray declarations beneath
+The generator reads `standard-library/targets/os-bindings.json`, which lists focused sources beneath
+`standard-library/targets/os-bindings`. Shared POSIX and operating-system files hold common declarations, while one file
+per exact target names its pinned SDK authority, revision, header set, and target-specific declarations. The generator writes Bray declarations beneath
 `standard-library/std/src/os/generated` and matching C probes beneath `standard-library/targets/probes`. Every generated
 file records the complete model's SHA-256 digest. Production compilation consumes only the generated Bray declarations
 and does not inspect ambient host headers.

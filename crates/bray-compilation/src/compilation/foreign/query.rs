@@ -118,7 +118,10 @@ impl Compilation {
             (None, false, false) => None,
         };
 
-        if abi == CallableAbi::Bray && direction != Some(ForeignCallableDirection::Import) {
+        if abi == CallableAbi::Bray
+            && direction != Some(ForeignCallableDirection::Import)
+            && platform_role.is_none()
+        {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         }
 
@@ -551,6 +554,76 @@ extern trusted internal func flush() -> PlatformStatus
                 PlatformServiceRole::StandardOutputFlush,
             )),
         );
+    }
+
+    #[test]
+    fn platform_service_implementations_require_the_closed_abi_shape() {
+        let compilation = compilation_with_platform_service(
+            r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+trusted internal func flush() -> PlatformStatus
+{
+    return { category = 0, reserved = 0, native_code = 0 };
+}
+"#,
+            PlatformServiceRole::StandardOutputFlush,
+            "app.flush",
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "flush"))
+            .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingPlatformServiceSignatureMismatch,
+        );
+
+        assert!(result.value().is_none());
+    }
+
+    #[test]
+    fn valid_platform_service_implementations_have_no_foreign_contract() {
+        let compilation = compilation_with_platform_service(
+            r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+trusted internal func flush() -> PlatformStatus
+{
+    return { category = 0, reserved = 0, native_code = 0 };
+}
+"#,
+            PlatformServiceRole::StandardOutputFlush,
+            "app.flush",
+        );
+
+        let result = compilation
+            .foreign_callable_contract(source_function(&compilation, "flush"))
+            .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(result.value().is_none());
     }
 
     #[test]

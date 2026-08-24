@@ -4,7 +4,7 @@ use bray_target::NativeTarget;
 
 use super::model::{
     Description, FORMAT, OverrideAuthority, ParameterDescription, SdkRevision, SymbolBinding,
-    SymbolDescription, SymbolPresence, TargetDescription, TypeDescription,
+    SymbolDescription, SymbolPresence, TargetDescription, TypeDescription, is_primitive_abi_type,
 };
 
 pub(super) fn validate(description: &Description) -> Result<(), String> {
@@ -36,7 +36,6 @@ pub(super) fn validate(description: &Description) -> Result<(), String> {
 
     Ok(())
 }
-
 fn validate_target(target: &TargetDescription) -> Result<(), String> {
     validate_text("SDK authority", &target.sdk.authority)?;
     validate_sdk_revision(target)?;
@@ -377,6 +376,14 @@ fn validate_abi_types(target: &TargetDescription) -> Result<(), String> {
 
     for function in &target.functions {
         validate_callable_types(target, &function.parameters, &function.result)?;
+
+        for condition in &function.requires {
+            validate_text("function precondition", condition)?;
+        }
+
+        for condition in &function.ensures {
+            validate_text("function postcondition", condition)?;
+        }
     }
 
     for static_ in &target.statics {
@@ -399,14 +406,15 @@ fn validate_callable_types(
         validate_abi_type(target, &parameter.ty)?;
     }
 
-    validate_abi_type(target, result)
+    if result == "unit" {
+        Ok(())
+    } else {
+        validate_abi_type(target, result)
+    }
 }
 
 fn validate_abi_type(target: &TargetDescription, ty: &str) -> Result<(), String> {
-    if matches!(
-        ty,
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "r32" | "r64"
-    ) {
+    if is_primitive_abi_type(ty) {
         return Ok(());
     }
 
@@ -530,21 +538,4 @@ fn validate_symbol(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate;
-    use crate::standard_library::os_bindings::model::Description;
-
-    #[test]
-    fn checked_in_description_covers_every_native_target() {
-        let description: Description = serde_json::from_str(include_str!(
-            "../../../../standard-library/targets/os-bindings.json"
-        ))
-        .unwrap_or_else(|error| panic!("binding description must parse: {error}"));
-
-        validate(&description)
-            .unwrap_or_else(|error| panic!("binding description must be valid: {error}"));
-    }
 }

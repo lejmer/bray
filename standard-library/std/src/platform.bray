@@ -2,6 +2,7 @@ trusted internal module std.platform;
 
 using std.memory;
 
+@copy
 @layout(c)
 internal struct PlatformStatus
 {
@@ -10,6 +11,7 @@ internal struct PlatformStatus
     native_code: i64;
 }
 
+@copy
 @layout(c)
 internal struct NativeTextSpan
 {
@@ -17,247 +19,12 @@ internal struct NativeTextSpan
     length: u64;
 }
 
+@copy
 @layout(c)
 internal struct NativeTextPair
 {
     key: NativeTextSpan;
     value: NativeTextSpan;
-}
-
-@abi(c)
-extern trusted internal func context_identity() -> u64
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_native_text_width() -> u32
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_working_directory(
-    pos address: RawPointer<RawPointer<u8>>,
-    pos length: RawPointer<u64>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_argument_count(pos count: RawPointer<u64>) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_argument(
-    pos index: u64,
-    pos address: RawPointer<RawPointer<u8>>,
-    pos length: RawPointer<u64>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_environment_count(pos count: RawPointer<u64>) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func context_environment_entry(
-    pos index: u64,
-    pos key_address: RawPointer<RawPointer<u8>>,
-    pos key_length: RawPointer<u64>,
-    pos value_address: RawPointer<RawPointer<u8>>,
-    pos value_length: RawPointer<u64>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func environment_key_equals(
-    pos left: NativeTextSpan,
-    pos right: NativeTextSpan,
-    pos equal: RawPointer<u32>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func clock_wall_now(
-    pos seconds: RawPointer<i64>,
-    pos nanoseconds: RawPointer<u32>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func entropy_fill(
-    pos destination: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-trusted internal func process_identity() -> u64
-    uses(foreign_call)
-{
-    return trusted context_identity();
-}
-
-trusted internal func native_text_width() -> usize
-    uses(foreign_call)
-{
-    let width: u32 = trusted context_native_text_width();
-
-    if width != 8 && width != 16
-    {
-        panic("the platform native text width is unavailable");
-    }
-
-    return width as usize;
-}
-
-trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
-{
-    return trusted environment_key_equals_span(left, right = native_text_span(right));
-}
-
-trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
-    uses(foreign_call)
-{
-    let left_span: NativeTextSpan = native_text_span(left);
-    let mut equal: u32 = 0;
-    let equal_pointer: RawPointer<u32> = std.memory.address_of_mut<u32>(&mut equal);
-    let status: PlatformStatus = trusted environment_key_equals(left_span, right, equal = equal_pointer);
-
-    return successful_status(status) && equal == 1;
-}
-
-internal func native_text_span(pos value: &[u8]) -> NativeTextSpan
-{
-    return
-    {
-        address = internal std.memory.byte_slice_pointer(value),
-        length = internal std.memory.slice_length<u8>(value) as u64,
-    };
-}
-
-trusted internal func argument_count() -> usize
-{
-    return trusted required_context_count(argument = true);
-}
-
-trusted internal func environment_count() -> usize
-{
-    return trusted required_context_count(argument = false);
-}
-
-trusted internal func required_context_count(argument: bool) -> usize
-    uses(foreign_call)
-{
-    let mut count: u64 = 0;
-    let pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut count);
-
-    let mut status: PlatformStatus =
-    {
-        category = 12,
-        reserved = 0,
-        native_code = 0,
-    };
-
-    if argument
-    {
-        status = trusted context_argument_count(pointer);
-    }
-    else
-    {
-        status = trusted context_environment_count(pointer);
-    }
-
-    let native_count: usize = count as usize;
-
-    if !successful_status(status) || native_count as u64 != count
-    {
-        panic("the platform process context count is unavailable");
-    }
-
-    return native_count;
-}
-
-trusted internal func argument(pos index: usize) -> std.memory.RawBuffer<u8>
-{
-    return trusted required_context_text(index = index as u64, kind = 1);
-}
-
-trusted internal func working_directory() -> std.memory.RawBuffer<u8>
-{
-    return trusted required_context_text(index = 0, kind = 0);
-}
-
-trusted internal func environment_entry(pos index: usize) -> NativeTextPair
-    uses(foreign_call)
-{
-    let mut key_address: RawPointer<u8> = std.memory.null<u8>();
-    let mut key_length: u64 = 0;
-    let mut value_address: RawPointer<u8> = std.memory.null<u8>();
-    let mut value_length: u64 = 0;
-
-    let status: PlatformStatus = trusted context_environment_entry(
-        key_address = std.memory.address_of_mut<RawPointer<u8>>(&mut key_address),
-        key_length = std.memory.address_of_mut<u64>(&mut key_length),
-        value_address = std.memory.address_of_mut<RawPointer<u8>>(&mut value_address),
-        value_length = std.memory.address_of_mut<u64>(&mut value_length),
-        index = index as u64,
-    );
-
-    if !successful_status(status)
-    {
-        panic("the platform process environment entry is unavailable");
-    }
-
-    return
-    {
-        key =
-        {
-            address = key_address,
-            length = key_length,
-        },
-        value =
-        {
-            address = value_address,
-            length = value_length,
-        },
-    };
-}
-
-trusted internal func required_context_text(index: u64, kind: u8) -> std.memory.RawBuffer<u8>
-    uses(foreign_call)
-{
-    let mut address: RawPointer<u8> = std.memory.null<u8>();
-    let mut length: u64 = 0;
-    let address_pointer: RawPointer<RawPointer<u8>> = std.memory.address_of_mut<RawPointer<u8>>(&mut address);
-    let length_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut length);
-
-    let mut status: PlatformStatus =
-    {
-        category = 12,
-        reserved = 0,
-        native_code = 0,
-    };
-
-    if kind == 0
-    {
-        status = trusted context_working_directory(address = address_pointer, length = length_pointer);
-    }
-    else
-    {
-        status = trusted context_argument(address = address_pointer, length = length_pointer, index = index);
-    }
-
-    if !successful_status(status)
-    {
-        panic("the platform process context text is unavailable");
-    }
-
-    return trusted copy_context_text(address, length = length);
 }
 
 trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64) -> std.memory.RawBuffer<u8>
@@ -281,7 +48,9 @@ trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64
 
             if count > 0
             {
-                trusted copy_context_bytes(address, destination = &mut buffer, count = count);
+                let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+
+                trusted internal std.memory.byte_buffer_copy(address, destination, count = count);
 
                 trusted std.memory.set_initialized_count<u8>(&mut buffer, count = count);
             }
@@ -292,23 +61,152 @@ trusted internal func copy_context_text(pos address: RawPointer<u8>, length: u64
     }
 }
 
-trusted internal func copy_context_bytes(
-    pos source: RawPointer<u8>,
-    pos destination: &mut std.memory.RawBuffer<u8>,
-    count: usize,
-) -> unit
+trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
 {
-    let mut output: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
+    return trusted internal environment_key_equals_span(left, right = native_text_span(right));
+}
+
+internal func native_text_span(pos value: &[u8]) -> NativeTextSpan
+{
+    return
+    {
+        address = internal std.memory.byte_slice_pointer(value),
+        length = internal std.memory.slice_length<u8>(value) as u64,
+    };
+}
+
+trusted internal func context_buffer(pos capacity: usize) -> std.memory.RawBuffer<u8>
+{
+    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
+        capacity = capacity
+    );
+
+    match consume created
+    {
+        case Ok(buffer) { return buffer; }
+        case Error(_) { panic("the platform process context cannot be allocated"); }
+    }
+}
+
+trusted internal func terminated_native_text(
+    pos address: RawPointer<u8>,
+    length: u64,
+    terminator_bytes: usize,
+) -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
+{
+    let count: usize = length as usize;
+
+    if count as u64 != length || terminator_bytes == 0 || count > 18_446_744_073_709_551_615 - terminator_bytes
+    {
+        return Error(invalid_input_status());
+    }
+
+    if count > 0 && std.memory.is_null<u8>(address)
+    {
+        return Error(invalid_input_status());
+    }
+
+    let total: usize = count + terminator_bytes;
+
+    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
+        capacity = total
+    );
+
+    match consume created
+    {
+        case Ok(buffer)
+        {
+            let mut buffer: std.memory.RawBuffer<u8> = buffer;
+            let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+
+            if count > 0
+            {
+                trusted internal std.memory.byte_buffer_copy(address, destination, count = count);
+            }
+
+            let terminator: RawPointer<u8> = std.memory.offset<u8>(
+                destination,
+                elements = std.truncate_to<isize>(count),
+            );
+
+            trusted internal std.memory.byte_buffer_fill(terminator, value = 0, count = terminator_bytes);
+
+            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
+
+            return Ok(buffer);
+        }
+        case Error(_) { return Error(exhausted_status()); }
+    }
+}
+
+trusted internal func read_native_i32(pos pointer: RawPointer<i32>) -> i32
+{
+    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, i32>(pointer);
+
+    let value: u32 = trusted internal std.memory.byte_buffer_read(source, index = 0) as u32 |
+        trusted internal std.memory.byte_buffer_read(source, index = 1) as u32 << 8 |
+        trusted internal std.memory.byte_buffer_read(source, index = 2) as u32 << 16 |
+        trusted internal std.memory.byte_buffer_read(source, index = 3) as u32 << 24;
+
+    return std.truncate_to<i32>(value);
+}
+
+trusted internal func read_native_u16(pos pointer: RawPointer<u16>) -> u16
+{
+    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, u16>(pointer);
+
+    return trusted internal std.memory.byte_buffer_read(source, index = 0) as u16 |
+        trusted internal std.memory.byte_buffer_read(source, index = 1) as u16 << 8;
+}
+
+trusted internal func read_native_u32(pos pointer: RawPointer<u8>) -> u32
+{
+    return trusted internal std.memory.byte_buffer_read(pointer, index = 0) as u32 |
+        trusted internal std.memory.byte_buffer_read(pointer, index = 1) as u32 << 8 |
+        trusted internal std.memory.byte_buffer_read(pointer, index = 2) as u32 << 16 |
+        trusted internal std.memory.byte_buffer_read(pointer, index = 3) as u32 << 24;
+}
+
+trusted internal func read_native_u64(pos pointer: RawPointer<u8>) -> u64
+{
+    let mut value: u64 = 0;
     let mut index: usize = 0;
 
-    while index < count
+    while index < 8
     {
-        let value: u8 = trusted std.memory.byte_buffer_read(source, index = index);
-
-        trusted std.memory.write<u8>(output, value = value);
-        output = std.memory.offset<u8>(output, elements = 1);
+        value |= trusted internal std.memory.byte_buffer_read(pointer, index = index) as u64 << (index as u64 * 8);
         index += 1;
     }
+
+    return value;
+}
+
+trusted internal func read_native_pointer<T>(pos pointer: RawPointer<RawPointer<T>>) -> RawPointer<T>
+    uses(intrinsic)
+{
+    let source: RawPointer<u8> = trusted std.memory.reinterpret<u8, RawPointer<T>>(pointer);
+    let mut address: u64 = 0;
+    let mut index: usize = 0;
+
+    while index < 8
+    {
+        address |= trusted internal std.memory.byte_buffer_read(source, index = index) as u64 << (index as u64 * 8);
+        index += 1;
+    }
+
+    return trusted core.target.from_exposed_address<T>(address = std.truncate_to<usize>(address));
+}
+
+trusted internal func pointer_handle(pos pointer: RawPointer<u8>) -> u64
+    uses(intrinsic)
+{
+    return trusted core.target.expose_address<u8>(pointer) as u64;
+}
+
+trusted internal func handle_pointer(pos handle: u64) -> RawPointer<u8>
+    uses(intrinsic)
+{
+    return trusted core.target.from_exposed_address<u8>(address = std.truncate_to<usize>(handle));
 }
 
 internal func successful_status(pos status: PlatformStatus) -> bool

@@ -1,0 +1,75 @@
+@target(target.identity.SYSTEM == "windows")
+trusted internal module std.platform.virtual_memory;
+
+trusted internal func platform_map(
+    pos bytes: usize,
+    access: Access,
+) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    uses(foreign_call)
+{
+    let address: RawPointer<u8> = trusted std.os.windows.virtual_alloc(
+        std.memory.null<u8>(),
+        size = bytes,
+        allocation_type = std.os.windows.MEM_RESERVE | std.os.windows.MEM_COMMIT,
+        protection = windows_protection(access),
+    );
+
+    if std.memory.is_null<u8>(address)
+    {
+        return Error(trusted internal std.platform.windows_error_status());
+    }
+
+    return Ok(address);
+}
+
+trusted internal func platform_protect(
+    pos address: RawPointer<u8>,
+    bytes: usize,
+    access: Access,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let mut previous: u32 = 0;
+
+    let succeeded: i32 = trusted std.os.windows.virtual_protect(
+        address,
+        size = bytes,
+        protection = windows_protection(access),
+        previous = std.memory.address_of_mut<u32>(&mut previous),
+    );
+
+    if succeeded == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func platform_unmap(pos address: RawPointer<u8>, bytes: usize) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if bytes == 0
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted std.os.windows.virtual_free(address, size = 0, free_type = std.os.windows.MEM_RELEASE) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+internal func windows_protection(pos access: Access) -> u32
+{
+    return match access
+    {
+        case None { yield std.os.windows.PAGE_NOACCESS; }
+        case Read { yield std.os.windows.PAGE_READONLY; }
+        case ReadWrite { yield std.os.windows.PAGE_READWRITE; }
+        case ReadExecute { yield std.os.windows.PAGE_EXECUTE_READ; }
+        case ReadWriteExecute { yield std.os.windows.PAGE_EXECUTE_READWRITE; }
+    };
+}

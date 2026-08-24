@@ -57,6 +57,7 @@ pub(super) fn encode_artifact(
             template.family_size(),
             template.payload().to_vec(),
         )
+        .with_platform_service(template.platform_service())
     }));
 
     payloads.extend(boundaries.iter().map(|boundary| {
@@ -183,7 +184,7 @@ fn encode_directory_entry(encoder: &mut WireEncoder, entry: &ImplementationDirec
     encoder.write_u16(0);
     encoder.write_bytes(&entry.discriminator);
     encoder.write_u32(entry.family_size);
-    encoder.write_u32(0);
+    encoder.write_u32(entry.platform_service.map_or(0, |role| role.id()));
     encoder.write_u64(u64::try_from(entry.payload.start).unwrap_or(u64::MAX));
     encoder.write_u64(u64::try_from(entry.payload.len()).unwrap_or(u64::MAX));
     encoder.write_u64(entry.decoded_length);
@@ -197,6 +198,7 @@ struct EncodedImplementationPayload {
     kind: ImplementationPayloadKind,
     discriminator: [u8; 32],
     family_size: u32,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
     decoded: Vec<u8>,
 }
 
@@ -213,8 +215,18 @@ impl EncodedImplementationPayload {
             kind,
             discriminator,
             family_size,
+            platform_service: None,
             decoded,
         }
+    }
+
+    const fn with_platform_service(
+        mut self,
+        role: Option<bray_runtime_interface::PlatformServiceRole>,
+    ) -> Self {
+        self.platform_service = role;
+
+        self
     }
 
     const fn directory_key(&self) -> (InterfaceSymbolId, u8, [u8; 32]) {
@@ -227,6 +239,7 @@ struct StoredImplementationPayload {
     kind: ImplementationPayloadKind,
     discriminator: [u8; 32],
     family_size: u32,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
     encoding: crate::InterfaceSectionEncoding,
     decoded_length: u64,
     content_hash: [u8; 32],
@@ -254,6 +267,7 @@ impl StoredImplementationPayload {
             kind: payload.kind,
             discriminator: payload.discriminator,
             family_size: payload.family_size,
+            platform_service: payload.platform_service,
             encoding,
             decoded_length,
             content_hash,
@@ -279,6 +293,7 @@ impl StoredImplementationPayload {
             encoding: self.encoding,
             discriminator: self.discriminator,
             family_size: self.family_size,
+            platform_service: self.platform_service,
             decoded_length: self.decoded_length,
             record_count: 1,
             checksum: [0; 32],

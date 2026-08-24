@@ -55,7 +55,6 @@ struct DynamicLibrary
     }
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.is_owned_value
         {

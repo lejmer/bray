@@ -1,0 +1,310 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module std.process;
+
+trusted internal func spawn_storage(
+    pos executable: PlatformNativeText,
+    pos arguments: &[PlatformNativeText],
+    pos environment: &[PlatformEnvironmentEntry],
+    working_directory_span: PlatformNativeText,
+) -> Result<SpawnStorage, std.platform.PlatformStatus>
+{
+    let executable_length: usize = match internal native_text_length(executable, allow_empty = false)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(status); }
+    };
+
+    let working_length: usize = match internal native_text_length(working_directory_span, allow_empty = true)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(status); }
+    };
+
+    let argument_count: usize = internal std.memory.slice_length<PlatformNativeText>(arguments);
+    let environment_count: usize = internal std.memory.slice_length<PlatformEnvironmentEntry>(environment);
+
+    let mut total: usize = match internal added_text_capacity(0, executable_length)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(status); }
+    };
+
+    if working_length > 0
+    {
+        total = match internal added_text_capacity(total, working_length)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+    }
+
+    let mut index: usize = 0;
+
+    while index < argument_count
+    {
+        let span: PlatformNativeText = arguments[index];
+
+        let length: usize = match internal native_text_length(span, allow_empty = true)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+
+        total = match internal added_text_capacity(total, length)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+
+        index += 1;
+    }
+
+    index = 0;
+
+    while index < environment_count
+    {
+        let entry: PlatformEnvironmentEntry = environment[index];
+
+        let key_length: usize = match internal environment_key_length(entry.key)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+
+        let value_length: usize = match internal native_text_length(entry.value, allow_empty = true)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+
+        total = match internal added_environment_capacity(total, key_length, value_length)
+        {
+            case Ok(value) { yield value; }
+            case Error(status) { return Error(status); }
+        };
+
+        index += 1;
+    }
+
+    let mut text: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = total)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    let mut argument_pointers: std.memory.RawBuffer<RawPointer<u8>> = match trusted std.memory.RawBuffer<
+        RawPointer<u8>
+    >(capacity = argument_count + 2)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    let mut environment_pointers: std.memory.RawBuffer<RawPointer<u8>> = match trusted std.memory.RawBuffer<
+        RawPointer<u8>
+    >(capacity = environment_count + 1)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    let text_pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut text);
+
+    let argument_pointer: RawPointer<RawPointer<u8>> = trusted std.memory.spare_pointer<RawPointer<u8>>(
+        &mut argument_pointers
+    );
+
+    let environment_pointer: RawPointer<RawPointer<u8>> = trusted std.memory.spare_pointer<RawPointer<u8>>(
+        &mut environment_pointers
+    );
+
+    let mut offset: usize = 0;
+    let executable_pointer: RawPointer<u8> = trusted internal copy_native_text(text_pointer, offset, executable);
+    offset += executable_length + 1;
+    let mut working_directory: RawPointer<u8> = std.memory.null<u8>();
+
+    if working_length > 0
+    {
+        working_directory = trusted internal copy_native_text(text_pointer, offset, working_directory_span);
+        offset += working_length + 1;
+    }
+
+    trusted std.memory.write<RawPointer<u8>>(argument_pointer, value = executable_pointer);
+    index = 0;
+
+    while index < argument_count
+    {
+        let span: PlatformNativeText = arguments[index];
+        let copied: RawPointer<u8> = trusted internal copy_native_text(text_pointer, offset, span);
+        offset += std.truncate_to<usize>(span.length) + 1;
+
+        trusted std.memory.write<RawPointer<u8>>(
+            std.memory.offset<RawPointer<u8>>(argument_pointer, elements = std.truncate_to<isize>(index + 1)),
+            value = copied,
+        );
+
+        index += 1;
+    }
+
+    trusted std.memory.write<RawPointer<u8>>(
+        std.memory.offset<RawPointer<u8>>(argument_pointer, elements = std.truncate_to<isize>(argument_count + 1)),
+        value = std.memory.null<u8>(),
+    );
+
+    index = 0;
+
+    while index < environment_count
+    {
+        let entry: PlatformEnvironmentEntry = environment[index];
+        let copied: RawPointer<u8> = trusted internal copy_environment_entry(text_pointer, offset, entry);
+        offset += std.truncate_to<usize>(entry.key.length) + std.truncate_to<usize>(entry.value.length) + 2;
+
+        trusted std.memory.write<RawPointer<u8>>(
+            std.memory.offset<RawPointer<u8>>(environment_pointer, elements = std.truncate_to<isize>(index)),
+            value = copied,
+        );
+
+        index += 1;
+    }
+
+    trusted std.memory.write<RawPointer<u8>>(
+        std.memory.offset<RawPointer<u8>>(environment_pointer, elements = std.truncate_to<isize>(environment_count)),
+        value = std.memory.null<u8>(),
+    );
+
+    trusted std.memory.set_initialized_count<u8>(&mut text, count = total);
+    trusted std.memory.set_initialized_count<RawPointer<u8>>(&mut argument_pointers, count = argument_count + 2);
+    trusted std.memory.set_initialized_count<RawPointer<u8>>(&mut environment_pointers, count = environment_count + 1);
+
+    return Ok(
+        {
+            text = text,
+            arguments = argument_pointers,
+            environment = environment_pointers,
+            executable = executable_pointer,
+            working_directory = working_directory,
+        }
+    );
+}
+
+trusted internal func native_text_length(
+    pos text: PlatformNativeText,
+    allow_empty: bool,
+) -> Result<usize, std.platform.PlatformStatus>
+{
+    let length: usize = std.truncate_to<usize>(text.length);
+
+    if length as u64 != text.length || !allow_empty && length == 0 || length > 0 && std.memory.is_null<u8>(text.address)
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let mut index: usize = 0;
+
+    while index < length
+    {
+        if trusted internal std.memory.byte_buffer_read(text.address, index = index) == 0
+        {
+            return Error(internal std.platform.invalid_input_status());
+        }
+
+        index += 1;
+    }
+
+    return Ok(length);
+}
+
+trusted internal func environment_key_length(pos text: PlatformNativeText) -> Result<usize, std.platform.PlatformStatus>
+{
+    let length: usize = match trusted internal native_text_length(text, allow_empty = false)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(status); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < length
+    {
+        if trusted internal std.memory.byte_buffer_read(text.address, index = index) == 61
+        {
+            return Error(internal std.platform.invalid_input_status());
+        }
+
+        index += 1;
+    }
+
+    return Ok(length);
+}
+
+internal func added_text_capacity(pos current: usize, pos length: usize) -> Result<usize, std.platform.PlatformStatus>
+{
+    if length == 18_446_744_073_709_551_615 || current > 18_446_744_073_709_551_615 - length - 1
+    {
+        return Error(internal std.platform.exhausted_status());
+    }
+
+    return Ok(current + length + 1);
+}
+
+internal func added_environment_capacity(
+    pos current: usize,
+    pos key_length: usize,
+    pos value_length: usize,
+) -> Result<usize, std.platform.PlatformStatus>
+{
+    let with_key: usize = match internal added_text_capacity(current, key_length)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return Error(status); }
+    };
+
+    match internal added_text_capacity(with_key, value_length)
+    {
+        case Ok(value) { return Ok(value); }
+        case Error(status) { return Error(status); }
+    }
+}
+
+trusted internal func copy_native_text(
+    pos destination: RawPointer<u8>,
+    pos offset: usize,
+    pos text: PlatformNativeText,
+) -> RawPointer<u8>
+{
+    let start: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset));
+    let length: usize = std.truncate_to<usize>(text.length);
+    trusted internal std.memory.byte_buffer_copy(text.address, start, count = length);
+    trusted std.memory.write<u8>(std.memory.offset<u8>(start, elements = std.truncate_to<isize>(length)), value = 0);
+    return start;
+}
+
+trusted internal func copy_environment_entry(
+    pos destination: RawPointer<u8>,
+    pos offset: usize,
+    pos entry: PlatformEnvironmentEntry,
+) -> RawPointer<u8>
+{
+    let start: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset));
+    let key_length: usize = std.truncate_to<usize>(entry.key.length);
+    let value_length: usize = std.truncate_to<usize>(entry.value.length);
+    trusted internal std.memory.byte_buffer_copy(entry.key.address, start, count = key_length);
+
+    trusted std.memory.write<u8>(
+        std.memory.offset<u8>(start, elements = std.truncate_to<isize>(key_length)),
+        value = 61,
+    );
+
+    trusted internal std.memory.byte_buffer_copy(
+        entry.value.address,
+        std.memory.offset<u8>(start, elements = std.truncate_to<isize>(key_length + 1)),
+        count = value_length,
+    );
+
+    trusted std.memory.write<u8>(
+        std.memory.offset<u8>(start, elements = std.truncate_to<isize>(key_length + value_length + 1)),
+        value = 0,
+    );
+
+    return start;
+}

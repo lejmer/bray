@@ -291,8 +291,10 @@ the selected system with `"windows"`. The gate is evaluated before declaration i
 interfaces retain the target properties that affect every public target-specific declaration.
 
 Native constants have one authority: generated target-specific Bray source checked into the standard-library tree.
-`cargo xtask` generation reads only pinned target SDK descriptions, writes authoritative source with its input digest,
-and fails verification when regeneration differs. Compilation never reads the compiler host's headers. The generated
+`cargo xtask` generation reads a short manifest whose shared POSIX and operating-system sources are combined with one
+source for each exact target. These files describe the pinned target SDKs. The generator writes authoritative source
+with the complete input digest and fails verification when regeneration differs. Compilation never reads the compiler
+host's headers. The generated
 source bytes participate in the ordinary package source and artifact digests, so cross compilation and repeated builds
 use the same target constants even when the host operating system differs. Target metadata may validate a value but
 never supplies an alternate constant definition.
@@ -355,7 +357,8 @@ second task scheduler, detached execution model, or source-visible runtime objec
 ### Platform And Native Support
 
 `bray-platform` owns safe typed native mechanisms that can be implemented without violating the repository's Rust safety
-policy. `bray-platform-abi` owns the stable native adapters for private platform-service roles.
+policy for compiler-host tooling and trusted runtime layers. Trusted standard-library code uses generated direct target
+bindings. `bray-platform-abi` owns link integration for the isolated third-party temporal provider.
 
 Operations that require irreducible unsafe system calls, loader casts, header macros, unusual calling conventions, or
 assembly trampolines belong in narrow native C, C++, or assembly shims beneath `bray-platform-abi`. Such a shim
@@ -364,11 +367,11 @@ own portable search, lifecycle, callback, or error policy.
 
 ## Platform-Service Roles
 
-The private platform-service catalog is extended only for mechanisms that must be supplied by the selected target
-artifact. The dynamic-loader roles and their exact schemas are defined in `docs/design/io-and-platform-services.md`.
+The private platform-service catalog identifies operations that the runtime may override or that the temporal provider
+supplies. The dynamic-loader roles and their exact schemas are defined in `docs/design/io-and-platform-services.md`.
 They use role IDs `0x0801` through `0x0804`, the `dynamic_library` handle class, the `dynamic_loading` capability, and
-the existing structured status record. The provider retains target loader error codes in `native_code`. It never returns
-host prose.
+the existing structured status record. The trusted Bray implementation retains target loader error codes in
+`native_code`. It never returns host prose.
 
 Foreign caller-thread attachment is not a platform-service role. Callback entry reuses
 `bray-platform::RuntimeThreadScope` and the existing synchronous-root runtime ABI. Target-specific duplication or

@@ -60,11 +60,7 @@ where
                 );
             }
             (BoundPatternKind::Tuple, TypeData::Tuple(elements)) => {
-                for (position, entry) in pattern.entries().iter().enumerate() {
-                    if entry.is_remaining() {
-                        continue;
-                    }
-
+                for (position, child) in pattern.children().iter().copied().enumerate() {
                     let subject = elements
                         .get(position)
                         .copied()
@@ -73,7 +69,9 @@ where
 
                     let projection = PatternProjection::TupleElement(symbol_ordinal(position));
 
-                    self.push_entry(entry, subject, projection, &mut children);
+                    children.patterns.insert(child, (subject, Some(projection)));
+
+                    children.is_recovered |= subject.is_recovered;
                 }
             }
             (BoundPatternKind::Array, TypeData::Array { element, .. })

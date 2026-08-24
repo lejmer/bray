@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 85;
+const API_TEST_COUNT: usize = 86;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const OUTCOME_CASES: [OutcomeCase; 6] = [
     OutcomeCase::new(
@@ -47,7 +47,27 @@ const OUTCOME_CASES: [OutcomeCase; 6] = [
     ),
 ];
 
-pub(super) fn test(profile_output: Option<&Path>) -> Result<(), BuildError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TestPart {
+    ProviderRetention,
+    Interoperability,
+    Api,
+    Outcomes,
+}
+
+impl TestPart {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "provider-retention" => Some(Self::ProviderRetention),
+            "interoperability" => Some(Self::Interoperability),
+            "api" => Some(Self::Api),
+            "outcomes" => Some(Self::Outcomes),
+            _ => None,
+        }
+    }
+}
+
+pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<(), BuildError> {
     let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
     let target = NativeTarget::current()
@@ -79,28 +99,46 @@ pub(super) fn test(profile_output: Option<&Path>) -> Result<(), BuildError> {
     })
     .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
-    crate::progress::run("Auditing native provider retention", || {
-        super::provider_retention::audit(&root, directory, &toolchain, target)
-    })?;
+    if selected(parts, TestPart::ProviderRetention) {
+        crate::progress::run("Auditing native provider retention", || {
+            super::provider_retention::audit(&root, directory, &toolchain, target)
+        })?;
+    }
 
-    crate::progress::run("Auditing native interoperability", || {
-        super::interoperability::audit(&root, directory, &toolchain, &runtime, target)
-    })?;
+    if selected(parts, TestPart::Interoperability) {
+        crate::progress::run("Auditing native interoperability", || {
+            super::interoperability::audit(&root, directory, &toolchain, &runtime, target)
+        })?;
+    }
 
-    let workspace = directory.join("workspace");
+    if selected(parts, TestPart::Api) || selected(parts, TestPart::Outcomes) {
+        let workspace = directory.join("workspace");
 
-    crate::progress::run("Preparing the standard library test workspace", || {
-        copy_standard_library_workspace(&root, &workspace)
-    })?;
+        crate::progress::run("Preparing the standard library test workspace", || {
+            copy_standard_library_workspace(&root, &workspace)
+        })?;
 
-    crate::progress::run(
-        &format!("Running native standard library API tests ({API_TEST_COUNT} tests, 5 plans)"),
-        || audit_api(&root, &workspace, &toolchain, target, profile_output),
-    )?;
+        if selected(parts, TestPart::Api) {
+            crate::progress::run(
+                &format!(
+                    "Running native standard library API tests ({API_TEST_COUNT} tests, 5 plans)"
+                ),
+                || audit_api(&root, &workspace, &toolchain, target, profile_output),
+            )?;
+        }
 
-    crate::progress::run("Checking native test outcomes (6 cases)", || {
-        audit_outcomes(&root, &workspace, &toolchain, target, profile_output)
-    })
+        if selected(parts, TestPart::Outcomes) {
+            crate::progress::run("Checking native test outcomes (6 cases)", || {
+                audit_outcomes(&root, &workspace, &toolchain, target, profile_output)
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn selected(parts: &[TestPart], part: TestPart) -> bool {
+    parts.is_empty() || parts.contains(&part)
 }
 
 fn audit_api(
@@ -151,16 +189,22 @@ fn audit_api(
     let catalog = product_catalog(workspace, target, API_PRODUCT)?;
     let catalog = read_artifact(&catalog)?;
 
-    require_startup_report(byte_buffer, "byte_buffer_mutation", &[])?;
+    require_startup_report(
+        "startup-byte-buffer",
+        byte_buffer,
+        "byte_buffer_mutation",
+        &[],
+    )?;
 
     require_startup_report(
+        "startup-output-lock",
         output_lock,
         "repeated_standard_output_locks_are_released",
         b"first-lock|second-lock",
     )?;
 
-    validate_api_report(sequential)?;
-    validate_api_report(parallel)?;
+    validate_api_report("api-sequential", sequential)?;
+    validate_api_report("api-parallel", parallel)?;
     require_stable_order(sequential, parallel)?;
     require_serial_metadata(&catalog)?;
 
@@ -188,6 +232,7 @@ fn audit_api(
 }
 
 fn require_startup_report(
+    plan: &str,
     report: &NativeTestReport,
     identity: &str,
     expected_output: &[u8],
@@ -204,9 +249,15 @@ fn require_startup_report(
         ));
     };
 
-    require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
+    require_stream(
+        plan,
+        &test.identity,
+        "stdout",
+        &test.stdout,
+        expected_output,
+    )?;
 
-    require_stream(&test.identity, "stderr", &test.stderr, &[])
+    require_stream(plan, &test.identity, "stderr", &test.stderr, &[])
 }
 
 fn audit_outcomes(
@@ -293,12 +344,24 @@ fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), Bui
     case.expectation
         .validate(case.test_identity, &test.outcome)?;
 
-    require_stream(&test.identity, "stdout", &test.stdout, &[])?;
+    require_stream(
+        case.plan_identity,
+        &test.identity,
+        "stdout",
+        &test.stdout,
+        &[],
+    )?;
 
-    require_stream(&test.identity, "stderr", &test.stderr, &[])
+    require_stream(
+        case.plan_identity,
+        &test.identity,
+        "stderr",
+        &test.stderr,
+        &[],
+    )
 }
 
-fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
+fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
     require_selection(report, API_TEST_COUNT, API_TEST_COUNT, 0)?;
 
@@ -348,8 +411,15 @@ fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
             (&[][..], &[][..])
         };
 
-        require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
-        require_stream(&test.identity, "stderr", &test.stderr, expected_error)?;
+        require_stream(
+            plan,
+            &test.identity,
+            "stdout",
+            &test.stdout,
+            expected_output,
+        )?;
+
+        require_stream(plan, &test.identity, "stderr", &test.stderr, expected_error)?;
     }
 
     Ok(())
@@ -382,6 +452,7 @@ fn is_lowercase_sha256(value: &str) -> bool {
 }
 
 fn require_stream(
+    plan: &str,
     identity: &str,
     name: &str,
     stream: &NativeStream,
@@ -395,11 +466,33 @@ fn require_stream(
     {
         return Err(BuildError::conformance(
             "native capture",
-            format!("{identity} produced an invalid {name} stream"),
+            format!(
+                "the {plan} plan test {identity} produced an invalid {name} stream, expected bytes {}, actual policy {:?}, bytes {}, truncated {}, discarded byte count {}, failure {:?}",
+                bytes_preview(expected),
+                stream.policy,
+                bytes_preview(&stream.bytes),
+                stream.truncated,
+                stream.discarded_byte_count,
+                stream.failure,
+            ),
         ));
     }
 
     Ok(())
+}
+
+fn bytes_preview(bytes: &[u8]) -> String {
+    const MAXIMUM_PREVIEW_LENGTH: usize = 64;
+
+    if bytes.len() <= MAXIMUM_PREVIEW_LENGTH {
+        return format!("{bytes:?}");
+    }
+
+    format!(
+        "{:?} followed by {} more bytes",
+        &bytes[..MAXIMUM_PREVIEW_LENGTH],
+        bytes.len() - MAXIMUM_PREVIEW_LENGTH,
+    )
 }
 
 fn require_selection(
@@ -488,6 +581,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
             "buffered_file_io_preserves_order_and_flushes",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",
+            "child_processes_accept_an_empty_environment",
             "child_processes_capture_output_and_reap_cleanly",
             "string_operations",
         ]
@@ -564,16 +658,23 @@ fn run_test_batch(
             .arg(profile_output.join(profile_identity));
     }
 
+    command.args(["--format", "json", "test"]);
+
+    let target_identity = target.identity();
+
+    let native_links = super::os_bindings::native_links(&target_identity)
+        .map_err(|error| BuildError::conformance("native link inputs", error))?;
+
+    for input in native_links {
+        command.arg("--native-link-input").arg(format!(
+            "{}={}",
+            input.name(),
+            input.kind().as_str()
+        ));
+    }
+
     command
-        .args([
-            "--format",
-            "json",
-            "test",
-            "--release",
-            "--product",
-            product,
-            "--target",
-        ])
+        .args(["--release", "--product", product, "--target"])
         .arg(target_name(target))
         .arg("--batch-request")
         .arg(&request_path);
@@ -1085,7 +1186,7 @@ mod tests {
             },
         };
 
-        let error = super::require_startup_report(&report, "fixture", &[])
+        let error = super::require_startup_report("focused", &report, "fixture", &[])
             .expect_err("the outcome product must not satisfy an API startup report");
 
         assert!(error.to_string().contains("report identity"));

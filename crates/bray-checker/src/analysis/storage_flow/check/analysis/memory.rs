@@ -36,7 +36,7 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::RawBufferReplace { .. }
             | CheckedMemoryOperationKind::RawBufferRelocate { .. }
             | CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteSliceCopy
+            | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::CallbackState { .. }
             | CheckedMemoryOperationKind::VolatileRead { .. }
@@ -423,7 +423,7 @@ where
                 return apply_deallocation(state, pointer, operation.expression());
             }
             CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteSliceCopy
+            | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::RawBufferCapacity

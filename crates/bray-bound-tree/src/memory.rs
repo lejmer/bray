@@ -920,8 +920,8 @@ pub enum CheckedMemoryOperationKind {
     },
     /// Initialize a byte-buffer range to one repeated byte.
     ByteBufferFill,
-    /// Copy an initialized byte slice into distinct writable storage.
-    ByteSliceCopy,
+    /// Copy an initialized byte range into distinct writable storage.
+    ByteBufferCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
     /// Read the element count carried by a slice.
@@ -1125,7 +1125,6 @@ impl CheckedMemoryOperationKind {
             | Self::RawAllocate
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
-            | Self::ByteSliceCopy
             | Self::RawBufferSetInitializedCount
             | Self::ByteBufferRead
             | Self::AtomicStore { .. }
@@ -1136,6 +1135,7 @@ impl CheckedMemoryOperationKind {
             Self::Copy { .. }
             | Self::RawDeallocate
             | Self::ByteBufferFill
+            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
@@ -1200,7 +1200,6 @@ impl CheckedMemoryOperationKind {
             | Self::RawAllocate
             | Self::RawBufferReplace { .. }
             | Self::RawBufferRelocate { .. }
-            | Self::ByteSliceCopy
             | Self::RawBufferSetInitializedCount
             | Self::ByteBufferRead
             | Self::VolatileWrite { .. }
@@ -1218,6 +1217,7 @@ impl CheckedMemoryOperationKind {
             Self::Copy { .. }
             | Self::RawDeallocate
             | Self::ByteBufferFill
+            | Self::ByteBufferCopy
             | Self::AtomicCompareExchange { .. } => {
                 if ordinal < 3 {
                     Some(ordinal)
@@ -1257,7 +1257,7 @@ impl CheckedMemoryOperationKind {
                 | Self::RawBufferReplace { .. }
                 | Self::RawBufferRelocate { .. }
                 | Self::ByteBufferFill
-                | Self::ByteSliceCopy
+                | Self::ByteBufferCopy
                 | Self::VolatileWrite { .. }
                 | Self::Fence { .. }
                 | Self::CatastrophicAbort

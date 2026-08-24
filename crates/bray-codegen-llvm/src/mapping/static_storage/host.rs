@@ -95,7 +95,13 @@ pub(super) fn declare_thread_static_registration<'context>(
         registration.set_initializer(&initializer);
         registration.set_linkage(Linkage::WeakODR);
         registration.set_visibility(GlobalVisibility::Hidden);
-        registration.set_comdat(module.get_or_insert_comdat(&name));
+
+        crate::comdat::attach(
+            module,
+            registration,
+            &name,
+            types.target().machine().object_format(),
+        );
 
         registration
     });
@@ -122,7 +128,14 @@ pub(super) fn declare_static_host_entry<'context>(
     let pointer = pointer_type(types)?;
     let usize = usize_type(types)?;
     let entry_type = static_host_entry_type(context, pointer, usize);
-    let dependency = declare_static_dependency_lookup(module, host_mapping, usize, context)?;
+
+    let dependency = declare_static_dependency_lookup(
+        module,
+        host_mapping,
+        usize,
+        context,
+        types.target().machine().object_format(),
+    )?;
 
     let duration = match mapping.instance().duration() {
         bray_symbols::StaticStorageDuration::Product => 0,
@@ -175,7 +188,12 @@ pub(super) fn declare_static_host_entry<'context>(
         types.target().machine().object_format(),
     )));
 
-    entry.set_comdat(module.get_or_insert_comdat(&name));
+    crate::comdat::attach(
+        module,
+        entry,
+        &name,
+        types.target().machine().object_format(),
+    );
 
     Ok(entry)
 }
@@ -185,6 +203,7 @@ fn declare_static_dependency_lookup<'context>(
     mapping: &CodegenProductHostStatic,
     usize: IntType<'context>,
     context: &'context inkwell::context::Context,
+    object_format: bray_target::ObjectFormat,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let name = format!("{}.dependency", mapping.host_symbol().as_str());
 
@@ -202,9 +221,7 @@ fn declare_static_dependency_lookup<'context>(
         .as_global_value()
         .set_visibility(GlobalVisibility::Hidden);
 
-    dependency
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(&name));
+    crate::comdat::attach(module, dependency.as_global_value(), &name, object_format);
 
     let builder = context.create_builder();
     let entry = context.append_basic_block(dependency, "static.dependency.lookup");
@@ -276,8 +293,14 @@ pub(super) fn declare_product_host<'context>(
 
     let entry_type = static_host_entry_type(context, pointer, usize);
 
-    let static_entry =
-        declare_static_host_lookup(module, product_host, entry_type, usize, context)?;
+    let static_entry = declare_static_host_lookup(
+        module,
+        product_host,
+        entry_type,
+        usize,
+        context,
+        types.target().machine().object_format(),
+    )?;
 
     let descriptor_initializer = descriptor_type.const_named_struct(&[
         context
@@ -299,7 +322,13 @@ pub(super) fn declare_product_host<'context>(
     descriptor.set_constant(true);
     descriptor.set_initializer(&descriptor_initializer);
     descriptor.set_linkage(Linkage::WeakODR);
-    descriptor.set_comdat(module.get_or_insert_comdat(product_host.descriptor_symbol().as_str()));
+
+    crate::comdat::attach(
+        module,
+        descriptor,
+        product_host.descriptor_symbol().as_str(),
+        types.target().machine().object_format(),
+    );
 
     let observation_type = product_host_observation_type(context, usize);
     let runtime_name = bray_runtime_abi::PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL;
@@ -318,9 +347,12 @@ pub(super) fn declare_product_host<'context>(
         Some(Linkage::WeakODR),
     );
 
-    control
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(product_host.control_symbol().as_str()));
+    crate::comdat::attach(
+        module,
+        control.as_global_value(),
+        product_host.control_symbol().as_str(),
+        types.target().machine().object_format(),
+    );
 
     let builder = context.create_builder();
     let entry = context.append_basic_block(control, "product.host.control");
@@ -364,6 +396,7 @@ fn declare_static_host_lookup<'context>(
     entry_type: StructType<'context>,
     usize: IntType<'context>,
     context: &'context inkwell::context::Context,
+    object_format: bray_target::ObjectFormat,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let name = format!("{}.static_entry", product_host.descriptor_symbol().as_str());
 
@@ -377,9 +410,7 @@ fn declare_static_host_lookup<'context>(
         .as_global_value()
         .set_visibility(GlobalVisibility::Hidden);
 
-    lookup
-        .as_global_value()
-        .set_comdat(module.get_or_insert_comdat(&name));
+    crate::comdat::attach(module, lookup.as_global_value(), &name, object_format);
 
     let builder = context.create_builder();
     let entry = context.append_basic_block(lookup, "static.host.lookup");

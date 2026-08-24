@@ -1,0 +1,121 @@
+@target(
+    target.platform.dynamic_loading && (target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME ==
+        "aarch64-unknown-linux-gnu" || target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME ==
+        "aarch64-apple-darwin")
+)
+trusted module std.dynamic;
+
+@abi(c)
+trusted internal func platform_dynamic_library_open_path(
+    pos path: std.fs.PlatformPath,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(raw_memory)
+{
+    if path.length == 0 || std.memory.is_null<u8>(path.address)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted internal std.memory.byte_buffer_read(path.address, index = 0) != 47
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_path)
+        {
+            return trusted internal open_unix_library(terminated_path.pointer, policy = policy, opened = opened);
+        }
+        case Error(status) { return status; }
+    }
+}
+
+trusted internal func open_unix_library(
+    pos name: RawPointer<u8>,
+    policy: u32,
+    opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    let flags: i32 = match policy
+    {
+        case 0 { yield std.os.unix.RTLD_LOCAL | std.os.unix.RTLD_NOW; }
+        case 1 { yield std.os.unix.RTLD_LOCAL | std.os.unix.RTLD_NOW; }
+        case 2 { yield std.os.unix.RTLD_LOCAL | std.os.unix.RTLD_LAZY; }
+        case 3 { yield std.os.unix.RTLD_GLOBAL | std.os.unix.RTLD_NOW; }
+        case 4 { yield std.os.unix.RTLD_GLOBAL | std.os.unix.RTLD_LAZY; }
+        case _ { return internal std.platform.invalid_input_status(); }
+    };
+
+    let _: RawPointer<u8> = trusted std.os.unix.dlerror();
+    let library: RawPointer<u8> = trusted std.os.unix.dlopen(name, mode = flags);
+
+    if std.memory.is_null<u8>(library)
+    {
+        let _: RawPointer<u8> = trusted std.os.unix.dlerror();
+
+        return internal std.platform.not_found_status();
+    }
+
+    trusted std.memory.write<u64>(opened, value = trusted internal std.platform.pointer_handle(library));
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_dynamic_library_symbol(
+    pos handle: u64,
+    pos name: RawPointer<u8>,
+    pos length: u64,
+    pos address: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
+        trusted internal std.platform.terminated_native_text(name, length = length, terminator_bytes = 1);
+
+    match consume terminated
+    {
+        case Ok(terminated_name)
+        {
+            let _: RawPointer<u8> = trusted std.os.unix.dlerror();
+            let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+            let resolved_address: RawPointer<u8> = trusted std.os.unix.dlsym(library, name = terminated_name.pointer);
+            let error: RawPointer<u8> = trusted std.os.unix.dlerror();
+
+            if !std.memory.is_null<u8>(error)
+            {
+                return internal std.platform.not_found_status();
+            }
+
+            trusted std.memory.write<RawPointer<u8>>(address, value = resolved_address);
+
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+@abi(c)
+trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let _: RawPointer<u8> = trusted std.os.unix.dlerror();
+
+    if trusted std.os.unix.dlclose(library) != 0
+    {
+        let _: RawPointer<u8> = trusted std.os.unix.dlerror();
+
+        return internal std.platform.other_status();
+    }
+
+    return internal std.platform.success_status();
+}

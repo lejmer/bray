@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -73,6 +74,7 @@ pub(super) struct ImplementationDirectoryEntry {
     pub(super) encoding: crate::InterfaceSectionEncoding,
     pub(super) discriminator: [u8; 32],
     pub(super) family_size: u32,
+    pub(super) platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
     pub(super) decoded_length: u64,
     pub(super) record_count: u64,
     pub(super) checksum: [u8; 32],
@@ -460,6 +462,7 @@ impl PackageImplementationArtifact {
         let payload = self.payload(index, entry)?;
 
         InterfaceExecutableTemplate::new(owner, identity, entry.family_size, payload)
+            .map(|template| template.with_platform_service(entry.platform_service))
             .map(Some)
             .ok_or(InterfaceValidationError::Malformed)
     }
@@ -626,9 +629,37 @@ fn implementation_identity(
 fn validate_executable_template_families(
     templates: &[InterfaceExecutableTemplate],
 ) -> Result<(), PackageImplementationArtifactBuildError> {
-    invalid_executable_template_family(templates).map_or(Ok(()), |owner| {
-        Err(PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(owner))
-    })
+    if let Some(owner) = invalid_executable_template_family(templates) {
+        return Err(
+            PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(owner),
+        );
+    }
+
+    let mut platform_services = BTreeSet::new();
+
+    for template in templates {
+        let Some(role) = template.platform_service() else {
+            continue;
+        };
+
+        if template.identity() != MirExecutableTemplateId::ROOT {
+            return Err(
+                PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(
+                    template.owner(),
+                ),
+            );
+        }
+
+        if !platform_services.insert(role) {
+            return Err(
+                PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(
+                    template.owner(),
+                ),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_encoded_executable_template_families(
@@ -638,6 +669,8 @@ fn validate_encoded_executable_template_families(
         .iter()
         .filter(|entry| entry.kind == Some(ImplementationPayloadKind::ExecutableTemplate))
         .peekable();
+
+    let mut platform_services = BTreeSet::new();
 
     while let Some(first) = entries.next() {
         let owner = first.owner;
@@ -653,6 +686,13 @@ fn validate_encoded_executable_template_families(
             if entry.owner != owner
                 || entry.family_size != family_size
                 || entry.discriminator != executable_discriminator(expected)
+                || (expected != 0 && entry.platform_service.is_some())
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            if let Some(role) = entry.platform_service
+                && !platform_services.insert(role)
             {
                 return Err(InterfaceValidationError::Malformed);
             }
@@ -677,7 +717,8 @@ fn validate_executable_owner(
     if !owner_symbol.kind().is_callable()
         && !matches!(
             owner_symbol.kind(),
-            bray_symbols::SymbolKind::CallableParameterDefaultProvider
+            bray_symbols::SymbolKind::Static
+                | bray_symbols::SymbolKind::CallableParameterDefaultProvider
                 | bray_symbols::SymbolKind::StructFieldDefaultProvider
                 | bray_symbols::SymbolKind::UnionPayloadDefaultProvider
         )
@@ -909,6 +950,11 @@ mod tests {
             1,
             [1_u8, 2, 3],
         )
+        .map(|template| {
+            template.with_platform_service(Some(
+                bray_runtime_interface::PlatformServiceRole::StandardOutputFlush,
+            ))
+        })
         .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
 
         let artifact = PackageImplementationArtifact::try_new(
@@ -927,6 +973,50 @@ mod tests {
         assert_eq!(
             artifact.executable_template(owner, bray_ir::MirExecutableTemplateId::ROOT),
             Ok(Some(template))
+        );
+    }
+
+    #[test]
+    fn artifacts_reject_platform_services_on_nested_executable_templates() {
+        let fixture = artifact_fixture();
+        let owner = generic_callable_owner(&fixture.bundle);
+
+        let root = InterfaceExecutableTemplate::new(
+            owner,
+            bray_ir::MirExecutableTemplateId::ROOT,
+            2,
+            [1_u8, 2, 3],
+        )
+        .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let nested = InterfaceExecutableTemplate::new(
+            owner,
+            bray_ir::MirExecutableTemplateId::new(1),
+            2,
+            [4_u8, 5, 6],
+        )
+        .map(|template| {
+            template.with_platform_service(Some(
+                bray_runtime_interface::PlatformServiceRole::StandardOutputFlush,
+            ))
+        })
+        .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let result = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantics(),
+            fixture.bundle.implementation_configuration().clone(),
+            [],
+            [root, nested],
+            [],
+            [],
+            InterfaceValidationLimits::default(),
+        );
+
+        assert_eq!(
+            result,
+            Err(PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(owner))
         );
     }
 

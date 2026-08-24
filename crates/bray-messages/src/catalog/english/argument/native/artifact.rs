@@ -27,6 +27,21 @@ pub(crate) const fn format_english_emission_evaluation_failure(
     match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler could not complete the evaluation",
+        Failure::AtomicRepresentationTypeUnavailable => {
+            "the selected atomic value has no available representation type"
+        }
+        Failure::AtomicRepresentationArgumentsUnavailable => {
+            "the selected atomic value has no available representation arguments"
+        }
+        Failure::AtomicInitializerArgumentUnavailable => {
+            "the atomic initializer argument has no compile-time value"
+        }
+        Failure::AtomicInitializerResultUnavailable => {
+            "the atomic initializer result cannot be represented as a compile-time value"
+        }
+        Failure::ImportedExecutableTemplateMismatch => {
+            "an imported native operation does not match its compiled definition"
+        }
         Failure::SemanticContext => {
             "the selected program element has inconsistent checking context"
         }
@@ -50,6 +65,21 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationAtomicRepresentationTypeUnavailable => {
+            "the selected atomic value has no available representation type"
+        }
+        Kind::EvaluationAtomicRepresentationArgumentsUnavailable => {
+            "the selected atomic value has no available representation arguments"
+        }
+        Kind::EvaluationAtomicInitializerArgumentUnavailable => {
+            "the atomic initializer argument has no compile-time value"
+        }
+        Kind::EvaluationAtomicInitializerResultUnavailable => {
+            "the atomic initializer result cannot be represented as a compile-time value"
+        }
+        Kind::EvaluationImportedExecutableTemplateMismatch => {
+            "an imported native operation does not match its compiled definition"
+        }
         Kind::SemanticContextFailure => "a program element has inconsistent checking context",
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
         Kind::CodegenTargetUnsupportedProfile => {

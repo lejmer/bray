@@ -309,6 +309,11 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
+    AtomicRepresentationTypeUnavailable,
+    AtomicRepresentationArgumentsUnavailable,
+    AtomicInitializerArgumentUnavailable,
+    AtomicInitializerResultUnavailable,
+    ImportedExecutableTemplateMismatch,
     SemanticContext,
     CheckerInfrastructure,
 }
@@ -577,6 +582,21 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::AtomicRepresentationTypeUnavailable => {
+                "atomic_representation_type_unavailable"
+            }
+            Self::AtomicRepresentationArgumentsUnavailable => {
+                "atomic_representation_arguments_unavailable"
+            }
+            Self::AtomicInitializerArgumentUnavailable => {
+                "atomic_initializer_argument_unavailable"
+            }
+            Self::AtomicInitializerResultUnavailable => {
+                "atomic_initializer_result_unavailable"
+            }
+            Self::ImportedExecutableTemplateMismatch => {
+                "imported_executable_template_mismatch"
+            }
             Self::SemanticContext => "semantic_context",
             Self::CheckerInfrastructure => "checker_infrastructure",
         }

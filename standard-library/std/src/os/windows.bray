@@ -1,4 +1,4 @@
-@target(target.identity.SYSTEM == "windows")
+@target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
 trusted module std.os.windows;
 
 @copy

@@ -1,0 +1,52 @@
+@target(target.platform.dynamic_loading && target.identity.SYSTEM == "darwin")
+trusted module std.dynamic;
+
+@abi(c)
+trusted internal func platform_dynamic_library_open_system(
+    pos identity: u32,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    if identity != 0
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let library_name: [u8; 27] = [
+        47,
+        117,
+        115,
+        114,
+        47,
+        108,
+        105,
+        98,
+        47,
+        108,
+        105,
+        98,
+        83,
+        121,
+        115,
+        116,
+        101,
+        109,
+        46,
+        66,
+        46,
+        100,
+        121,
+        108,
+        105,
+        98,
+        0,
+    ];
+
+    return trusted internal open_unix_library(
+        std.memory.address_of<u8>(&library_name[0]),
+        policy = policy,
+        opened = opened,
+    );
+}

@@ -13,28 +13,29 @@ struct Id
     internal state: ProcessIdState;
 }
 
-internal struct ProcessContextTable
-{
-    length: usize;
-}
-
 struct Arguments
 {
     internal state: ProcessContextTable;
 
     func length() -> usize
     {
-        return self.state.length;
+        return self.state.count;
     }
 
     func value_at(pos index: usize) -> std.path.NativeText?
     {
-        if index >= self.state.length
+        if index >= self.length()
         {
             return none;
         }
 
-        let bytes: std.memory.RawBuffer<u8> = trusted internal std.platform.argument(index = index);
+        let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
+
+        let bytes: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
+            entry.key.address,
+            length = entry.key.length,
+        );
+
         let value: std.path.NativeText = trusted internal required_native_text(bytes);
         let mut result: std.path.NativeText? = none;
 
@@ -56,7 +57,7 @@ struct Environment
 
     func length() -> usize
     {
-        return self.state.length;
+        return self.state.count;
     }
 
     func value(pos key: &std.path.NativeText) -> std.path.NativeText?
@@ -64,9 +65,9 @@ struct Environment
         let expected: &[u8] = internal std.path.native_bytes(key);
         let mut index: usize = 0;
 
-        while index < self.state.length
+        while index < self.length()
         {
-            let entry: std.platform.NativeTextPair = trusted internal std.platform.environment_entry(index = index);
+            let entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
 
             if trusted internal std.platform.environment_key_equals_span(expected, right = entry.key)
             {
@@ -91,21 +92,21 @@ struct Environment
 
     func entry_at(pos index: usize) -> EnvironmentEntry?
     {
-        if index >= self.state.length
+        if index >= self.length()
         {
             return none;
         }
 
-        let context_entry: std.platform.NativeTextPair = trusted internal std.platform.environment_entry(index = index);
+        let native_entry: std.platform.NativeTextPair = trusted internal table_entry(self.state, index = index);
 
         let key: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-            context_entry.key.address,
-            length = context_entry.key.length,
+            native_entry.key.address,
+            length = native_entry.key.length,
         );
 
         let value: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
-            context_entry.value.address,
-            length = context_entry.value.length,
+            native_entry.value.address,
+            length = native_entry.value.length,
         );
 
         let entry: EnvironmentEntry =
@@ -137,10 +138,7 @@ func arguments() -> Arguments
 {
     return
     {
-        state =
-        {
-            length = trusted internal std.platform.argument_count(),
-        },
+        state = trusted internal argument_context_table(),
     };
 }
 
@@ -148,17 +146,20 @@ func environment() -> Environment
 {
     return
     {
-        state =
-        {
-            length = trusted internal std.platform.environment_count(),
-        },
+        state = trusted internal environment_context_table(),
     };
 }
 
 func current_directory() -> std.path.Path
 {
-    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.working_directory();
-    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&context);
+    let directory_span: std.platform.NativeTextSpan = trusted internal directory_context();
+
+    let directory: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
+        directory_span.address,
+        length = directory_span.length,
+    );
+
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&directory);
     let path: Result<std.path.Path, std.path.PathError> = trusted internal std.path.path_from_bytes(bytes);
 
     match consume path

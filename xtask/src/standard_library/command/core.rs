@@ -36,7 +36,7 @@ use crate::workspace;
 const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] | \
     os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
-    test [--profile-output <directory>] | verify>";
+    test [--part <provider-retention|interoperability|api|outcomes>] [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -66,25 +66,37 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
 }
 
 fn native_test(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError> {
-    let profile_output = native_profile_output(&mut arguments)?;
+    let (parts, profile_output) = native_test_options(&mut arguments)?;
 
-    crate::standard_library::native::test(profile_output.as_deref())
+    crate::standard_library::native::test(&parts, profile_output.as_deref())
 }
 
-fn native_profile_output(
+fn native_test_options(
     arguments: &mut impl Iterator<Item = String>,
-) -> Result<Option<PathBuf>, BuildError> {
-    let profile_output = match arguments.next().as_deref() {
-        None => None,
-        Some("--profile-output") => Some(path_argument(arguments, "--profile-output")?),
-        Some(argument) => return Err(BuildError::UnexpectedArgument(argument.to_owned())),
-    };
+) -> Result<(Vec<super::super::native::TestPart>, Option<PathBuf>), BuildError> {
+    let mut parts = Vec::new();
+    let mut profile_output = None;
 
-    if let Some(argument) = arguments.next() {
-        return Err(BuildError::UnexpectedArgument(argument));
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--part" => {
+                let value = required_argument(arguments, "--part")?;
+
+                let value = super::super::native::TestPart::parse(&value)
+                    .ok_or_else(|| BuildError::UnexpectedArgument(value))?;
+
+                if !parts.contains(&value) {
+                    parts.push(value);
+                }
+            }
+            "--profile-output" if profile_output.is_none() => {
+                profile_output = Some(path_argument(arguments, "--profile-output")?);
+            }
+            _ => return Err(BuildError::UnexpectedArgument(argument)),
+        }
     }
 
-    profile_output
+    let profile_output = profile_output
         .map(|path| {
             std::path::absolute(&path).map_err(|error| {
                 BuildError::conformance(
@@ -93,7 +105,9 @@ fn native_profile_output(
                 )
             })
         })
-        .transpose()
+        .transpose()?;
+
+    Ok((parts, profile_output))
 }
 
 struct BuildOptions {
@@ -146,9 +160,15 @@ fn path_argument(
     arguments: &mut impl Iterator<Item = String>,
     option: &'static str,
 ) -> Result<PathBuf, BuildError> {
+    required_argument(arguments, option).map(PathBuf::from)
+}
+
+fn required_argument(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &'static str,
+) -> Result<String, BuildError> {
     arguments
         .next()
-        .map(PathBuf::from)
         .ok_or(BuildError::MissingValue(option))
 }
 
@@ -491,9 +511,13 @@ fn build_target(
     target: &TargetIdentity,
     work: &Path,
 ) -> Result<BuiltTarget, BuildError> {
-    if !super::platform::inventory_matches(product.platform_services()) {
+    let temporal_provider_required = super::platform::is_required(product.platform_services());
+
+    if temporal_provider_required
+        && !super::platform::inventory_matches(product.platform_services())
+    {
         return Err(BuildError::Manifest(
-            "platform archive role inventory does not match the standard library".to_owned(),
+            "temporal provider roles are missing from the standard library".to_owned(),
         ));
     }
 
@@ -509,12 +533,12 @@ fn build_target(
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let platform = if product.platform_services().is_empty() {
-        Vec::new()
-    } else {
-        crate::progress::run("Building standard library platform providers", || {
+    let platform = if temporal_provider_required {
+        crate::progress::run("Building the temporal provider", || {
             super::platform::build_archives(&root, native, &output)
         })?
+    } else {
+        Vec::new()
     };
 
     let request = standard_library_source_request(
@@ -781,7 +805,7 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{
-        BuildError, BuildOptions, build, compare_bundles, native_profile_output,
+        BuildError, BuildOptions, build, compare_bundles, native_test_options,
         platform_abi_archive_name, read_manifest, standard_library_archive_name,
     };
 
@@ -838,21 +862,44 @@ mod tests {
     }
 
     #[test]
-    fn native_test_profile_output_is_explicit_and_absolute() {
-        let mut arguments =
-            ["--profile-output".to_owned(), "profiles/native".to_owned()].into_iter();
+    fn native_test_parts_and_profile_output_are_explicit() {
+        let mut arguments = [
+            "--part".to_owned(),
+            "api".to_owned(),
+            "--profile-output".to_owned(),
+            "profiles/native".to_owned(),
+            "--part".to_owned(),
+            "outcomes".to_owned(),
+        ]
+        .into_iter();
 
-        let output = native_profile_output(&mut arguments)
-            .unwrap_or_else(|error| panic!("native profile output must parse: {error}"))
-            .unwrap_or_else(|| panic!("native profile output must be retained"));
+        let (parts, output) = native_test_options(&mut arguments)
+            .unwrap_or_else(|error| panic!("native test options must parse: {error}"));
+
+        let output = output.unwrap_or_else(|| panic!("native profile output must be retained"));
+
+        assert_eq!(
+            parts,
+            [
+                super::super::super::native::TestPart::Api,
+                super::super::super::native::TestPart::Outcomes,
+            ]
+        );
 
         assert!(output.is_absolute());
         assert!(output.ends_with("profiles/native"));
         assert!(arguments.next().is_none());
 
         assert!(matches!(
-            native_profile_output(&mut ["--unknown".to_owned()].into_iter()),
+            native_test_options(&mut ["--unknown".to_owned()].into_iter()),
             Err(BuildError::UnexpectedArgument(argument)) if argument == "--unknown"
+        ));
+
+        assert!(matches!(
+            native_test_options(
+                &mut ["--part".to_owned(), "unknown".to_owned()].into_iter()
+            ),
+            Err(BuildError::UnexpectedArgument(argument)) if argument == "unknown"
         ));
     }
 

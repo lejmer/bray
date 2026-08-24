@@ -88,6 +88,33 @@ func child_processes_capture_output_and_reap_cleanly()
     }
 }
 
+@test(serial)
+func child_processes_accept_an_empty_environment()
+{
+    let executable: std.path.Path = required_child_executable();
+    let mut command: std.process.ChildCommand = required_child_command(executable);
+
+    match command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
+    {
+        case Ok(_) {}
+        case Error(_) { panic("child environment must be cleared"); }
+    }
+
+    required_argument(&mut command, "--help");
+    command.standard_input(policy = std.process.ChildStreamPolicy.Null);
+    command.standard_output(policy = std.process.ChildStreamPolicy.Null);
+    command.standard_error(policy = std.process.ChildStreamPolicy.Null);
+
+    let status: std.process.ExitStatus = required_wait(required_child(command));
+
+    match status
+    {
+        case Code(0) {}
+        case Code(_) { assert(false); }
+        case TargetTermination(_) { assert(false); }
+    }
+}
+
 func required_child_executable() -> std.path.Path
 {
     let key: std.path.NativeText = required_native_text("BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE");

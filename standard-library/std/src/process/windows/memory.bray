@@ -1,0 +1,63 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+trusted internal func windows_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
+{
+    return trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(buffer));
+}
+
+trusted internal func windows_optional_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
+{
+    if std.memory.initialized_count<u8>(buffer) == 0
+    {
+        return std.memory.null<u16>();
+    }
+
+    return trusted internal windows_text_pointer(buffer);
+}
+
+trusted internal func write_windows_unit(pos destination: RawPointer<u8>, pos value: u16, index: usize) -> unit
+{
+    trusted internal std.memory.byte_buffer_fill(
+        std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(index * 2)),
+        value = std.truncate_to<u8>(value),
+        count = 1,
+    );
+
+    trusted internal std.memory.byte_buffer_fill(
+        std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(index * 2 + 1)),
+        value = std.truncate_to<u8>(value >> 8),
+        count = 1,
+    );
+}
+
+trusted internal func write_windows_u32(pos destination: RawPointer<u8>, pos value: u32, offset: usize) -> unit
+{
+    let pointer: RawPointer<u32> = trusted std.memory.reinterpret<u32, u8>(
+        std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset))
+    );
+
+    trusted std.memory.write<u32>(pointer, value = value);
+}
+
+trusted internal func write_windows_pointer(
+    pos destination: RawPointer<u8>,
+    pos value: RawPointer<u8>,
+    offset: usize,
+) -> unit
+{
+    let pointer: RawPointer<RawPointer<u8>> = trusted std.memory.reinterpret<RawPointer<u8>, u8>(
+        std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset))
+    );
+
+    trusted std.memory.write<RawPointer<u8>>(pointer, value = value);
+}
+
+trusted internal func read_windows_pointer(pos source: RawPointer<u8>, offset: usize) -> RawPointer<u8>
+{
+    return trusted internal std.platform.read_native_pointer<u8>(
+        trusted std.memory.reinterpret<RawPointer<u8>, u8>(
+            std.memory.offset<u8>(source, elements = std.truncate_to<isize>(offset))
+        )
+    );
+}

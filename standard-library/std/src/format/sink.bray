@@ -184,7 +184,11 @@ impl FixedSinkFormatting = FixedSink(Sink<FixedSinkError>)
         let available: &mut [u8] = &mut self.destination[self.length..next_length];
         let pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available);
 
-        trusted internal std.memory.byte_slice_copy(source = source, destination = pointer);
+        trusted internal std.memory.byte_buffer_copy(
+            source = internal std.memory.byte_slice_pointer(source),
+            destination = pointer,
+            count = count,
+        );
 
         self.length = next_length;
 

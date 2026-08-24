@@ -167,6 +167,11 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(error @ (FactQueryError::AtomicInitializerArgumentUnavailable
+            | FactQueryError::AtomicInitializerResultUnavailable
+            | FactQueryError::ImportedExecutableTemplateMismatch)) => {
+                panic!("dependency-interface query failed: {error}")
+            }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
             }

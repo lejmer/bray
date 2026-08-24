@@ -1,67 +1,95 @@
 trusted module std.io;
 
-@abi(c)
-extern trusted internal func platform_standard_input_read(
-    pos destination: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
+internal static INPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+internal static OUTPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+internal static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+trusted internal func acquire_stream_lock(pos lock: &core.atomic.Atomic<u32>) -> std.platform.PlatformStatus
+{
+    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
+
+    if acquired
+    {
+        return internal std.platform.success_status();
+    }
+
+    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);
+
+    while observed != 0
+    {
+        trusted internal std.atomic.platform_wait_word(lock, expected = 2);
+
+        observed = core.atomic.exchange<u32, 1>(lock, value = 2);
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func release_stream_lock(pos lock: &core.atomic.Atomic<u32>) -> std.platform.PlatformStatus
+{
+    let previous: u32 = core.atomic.exchange<u32, 2>(lock, value = 0);
+
+    if previous == 2
+    {
+        trusted internal std.atomic.platform_wake_word(lock);
+    }
+
+    return internal std.platform.success_status();
+}
 
 @abi(c)
-extern trusted internal func platform_standard_input_lock() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_input_lock() -> std.platform.PlatformStatus
+{
+    return trusted internal acquire_stream_lock(&INPUT_LOCK);
+}
 
 @abi(c)
-extern trusted internal func platform_standard_input_unlock() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_input_unlock() -> std.platform.PlatformStatus
+{
+    return trusted internal release_stream_lock(&INPUT_LOCK);
+}
 
 @abi(c)
-extern trusted internal func platform_standard_output_write(
-    pos source: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_output_flush() -> std.platform.PlatformStatus
+{
+    return internal std.platform.success_status();
+}
 
 @abi(c)
-extern trusted internal func platform_standard_output_flush() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_output_lock() -> std.platform.PlatformStatus
+{
+    return trusted internal acquire_stream_lock(&OUTPUT_LOCK);
+}
 
 @abi(c)
-extern trusted internal func platform_standard_output_lock() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_output_unlock() -> std.platform.PlatformStatus
+{
+    return trusted internal release_stream_lock(&OUTPUT_LOCK);
+}
 
 @abi(c)
-extern trusted internal func platform_standard_output_unlock() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_error_flush() -> std.platform.PlatformStatus
+{
+    return internal std.platform.success_status();
+}
 
 @abi(c)
-extern trusted internal func platform_standard_error_write(
-    pos source: RawPointer<u8>,
-    pos length: u64,
-    pos transferred: RawPointer<u64>,
-) -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_error_lock() -> std.platform.PlatformStatus
+{
+    return trusted internal acquire_stream_lock(&ERROR_LOCK);
+}
 
 @abi(c)
-extern trusted internal func platform_standard_error_flush() -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_standard_error_lock() -> std.platform.PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_standard_error_unlock() -> std.platform.PlatformStatus
-    uses(foreign_call);
+trusted internal func platform_standard_error_unlock() -> std.platform.PlatformStatus
+{
+    return trusted internal release_stream_lock(&ERROR_LOCK);
+}
 
 internal struct StandardInputLock
 {
     acquired: bool;
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.acquired
         {
@@ -75,7 +103,6 @@ internal struct StandardOutputLock
     acquired: bool;
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.acquired
         {
@@ -89,7 +116,6 @@ internal struct StandardErrorLock
     acquired: bool;
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.acquired
         {
@@ -242,7 +268,6 @@ internal func checked_status(pos status: std.platform.PlatformStatus) -> Result<
 
 trusted internal func acquire_standard_output() -> Result<StandardOutputLock, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted platform_standard_output_lock();
 
@@ -263,7 +288,6 @@ trusted internal func acquire_standard_output() -> Result<StandardOutputLock, Io
 
 trusted internal func acquire_standard_input() -> Result<StandardInputLock, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted platform_standard_input_lock();
 
@@ -284,7 +308,6 @@ trusted internal func acquire_standard_input() -> Result<StandardInputLock, IoEr
 
 trusted internal func acquire_standard_error() -> Result<StandardErrorLock, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted platform_standard_error_lock();
 
@@ -305,7 +328,6 @@ trusted internal func acquire_standard_error() -> Result<StandardErrorLock, IoEr
 
 trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Result<usize, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let requested: usize = internal std.memory.slice_length<u8>(source);
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
@@ -323,7 +345,6 @@ trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Resul
 
 trusted internal func write_standard_error_unlocked(pos source: &[u8]) -> Result<usize, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let requested: usize = internal std.memory.slice_length<u8>(source);
     let mut transferred: u64 = 0;
@@ -356,7 +377,6 @@ internal func write_standard_error(pos source: &[u8]) -> Result<usize, IoError>
 
 trusted internal func flush_standard_output_unlocked() -> Result<unit, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted platform_standard_output_flush();
 
@@ -365,7 +385,6 @@ trusted internal func flush_standard_output_unlocked() -> Result<unit, IoError>
 
 trusted internal func flush_standard_error_unlocked() -> Result<unit, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     return checked_status(trusted platform_standard_error_flush());
 }
@@ -389,7 +408,6 @@ internal func flush_standard_error() -> Result<unit, IoError>
 
 trusted internal func read_standard_input(pos destination: &mut [u8]) -> Result<usize, IoError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let lock: StandardInputLock = try trusted acquire_standard_input();
     let capacity: usize = internal std.memory.slice_length<u8>(&destination);

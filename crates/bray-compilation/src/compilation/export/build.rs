@@ -688,6 +688,7 @@ mod tests {
         InterfaceValidationPolicy, PackageImplementationArtifact, PackageInterfaceExportBundle,
         ValidatedPackageInterface, encode_package_interface,
     };
+    use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
@@ -913,6 +914,13 @@ mod tests {
         let artifact = encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("static interface must encode: {error:?}"));
 
+        PackageImplementationArtifact::try_from_export_bundle(
+            &artifact,
+            bundle,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("static implementation must encode: {error:?}"));
+
         let validated = ValidatedPackageInterface::try_new(
             artifact.shared_bytes(),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
@@ -1010,6 +1018,62 @@ mod tests {
         let bundle = export(&compilation);
 
         assert_eq!(bundle.executable_templates().len(), 2);
+    }
+
+    #[test]
+    fn platform_service_implementations_publish_their_role_with_the_root_template() {
+        let Some(binding) =
+            PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
+        else {
+            panic!("test platform binding must be valid");
+        };
+
+        let compilation = compilation_from_sources_for_product_with_platform_services(
+            [r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+trusted internal func flush() -> PlatformStatus
+{
+    return { category = 0, reserved = 0, native_code = 0 };
+}
+"#],
+            ProductKind::Library,
+            [binding],
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = export(&compilation);
+
+        let platform_templates = bundle
+            .executable_templates()
+            .iter()
+            .filter(|template| template.platform_service().is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(platform_templates.len(), 1);
+
+        assert_eq!(
+            platform_templates[0].identity(),
+            bray_ir::MirExecutableTemplateId::ROOT
+        );
+
+        assert_eq!(
+            platform_templates[0].platform_service(),
+            Some(PlatformServiceRole::StandardOutputFlush)
+        );
     }
 
     #[test]
@@ -1356,10 +1420,12 @@ mod tests {
                 "    UnsupportedAlignment;\n",
                 "}\n",
                 "extern func slice_length<T>(pos values: &[T]) -> usize;\n",
+                "extern func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>;\n",
                 "extern func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>;\n",
-                "extern trusted func byte_slice_copy(\n",
-                "    pos source: &[u8],\n",
-                "    destination: RawPointer<u8>,\n",
+                "extern trusted func byte_buffer_copy(\n",
+                "    pos source: RawPointer<u8>,\n",
+                "    pos destination: RawPointer<u8>,\n",
+                "    count: usize,\n",
                 ");\n",
                 "extern trusted func byte_buffer_fill(\n",
                 "    destination: RawPointer<u8>,\n",
@@ -1979,6 +2045,18 @@ mod tests {
         sources: [&str; N],
         product_kind: ProductKind,
     ) -> Compilation {
+        compilation_from_sources_for_product_with_platform_services(
+            sources,
+            product_kind,
+            std::iter::empty(),
+        )
+    }
+
+    fn compilation_from_sources_for_product_with_platform_services<const N: usize>(
+        sources: [&str; N],
+        product_kind: ProductKind,
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+    ) -> Compilation {
         let package = PackageIdentity::try_new("example.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
@@ -2006,6 +2084,7 @@ mod tests {
         );
 
         let request = CompilationRequest::with_options(package, sources, options)
+            .with_platform_services(platform_services)
             .with_package_interface_export(export);
 
         Compilation::load(request)

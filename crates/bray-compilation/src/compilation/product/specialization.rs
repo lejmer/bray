@@ -479,13 +479,12 @@ impl Compilation {
             cancellation,
         )?;
 
-        if template.value().is_some() {
-            return Ok(MirUnitKey::ImportedExecutable(
-                bray_ir::MirImportedExecutableKey::new(
-                    definition.callable_symbol().into_any(),
-                    bray_ir::MirExecutableTemplateId::ROOT,
-                ),
-            ));
+        if let Some(template) = template.value() {
+            let MirUnitKey::ImportedExecutable(key) = template.key() else {
+                return Err(FactQueryError::ImportedExecutableTemplateMismatch.into());
+            };
+
+            return Ok(MirUnitKey::ImportedExecutable(*key));
         }
 
         Err(CodegenPreparationError::Diagnostics(

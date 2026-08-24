@@ -25,6 +25,7 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
         let defines_symbol = match mapping.key() {
             bray_codegen::CodegenSymbolKey::Instance(instance) => {
                 mappings.unit().instances().contains(instance)
+                    && mapping.linkage() != CodegenLinkage::Import
             }
             bray_codegen::CodegenSymbolKey::Runtime(_)
             | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => false,
@@ -50,7 +51,7 @@ pub(crate) fn declare_symbol<'context>(
     let function_type = native_type.unwrap_or(types.function_type(mapping.signature())?);
     let function = module.add_function(mapping.name().as_str(), function_type, None);
 
-    apply_linkage(function, mapping, target, defines_symbol)?;
+    apply_linkage(module, function, mapping, target, defines_symbol)?;
 
     if native_type.is_some() {
         function.set_call_conventions(0);
@@ -118,24 +119,44 @@ fn apply_native_attributes(
 }
 
 fn apply_linkage(
+    module: &Module<'_>,
     function: FunctionValue<'_>,
     mapping: &CodegenSymbolMapping,
     target: &CodegenTarget,
     defines_symbol: bool,
 ) -> Result<(), CodegenFailure> {
     let linkage = match (mapping.linkage(), defines_symbol) {
-        (CodegenLinkage::Weak | CodegenLinkage::LinkOnce, false) => Linkage::External,
+        (CodegenLinkage::Weak | CodegenLinkage::Fallback | CodegenLinkage::LinkOnce, false) => {
+            Linkage::External
+        }
         (CodegenLinkage::Private, _) => Linkage::Private,
         (CodegenLinkage::Internal, _) => Linkage::External,
         (CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export, _) => {
             Linkage::External
         }
-        (CodegenLinkage::Weak, true) => Linkage::WeakAny,
+        (CodegenLinkage::Fallback, true)
+            if target.machine().object_format() == bray_target::ObjectFormat::Coff =>
+        {
+            Linkage::WeakODR
+        }
+        (CodegenLinkage::Weak | CodegenLinkage::Fallback, true) => Linkage::WeakAny,
         (CodegenLinkage::LinkOnce, true) => Linkage::WeakODR,
         (CodegenLinkage::Common, _) => return Err(CodegenFailure::UnsupportedTarget),
     };
 
     function.set_linkage(linkage);
+
+    if mapping.linkage() == CodegenLinkage::Fallback
+        && defines_symbol
+        && target.machine().object_format() == bray_target::ObjectFormat::Coff
+    {
+        crate::comdat::attach(
+            module,
+            function.as_global_value(),
+            mapping.name().as_str(),
+            target.machine().object_format(),
+        );
+    }
 
     if matches!(
         mapping.linkage(),
@@ -148,12 +169,14 @@ fn apply_linkage(
 
     if defines_symbol && target.machine().object_format() == bray_target::ObjectFormat::Coff {
         match mapping.linkage() {
-            CodegenLinkage::Weak | CodegenLinkage::Export => function
+            CodegenLinkage::Export => function
                 .as_global_value()
                 .set_dll_storage_class(DLLStorageClass::Export),
             CodegenLinkage::Private
             | CodegenLinkage::Internal
             | CodegenLinkage::External
+            | CodegenLinkage::Weak
+            | CodegenLinkage::Fallback
             | CodegenLinkage::Import
             | CodegenLinkage::LinkOnce
             | CodegenLinkage::Common => {}
@@ -505,11 +528,16 @@ mod tests {
         );
 
         assert_eq!(
-            apply_linkage(function, &weak, request.target(), true),
+            apply_linkage(&module, function, &weak, request.target(), true),
             Ok(())
         );
 
         assert_eq!(function.get_linkage(), Linkage::WeakAny);
+
+        assert_eq!(
+            function.as_global_value().get_dll_storage_class(),
+            DLLStorageClass::Default
+        );
 
         let reference_module = context.create_module("weak-reference");
 
@@ -520,11 +548,48 @@ mod tests {
         );
 
         assert_eq!(
-            apply_linkage(reference, &weak, request.target(), false),
+            apply_linkage(&reference_module, reference, &weak, request.target(), false,),
             Ok(())
         );
 
         assert_eq!(reference.get_linkage(), Linkage::External);
+    }
+
+    #[test]
+    fn coff_fallback_definitions_use_comdat_linkage() {
+        let fixture = codegen_request();
+        let mapping = &fixture.request().mappings().symbols()[0];
+
+        let fallback = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::Fallback,
+            mapping.signature().clone(),
+        );
+
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+        let context = Context::create();
+        let module = context.create_module("coff-fallback");
+
+        let function = module.add_function(
+            fallback.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_linkage(&module, function, &fallback, &target, true),
+            Ok(())
+        );
+
+        assert_eq!(function.get_linkage(), Linkage::WeakODR);
+
+        assert!(
+            module
+                .print_to_string()
+                .to_string()
+                .contains("comdat exactmatch")
+        );
     }
 
     #[test]
@@ -550,7 +615,7 @@ mod tests {
         );
 
         assert_eq!(
-            apply_linkage(function, &link_once, request.target(), true),
+            apply_linkage(&module, function, &link_once, request.target(), true),
             Ok(())
         );
 
@@ -585,7 +650,10 @@ mod tests {
 
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
 
-        assert_eq!(apply_linkage(function, &imported, &target, false), Ok(()));
+        assert_eq!(
+            apply_linkage(&module, function, &imported, &target, false),
+            Ok(())
+        );
 
         assert_eq!(
             function.as_global_value().get_dll_storage_class(),

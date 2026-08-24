@@ -609,15 +609,16 @@ scope StandardMemory at std.memory {
         }
     }
 
-    declaration StandardMemoryByteSliceCopy {
-        identity name byte_slice_copy;
+    declaration StandardMemoryByteBufferCopy {
+        identity name byte_buffer_copy;
         availability Allocation;
-        implementation ByteSliceCopy;
+        implementation ByteBufferCopy;
 
         surface {
-            trusted internal func byte_slice_copy(
-                pos source: &[u8],
+            trusted internal func byte_buffer_copy(
+                pos source: RawPointer<u8>,
                 pos destination: RawPointer<u8>,
+                count: usize,
             ) -> unit
                 uses(raw_memory, unchecked_init);
         }

@@ -12,7 +12,7 @@ scope CoreAtomic at core.atomic {
         availability Atomics;
         implementation AtomicInitialize;
 
-        surface { func initialize<T>(pos value: T) -> Atomic<T>; }
+        surface { const func initialize<T>(pos value: T) -> Atomic<T>; }
     }
 
     declaration AtomicLoad {

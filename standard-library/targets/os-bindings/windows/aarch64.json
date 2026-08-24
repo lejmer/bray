@@ -1,0 +1,863 @@
+{
+  "groups": [],
+  "targets": [
+    {
+      "target": "aarch64-pc-windows-msvc",
+      "system": "windows",
+      "sdk": {
+        "authority": "Microsoft Windows SDK",
+        "revision": {
+          "kind": "windows",
+          "version": "10.0.26100.0"
+        },
+        "compiler_runtime": {
+          "authority": "Microsoft Visual C++ build tools",
+          "revision": "14.44.35207"
+        },
+        "headers": [
+          "shellapi.h",
+          "windows.h"
+        ],
+        "probe_definitions": [
+          "WIN32_LEAN_AND_MEAN 1",
+          "NOMINMAX 1"
+        ]
+      },
+      "links": [
+        {
+          "name": "Bcrypt",
+          "kind": "system"
+        },
+        {
+          "name": "Kernel32",
+          "kind": "system"
+        },
+        {
+          "name": "Mincore",
+          "kind": "system"
+        },
+        {
+          "name": "Shell32",
+          "kind": "system"
+        }
+      ],
+      "scalars": [
+        {
+          "native": "DWORD",
+          "bray": "u32",
+          "size": 4,
+          "align": 4,
+          "signed": false
+        },
+        {
+          "native": "SIZE_T",
+          "bray": "usize",
+          "size": 8,
+          "align": 8,
+          "signed": false
+        },
+        {
+          "native": "WCHAR",
+          "bray": "u16",
+          "size": 2,
+          "align": 2,
+          "signed": false
+        }
+      ],
+      "constants": [
+        {
+          "name": "BCRYPT_USE_SYSTEM_PREFERRED_RNG",
+          "native": "BCRYPT_USE_SYSTEM_PREFERRED_RNG",
+          "type": "u32",
+          "value": 2
+        },
+        {
+          "name": "CREATE_ALWAYS",
+          "native": "CREATE_ALWAYS",
+          "type": "u32",
+          "value": 2
+        },
+        {
+          "name": "CREATE_NEW",
+          "native": "CREATE_NEW",
+          "type": "u32",
+          "value": 1
+        },
+        {
+          "name": "FILE_SHARE_DELETE",
+          "native": "FILE_SHARE_DELETE",
+          "type": "u32",
+          "value": 4
+        },
+        {
+          "name": "FILE_SHARE_READ",
+          "native": "FILE_SHARE_READ",
+          "type": "u32",
+          "value": 1
+        },
+        {
+          "name": "FILE_SHARE_WRITE",
+          "native": "FILE_SHARE_WRITE",
+          "type": "u32",
+          "value": 2
+        },
+        {
+          "name": "GENERIC_READ",
+          "native": "GENERIC_READ",
+          "type": "u32",
+          "value": 2147483648
+        },
+        {
+          "name": "GENERIC_WRITE",
+          "native": "GENERIC_WRITE",
+          "type": "u32",
+          "value": 1073741824
+        },
+        {
+          "name": "INFINITE",
+          "native": "INFINITE",
+          "type": "u32",
+          "value": 4294967295
+        },
+        {
+          "name": "LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR",
+          "native": "LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR",
+          "type": "u32",
+          "value": 256
+        },
+        {
+          "name": "LOAD_LIBRARY_SEARCH_SYSTEM32",
+          "native": "LOAD_LIBRARY_SEARCH_SYSTEM32",
+          "type": "u32",
+          "value": 2048
+        },
+        {
+          "name": "MEM_COMMIT",
+          "native": "MEM_COMMIT",
+          "type": "u32",
+          "value": 4096
+        },
+        {
+          "name": "MEM_RELEASE",
+          "native": "MEM_RELEASE",
+          "type": "u32",
+          "value": 32768
+        },
+        {
+          "name": "MEM_RESERVE",
+          "native": "MEM_RESERVE",
+          "type": "u32",
+          "value": 8192
+        },
+        {
+          "name": "OPEN_ALWAYS",
+          "native": "OPEN_ALWAYS",
+          "type": "u32",
+          "value": 4
+        },
+        {
+          "name": "OPEN_EXISTING",
+          "native": "OPEN_EXISTING",
+          "type": "u32",
+          "value": 3
+        },
+        {
+          "name": "PAGE_READWRITE",
+          "native": "PAGE_READWRITE",
+          "type": "u32",
+          "value": 4
+        },
+        {
+          "name": "STD_ERROR_HANDLE",
+          "native": "STD_ERROR_HANDLE",
+          "type": "u32",
+          "value": 4294967284
+        },
+        {
+          "name": "STD_INPUT_HANDLE",
+          "native": "STD_INPUT_HANDLE",
+          "type": "u32",
+          "value": 4294967286
+        },
+        {
+          "name": "STD_OUTPUT_HANDLE",
+          "native": "STD_OUTPUT_HANDLE",
+          "type": "u32",
+          "value": 4294967285
+        },
+        {
+          "name": "TRUNCATE_EXISTING",
+          "native": "TRUNCATE_EXISTING",
+          "type": "u32",
+          "value": 5
+        }
+      ],
+      "types": [
+        {
+          "kind": "opaque",
+          "name": "CriticalSection",
+          "native": "CRITICAL_SECTION",
+          "size": 40,
+          "align": 8,
+          "override": {
+            "authority": "Windows SDK 10.0.26100.0 Arm64 headers",
+            "reason": "opaque native synchronization storage has target-specific private fields"
+          },
+          "classification": "memory"
+        },
+        {
+          "kind": "flexible",
+          "name": "FileNotifyInformation",
+          "native": "FILE_NOTIFY_INFORMATION",
+          "align": 4,
+          "classification": "memory",
+          "fields": [
+            {
+              "name": "next_entry_offset",
+              "native": "NextEntryOffset",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 0
+            },
+            {
+              "name": "action",
+              "native": "Action",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 4
+            },
+            {
+              "name": "file_name_length",
+              "native": "FileNameLength",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 8
+            }
+          ],
+          "tail": {
+            "name": "file_name",
+            "native": "FileName",
+            "type": "u16",
+            "native_type": "WCHAR",
+            "offset": 12
+          }
+        },
+        {
+          "kind": "structure",
+          "name": "FileTime",
+          "native": "FILETIME",
+          "size": 8,
+          "align": 4,
+          "classification": "integer",
+          "fields": [
+            {
+              "name": "low",
+              "native": "dwLowDateTime",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 0
+            },
+            {
+              "name": "high",
+              "native": "dwHighDateTime",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 4
+            }
+          ]
+        },
+        {
+          "kind": "union",
+          "name": "LargeInteger",
+          "native": "LARGE_INTEGER",
+          "size": 8,
+          "align": 8,
+          "classification": "integer",
+          "active_variant_contract": "the native API contract identifies the initialized payload",
+          "fields": [
+            {
+              "name": "quad_part",
+              "native": "QuadPart",
+              "type": "i64",
+              "native_type": "LONGLONG",
+              "offset": 0
+            },
+            {
+              "name": "parts",
+              "native": "u",
+              "type": "LargeIntegerParts",
+              "native_type": "__typeof__(((LARGE_INTEGER *)0)->u)",
+              "offset": 0
+            }
+          ]
+        },
+        {
+          "kind": "structure",
+          "name": "LargeIntegerParts",
+          "native": "__typeof__(((LARGE_INTEGER *)0)->u)",
+          "size": 8,
+          "align": 4,
+          "classification": "integer",
+          "fields": [
+            {
+              "name": "low_part",
+              "native": "LowPart",
+              "type": "u32",
+              "native_type": "DWORD",
+              "offset": 0
+            },
+            {
+              "name": "high_part",
+              "native": "HighPart",
+              "type": "i32",
+              "native_type": "LONG",
+              "offset": 4
+            }
+          ]
+        },
+        {
+          "kind": "incomplete",
+          "name": "SecurityAttributes",
+          "native": "SECURITY_ATTRIBUTES"
+        }
+      ],
+      "callbacks": [
+        {
+          "name": "ThreadStartRoutine",
+          "native": "LPTHREAD_START_ROUTINE",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "LPVOID"
+            }
+          ],
+          "result": "u32",
+          "native_result": "DWORD"
+        },
+        {
+          "name": "TickCountRoutine",
+          "native": "ULONGLONG (*)(void)",
+          "abi": "system",
+          "parameters": [],
+          "result": "u64",
+          "native_result": "ULONGLONG"
+        }
+      ],
+      "functions": [
+        {
+          "name": "bcrypt_gen_random",
+          "native": "BCryptGenRandom",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "algorithm",
+              "type": "RawPointer<u8>",
+              "native_type": "BCRYPT_ALG_HANDLE"
+            },
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "PUCHAR"
+            },
+            {
+              "name": "length",
+              "type": "u32",
+              "native_type": "ULONG"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "ULONG"
+            }
+          ],
+          "result": "i32",
+          "native_result": "NTSTATUS",
+          "link": "Bcrypt",
+          "error_state": "returns an NTSTATUS value",
+          "initialization": "success initializes the requested destination bytes",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "close_handle",
+          "native": "CloseHandle",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "handle",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "ownership": "success releases one caller-owned handle",
+          "initialization": "released handle storage becomes unavailable",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "create_thread",
+          "native": "CreateThread",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "attributes",
+              "type": "RawPointer<SecurityAttributes>",
+              "native_type": "LPSECURITY_ATTRIBUTES"
+            },
+            {
+              "name": "stack_size",
+              "type": "usize",
+              "native_type": "SIZE_T"
+            },
+            {
+              "name": "entry",
+              "type": "ThreadStartRoutine",
+              "native_type": "LPTHREAD_START_ROUTINE"
+            },
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "LPVOID"
+            },
+            {
+              "name": "creation_flags",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "thread_identifier",
+              "type": "RawPointer<u32>",
+              "native_type": "LPDWORD"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "HANDLE",
+          "link": "Kernel32",
+          "error_state": "returns null and records GetLastError state",
+          "ownership": "success returns one caller-owned thread handle",
+          "initialization": "success initializes the thread identifier when supplied",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "free_library",
+          "native": "FreeLibrary",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "library",
+              "type": "RawPointer<u8>",
+              "native_type": "HMODULE"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "ownership": "success releases one caller-owned module reference",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "get_current_thread_id",
+          "native": "GetCurrentThreadId",
+          "abi": "system",
+          "parameters": [],
+          "result": "u32",
+          "native_result": "DWORD",
+          "link": "Kernel32",
+          "error_state": "returns the current thread identifier",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "get_last_error",
+          "native": "GetLastError",
+          "abi": "system",
+          "parameters": [],
+          "result": "u32",
+          "native_result": "DWORD",
+          "link": "Kernel32",
+          "error_state": "returns the calling thread's last-error state",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "get_proc_address",
+          "native": "GetProcAddress",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "library",
+              "type": "RawPointer<u8>",
+              "native_type": "HMODULE"
+            },
+            {
+              "name": "name",
+              "type": "RawPointer<u8>",
+              "native_type": "LPCSTR"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "FARPROC",
+          "link": "Kernel32",
+          "error_state": "returns null and records GetLastError state",
+          "ownership": "the returned address remains valid while the module is retained",
+          "initialization": "name points to a terminated byte string",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "get_standard_handle",
+          "native": "GetStdHandle",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "stream",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "HANDLE",
+          "link": "Kernel32",
+          "error_state": "returns INVALID_HANDLE_VALUE and records GetLastError state on failure",
+          "ownership": "the process owns the returned standard handle",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "get_system_time_precise_as_file_time",
+          "native": "GetSystemTimePreciseAsFileTime",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "time",
+              "type": "RawPointer<FileTime>",
+              "native_type": "LPFILETIME"
+            }
+          ],
+          "result": "unit",
+          "native_result": "VOID",
+          "link": "Kernel32",
+          "initialization": "initializes the supplied FILETIME",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "load_library_ex_w",
+          "native": "LoadLibraryExW",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u16>",
+              "native_type": "LPCWSTR"
+            },
+            {
+              "name": "file",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "HMODULE",
+          "link": "Kernel32",
+          "error_state": "returns null and records GetLastError state",
+          "ownership": "success returns one caller-owned module reference",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "query_interrupt_time_precise",
+          "native": "QueryInterruptTimePrecise",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "ticks",
+              "type": "RawPointer<u64>",
+              "native_type": "PULONGLONG"
+            }
+          ],
+          "result": "unit",
+          "native_result": "VOID",
+          "link": "Mincore",
+          "initialization": "initializes the supplied unbiased interrupt-time count",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "read_file",
+          "native": "ReadFile",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "handle",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "LPVOID"
+            },
+            {
+              "name": "length",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "transferred",
+              "type": "RawPointer<u32>",
+              "native_type": "LPDWORD"
+            },
+            {
+              "name": "overlapped",
+              "type": "RawPointer<u8>",
+              "native_type": "LPOVERLAPPED"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "initialization": "success initializes transferred and the reported destination prefix",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "sleep",
+          "native": "Sleep",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "milliseconds",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "unit",
+          "native_result": "VOID",
+          "link": "Kernel32",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "virtual_alloc",
+          "native": "VirtualAlloc",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "LPVOID"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "SIZE_T"
+            },
+            {
+              "name": "allocation_type",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "protection",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "LPVOID",
+          "link": "Kernel32",
+          "error_state": "returns null and records GetLastError state",
+          "ownership": "success creates one allocation owned by the caller",
+          "initialization": "committed pages are zero initialized",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "virtual_free",
+          "native": "VirtualFree",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "LPVOID"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "SIZE_T"
+            },
+            {
+              "name": "free_type",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "ownership": "success releases the selected allocation range",
+          "initialization": "released storage becomes unavailable",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "wait_on_address",
+          "native": "WaitOnAddress",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "volatile VOID *"
+            },
+            {
+              "name": "expected",
+              "type": "RawPointer<u8>",
+              "native_type": "PVOID"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "SIZE_T"
+            },
+            {
+              "name": "timeout",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "wake_by_address_single",
+          "native": "WakeByAddressSingle",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "PVOID"
+            }
+          ],
+          "result": "unit",
+          "native_result": "VOID",
+          "link": "Kernel32",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "write_file",
+          "native": "WriteFile",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "handle",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "source",
+              "type": "RawPointer<u8>",
+              "native_type": "LPCVOID"
+            },
+            {
+              "name": "length",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "transferred",
+              "type": "RawPointer<u32>",
+              "native_type": "LPDWORD"
+            },
+            {
+              "name": "overlapped",
+              "type": "RawPointer<u8>",
+              "native_type": "LPOVERLAPPED"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state",
+          "initialization": "success initializes transferred",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        }
+      ],
+      "dynamic_symbols": [
+        {
+          "name": "dynamic_get_tick_count",
+          "library": "kernel32.dll",
+          "symbol": "GetTickCount64",
+          "target": "code",
+          "type": "TickCountRoutine",
+          "ownership": "the returned owner retains Kernel32",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "layout_reinterpret"
+          ]
+        }
+      ],
+      "statics": []
+    }
+  ]
+}

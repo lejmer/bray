@@ -133,12 +133,27 @@ impl MirExecutableTemplateId {
 pub struct MirImportedExecutableKey {
     owner: AnySymbolId,
     template: MirExecutableTemplateId,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
 }
 
 impl MirImportedExecutableKey {
     /// Creates one imported executable identity within a declaration-owned template family.
     pub const fn new(owner: AnySymbolId, template: MirExecutableTemplateId) -> Self {
-        Self { owner, template }
+        Self {
+            owner,
+            template,
+            platform_service: None,
+        }
+    }
+
+    /// Returns an imported executable associated with a private platform-service role.
+    pub const fn with_platform_service(
+        mut self,
+        role: Option<bray_runtime_interface::PlatformServiceRole>,
+    ) -> Self {
+        self.platform_service = role;
+
+        self
     }
 
     /// Returns the imported declaration that owns the template family.
@@ -149,6 +164,11 @@ impl MirImportedExecutableKey {
     /// Returns the artifact-local template identity.
     pub const fn template(&self) -> MirExecutableTemplateId {
         self.template
+    }
+
+    /// Returns the private platform-service role implemented by this executable.
+    pub const fn platform_service(self) -> Option<bray_runtime_interface::PlatformServiceRole> {
+        self.platform_service
     }
 }
 

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::corpus::{ExpectedSideEffects, StorageExpectation};
 use super::model::{Observation, STORAGE_OBSERVATION_SCOPE, WorkloadObservations};
@@ -114,8 +113,7 @@ fn execute_observed(
 ) -> Result<RecordedExecution, String> {
     let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
 
-    let execution = Command::new(executable)
-        .current_dir(working_directory)
+    let execution = super::execution::workload_command(executable, working_directory)
         .env(
             bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
             &observation_path,

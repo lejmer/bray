@@ -1,0 +1,349 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.platform;
+
+internal struct TemporaryDescriptor
+{
+    value: i32;
+
+    trusted destruct()
+    {
+        let _: i32 = trusted std.os.unix.close(self.value);
+    }
+}
+
+trusted internal func native_text_width() -> usize
+{
+    return 8;
+}
+
+trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
+{
+    let mut capacity: usize = 256;
+
+    while capacity <= 9_223_372_036_854_775_807
+    {
+        let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(capacity);
+
+        if trusted internal fill_working_directory(&mut buffer, capacity = capacity)
+        {
+            let length: usize = trusted internal context_buffer_terminated_length(&buffer, limit = capacity);
+
+            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length);
+
+            return buffer;
+        }
+
+        if trusted internal unix_error_code() != 34 || capacity > 4_611_686_018_427_387_903
+        {
+            panic("the platform startup working directory is unavailable");
+        }
+
+        capacity += capacity;
+    }
+
+    panic("the platform startup working directory is unavailable");
+}
+
+trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
+    uses(foreign_call, raw_memory)
+{
+    return trusted internal copy_native_text_list(
+        trusted internal environment_pointer(),
+        limit = 18_446_744_073_709_551_615,
+    );
+}
+
+trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
+{
+    let left_length: usize = internal std.memory.slice_length<u8>(left);
+    let right_length: usize = std.truncate_to<usize>(right.length);
+
+    if right_length as u64 != right.length || left_length != right_length
+    {
+        return false;
+    }
+
+    let left_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(left);
+    let mut index: usize = 0;
+
+    while index < left_length
+    {
+        if trusted internal std.memory.byte_buffer_read(left_pointer, index = index) !=
+            trusted internal std.memory.byte_buffer_read(right.address, index = index)
+        {
+            return false;
+        }
+
+        index += 1;
+    }
+
+    return true;
+}
+
+trusted internal func copy_native_text_list(
+    pos entries: RawPointer<RawPointer<u8>>,
+    limit: usize,
+) -> std.memory.RawBuffer<u8>
+    uses(raw_memory)
+{
+    let mut total: usize = 0;
+    let mut length: usize = 0;
+
+    loop
+    {
+        if length >= limit
+        {
+            break;
+        }
+
+        let entry: RawPointer<u8> = trusted internal read_native_pointer<u8>(
+            std.memory.offset<RawPointer<u8>>(entries, elements = std.truncate_to<isize>(length))
+        );
+
+        if std.memory.is_null<u8>(entry)
+        {
+            break;
+        }
+
+        let bytes: usize = trusted internal terminated_byte_length(entry, limit = 9_223_372_036_854_775_807);
+
+        if total > 9_223_372_036_854_775_807 - bytes - 1
+        {
+            panic("the platform process context is too large");
+        }
+
+        total += bytes + 1;
+        length += 1;
+    }
+
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
+    let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
+    let mut offset: usize = 0;
+    let mut index: usize = 0;
+
+    while index < length
+    {
+        let entry: RawPointer<u8> = trusted internal read_native_pointer<u8>(
+            std.memory.offset<RawPointer<u8>>(entries, elements = std.truncate_to<isize>(index))
+        );
+
+        let bytes: usize = trusted internal terminated_byte_length(entry, limit = total - offset);
+
+        trusted internal std.memory.byte_buffer_copy(
+            entry,
+            std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset)),
+            count = bytes + 1,
+        );
+
+        offset += bytes + 1;
+        index += 1;
+    }
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
+
+    return buffer;
+}
+
+trusted internal func read_process_file(pos path: RawPointer<u8>) -> std.memory.RawBuffer<u8>
+    uses(foreign_call)
+{
+    let descriptor: i32 = trusted std.os.unix.open_file(
+        path,
+        flags = std.os.unix.O_RDONLY | std.os.unix.O_CLOEXEC,
+        mode = 0,
+    );
+
+    if descriptor < 0
+    {
+        panic("the platform process context is unavailable");
+    }
+
+    let owner: TemporaryDescriptor =
+    {
+        value = descriptor,
+    };
+
+    return trusted internal read_descriptor_to_end(owner.value);
+}
+
+trusted internal func read_descriptor_to_end(pos descriptor: i32) -> std.memory.RawBuffer<u8>
+{
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(4_096);
+
+    loop
+    {
+        let used: usize = buffer.initialized;
+
+        if used == buffer.capacity
+        {
+            match trusted internal std.memory.reserve_raw_buffer<u8>(
+                &mut buffer,
+                additional = 1,
+                growth = internal std.memory.CapacityGrowth.Amortized,
+            )
+            {
+                case Ok(_) {}
+                case Error(_) { panic("the platform process context is too large"); }
+            }
+        }
+
+        let result: isize = trusted internal read_context_buffer(descriptor, &mut buffer);
+
+        if result < 0
+        {
+            if trusted internal unix_error_code() == 4
+            {
+                continue;
+            }
+
+            panic("the platform process context is unavailable");
+        }
+
+        if result == 0
+        {
+            break;
+        }
+
+        trusted internal record_context_read(&mut buffer, count = std.truncate_to<usize>(result));
+    }
+
+    if trusted internal context_buffer_needs_terminator(&buffer)
+    {
+        match trusted internal std.memory.reserve_raw_buffer<u8>(
+            &mut buffer,
+            additional = 1,
+            growth = internal std.memory.CapacityGrowth.Exact,
+        )
+        {
+            case Ok(_) {}
+            case Error(_) { panic("the platform process context is too large"); }
+        }
+
+        trusted internal append_context_terminator(&mut buffer);
+    }
+
+    return buffer;
+}
+
+trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, capacity: usize) -> bool
+{
+    return !std.memory.is_null<u8>(trusted std.os.unix.working_directory(buffer.pointer, capacity = capacity));
+}
+
+trusted internal func context_buffer_terminated_length(pos buffer: &std.memory.RawBuffer<u8>, limit: usize) -> usize
+{
+    return trusted internal terminated_byte_length(std.memory.pointer<u8>(buffer), limit = limit);
+}
+
+trusted internal func read_context_buffer(pos descriptor: i32, pos buffer: &mut std.memory.RawBuffer<u8>) -> isize
+{
+    return trusted std.os.unix.read(
+        descriptor,
+        destination = std.memory.offset<u8>(buffer.pointer, elements = std.truncate_to<isize>(buffer.initialized)),
+        length = buffer.capacity - buffer.initialized,
+    );
+}
+
+trusted internal func record_context_read(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize) -> unit
+{
+    let initialized: usize = buffer.initialized;
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized + count);
+}
+
+trusted internal func context_buffer_needs_terminator(pos buffer: &std.memory.RawBuffer<u8>) -> bool
+{
+    let length: usize = std.memory.initialized_count<u8>(buffer);
+
+    return length > 0 && trusted internal std.memory.byte_buffer_read(
+        std.memory.pointer<u8>(buffer),
+        index = length - 1
+    ) != 0;
+}
+
+trusted internal func append_context_terminator(pos buffer: &mut std.memory.RawBuffer<u8>) -> unit
+{
+    let length: usize = buffer.initialized;
+
+    trusted internal std.memory.byte_buffer_fill(
+        std.memory.offset<u8>(buffer.pointer, elements = std.truncate_to<isize>(length)),
+        value = 0,
+        count = 1,
+    );
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length + 1);
+}
+
+trusted internal func terminated_byte_length(pos pointer: RawPointer<u8>, limit: usize) -> usize
+{
+    let mut length: usize = 0;
+
+    while length < limit
+    {
+        if trusted internal std.memory.byte_buffer_read(pointer, index = length) == 0
+        {
+            return length;
+        }
+
+        length += 1;
+    }
+
+    panic("the platform process context contains invalid native text");
+}
+
+trusted internal func descriptor_transfer(
+    pos descriptor: i32,
+    bytes: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+    read_operation: bool,
+) -> PlatformStatus
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    if length == 0
+    {
+        return success_status();
+    }
+
+    let maximum: u64 = 9_223_372_036_854_775_807;
+
+    let requested: usize = std.truncate_to<usize>(
+        if length > maximum
+        {
+            yield maximum;
+        }
+        else
+        {
+            yield length;
+        }
+    );
+
+    let count: isize = if read_operation
+    {
+        yield trusted std.os.unix.read(descriptor, destination = bytes, length = requested);
+    }
+    else
+    {
+        yield trusted std.os.unix.write(descriptor, source = bytes, length = requested);
+    };
+
+    if count < 0
+    {
+        return trusted unix_error_status();
+    }
+
+    trusted std.memory.write<u64>(transferred, value = std.truncate_to<u64>(count));
+
+    return success_status();
+}
+
+internal func checked_descriptor(pos handle: u64) -> Result<i32, PlatformStatus>
+{
+    if handle > 2_147_483_647
+    {
+        return Error(invalid_input_status());
+    }
+
+    return Ok(std.truncate_to<i32>(handle));
+}

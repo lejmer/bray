@@ -377,33 +377,19 @@ trusted internal func spawn_child_request(
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let request: PlatformChildRequest =
-    {
-        executable = executable,
-        working_directory = working_directory,
-        arguments =
-        {
-            entries = internal std.process.list_pointer<PlatformNativeText>(arguments),
-            count = std.collection.length<PlatformNativeText>(arguments) as u64,
-        },
-        environment =
-        {
-            entries = internal std.process.list_pointer<PlatformEnvironmentEntry>(environment),
-            count = std.collection.length<PlatformEnvironmentEntry>(environment) as u64,
-        },
-        standard_input = internal std.process.stream_policy_value(policy = standard_input),
-        standard_output = internal std.process.stream_policy_value(policy = standard_output),
-        standard_error = internal std.process.stream_policy_value(policy = standard_error),
-        reserved = 0,
-    };
-
     let mut child: u64 = 0;
     let mut input: u64 = 0;
     let mut output: u64 = 0;
     let mut error: u64 = 0;
 
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_spawn(
-        request,
+        executable,
+        working_directory = working_directory,
+        arguments = std.collection.as_slice<PlatformNativeText>(arguments),
+        environment = std.collection.as_slice<PlatformEnvironmentEntry>(environment),
+        standard_input_policy = internal std.process.stream_policy_value(policy = standard_input),
+        standard_output_policy = internal std.process.stream_policy_value(policy = standard_output),
+        standard_error_policy = internal std.process.stream_policy_value(policy = standard_error),
         child = std.memory.address_of_mut(&mut child),
         standard_input = std.memory.address_of_mut(&mut input),
         standard_output = std.memory.address_of_mut(&mut output),
@@ -520,7 +506,6 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
 trusted internal func request_child_termination(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
         child = child.state.handle,
@@ -565,7 +550,6 @@ trusted internal func checked_child_status_or_dispose(
 
 trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     trusted close_retained_pipes(&mut child);
 

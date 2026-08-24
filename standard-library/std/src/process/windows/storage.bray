@@ -1,0 +1,114 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module std.process;
+
+trusted internal func windows_spawn_storage(
+    pos executable: PlatformNativeText,
+    pos arguments: &[PlatformNativeText],
+    pos environment: &[PlatformEnvironmentEntry],
+    working_directory: PlatformNativeText,
+) -> Result<WindowsSpawnStorage, std.platform.PlatformStatus>
+{
+    let executable_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
+        executable,
+        allow_empty = false,
+    );
+
+    let command_line: std.memory.RawBuffer<u8> = try trusted internal windows_command_line(executable, arguments);
+    let environment_storage: std.memory.RawBuffer<u8> = try trusted internal windows_environment(environment);
+
+    let working_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
+        working_directory,
+        allow_empty = true,
+    );
+
+    return Ok(
+        {
+            executable = executable_storage,
+            command_line = command_line,
+            environment = environment_storage,
+            working_directory = working_storage,
+        }
+    );
+}
+
+internal func windows_text_units(
+    pos text: PlatformNativeText,
+    allow_empty: bool,
+    allow_equals: bool,
+) -> Result<usize, std.platform.PlatformStatus>
+{
+    let bytes: usize = std.truncate_to<usize>(text.length);
+
+    if bytes as u64 != text.length || bytes % 2 != 0 || !allow_empty && bytes == 0 || bytes > 0 && std.memory.is_null<
+        u8
+    >(text.address) || bytes / 2 > 2_147_483_647
+    {
+        return Error(internal std.platform.invalid_input_status());
+    }
+
+    let units: usize = bytes / 2;
+    let mut index: usize = 0;
+
+    while index < units
+    {
+        let value: u16 = trusted internal windows_text_unit(text, index);
+
+        if value == 0 || !allow_equals && value == 61
+        {
+            return Error(internal std.platform.invalid_input_status());
+        }
+
+        index += 1;
+    }
+
+    return Ok(units);
+}
+
+trusted internal func windows_text_unit(pos text: PlatformNativeText, pos index: usize) -> u16
+{
+    let byte: usize = index * 2;
+
+    return trusted internal std.memory.byte_buffer_read(text.address, index = byte) as u16 |
+        trusted internal std.memory.byte_buffer_read(text.address, index = byte + 1) as u16 << 8;
+}
+
+trusted internal func windows_terminated_text(
+    pos text: PlatformNativeText,
+    allow_empty: bool,
+) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    let _: usize = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
+    let bytes: usize = std.truncate_to<usize>(text.length);
+
+    if bytes == 0
+    {
+        return trusted internal windows_buffer(0);
+    }
+
+    if bytes > 18_446_744_073_709_551_613
+    {
+        return Error(internal std.platform.exhausted_status());
+    }
+
+    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(bytes + 2);
+    trusted internal std.memory.byte_buffer_copy(text.address, std.memory.pointer<u8>(&storage), count = bytes);
+    return Ok(storage);
+}
+
+trusted internal func windows_buffer(pos size: usize) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+{
+    let mut buffer: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = size)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    if size > 0
+    {
+        let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+        trusted internal std.memory.byte_buffer_fill(destination, value = 0, count = size);
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = size);
+    }
+
+    return Ok(buffer);
+}

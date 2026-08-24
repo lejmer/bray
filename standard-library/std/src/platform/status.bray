@@ -1,0 +1,76 @@
+trusted internal module std.platform;
+
+internal func success_status() -> PlatformStatus
+{
+    return
+    {
+        category = 0,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func invalid_input_status() -> PlatformStatus
+{
+    return
+    {
+        category = 5,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func unsupported_status() -> PlatformStatus
+{
+    return
+    {
+        category = 1,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func not_found_status() -> PlatformStatus
+{
+    return
+    {
+        category = 3,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func exhausted_status() -> PlatformStatus
+{
+    return
+    {
+        category = 7,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func other_status() -> PlatformStatus
+{
+    return
+    {
+        category = 10,
+        reserved = 0,
+        native_code = 0,
+    };
+}
+
+internal func native_error_status(pos code: i64) -> PlatformStatus
+{
+    return native_status(category = 10, code = code);
+}
+
+internal func native_status(pos category: u32, pos code: i64) -> PlatformStatus
+{
+    return
+    {
+        category = category,
+        reserved = 0,
+        native_code = code,
+    };
+}

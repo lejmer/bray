@@ -31,16 +31,6 @@ pub(crate) fn build_rust_static_library(
     build_rust_static_library_with_options(root, target, package, profile, features, false)
 }
 
-pub(crate) fn build_no_std_rust_static_library(
-    root: &Path,
-    target: NativeTarget,
-    package: &str,
-    profile: &str,
-    features: &[&str],
-) -> Result<RustStaticLibrary, BuildError> {
-    build_rust_static_library_with_options(root, target, package, profile, features, true)
-}
-
 pub(crate) fn build_thin_lto_rust_static_library(
     root: &Path,
     target: NativeTarget,
@@ -197,6 +187,7 @@ fn configure_c_toolchain(
         let flags = thin_lto_flags(root);
 
         command
+            .env("CARGO_ENCODED_RUSTFLAGS", "-Clinker-plugin-lto")
             .env(
                 target_environment("CC", target),
                 bray_llvm_toolchain::tool_path(root, tools.compiler),

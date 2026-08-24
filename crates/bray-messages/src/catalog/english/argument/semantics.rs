@@ -409,7 +409,7 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::RawBufferReplace => "raw buffer replacement",
         DiagnosticMemoryOperation::RawBufferRelocate => "raw buffer relocation",
         DiagnosticMemoryOperation::ByteBufferFill => "byte buffer fill",
-        DiagnosticMemoryOperation::ByteSliceCopy => "byte sequence copy",
+        DiagnosticMemoryOperation::ByteBufferCopy => "byte buffer copy",
         DiagnosticMemoryOperation::ByteBufferRead => "byte buffer read",
         DiagnosticMemoryOperation::SliceLength => "slice length access",
         DiagnosticMemoryOperation::VolatileRead => "volatile read",

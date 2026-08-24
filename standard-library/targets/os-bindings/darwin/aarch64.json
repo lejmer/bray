@@ -1,0 +1,766 @@
+{
+  "groups": [],
+  "targets": [
+    {
+      "target": "aarch64-apple-darwin",
+      "system": "darwin",
+      "sdk": {
+        "authority": "Apple macOS SDK",
+        "revision": {
+          "kind": "mac_os",
+          "version": "15.5"
+        },
+        "headers": [
+          "Availability.h",
+          "CoreFoundation/CoreFoundation.h",
+          "dlfcn.h",
+          "errno.h",
+          "fcntl.h",
+          "os/os_sync_wait_on_address.h",
+          "pthread.h",
+          "signal.h",
+          "spawn.h",
+          "stdio.h",
+          "stdlib.h",
+          "sys/mman.h",
+          "sys/socket.h",
+          "sys/stat.h",
+          "sys/wait.h",
+          "time.h",
+          "unistd.h"
+        ]
+      },
+      "links": [
+        {
+          "name": "CoreFoundation",
+          "kind": "framework"
+        },
+        {
+          "name": "c",
+          "kind": "system"
+        },
+        {
+          "name": "pthread",
+          "kind": "system"
+        }
+      ],
+      "scalars": [
+        {
+          "native": "clockid_t",
+          "bray": "u32",
+          "size": 4,
+          "align": 4,
+          "signed": false
+        },
+        {
+          "native": "off_t",
+          "bray": "i64",
+          "size": 8,
+          "align": 8,
+          "signed": true
+        },
+        {
+          "native": "pthread_t",
+          "bray": "RawPointer<u8>",
+          "size": 8,
+          "align": 8,
+          "signed": false
+        },
+        {
+          "native": "time_t",
+          "bray": "i64",
+          "size": 8,
+          "align": 8,
+          "signed": true
+        }
+      ],
+      "constants": [
+        {
+          "name": "AT_FDCWD",
+          "native": "AT_FDCWD",
+          "type": "i32",
+          "value": -2
+        },
+        {
+          "name": "CLOCK_MONOTONIC",
+          "native": "CLOCK_MONOTONIC",
+          "type": "u32",
+          "value": 6
+        },
+        {
+          "name": "MAP_ANONYMOUS",
+          "native": "MAP_ANON",
+          "type": "i32",
+          "value": 4096
+        },
+        {
+          "name": "MAP_PRIVATE",
+          "native": "MAP_PRIVATE",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "MAP_SHARED",
+          "native": "MAP_SHARED",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "OS_SYNC_WAIT_ON_ADDRESS_NONE",
+          "native": "OS_SYNC_WAIT_ON_ADDRESS_NONE",
+          "type": "u32",
+          "value": 0
+        },
+        {
+          "name": "OS_SYNC_WAKE_BY_ADDRESS_NONE",
+          "native": "OS_SYNC_WAKE_BY_ADDRESS_NONE",
+          "type": "u32",
+          "value": 0
+        },
+        {
+          "name": "O_CLOEXEC",
+          "native": "O_CLOEXEC",
+          "type": "i32",
+          "value": 16777216
+        },
+        {
+          "name": "O_RDONLY",
+          "native": "O_RDONLY",
+          "type": "i32",
+          "value": 0
+        },
+        {
+          "name": "O_RDWR",
+          "native": "O_RDWR",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "O_WRONLY",
+          "native": "O_WRONLY",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "PROT_EXEC",
+          "native": "PROT_EXEC",
+          "type": "i32",
+          "value": 4
+        },
+        {
+          "name": "PROT_NONE",
+          "native": "PROT_NONE",
+          "type": "i32",
+          "value": 0
+        },
+        {
+          "name": "PROT_READ",
+          "native": "PROT_READ",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "PROT_WRITE",
+          "native": "PROT_WRITE",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "RTLD_GLOBAL",
+          "native": "RTLD_GLOBAL",
+          "type": "i32",
+          "value": 8
+        },
+        {
+          "name": "RTLD_LAZY",
+          "native": "RTLD_LAZY",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "RTLD_LOCAL",
+          "native": "RTLD_LOCAL",
+          "type": "i32",
+          "value": 4
+        },
+        {
+          "name": "RTLD_NOW",
+          "native": "RTLD_NOW",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "DIRECTORY_NAME_CAPACITY",
+          "native": "sizeof(((struct dirent *)0)->d_name)",
+          "type": "usize",
+          "value": 1024
+        },
+        {
+          "name": "DIRECTORY_NAME_OFFSET",
+          "native": "offsetof(struct dirent, d_name)",
+          "type": "usize",
+          "value": 21
+        },
+        {
+          "name": "FILE_STATUS_MODE_OFFSET",
+          "native": "offsetof(struct stat, st_mode)",
+          "type": "usize",
+          "value": 4
+        },
+        {
+          "name": "FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET",
+          "native": "offsetof(struct stat, st_mtimespec.tv_nsec)",
+          "type": "usize",
+          "value": 56
+        },
+        {
+          "name": "FILE_STATUS_MODIFIED_SECONDS_OFFSET",
+          "native": "offsetof(struct stat, st_mtimespec.tv_sec)",
+          "type": "usize",
+          "value": 48
+        },
+        {
+          "name": "FILE_STATUS_SIZE",
+          "native": "sizeof(struct stat)",
+          "type": "usize",
+          "value": 144
+        },
+        {
+          "name": "FILE_STATUS_SIZE_OFFSET",
+          "native": "offsetof(struct stat, st_size)",
+          "type": "usize",
+          "value": 96
+        }
+      ],
+      "types": [
+        {
+          "kind": "incomplete",
+          "name": "PThreadAttribute",
+          "native": "pthread_attr_t"
+        },
+        {
+          "kind": "opaque",
+          "name": "PThreadMutex",
+          "native": "pthread_mutex_t",
+          "size": 64,
+          "align": 8,
+          "override": {
+            "authority": "macOS SDK 15.5 AArch64 pthread headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
+          "classification": "memory"
+        },
+        {
+          "kind": "opaque",
+          "name": "PosixSpawnFileActions",
+          "native": "posix_spawn_file_actions_t",
+          "size": 8,
+          "align": 8,
+          "override": {
+            "authority": "macOS SDK 15.5 AArch64 spawn headers",
+            "reason": "opaque native storage exposes no stable named field layout"
+          },
+          "classification": "memory"
+        },
+        {
+          "kind": "union",
+          "name": "SignalValue",
+          "native": "union sigval",
+          "size": 8,
+          "align": 8,
+          "classification": "integer",
+          "active_variant_contract": "the native API contract identifies the initialized payload",
+          "fields": [
+            {
+              "name": "integer",
+              "native": "sival_int",
+              "type": "i32",
+              "native_type": "int",
+              "offset": 0
+            },
+            {
+              "name": "pointer",
+              "native": "sival_ptr",
+              "type": "RawPointer<u8>",
+              "native_type": "void *",
+              "offset": 0
+            }
+          ]
+        },
+        {
+          "kind": "structure",
+          "name": "Timespec",
+          "native": "struct timespec",
+          "size": 16,
+          "align": 8,
+          "classification": "aggregate",
+          "fields": [
+            {
+              "name": "seconds",
+              "native": "tv_sec",
+              "type": "i64",
+              "native_type": "time_t",
+              "offset": 0
+            },
+            {
+              "name": "nanoseconds",
+              "native": "tv_nsec",
+              "type": "i64",
+              "native_type": "long",
+              "offset": 8
+            }
+          ]
+        }
+      ],
+      "callbacks": [
+        {
+          "name": "ClockGetTime",
+          "native": "int (*)(clockid_t, struct timespec *)",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "clock",
+              "type": "u32",
+              "native_type": "clockid_t"
+            },
+            {
+              "name": "time",
+              "type": "RawPointer<Timespec>",
+              "native_type": "struct timespec *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int"
+        },
+        {
+          "name": "ThreadStartRoutine",
+          "native": "void *(*)(void *)",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "void *"
+        }
+      ],
+      "functions": [
+        {
+          "name": "cf_absolute_time_get_current",
+          "native": "CFAbsoluteTimeGetCurrent",
+          "abi": "c",
+          "parameters": [],
+          "result": "r64",
+          "native_result": "CFAbsoluteTime",
+          "link": "CoreFoundation",
+          "error_state": "returns the current absolute time without a separate error channel",
+          "ownership": "no resource transfer",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "clock_gettime",
+          "native": "clock_gettime",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "clock",
+              "type": "u32",
+              "native_type": "clockid_t"
+            },
+            {
+              "name": "time",
+              "type": "RawPointer<Timespec>",
+              "native_type": "struct timespec *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller owns output storage",
+          "initialization": "success initializes one Timespec",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "close",
+          "native": "close",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor ownership after failure",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "dlclose",
+          "native": "dlclose",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "handle",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a nonzero value and records dynamic loader state on failure",
+          "ownership": "success releases one caller-owned module reference",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "dlerror",
+          "native": "dlerror",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<u8>",
+          "native_result": "char *",
+          "link": "c",
+          "error_state": "returns and clears the calling native thread's dynamic loader state",
+          "ownership": "the dynamic loader owns the returned text",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "dlopen",
+          "native": "dlopen",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "mode",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "void *",
+          "link": "c",
+          "error_state": "returns null and records dynamic loader state on failure",
+          "ownership": "success returns one caller-owned module reference",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "dlsym",
+          "native": "dlsym",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "handle",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "name",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "void *",
+          "link": "c",
+          "error_state": "returns null and records dynamic loader state when lookup fails",
+          "ownership": "the returned address remains valid while the module is retained",
+          "initialization": "name points to a terminated byte string",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "mmap",
+          "native": "mmap",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "protection",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "flags",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "offset",
+              "type": "i64",
+              "native_type": "off_t"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "void *",
+          "link": "c",
+          "error_state": "returns MAP_FAILED and sets the C runtime error state",
+          "ownership": "success creates one mapping owned by the caller",
+          "initialization": "the selected mapping contract determines byte initialization",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "munmap",
+          "native": "munmap",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success releases the mapped range",
+          "initialization": "released storage becomes unavailable",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "open",
+          "native": "open",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "flags",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "variadic": true,
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success returns one caller-owned descriptor",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "os_sync_wait_on_address",
+          "native": "os_sync_wait_on_address",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "expected",
+              "type": "u64",
+              "native_type": "uint64_t"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "os_sync_wait_on_address_flags_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the kernel owns wait state while the calling thread is blocked",
+          "initialization": "the operation reads size bytes from address atomically",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "os_sync_wake_by_address_any",
+          "native": "os_sync_wake_by_address_any",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "os_sync_wake_by_address_flags_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "no resource transfer",
+          "initialization": "the operation does not initialize caller storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "pthread_create",
+          "native": "pthread_create",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "thread",
+              "type": "RawPointer<RawPointer<u8>>",
+              "native_type": "pthread_t *"
+            },
+            {
+              "name": "attributes",
+              "type": "RawPointer<PThreadAttribute>",
+              "native_type": "const pthread_attr_t *"
+            },
+            {
+              "name": "entry",
+              "type": "ThreadStartRoutine",
+              "native_type": "void *(*)(void *)"
+            },
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "ownership": "success creates one joinable thread owned by the caller",
+          "initialization": "success initializes the thread identifier",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        }
+      ],
+      "statics": [
+        {
+          "name": "ENVIRON",
+          "native": "environ",
+          "type": "RawPointer<RawPointer<u8>>",
+          "native_type": "char **",
+          "link": "c",
+          "mutable": true,
+          "symbol": {
+            "name": "environ"
+          },
+          "ownership": "the C runtime owns the pointer table",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        }
+      ],
+      "dynamic_symbols": [
+        {
+          "name": "dynamic_clock_gettime",
+          "library": "/usr/lib/libSystem.B.dylib",
+          "symbol": "clock_gettime",
+          "target": "code",
+          "type": "ClockGetTime",
+          "ownership": "the returned owner retains libSystem",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "layout_reinterpret"
+          ]
+        },
+        {
+          "name": "dynamic_environ",
+          "library": "/usr/lib/libSystem.B.dylib",
+          "symbol": "environ",
+          "target": "data",
+          "type": "RawPointer<RawPointer<u8>>",
+          "ownership": "the returned owner retains libSystem",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "layout_reinterpret",
+            "raw_memory"
+          ]
+        }
+      ]
+    }
+  ]
+}

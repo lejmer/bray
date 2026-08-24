@@ -1,0 +1,228 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module std.process;
+
+trusted internal func child_descriptors(
+    pos policy: u32,
+    target: i32,
+    reads: bool,
+) -> Result<ChildDescriptors, std.platform.PlatformStatus>
+{
+    match policy
+    {
+        case 0
+        {
+            return Ok(
+                {
+                    parent = -1,
+                    child = -1,
+                    target = target,
+                }
+            );
+        }
+        case 1
+        {
+            let null_path: [u8; 10] = [47, 100, 101, 118, 47, 110, 117, 108, 108, 0];
+
+            let flags: i32 = if reads
+            {
+                yield std.os.unix.O_RDONLY | std.os.unix.O_CLOEXEC;
+            }
+            else
+            {
+                yield std.os.unix.O_WRONLY | std.os.unix.O_CLOEXEC;
+            };
+
+            let descriptor: i32 = trusted std.os.unix.open_file(
+                std.memory.address_of<u8>(&null_path[0]),
+                flags = flags,
+                mode = 0,
+            );
+
+            if descriptor < 0
+            {
+                return Error(trusted internal std.platform.unix_error_status());
+            }
+
+            let normalized: i32 = match trusted internal normalized_descriptor(descriptor)
+            {
+                case Ok(value) { yield value; }
+                case Error(status) { return Error(status); }
+            };
+
+            return Ok(
+                {
+                    parent = -1,
+                    child = normalized,
+                    target = target,
+                }
+            );
+        }
+        case 2
+        {
+            let mut pair: [i32; 2] = [-1, -1];
+
+            if trusted std.os.unix.socket_pair(std.memory.address_of_mut<i32>(&mut pair[0])) != 0
+            {
+                return Error(trusted internal std.platform.unix_error_status());
+            }
+
+            pair[0] = match trusted internal normalized_descriptor(pair[0])
+            {
+                case Ok(value) { yield value; }
+                case Error(status)
+                {
+                    let _: i32 = trusted std.os.unix.close(pair[1]);
+                    return Error(status);
+                }
+            };
+
+            pair[1] = match trusted internal normalized_descriptor(pair[1])
+            {
+                case Ok(value) { yield value; }
+                case Error(status)
+                {
+                    let _: i32 = trusted std.os.unix.close(pair[0]);
+                    return Error(status);
+                }
+            };
+
+            if reads
+            {
+                return Ok(
+                    {
+                        parent = pair[1],
+                        child = pair[0],
+                        target = target,
+                    }
+                );
+            }
+
+            return Ok(
+                {
+                    parent = pair[0],
+                    child = pair[1],
+                    target = target,
+                }
+            );
+        }
+        case _ { return Error(internal std.platform.invalid_input_status()); }
+    }
+}
+
+trusted internal func normalized_descriptor(pos descriptor: i32) -> Result<i32, std.platform.PlatformStatus>
+{
+    if descriptor >= 3
+    {
+        return Ok(descriptor);
+    }
+
+    let normalized: i32 = trusted std.os.unix.duplicate_close_on_exec(descriptor, minimum = 3);
+
+    if normalized < 0
+    {
+        let status: std.platform.PlatformStatus = trusted internal std.platform.unix_error_status();
+        let _: i32 = trusted std.os.unix.close(descriptor);
+        return Error(status);
+    }
+
+    let _: i32 = trusted std.os.unix.close(descriptor);
+    return Ok(normalized);
+}
+
+trusted internal func configure_spawn_actions(
+    pos actions: RawPointer<u8>,
+    pos working_directory: RawPointer<u8>,
+    pos input: ChildDescriptors,
+    pos output: ChildDescriptors,
+    pos error: ChildDescriptors,
+) -> i32
+{
+    if !std.memory.is_null<u8>(working_directory)
+    {
+        let result: i32 = trusted std.os.unix.add_spawn_working_directory(actions, path = working_directory);
+
+        if result != 0
+        {
+            return result;
+        }
+    }
+
+    let input_result: i32 = trusted internal configure_child_descriptors(actions, input);
+
+    if input_result != 0
+    {
+        return input_result;
+    }
+
+    let output_result: i32 = trusted internal configure_child_descriptors(actions, output);
+
+    if output_result != 0
+    {
+        return output_result;
+    }
+
+    return trusted internal configure_child_descriptors(actions, error);
+}
+
+trusted internal func configure_child_descriptors(pos actions: RawPointer<u8>, pos descriptors: ChildDescriptors) -> i32
+{
+    if descriptors.child >= 0
+    {
+        let duplicated: i32 = trusted std.os.unix.add_spawn_duplicate(
+            actions,
+            source = descriptors.child,
+            destination = descriptors.target,
+        );
+
+        if duplicated != 0
+        {
+            return duplicated;
+        }
+
+        let closed_child: i32 = trusted std.os.unix.add_spawn_close(actions, descriptor = descriptors.child);
+
+        if closed_child != 0
+        {
+            return closed_child;
+        }
+    }
+
+    if descriptors.parent >= 0
+    {
+        return trusted std.os.unix.add_spawn_close(actions, descriptor = descriptors.parent);
+    }
+
+    return 0;
+}
+
+trusted internal func release_descriptors(pos descriptors: ChildDescriptors)
+{
+    trusted internal release_child_descriptors(descriptors);
+    trusted internal release_parent_descriptors(descriptors);
+}
+
+trusted internal func release_child_descriptors(pos descriptors: ChildDescriptors)
+{
+    if descriptors.child >= 0
+    {
+        let _: i32 = trusted std.os.unix.close(descriptors.child);
+    }
+}
+
+trusted internal func release_parent_descriptors(pos descriptors: ChildDescriptors)
+{
+    if descriptors.parent >= 0
+    {
+        let _: i32 = trusted std.os.unix.close(descriptors.parent);
+    }
+}
+
+internal func descriptor_handle(pos descriptor: i32) -> u64
+{
+    if descriptor < 0
+    {
+        return 0;
+    }
+
+    return std.truncate_to<u64>(descriptor);
+}

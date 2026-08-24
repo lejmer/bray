@@ -394,13 +394,13 @@ fn variable_output_regions(
     capacity: u64,
     written_or_required: *mut u64,
     outcome: *mut u32,
-) -> Option<Vec<MemoryRegion>> {
+) -> Option<[MemoryRegion; 3]> {
     let capacity = usize::try_from(capacity).ok()?;
     let destination = MemoryRegion::read(destination, capacity)?;
     let written_or_required = MemoryRegion::write(written_or_required)?;
     let outcome = MemoryRegion::write(outcome)?;
 
-    Some(vec![destination, written_or_required, outcome])
+    Some([destination, written_or_required, outcome])
 }
 
 fn provider_status(outcome: u32) -> NativePlatformStatus {

@@ -619,7 +619,7 @@ mod tests {
             "StandardMemoryBorrowMutFrom",
             "StandardMemoryRawBufferRelocate",
             "StandardMemoryByteBufferFill",
-            "StandardMemoryByteSliceCopy",
+            "StandardMemoryByteBufferCopy",
             "StandardMemoryByteBufferRead",
             "StandardMemoryByteOffset",
             "StandardMemorySliceLength",

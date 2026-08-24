@@ -1,0 +1,29 @@
+@target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
+module std.atomic;
+
+using std.os.windows;
+
+trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, pos expected: u32)
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+    let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
+    let expected_pointer: RawPointer<u32> = std.memory.address_of<u32>(&expected);
+    let expected_bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(expected_pointer);
+
+    let _: i32 = trusted std.os.windows.wait_on_address(
+        bytes,
+        expected = expected_bytes,
+        size = 4,
+        timeout = std.os.windows.INFINITE,
+    );
+}
+
+trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+    let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
+
+    trusted std.os.windows.wake_by_address_single(bytes);
+}

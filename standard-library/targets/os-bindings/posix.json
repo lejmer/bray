@@ -1,0 +1,926 @@
+{
+  "groups": [
+    {
+      "name": "posix_base",
+      "targets": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "constants": [
+        {
+          "name": "AF_UNIX",
+          "native": "AF_UNIX",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "FD_CLOEXEC",
+          "native": "FD_CLOEXEC",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "FILE_KIND_DIRECTORY",
+          "native": "S_IFDIR",
+          "type": "u32",
+          "value": 16384
+        },
+        {
+          "name": "FILE_KIND_MASK",
+          "native": "S_IFMT",
+          "type": "u32",
+          "value": 61440
+        },
+        {
+          "name": "FILE_KIND_REGULAR",
+          "native": "S_IFREG",
+          "type": "u32",
+          "value": 32768
+        },
+        {
+          "name": "F_SETFD",
+          "native": "F_SETFD",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "SEEK_CURRENT",
+          "native": "SEEK_CUR",
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "name": "SEEK_END",
+          "native": "SEEK_END",
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "name": "SEEK_START",
+          "native": "SEEK_SET",
+          "type": "i32",
+          "value": 0
+        },
+        {
+          "name": "SIGKILL",
+          "native": "SIGKILL",
+          "type": "i32",
+          "value": 9
+        },
+        {
+          "name": "SIGTERM",
+          "native": "SIGTERM",
+          "type": "i32",
+          "value": 15
+        },
+        {
+          "name": "SOCK_STREAM",
+          "native": "SOCK_STREAM",
+          "type": "i32",
+          "value": 1
+        }
+      ],
+      "functions": [
+        {
+          "name": "close_directory",
+          "native": "closedir",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "directory",
+              "type": "RawPointer<u8>",
+              "native_type": "DIR *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success releases one directory stream",
+          "initialization": "released directory storage becomes unavailable",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "directory_descriptor",
+          "native": "dirfd",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "directory",
+              "type": "RawPointer<u8>",
+              "native_type": "DIR *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains directory stream ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "fcntl",
+          "native": "fcntl",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "operation",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "variadic": true,
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "file_status",
+          "native": "fstat",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "status",
+              "type": "RawPointer<u8>",
+              "native_type": "struct stat *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor and status storage ownership",
+          "initialization": "success initializes one native file status record",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "file_status_at",
+          "native": "fstatat",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "directory",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "status",
+              "type": "RawPointer<u8>",
+              "native_type": "struct stat *"
+            },
+            {
+              "name": "flags",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains directory and status storage ownership",
+          "initialization": "success initializes one native file status record",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "fsync",
+          "native": "fsync",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "getcwd",
+          "native": "getcwd",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "char *"
+            },
+            {
+              "name": "capacity",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "char *",
+          "link": "c",
+          "error_state": "returns null and sets the C runtime error state",
+          "ownership": "the caller owns destination storage",
+          "initialization": "success initializes one terminated path",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "getpid",
+          "native": "getpid",
+          "abi": "c",
+          "parameters": [],
+          "result": "i32",
+          "native_result": "pid_t",
+          "link": "c",
+          "error_state": "returns the current process identifier",
+          "ownership": "no resource transfer",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "kill",
+          "native": "kill",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "process",
+              "type": "i32",
+              "native_type": "pid_t"
+            },
+            {
+              "name": "signal",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains child process ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "lseek",
+          "native": "lseek",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "offset",
+              "type": "i64",
+              "native_type": "off_t"
+            },
+            {
+              "name": "origin",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i64",
+          "native_result": "off_t",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "mkdir",
+          "native": "mkdir",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "mode",
+              "type": "u32",
+              "native_type": "mode_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success creates one filesystem directory entry",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "mprotect",
+          "native": "mprotect",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "protection",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains mapping ownership",
+          "initialization": "the selected pages retain their contents",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "nanosleep",
+          "native": "nanosleep",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "duration",
+              "type": "RawPointer<Timespec>",
+              "native_type": "const struct timespec *"
+            },
+            {
+              "name": "remaining",
+              "type": "RawPointer<Timespec>",
+              "native_type": "struct timespec *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains duration and remaining storage ownership",
+          "initialization": "an interrupted wait initializes remaining duration storage",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "open_directory",
+          "native": "opendir",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "DIR *",
+          "link": "c",
+          "error_state": "returns null and sets the C runtime error state",
+          "ownership": "success transfers one directory stream to the caller",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "posix_spawn",
+          "native": "posix_spawn",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "process",
+              "type": "RawPointer<i32>",
+              "native_type": "pid_t *"
+            },
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "const posix_spawn_file_actions_t *"
+            },
+            {
+              "name": "attributes",
+              "type": "RawPointer<u8>",
+              "native_type": "const posix_spawnattr_t *"
+            },
+            {
+              "name": "arguments",
+              "type": "RawPointer<RawPointer<u8>>",
+              "native_type": "char *const []"
+            },
+            {
+              "name": "environment",
+              "type": "RawPointer<RawPointer<u8>>",
+              "native_type": "char *const []"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "success transfers one child process identity to the caller",
+          "initialization": "success initializes the child process identity",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "pthread_self",
+          "native": "pthread_self",
+          "abi": "c",
+          "parameters": [],
+          "result": "u64",
+          "native_result": "pthread_t",
+          "link": "pthread",
+          "error_state": "returns the calling native thread identity",
+          "ownership": "no resource transfer",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+        {
+          "name": "read",
+          "native": "read",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "isize",
+          "native_result": "ssize_t",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor and destination ownership",
+          "initialization": "success initializes the returned destination prefix",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "read_directory",
+          "native": "readdir",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "directory",
+              "type": "RawPointer<u8>",
+              "native_type": "DIR *"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "struct dirent *",
+          "link": "c",
+          "error_state": "returns null at exhaustion or after setting the C runtime error state",
+          "ownership": "the directory stream retains returned storage ownership until the next read",
+          "initialization": "success returns one initialized native directory entry",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "rename",
+          "native": "rename",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "source",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "destination",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success transfers the filesystem name",
+          "initialization": "both paths point to terminated native strings",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "rmdir",
+          "native": "rmdir",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success removes one empty directory entry",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "unlink",
+          "native": "unlink",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success removes one filesystem name",
+          "initialization": "path points to a terminated native string",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "path_status",
+          "native": "stat",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            },
+            {
+              "name": "status",
+              "type": "RawPointer<u8>",
+              "native_type": "struct stat *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains status storage ownership",
+          "initialization": "success initializes one native file status record",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "spawn_actions_add_chdir",
+          "native": "posix_spawn_file_actions_addchdir_np",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "posix_spawn_file_actions_t *"
+            },
+            {
+              "name": "path",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "the actions object retains one copied working-directory action",
+          "initialization": "success extends initialized action state",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "spawn_actions_add_close",
+          "native": "posix_spawn_file_actions_addclose",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "posix_spawn_file_actions_t *"
+            },
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "the actions object retains one close action",
+          "initialization": "success extends initialized action state",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "spawn_actions_add_duplicate",
+          "native": "posix_spawn_file_actions_adddup2",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "posix_spawn_file_actions_t *"
+            },
+            {
+              "name": "source",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "destination",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "the actions object retains one descriptor duplication action",
+          "initialization": "success extends initialized action state",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "spawn_actions_destroy",
+          "native": "posix_spawn_file_actions_destroy",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "posix_spawn_file_actions_t *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "success releases resources owned by the actions object",
+          "initialization": "the actions object becomes unavailable",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "spawn_actions_initialize",
+          "native": "posix_spawn_file_actions_init",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "actions",
+              "type": "RawPointer<PosixSpawnFileActions>",
+              "native_type": "posix_spawn_file_actions_t *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "success transfers one actions object to the caller",
+          "initialization": "success initializes the actions object",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory",
+            "unchecked_init"
+          ]
+        },
+        {
+          "name": "socket_pair",
+          "native": "socketpair",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "domain",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "kind",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "protocol",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "descriptors",
+              "type": "RawPointer<i32>",
+              "native_type": "int [2]"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success transfers two connected descriptors to the caller",
+          "initialization": "success initializes two descriptor values",
+          "requires": [
+            "trusted core.memory.valid_write<i32>(pointer = descriptors, count = 2)",
+            "trusted core.memory.aligned_for<i32>(pointer = descriptors)",
+            "trusted core.memory.initialized_range_as<i32>(pointer = descriptors, count = 2)"
+          ],
+          "ensures": [
+            "trusted core.memory.initialized_range_as<i32>(pointer = descriptors, count = 2)"
+          ],
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "wait_pid",
+          "native": "waitpid",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "process",
+              "type": "i32",
+              "native_type": "pid_t"
+            },
+            {
+              "name": "status",
+              "type": "RawPointer<i32>",
+              "native_type": "int *"
+            },
+            {
+              "name": "options",
+              "type": "i32",
+              "native_type": "int"
+            }
+          ],
+          "result": "i32",
+          "native_result": "pid_t",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "success reaps a terminal child process",
+          "initialization": "success initializes one native wait status",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "write",
+          "native": "write",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "descriptor",
+              "type": "i32",
+              "native_type": "int"
+            },
+            {
+              "name": "source",
+              "type": "RawPointer<u8>",
+              "native_type": "const void *"
+            },
+            {
+              "name": "length",
+              "type": "usize",
+              "native_type": "size_t"
+            }
+          ],
+          "result": "isize",
+          "native_result": "ssize_t",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the caller retains descriptor and source ownership",
+          "initialization": "no output storage",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "raw_memory"
+          ]
+        }
+      ]
+    }
+  ],
+  "targets": []
+}

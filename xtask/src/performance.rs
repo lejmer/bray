@@ -3,6 +3,7 @@ mod comparison;
 mod compilation;
 mod compiler_timing;
 mod corpus;
+mod execution;
 mod format;
 mod html;
 mod model;

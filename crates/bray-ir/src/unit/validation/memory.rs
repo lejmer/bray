@@ -84,7 +84,7 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::RawBufferReplace { .. }
         | CheckedMemoryOperationKind::RawBufferRelocate { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::ByteBufferFill
-        | CheckedMemoryOperationKind::ByteSliceCopy
+        | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SliceLength
         | CheckedMemoryOperationKind::CallbackState { .. }

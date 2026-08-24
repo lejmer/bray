@@ -495,17 +495,12 @@ dependencies = [
 name = "bray-platform-abi"
 version = "0.0.0"
 dependencies = [
- "bray-platform",
- "bray-platform-abi-support",
  "bray-platform-abi-temporal",
  "bray-runtime-abi",
- "bray-testing",
  "cc",
- "libc",
  "serde",
  "serde_json",
  "sha2",
- "windows-sys",
 ]
 
 [[package]]

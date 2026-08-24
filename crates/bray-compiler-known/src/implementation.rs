@@ -89,7 +89,7 @@ define_catalog_enum! {
         /// Initializes a byte-buffer range to one repeated byte.
         ByteBufferFill => "ByteBufferFill",
         /// Copies an initialized byte slice into distinct writable storage.
-        ByteSliceCopy => "ByteSliceCopy",
+        ByteBufferCopy => "ByteBufferCopy",
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
         /// Reads the element count carried by a byte slice.
@@ -267,7 +267,7 @@ impl ImplementationHook {
         Self::RawBufferReplace,
         Self::RawBufferRelocate,
         Self::ByteBufferFill,
-        Self::ByteSliceCopy,
+        Self::ByteBufferCopy,
         Self::ByteBufferRead,
         Self::SliceLength,
         Self::CallbackState,
