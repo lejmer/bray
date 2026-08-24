@@ -287,6 +287,15 @@ Compiler work should be split at stable semantic boundaries:
 
 The scheduler should run independent work in parallel whenever the dependency graph allows it.
 
+Broad compilation requests complete dynamically discovered fact closures through deterministic work plans. A plan
+deduplicates stable fact keys, submits each ready frontier to the bounded scheduler, and retains results in plan order.
+Work discovered while evaluating one frontier becomes eligible only after that frontier completes. The broad result is
+assembled only after every required frontier succeeds, so cancellation and failure publish no partial parent result.
+
+Narrow interactive requests continue to demand individual facts directly. Broad plans and narrow requests use the same
+typed fact definitions, caches, semantic implementations, priorities, and cancellation contracts. Batch completion is
+orchestration over the query runtime, not a separate semantic pipeline or executor.
+
 Lexing and parsing should be demand-driven. A parser asks a token source for the next token, a lookahead token, or a
 recoverable token window. The lexer produces tokens as needed and can cache produced tokens for repeated parser access,
 diagnostics, and incremental reuse.

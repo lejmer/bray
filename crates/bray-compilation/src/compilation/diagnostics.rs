@@ -1,6 +1,6 @@
 // rust-style: allow(module-too-large, reason = "semantic diagnostic aggregation and its source index form one cached query boundary")
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -33,7 +33,9 @@ use bray_syntax::{
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::state::Compilation;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
+use crate::fact::{
+    BatchWork, CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult,
+};
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(
@@ -204,11 +206,6 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticBag, FactQueryError> {
         let source_graph = self.product_source_graph()?;
-        let mut pending = BTreeSet::new();
-
-        for key in self.declared_unit_keys()? {
-            pending.insert(unit_order_key(key));
-        }
 
         let symbols = self.symbol_graph()?;
         let mut sources = Vec::new();
@@ -289,15 +286,33 @@ impl Compilation {
             ));
         }
 
-        while let Some((_, _, _, key)) = pending.pop_first() {
-            let (bound, unit_querys) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
+        let roots = self.declared_unit_keys()?.into_iter().map(unit_order_key);
 
-            for nested in bound.result().value().nested_units() {
+        let mut units = self
+            .state
+            .fact_runtime
+            .complete_batch(roots, cancellation, |(_, _, _, key)| {
+                // Each scheduled request owns the Arc-backed unit identity past the plan borrow.
+                let (bound, sources) =
+                    self.semantic_unit_diagnostic_sources(key.clone(), cancellation)?;
+
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
-                pending.insert(unit_order_key(nested.clone()));
-            }
+                let nested = bound
+                    .result()
+                    .value()
+                    .nested_units()
+                    .iter()
+                    .cloned()
+                    .map(unit_order_key);
 
-            sources.extend(unit_querys);
+                Ok::<_, FactQueryError>(BatchWork::new(sources, nested))
+            })
+            .map_err(|error| error.into_fact_query_error())?;
+
+        units.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+        for (_, unit_sources) in units {
+            sources.extend(unit_sources);
         }
 
         let query_diagnostics = crate::profile::merge_diagnostics(

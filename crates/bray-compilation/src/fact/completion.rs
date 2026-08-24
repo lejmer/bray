@@ -6,7 +6,7 @@ use bray_symbols::{
     SymbolCompletionQuery, SymbolGraph,
 };
 
-use super::{CancellationToken, FactRuntime};
+use super::{BatchCompletionError, BatchWork, CancellationToken, FactRuntime};
 
 /// An outer symbol-completion outcome that is not a source diagnostic.
 #[derive(Debug, Eq, PartialEq)]
@@ -86,57 +86,34 @@ where
         }
     };
 
-    let diagnostics = evaluate_scheduled(plan.requests(), runtime, cancellation, evaluator)?;
-
-    Ok(crate::profile::merge_diagnostics(
-        runtime.profile(),
-        diagnostics.iter(),
-    ))
-}
-
-fn evaluate_scheduled<F>(
-    requests: &[SymbolCompletionQuery],
-    runtime: &FactRuntime,
-    cancellation: &CancellationToken,
-    evaluator: &F,
-) -> Result<Vec<DiagnosticBag>, SymbolCompletionError<F::Error>>
-where
-    F: SymbolCompletionEvaluator + ?Sized,
-    F::Error: Send,
-{
     let scheduled = catch_unwind(AssertUnwindSafe(|| {
-        runtime.map_indexed(requests.len(), |index| {
-            if cancellation.is_cancelled() {
-                None
-            } else {
-                Some(evaluator.evaluate(requests[index]))
-            }
+        runtime.complete_batch(plan.requests().iter().copied(), cancellation, |request| {
+            evaluator.evaluate(*request).map(BatchWork::leaf)
         })
     }));
 
-    let indexed = match scheduled {
-        Ok(Ok(indexed)) => indexed,
-        Ok(Err(_)) | Err(_) => return Err(SymbolCompletionError::WorkerFailure),
+    let diagnostics = match scheduled {
+        Ok(result) => result.map_err(symbol_completion_error)?,
+        Err(_) => return Err(SymbolCompletionError::WorkerFailure),
     };
 
-    let mut diagnostics = Vec::with_capacity(requests.len());
+    Ok(crate::profile::merge_diagnostics(
+        runtime.profile(),
+        diagnostics.iter().map(|(_, diagnostics)| diagnostics),
+    ))
+}
 
-    for (request, result) in requests.iter().copied().zip(indexed) {
-        let Some(result) = result else {
-            return Err(SymbolCompletionError::Cancelled);
-        };
-
-        match result {
-            Ok(query_diagnostics) => diagnostics.push(query_diagnostics),
-            Err(error) => return Err(SymbolCompletionError::Query { request, error }),
-        }
+fn symbol_completion_error<E>(
+    error: BatchCompletionError<SymbolCompletionQuery, E>,
+) -> SymbolCompletionError<E> {
+    match error {
+        BatchCompletionError::Cancelled => SymbolCompletionError::Cancelled,
+        BatchCompletionError::Evaluation { key, error } => SymbolCompletionError::Query {
+            request: key,
+            error,
+        },
+        BatchCompletionError::Scheduler(_) => SymbolCompletionError::WorkerFailure,
     }
-
-    if cancellation.is_cancelled() {
-        return Err(SymbolCompletionError::Cancelled);
-    }
-
-    Ok(diagnostics)
 }
 
 #[cfg(test)]

@@ -662,7 +662,6 @@ impl Compilation {
             bytes,
         );
     }
-
 }
 
 const fn runtime_artifact_purpose(kind: ProductKind) -> RuntimeArtifactPurpose {

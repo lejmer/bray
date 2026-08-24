@@ -16,7 +16,7 @@ use super::visibility::{
     implementation_instance_internal_dependency, resolved_type_internal_dependency,
     source_symbol_is_not_publicly_reachable, substitution_internal_dependency,
 };
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::{BatchWork, CancellationToken, FactQueryError};
 
 pub(super) fn validate_public_expression_dependencies(
     compilation: &Compilation,
@@ -27,7 +27,7 @@ pub(super) fn validate_public_expression_dependencies(
     public_symbols: &BTreeSet<AnySymbolId>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
-    let mut recovered_owners = BTreeMap::new();
+    let mut roots = Vec::new();
 
     for key in compilation.declared_unit_keys()? {
         cancellation.check()?;
@@ -47,20 +47,37 @@ pub(super) fn validate_public_expression_dependencies(
             continue;
         }
 
-        // Both lazy query results own the same Arc-backed unit key independently.
-        let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
+        roots.push((owner, key));
+    }
 
-        let expressions = compilation.expression_semantics_with_cancellation(key, cancellation)?;
+    let completed = compilation
+        .state
+        .fact_runtime
+        .complete_batch(roots, cancellation, |(_, key)| {
+            // Both lazy query results own the same Arc-backed unit key independently.
+            let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
+            let expressions =
+                compilation.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+            let internal = bound_expression_internal_dependency(
+                bound.result().value(),
+                expressions.result().value().selections(),
+                semantic_values,
+                symbols,
+                declarations,
+            )?;
+
+            Ok::<_, FactQueryError>(BatchWork::leaf((expressions, internal)))
+        })
+        .map_err(|error| error.into_fact_query_error())?;
+
+    let mut recovered_owners = BTreeMap::new();
+
+    for ((owner, _), (expressions, internal)) in completed {
         diagnostics.add_range(expressions.result().diagnostics().iter().cloned());
 
-        if let Some(internal) = bound_expression_internal_dependency(
-            bound.result().value(),
-            expressions.result().value().selections(),
-            semantic_values,
-            symbols,
-            declarations,
-        )? {
+        if let Some(internal) = internal {
             recovered_owners.entry(owner).or_insert(internal);
         }
     }
