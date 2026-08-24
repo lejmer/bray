@@ -1109,6 +1109,57 @@ mod tests {
         }
 
         #[test]
+        fn broad_diagnostics_expose_multiple_semantic_work_waves() {
+            let source = concat!(
+                "module test.package;\n",
+                "func first()\n",
+                "{\n",
+                "}\n",
+                "func second()\n",
+                "{\n",
+                "}\n",
+                "func third()\n",
+                "{\n",
+                "}\n",
+                "func fourth()\n",
+                "{\n",
+                "}\n",
+            );
+
+            let request =
+                CompilationRequest::new(package_identity(), vec![source_input(source, 1)])
+                    .with_profile(CompilationProfileConfiguration::new(
+                        CompilationProfileMode::Summary,
+                    ));
+
+            let compilation = Compilation::load(request)
+                .unwrap_or_else(|error| panic!("profiled compilation must load: {error:?}"));
+
+            let _ = compilation.check_diagnostics();
+
+            let report = compilation
+                .profile_report()
+                .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+
+            let semantic_waves = report
+                .scheduler
+                .wave_classes
+                .iter()
+                .find(|class| {
+                    class.query_id.is_some_and(|id| {
+                        report
+                            .query_descriptor(id)
+                            .is_some_and(|descriptor| descriptor.name == "semantic_diagnostics")
+                    })
+                })
+                .unwrap_or_else(|| panic!("semantic diagnostics must publish scheduling waves"));
+
+            assert!(semantic_waves.waves >= 2);
+            assert!(semantic_waves.planned_items >= 8);
+            assert!(semantic_waves.ready_width.maximum >= 4);
+        }
+
+        #[test]
         fn updated_snapshots_report_reuse_and_invalidation() {
             let request = CompilationRequest::new(
                 package_identity(),

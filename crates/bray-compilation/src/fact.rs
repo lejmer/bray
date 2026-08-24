@@ -1,3 +1,4 @@
+mod batch;
 mod cache;
 mod cancellation;
 mod cell_map;
@@ -15,20 +16,20 @@ mod unit_identity;
 
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
-
-pub(crate) use completion::complete_symbol;
 pub use error::{FactCycle, FactQueryError};
-pub(crate) use fingerprint::{
-    CompilationInputKey, CompilationInputs, FactDependencyRecord, FactFingerprint, fact_fingerprint,
-};
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
 
+pub(crate) use batch::{BatchCompletionError, BatchWork};
 pub(crate) use cache::FactCell;
 #[cfg(test)]
 pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
 pub(crate) use cancellation::SharedCancellation;
 pub(crate) use cell_map::FactCellMap;
+pub(crate) use completion::complete_symbol;
+pub(crate) use fingerprint::{
+    CompilationInputKey, CompilationInputs, FactDependencyRecord, FactFingerprint, fact_fingerprint,
+};
 pub(crate) use key::{
     CodegenArtifactQueryKey, CompilationFactKey, ConstantCallQueryKey, ConstantInstanceQueryKey,
     ImportedExecutableTemplateAddress, IterationSourceQueryKey, NativeProductQueryKey,
