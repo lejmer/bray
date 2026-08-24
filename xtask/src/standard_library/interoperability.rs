@@ -525,7 +525,8 @@ mod tests {
         CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileContext,
         CompilationProfileDescriptorCatalog, CompilationProfileMetric,
         CompilationProfileMetricDescriptor, CompilationProfileMode, CompilationProfileReport,
-        CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+        CompilationProfileSchedulerStatistics, CompilationProfileSubjectKind,
+        CompilationProfileTimeBreakdown, CompilationProfileUnit,
     };
 
     #[test]
@@ -547,6 +548,7 @@ mod tests {
                 dependency_wait_nanoseconds: 0,
                 external_work_nanoseconds: 0,
             },
+            scheduler: CompilationProfileSchedulerStatistics::default(),
             descriptors: CompilationProfileDescriptorCatalog {
                 operations: Vec::new(),
                 queries: Vec::new(),

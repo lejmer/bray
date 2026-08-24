@@ -57,6 +57,15 @@ mod tests {
                 dependency_wait_nanoseconds: 0,
                 external_work_nanoseconds: 0,
             },
+            scheduler: bray_profile::CompilationProfileSchedulerStatistics {
+                worker_budget: 1,
+                active_worker_nanoseconds: 1_000_000,
+                maximum_active_workers: 1,
+                ready_waves: 0,
+                ready_items: 0,
+                maximum_ready_width: 0,
+                query_critical_path_nanoseconds: 1_000_000,
+            },
             descriptors: bray_profile::CompilationProfileDescriptorCatalog {
                 operations: Vec::new(),
                 queries: Vec::new(),
@@ -78,6 +87,8 @@ mod tests {
         assert!(output.contains("Compiler profile: example/application"));
         assert!(output.contains("Elapsed"));
         assert!(output.contains("1.250 ms"));
+        assert!(output.contains("Worker occupancy"));
+        assert!(output.contains("Query critical path"));
         assert!(output.contains("Selected runtime artifacts"));
         assert!(output.contains("bray.runtime.host"));
         assert!(output.contains("4.00 KiB"));

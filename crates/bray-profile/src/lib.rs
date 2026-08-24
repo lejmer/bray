@@ -16,11 +16,12 @@ pub use analysis::{
 pub use model::{
     COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
     CompilationProfileConfiguration, CompilationProfileContext,
-    CompilationProfileDescriptorCatalog, CompilationProfileEvent, CompilationProfileMetric,
-    CompilationProfileMetricDescriptor, CompilationProfileMode,
-    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
-    CompilationProfileOutcome, CompilationProfileQueryDescriptor,
-    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileRuntimeArtifact,
+    CompilationProfileDescriptorCatalog, CompilationProfileDurationDistribution,
+    CompilationProfileEvent, CompilationProfileMetric, CompilationProfileMetricDescriptor,
+    CompilationProfileMode, CompilationProfileOperationDescriptor,
+    CompilationProfileOperationStatistics, CompilationProfileOutcome,
+    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
+    CompilationProfileRuntimeArtifact, CompilationProfileSchedulerStatistics,
     CompilationProfileSubject, CompilationProfileSubjectKind, CompilationProfileTimeBreakdown,
     CompilationProfileUnit,
 };

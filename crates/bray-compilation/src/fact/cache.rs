@@ -227,11 +227,7 @@ impl<T> FactCell<T> {
             .profile()
             .map(|profile| (profile, crate::profile::ProfileQueryKind::from_key(&key)));
 
-        let mut cache_outcome_recorded = false;
-
-        if let Some((profile, query)) = profile {
-            profile.record_query_request(query);
-        }
+        let mut query_request = profile.map(|(profile, query)| profile.start_query_request(query));
 
         runtime.request_with_cycle_key(&key, &cycle_key)?;
 
@@ -250,12 +246,12 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
-                    record_cache_outcome(profile, &mut cache_outcome_recorded, true);
+                    record_cache_outcome(&mut query_request, true);
 
                     return self.ready_value();
                 }
                 FactCellState::Vacant => {
-                    record_cache_outcome(profile, &mut cache_outcome_recorded, false);
+                    record_cache_outcome(&mut query_request, false);
 
                     // The task, cell state, and rollback guard independently retain this key.
                     let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
@@ -311,6 +307,10 @@ impl<T> FactCell<T> {
 
                     self.publish(value, task, key, commit)?;
 
+                    if let Some((profile, query)) = profile {
+                        profile.record_query_publication(query, std::mem::size_of::<T>());
+                    }
+
                     publication.disarm();
 
                     cancellation.check()?;
@@ -340,7 +340,7 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::Cycle(runtime.same_task_cycle(&key)?));
                     }
 
-                    record_cache_outcome(profile, &mut cache_outcome_recorded, false);
+                    record_cache_outcome(&mut query_request, false);
 
                     drop(state);
 
@@ -501,26 +501,18 @@ impl<T> FactCell<T> {
 }
 
 fn record_cache_outcome(
-    profile: Option<(
-        &crate::profile::ProfileSession,
-        crate::profile::ProfileQueryKind,
-    )>,
-    recorded: &mut bool,
+    request: &mut Option<crate::profile::ProfileQueryRequest<'_>>,
     is_hit: bool,
 ) {
-    if *recorded {
+    let Some(request) = request.take() else {
         return;
-    }
+    };
 
-    if let Some((profile, query)) = profile {
-        if is_hit {
-            profile.record_query_cache_hit(query);
-        } else {
-            profile.record_query_cache_miss(query);
-        }
+    if is_hit {
+        request.finish_hit();
+    } else {
+        request.finish_miss();
     }
-
-    *recorded = true;
 }
 
 fn profile_outcome<T>(result: &Result<T, FactQueryError>) -> CompilationProfileOutcome {

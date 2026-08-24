@@ -80,6 +80,10 @@ impl FactScheduler {
     where
         T: Send,
     {
+        if let Some(profile) = self.profile.as_deref() {
+            profile.record_ready_wave(len);
+        }
+
         let slots = (0..len)
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<T>>>>();
@@ -156,6 +160,11 @@ impl FactScheduler {
                 scope.spawn(move |_| {
                     let _slot = slot;
 
+                    let _worker_activity = self
+                        .profile
+                        .as_deref()
+                        .map(ProfileSession::start_worker_activity);
+
                     let _active = ActiveSchedulerGuard::enter(self.identity(), priority)
                         .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
 
@@ -216,6 +225,11 @@ impl FactScheduler {
         if let Some(span) = queue_span {
             span.finish(CompilationProfileOutcome::Completed);
         }
+
+        let _worker_activity = self
+            .profile
+            .as_deref()
+            .map(ProfileSession::start_worker_activity);
 
         let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())
             .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));

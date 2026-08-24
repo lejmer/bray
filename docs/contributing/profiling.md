@@ -96,6 +96,23 @@ concurrently. The indented categories divide that worker time by the kind of wor
 Do not add operation totals to elapsed time. Operations can be nested and parallel workers can overlap. Treat elapsed
 time as the latency seen by the invocation and worker self time as the amount of occupied worker time.
 
+### Scheduling and concurrency
+
+`Worker occupancy` reports the greatest number of compiler workers active together and the share of available worker
+time spent executing scheduled compiler work. Available worker time is elapsed time multiplied by the configured worker
+budget. Low occupancy during a long compilation points to work that is exposed serially, even when scheduler queue and
+dependency wait are both small.
+
+`Query critical path` is the longest observed rooted query evaluation. It includes the dependencies required by that
+evaluation, so it approximates the longest serial query chain without adding nested query durations together.
+
+`Ready work` describes explicit batches submitted to the compiler scheduler. Its wave count, total item count, and
+maximum width show how much parallel work the current architecture exposes. These measurements cover scheduler batches
+that exist today. A low maximum width means the compiler did not expose broad work to the scheduler during that run.
+
+The `Workers` column in the operation table reports the greatest number of workers that executed the same operation at
+once. It distinguishes a costly parallel phase from a costly phase that remained serial.
+
 ### Query totals
 
 The `Queries` line summarizes demand-driven compiler queries:
@@ -128,17 +145,30 @@ additional elapsed time.
 
 ### Top queries
 
-`Top queries by evaluation time` ranks up to ten query kinds by inclusive evaluation time:
+`Top queries by evaluation self time` ranks up to ten query kinds by exclusive same-thread evaluation work:
 
-- `Requests` shows total demand for the query kind
 - `Evals` shows how often its computation ran
-- `Hit rate` shows the portion served from published values
 - `Evaluation` is inclusive time spent evaluating it
-- `Wait` is time callers spent waiting for another task to publish it
+- `Self` excludes nested profiled operations on the same thread
+- `Median <=` and `P95 <=` are bounded latency estimates from a fixed-size logarithmic histogram
+
+The histogram retains a fixed number of buckets instead of individual samples. Minimum and maximum are exact, while
+median and ninety-fifth percentile values are upper bounds for their buckets. This keeps profile memory bounded even for
+large compilations.
 
 Evaluation time is inclusive. A parent query includes work performed by child queries, and parallel work can overlap.
-Use the table to find expensive query families, then correlate them with the operation and unit tables instead of
-summing its rows.
+Use `Self` to find query families consuming worker capacity. Use the inclusive value and critical path to understand the
+dependency subtree. Do not sum query rows.
+
+`Top queries by ready-value access time` ranks cache hits by the time between beginning a query request and reaching its
+already-published value. This includes fact-cell synchronization and ready-value retrieval. It reveals query families
+where a high hit rate still carries meaningful overhead.
+
+`Top query publication and propagation volume` attributes immutable result publication and known semantic projection
+clones to query kinds. Published and clone byte counts cover the directly stored result value or projection.
+They do not estimate heap allocations reachable through that value. Diagnostic counts show diagnostics attached to
+published query results and copied with projected semantic values. Large values here identify query boundaries where
+ownership or result granularity deserves inspection.
 
 ### Compilation units and artifacts
 
@@ -182,9 +212,9 @@ Compare the matching report files:
 bray profile compare profiles/baseline/hello_world-application-x86_64-pc-windows-msvc-build.json profiles/candidate/hello_world-application-x86_64-pc-windows-msvc-build.json
 ```
 
-The comparison reports before, after, absolute change, and percentage change for elapsed and worker-time categories. It
-also ranks the largest operation self-time changes and query evaluation-time changes, then lists changed unit and
-artifact measurements.
+The comparison reports before, after, absolute change, and percentage change for elapsed, worker-time, scheduled worker
+activity, critical-path, and ready-value categories. It also ranks the largest operation and query self-time changes,
+then lists changed unit and artifact measurements.
 
 Bray rejects incompatible reports. Package, product, target, schema, and shared descriptor meanings must agree. Reports
 should also come from equivalent actions and build environments even where that context is controlled outside the report
@@ -223,12 +253,14 @@ Use this sequence for a compiler performance investigation:
 
 1. Reproduce the slow command with `--profile=summary`.
 2. Compare compiler `Elapsed` with Bray's overall command time to locate compiler work versus outer build-tool overhead.
-3. Find the dominant operation by `Self` time and check whether one call dominates its `Maximum`.
-4. Correlate that operation with the top query families.
-5. Check unit and artifact counts for unnecessary work or fragmentation.
-6. Save a baseline report before changing code.
-7. Collect several candidate reports under the same conditions and use `bray profile compare`.
-8. Collect a trace only when aggregate evidence cannot explain scheduling or concurrency behavior.
+3. Check worker occupancy, operation worker peaks, and ready-work width to determine whether the architecture exposed
+   useful parallel work.
+4. Find the dominant operation by `Self` time and check whether one call dominates its `Maximum`.
+5. Correlate that operation with query self time, latency, ready-value access, and propagation volume.
+6. Check unit and artifact counts for unnecessary work or fragmentation.
+7. Save a baseline report before changing code.
+8. Collect several candidate reports under the same conditions and use `bray profile compare`.
+9. Collect a trace only when aggregate evidence cannot explain scheduling or concurrency behavior.
 
 For example, many code generation instances and units, many link inputs, dominant `codegen generate` self time, and
 substantial `link` time together point to code generation partitioning rather than parsing or semantic analysis. A large

@@ -258,6 +258,12 @@ pub(crate) fn format_english_project_command_failure(
                     format_english_quoted_text(first),
                     format_english_quoted_text(second)
                 ),
+                bray_diagnostics::DiagnosticProfileValidationProblem::InvalidSchedulerStatistics => {
+                    "contains inconsistent scheduler statistics".to_owned()
+                }
+                bray_diagnostics::DiagnosticProfileValidationProblem::InvalidQueryStatistics {
+                    id,
+                } => format!("contains inconsistent request statistics for descriptor {id}"),
             };
 
             format!("profile report {} {problem}", format_english_path(path))

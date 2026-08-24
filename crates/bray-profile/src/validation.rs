@@ -37,6 +37,10 @@ pub enum CompilationProfileValidationError {
     InvalidRuntimeArtifactIdentity { index: usize },
     /// Selected runtime artifacts are duplicated or not in canonical identity order.
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    /// Scheduler aggregates contradict the configured worker budget or ready-work counts.
+    InvalidSchedulerStatistics,
+    /// Query aggregates contradict their request, evaluation, or distribution counts.
+    InvalidQueryStatistics { id: u16 },
 }
 
 impl CompilationProfileReport {
@@ -69,6 +73,18 @@ impl CompilationProfileReport {
             self.descriptors.operations.iter().map(|entry| entry.id),
             CompilationProfileDescriptorKind::Operation,
         )?;
+
+        if !valid_scheduler_statistics(self) {
+            return Err(CompilationProfileValidationError::InvalidSchedulerStatistics);
+        }
+
+        if let Some(query) = self
+            .queries
+            .iter()
+            .find(|query| !valid_query_statistics(query))
+        {
+            return Err(CompilationProfileValidationError::InvalidQueryStatistics { id: query.id });
+        }
 
         validate_observations(
             self.queries.iter().map(|entry| entry.id),
@@ -125,6 +141,57 @@ impl CompilationProfileReport {
 
         Ok(())
     }
+}
+
+fn valid_scheduler_statistics(report: &CompilationProfileReport) -> bool {
+    let scheduler = report.scheduler;
+
+    if scheduler.worker_budget == 0
+        || scheduler.maximum_active_workers > scheduler.worker_budget
+        || scheduler.maximum_ready_width > scheduler.ready_items
+    {
+        return false;
+    }
+
+    if scheduler.ready_waves == 0 {
+        return scheduler.ready_items == 0 && scheduler.maximum_ready_width == 0;
+    }
+
+    scheduler.ready_items >= scheduler.ready_waves && scheduler.maximum_ready_width > 0
+}
+
+fn valid_query_statistics(query: &crate::CompilationProfileQueryStatistics) -> bool {
+    if query.cache_hits.saturating_add(query.cache_misses) > query.requests
+        || query.evaluations > query.cache_misses
+        || query.evaluation_latency.samples != query.evaluations
+        || query.published_values > query.evaluations
+    {
+        return false;
+    }
+
+    if query.cache_hits == 0
+        && (query.ready_value_nanoseconds > 0 || query.ready_value_maximum_nanoseconds > 0)
+    {
+        return false;
+    }
+
+    if query.ready_value_maximum_nanoseconds > query.ready_value_nanoseconds {
+        return false;
+    }
+
+    if query.evaluations == 0 {
+        return query.evaluation_nanoseconds == 0
+            && query.evaluation_self_nanoseconds == 0
+            && query.evaluation_latency
+                == crate::CompilationProfileDurationDistribution::default();
+    }
+
+    query.evaluation_latency.minimum_nanoseconds <= query.evaluation_latency.maximum_nanoseconds
+        && query.evaluation_latency.minimum_nanoseconds
+            <= query.evaluation_latency.median_upper_bound_nanoseconds
+        && query.evaluation_latency.median_upper_bound_nanoseconds
+            <= query.evaluation_latency.p95_upper_bound_nanoseconds
+        && query.evaluation_self_nanoseconds <= query.evaluation_nanoseconds
 }
 
 fn validate_unique(
@@ -228,6 +295,32 @@ mod tests {
                     second: "runtime.host".to_owned(),
                 }
             )
+        );
+    }
+
+    #[test]
+    fn validation_rejects_inconsistent_scheduler_statistics() {
+        let mut invalid = report(1_000_000);
+
+        invalid.scheduler.maximum_active_workers = 2;
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidSchedulerStatistics)
+        );
+    }
+
+    #[test]
+    fn validation_rejects_inconsistent_query_statistics() {
+        let mut invalid = report(1_000_000);
+
+        invalid.queries[0].evaluation_latency.samples = 2;
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidQueryStatistics {
+                id: invalid.queries[0].id,
+            })
         );
     }
 }
