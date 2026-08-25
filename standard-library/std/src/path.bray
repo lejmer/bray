@@ -18,10 +18,11 @@ struct NativeText
     construct from_string(pos value: &string) -> Result<Self, PathError>
     {
         let width: usize = trusted internal std.platform.native_text_width();
+        let encoded: &[u8] = std.string.utf8(value);
 
         if width == 8
         {
-            let buffer: std.bytes.Buffer = try buffer_from_utf8(std.string.utf8(value));
+            let buffer: std.bytes.Buffer = try buffer_from_utf8(encoded);
 
             return Ok(
                 {
@@ -35,22 +36,10 @@ struct NativeText
             return Error(PathError.InvalidNativeValue);
         }
 
-        let mut buffer: std.bytes.Buffer = try empty_buffer();
-        let count: usize = std.string.scalar_count(value);
-        let mut index: usize = 0;
+        let capacity: usize = try utf16_byte_length(encoded);
+        let mut buffer: std.bytes.Buffer = try allocate_buffer(capacity = capacity);
 
-        while index < count
-        {
-            let scalar: char? = std.string.scalar_at(value, index = index);
-
-            match scalar
-            {
-                case ?character { try append_utf16(&mut buffer, character); }
-                case none { return Error(PathError.InvalidNativeValue); }
-            }
-
-            index += 1;
-        }
+        try append_utf16_encoded(&mut buffer, encoded);
 
         return Ok(
             {
@@ -154,7 +143,7 @@ struct Path
         let prefix_length: usize = path_prefix_length(source);
         let rooted: bool = path_has_root(source);
         let anchored: bool = path_is_anchored(source);
-        let mut output: std.bytes.Buffer = try empty_buffer();
+        let mut output: std.bytes.Buffer = try allocate_buffer();
         let mut segment_starts: std.collection.List<usize> = try empty_segment_starts();
         let mut output_length: usize = prefix_length;
         let mut index: usize = prefix_length;
@@ -278,13 +267,119 @@ internal func path_from_buffer(pos buffer: std.bytes.Buffer) -> Result<Path, Pat
     return Path.from_native(native);
 }
 
-internal func empty_buffer() -> Result<std.bytes.Buffer, PathError>
+internal func allocate_buffer(capacity: usize = 0) -> Result<std.bytes.Buffer, PathError>
 {
-    match trusted std.bytes.Buffer(capacity = 0)
+    match trusted std.bytes.Buffer(capacity = capacity)
     {
         case Ok(buffer) { return Ok(buffer); }
         case Error(_) { return Error(PathError.MemoryLayout); }
     }
+}
+
+internal func utf16_byte_length(pos encoded: &[u8]) -> Result<usize, PathError>
+{
+    let mut bytes: usize = 0;
+    let mut index: usize = 0;
+
+    while index < std.bytes.slice_length(encoded)
+    {
+        let utf8_bytes: usize = utf8_sequence_length(encoded[index]);
+
+        let utf16_bytes: usize = if utf8_bytes <= 3
+        {
+            yield 2;
+        }
+        else
+        {
+            yield 4;
+        };
+
+        match std.numeric.checked_add<usize>(bytes, utf16_bytes)
+        {
+            case ?total { bytes = total; }
+            case none { return Error(PathError.MemoryLayout); }
+        }
+
+        index += utf8_bytes;
+    }
+
+    return Ok(bytes);
+}
+
+trusted internal func append_utf16_encoded(
+    pos buffer: &mut std.bytes.Buffer,
+    pos encoded: &[u8],
+) -> Result<unit, PathError>
+{
+    let mut index: usize = 0;
+
+    while index < std.bytes.slice_length(encoded)
+    {
+        let utf8_bytes: usize = utf8_sequence_length(encoded[index]);
+        let scalar: u32 = utf8_scalar(encoded, index = index, length = utf8_bytes);
+
+        try append_utf16_scalar(&mut buffer, scalar);
+
+        index += utf8_bytes;
+    }
+
+    return Ok(unit);
+}
+
+internal func utf8_sequence_length(pos first: u8) -> usize
+{
+    if first <= 127
+    {
+        return 1;
+    }
+
+    if first <= 223
+    {
+        return 2;
+    }
+
+    if first <= 239
+    {
+        return 3;
+    }
+
+    return 4;
+}
+
+trusted internal func utf8_scalar(pos encoded: &[u8], index: usize, length: usize) -> u32
+{
+    let first: u32 = encoded[index] as u32;
+
+    if length == 1
+    {
+        return first;
+    }
+
+    let second: u32 = encoded[index + 1] as u32;
+
+    if length == 2
+    {
+        let scalar: u32 = (first - 192) * 64 + second - 128;
+
+        return scalar;
+    }
+
+    let third: u32 = encoded[index + 2] as u32;
+
+    if length == 3
+    {
+        let scalar: u32 = (first - 224) * 4096 + (second - 128) * 64 + third - 128;
+
+        return scalar;
+    }
+
+    let fourth: u32 = encoded[index + 3] as u32;
+    let first_value: u32 = (first - 240) * 262144;
+    let second_value: u32 = (second - 128) * 4096;
+    let third_value: u32 = (third - 128) * 64;
+    let scalar: u32 = first_value + second_value + third_value + fourth - 128;
+
+    return scalar;
 }
 
 internal func buffer_from_utf8(pos bytes: &[u8]) -> Result<std.bytes.Buffer, PathError>
@@ -318,6 +413,11 @@ internal func append_utf16(pos buffer: &mut std.bytes.Buffer, pos value: char) -
 {
     let scalar: u32 = std.character.scalar_value(value = value);
 
+    return append_utf16_scalar(&mut buffer, scalar);
+}
+
+internal func append_utf16_scalar(pos buffer: &mut std.bytes.Buffer, pos scalar: u32) -> Result<unit, PathError>
+{
     if scalar <= 65535
     {
         return append_native_unit(&mut buffer, scalar);
@@ -360,7 +460,7 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
         return Error(PathError.InvalidNativeValue);
     }
 
-    let mut utf8: std.bytes.Buffer = try empty_buffer();
+    let mut utf8: std.bytes.Buffer = try allocate_buffer();
     let mut index: usize = 0;
 
     while index < std.bytes.slice_length(bytes)

@@ -4,30 +4,28 @@ use std::process::ExitCode;
 
 use bray_codegen::{BackendIdentity, CodegenTarget};
 use bray_compilation::{
-    BuildConfiguration, CompilationOptions, CompilationProfileReport, CompilationRequest,
-    ProductEmissionInputs, SelectedTarget, WorkerBudget,
+    BuildConfiguration, CompilationProfileReport, ProductEmissionInputs, SelectedTarget,
+    WorkerBudget,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, OutputSink,
     ReplacementPolicy, RequestedArtifact, RequestedArtifactDestination,
 };
-use bray_package_interface::{
-    InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
-    PackageInterfaceIdentity,
-};
 use bray_project::{ProjectGraph, ProjectProduct, load_standard_library_project_graph};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
-    PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
+    STANDARD_LIBRARY_MANIFEST_FILE_NAME,
     StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
     StandardLibraryTargetArtifacts, decode_standard_library_manifest,
     encode_standard_library_manifest, standard_library_target_artifact_directory,
 };
-use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
+use bray_symbols::{
+    NativeLinkRequirement, PackageIdentity, PackageVersion, ProductKind,
+};
 use bray_target::{
     NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
 };
-use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
+use bray_tooling::{load_llvm_compilation, native_linker};
 
 use super::error::BuildError;
 use super::options::{BuildOptions, BuildProfileOptions, path_argument, required_argument};
@@ -323,6 +321,7 @@ fn build_bundle(
             interface_bytes,
             implementation_bytes,
             archive_bytes,
+            native_links,
             optimization,
             platform_archives,
             compiler_profile,
@@ -333,6 +332,7 @@ fn build_bundle(
         }
 
         let abi = selected.runtime_abi();
+
         let target_path = standard_library_target_artifact_directory(target, abi);
 
         let interface_path = format!("{target_path}/std.brayi");
@@ -367,6 +367,7 @@ fn build_bundle(
             portable_path,
             &archive_bytes,
         )
+        .map(|artifact| artifact.with_native_links(native_links))
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         let provenance_path = format!("{target_path}/temporal-provider.json");
@@ -453,6 +454,7 @@ struct BuiltTarget {
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
+    native_links: Vec<NativeLinkRequirement>,
     optimization: super::super::optimization::BuiltOptimizationArchive,
     platform_archives: Vec<super::platform::BuiltPlatformArchive>,
     compiler_profile: Option<CompilationProfileReport>,
@@ -495,6 +497,10 @@ fn build_target(
         .native_target()
         .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))?;
 
+    let native_links =
+        crate::standard_library::os_bindings::native_links(selected.profile().identity())
+            .map_err(BuildError::OsBindings)?;
+
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let output = work.join(target.as_str());
 
@@ -508,12 +514,13 @@ fn build_target(
         Vec::new()
     };
 
-    let request = standard_library_source_request(
+    let request = super::source::request_with_native_links(
         product,
         version,
         source_paths,
         &selected,
         WorkerBudget::default(),
+        native_links.clone(),
     )?;
 
     let request = match profile {
@@ -662,35 +669,11 @@ fn build_target(
         interface_bytes,
         implementation_bytes,
         archive_bytes,
+        native_links,
         optimization,
         platform_archives: platform,
         compiler_profile,
     })
-}
-
-pub(in crate::standard_library) fn standard_library_source_request(
-    product: &ProjectProduct,
-    version: &PackageVersion,
-    source_paths: &[PathBuf],
-    selected: &SelectedTarget,
-    worker_budget: WorkerBudget,
-) -> Result<CompilationRequest, BuildError> {
-    let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
-        .map_err(|error| BuildError::Source(format!("{error:?}")))?;
-
-    let native_links =
-        crate::standard_library::os_bindings::native_links(selected.profile().identity())
-            .map_err(BuildError::OsBindings)?;
-
-    let options = CompilationOptions::new(worker_budget, ProductKind::Library, selected.clone())
-        .with_native_link_inputs(native_links);
-
-    Ok(
-        CompilationRequest::with_options(product.identity().package().clone(), sources, options)
-            .with_standard_library_source_authority()
-            .with_platform_services(product.platform_services().iter().cloned())
-            .with_package_interface_export(interface_export_request(product.identity(), version)?),
-    )
 }
 
 fn emitted_paths(outcome: &bray_emitter::EmissionOutcome, kind: ArtifactKind) -> Vec<PathBuf> {
@@ -707,30 +690,6 @@ fn emitted_paths(outcome: &bray_emitter::EmissionOutcome, kind: ArtifactKind) ->
             OutputSink::Memory { .. } | OutputSink::Stream(_) => None,
         })
         .collect()
-}
-
-fn interface_export_request(
-    product: &ProductIdentity,
-    version: &PackageVersion,
-) -> Result<bray_compilation::PackageInterfaceExportRequest, BuildError> {
-    let product_identity =
-        InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
-            .ok_or(BuildError::InvalidIdentity)?;
-
-    // The interface shares the immutable Arc-backed package version from the project graph.
-    let identity = PackageInterfaceIdentity::try_new(
-        product.package().clone(),
-        version.clone(),
-        product_identity,
-        InterfaceProductKind::Library,
-        PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
-    )
-    .ok_or(BuildError::InvalidIdentity)?;
-
-    Ok(bray_compilation::PackageInterfaceExportRequest::new(
-        identity,
-        InterfaceLanguageRevision::new(0),
-    ))
 }
 
 pub(in crate::standard_library) fn standard_library_version(

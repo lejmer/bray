@@ -8,6 +8,7 @@ mod compatibility;
 mod component_dependency;
 mod component_validation;
 mod contract;
+mod family;
 mod platform;
 mod role;
 mod runtime;
@@ -35,6 +36,7 @@ pub use contract::{
     ExecutableHostContractBuilder, ExecutableHostEntry, ExecutableHostEntryId,
     ExecutionCapacityLimits, RootExecution, selected_runtime_role_symbol,
 };
+pub use family::PlatformServiceFamily;
 pub use platform::{
     PlatformAbiType, PlatformServiceBinding, PlatformServiceRole, PlatformServiceSignature,
 };

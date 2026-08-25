@@ -9,7 +9,7 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use super::wire::encode_payload;
-use super::{StandardLibraryOptimizationMetadata, StandardLibraryOptimizationProducerKind};
+use super::StandardLibraryOptimizationMetadata;
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -136,6 +136,16 @@ impl StandardLibraryArtifactKind {
             _ => None,
         }
     }
+
+    const fn accepts_native_links(self) -> bool {
+        matches!(
+            self,
+            Self::RelocatableObject
+                | Self::StaticLibrary
+                | Self::PlatformServiceLibrary
+                | Self::OptimizationArchive
+        )
+    }
 }
 
 /// One immutable file selected by the standard library bundle manifest.
@@ -190,7 +200,7 @@ impl StandardLibraryArtifact {
         self
     }
 
-    /// Returns this platform archive with its exact native library and framework requirements.
+    /// Returns this native link input with its exact library and framework requirements.
     pub fn with_native_links(
         mut self,
         native_links: impl IntoIterator<Item = NativeLinkRequirement>,
@@ -249,7 +259,7 @@ impl StandardLibraryArtifact {
         &self.platform_services
     }
 
-    /// Returns native libraries and frameworks required by this platform archive.
+    /// Returns native libraries and frameworks required by this link input.
     pub fn native_links(&self) -> &[NativeLinkRequirement] {
         &self.native_links
     }
@@ -302,14 +312,7 @@ impl StandardLibraryTargetArtifacts {
         }
 
         if artifacts.iter().any(|artifact| {
-            let accepts_native_links = artifact.kind()
-                == StandardLibraryArtifactKind::PlatformServiceLibrary
-                || artifact.optimization().is_some_and(|optimization| {
-                    optimization.producer().kind()
-                        == StandardLibraryOptimizationProducerKind::PinnedNative
-                });
-
-            !accepts_native_links && !artifact.native_links().is_empty()
+            !artifact.kind().accepts_native_links() && !artifact.native_links().is_empty()
         }) {
             return Err(StandardLibraryManifestError::InvalidNativeLink);
         }

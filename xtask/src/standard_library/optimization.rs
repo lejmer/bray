@@ -93,10 +93,7 @@ impl<'publication> OptimizationPublication<'publication> {
         )
         .map_err(manifest_error)?;
 
-        let native_links = fallback.native_links().iter().cloned().collect::<Vec<_>>();
-
         self.publish(partition, services, dependencies, fallback, built, producer)
-            .map(|artifact| artifact.with_native_links(native_links))
     }
 
     fn publish(
@@ -114,7 +111,7 @@ impl<'publication> OptimizationPublication<'publication> {
 
         super::command::write_bundle_artifact(self.bundle, &path, &built.bytes)?;
 
-        let fallback =
+        let fallback_metadata =
             StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())
                 .map_err(manifest_error)?;
 
@@ -133,7 +130,7 @@ impl<'publication> OptimizationPublication<'publication> {
             partition,
             producer,
             compatibility,
-            fallback,
+            fallback_metadata,
             built.module_count,
         )
         .map(|metadata| metadata.with_preservation_roots(built.preservation_roots))
@@ -148,6 +145,7 @@ impl<'publication> OptimizationPublication<'publication> {
             &built.bytes,
         )
         .map(|artifact| artifact.with_optimization(metadata))
+        .map(|artifact| inherit_native_links(artifact, fallback))
         .map_err(manifest_error)
     }
 
@@ -181,6 +179,13 @@ impl<'publication> OptimizationPublication<'publication> {
 
         Ok(compatibility)
     }
+}
+
+fn inherit_native_links(
+    artifact: StandardLibraryArtifact,
+    fallback: &StandardLibraryArtifact,
+) -> StandardLibraryArtifact {
+    artifact.with_native_links(fallback.native_links().iter().cloned())
 }
 
 fn optimization_archive_name(target: NativeTarget, partition: &str) -> Result<String, BuildError> {
@@ -677,11 +682,15 @@ pub(super) fn verify_relocated_native_modules(
 
 #[cfg(test)]
 mod tests {
+    use bray_base::NonEmptySharedStr;
+    use bray_standard_library::{StandardLibraryArtifact, StandardLibraryArtifactKind};
+    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
+
     use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
 
     use super::{
-        contains_checkout_path, is_llvm_bitcode, is_optimization_member, lifecycle_roots_for_line,
-        quoted_assignment, remap_checkout_path,
+        contains_checkout_path, inherit_native_links, is_llvm_bitcode, is_optimization_member,
+        lifecycle_roots_for_line, quoted_assignment, remap_checkout_path,
     };
 
     #[test]
@@ -768,6 +777,35 @@ mod tests {
                 root,
             ),
             "source_filename = \".\\\\source.cpp\""
+        );
+    }
+
+    #[test]
+    fn optimization_artifacts_inherit_fallback_native_links() {
+        let link = NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("Mincore")
+                .unwrap_or_else(|| panic!("native library name must be valid")),
+            NativeLinkKind::System,
+        );
+
+        let fallback = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "std.lib",
+            b"fallback",
+        )
+        .unwrap_or_else(|error| panic!("fallback artifact must be valid: {error:?}"))
+        .with_native_links([link.clone()]);
+
+        let optimization = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::OptimizationArchive,
+            "std_optimization.lib",
+            b"optimization",
+        )
+        .unwrap_or_else(|error| panic!("optimization artifact must be valid: {error:?}"));
+
+        assert_eq!(
+            inherit_native_links(optimization, &fallback).native_links(),
+            [link]
         );
     }
 }

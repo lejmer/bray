@@ -1,7 +1,11 @@
 pub(crate) fn contains_symbol(contents: &str, symbol: &str) -> bool {
+    symbol_tokens(contents).any(|token| token == symbol)
+}
+
+pub(crate) fn symbol_tokens(contents: &str) -> impl Iterator<Item = &str> {
     contents
         .split_whitespace()
-        .any(|token| token == symbol || token.strip_prefix('_') == Some(symbol))
+        .flat_map(|token| [token, token.strip_prefix('_').unwrap_or(token)])
 }
 
 #[cfg(test)]

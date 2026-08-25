@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -15,7 +15,7 @@ use super::model::{
 pub(super) fn inspect(
     kind: ArtifactKind,
     artifact: &Path,
-    map: Option<&Path>,
+    map: Option<InspectedLinkerMap>,
 ) -> Result<ArtifactReport, String> {
     let metadata = fs::metadata(artifact)
         .map_err(|error| format!("could not inspect {}: {error}", artifact.display()))?;
@@ -39,7 +39,7 @@ pub(super) fn inspect(
 
     let inspection = String::from_utf8_lossy(&output.stdout);
 
-    let (linker_map, static_archives, static_inputs) = match map.map(inspect_map).transpose()? {
+    let (linker_map, static_archives, static_inputs) = match map {
         Some(inspection) => (
             Some(inspection.report),
             inspection.retained_archives,
@@ -65,21 +65,41 @@ pub(super) fn inspect(
     })
 }
 
-struct InspectedLinkerMap {
+pub(super) struct InspectedLinkerMap {
     report: LinkerMapReport,
     retained_archives: BoundedList<String>,
     retained_inputs: BoundedList<RetainedInput>,
+    contents: String,
 }
 
-fn inspect_map(path: &Path) -> Result<InspectedLinkerMap, String> {
+impl InspectedLinkerMap {
+    pub(super) fn contains_symbol(&self, symbol: &str) -> bool {
+        crate::link_map::contains_symbol(&self.contents, symbol)
+    }
+
+    pub(super) fn contains_logical_provenance(&self, identity: &str) -> bool {
+        self.report
+            .logical_provenance
+            .entries
+            .binary_search_by(|candidate| candidate.as_str().cmp(identity))
+            .is_ok()
+    }
+}
+
+pub(super) fn inspect_map(
+    path: &Path,
+    catalog: Option<&super::optimization::OptimizationCatalog>,
+) -> Result<InspectedLinkerMap, String> {
     let bytes = fs::read(path)
         .map_err(|error| format!("could not read linker map {}: {error}", path.display()))?;
 
-    let text = String::from_utf8_lossy(&bytes);
-
-    let retained_inputs = parse_retained_inputs(&text);
-
+    let contents = String::from_utf8_lossy(&bytes).into_owned();
+    let retained_inputs = parse_retained_inputs(&contents);
     let retained_archives = retained_archives(&retained_inputs);
+
+    let logical_provenance = catalog
+        .map(|catalog| catalog.retained_provenance(&contents, &retained_inputs))
+        .unwrap_or_default();
 
     Ok(InspectedLinkerMap {
         report: LinkerMapReport {
@@ -87,10 +107,22 @@ fn inspect_map(path: &Path) -> Result<InspectedLinkerMap, String> {
             sha256: lowercase_hex(&sha256_file(path).map_err(|error| {
                 format!("could not hash linker map {}: {error}", path.display())
             })?),
+            logical_provenance: bounded(logical_provenance, MAX_RETAINED_INPUT_COUNT),
         },
         retained_archives: bounded(retained_archives, MAX_RETAINED_INPUT_COUNT),
         retained_inputs: bounded(retained_inputs, MAX_RETAINED_INPUT_COUNT),
+        contents,
     })
+}
+
+pub(super) fn inspect_physical(
+    kind: ArtifactKind,
+    artifact: &Path,
+    map: &Path,
+) -> Result<ArtifactReport, String> {
+    let map = inspect_map(map, None)?;
+
+    inspect(kind, artifact, Some(map))
 }
 
 fn retained_archives(inputs: &[RetainedInput]) -> Vec<String> {
@@ -104,7 +136,7 @@ fn retained_archives(inputs: &[RetainedInput]) -> Vec<String> {
 }
 
 fn parse_sections(report: &str) -> Vec<SectionSize> {
-    let mut sections = Vec::new();
+    let mut sections: BTreeMap<String, u64> = BTreeMap::new();
     let mut inside_section = false;
     let mut name = None;
     let mut raw_size = None;
@@ -124,16 +156,20 @@ fn parse_sections(report: &str) -> Vec<SectionSize> {
             virtual_size = parse_number(value.split_whitespace().next().unwrap_or(value));
         } else if inside_section && line == "}" {
             if let (Some(name), Some(bytes)) = (name.take(), raw_size.or(virtual_size)) {
-                sections.push(SectionSize { name, bytes });
+                sections
+                    .entry(name)
+                    .and_modify(|total| *total = total.saturating_add(bytes))
+                    .or_insert(bytes);
             }
 
             inside_section = false;
         }
     }
 
-    sections.sort_by(|left, right| left.name.cmp(&right.name));
-
     sections
+        .into_iter()
+        .map(|(name, bytes)| SectionSize { name, bytes })
+        .collect()
 }
 
 fn parse_needed_libraries(report: &str) -> Vec<String> {
@@ -180,18 +216,6 @@ fn parse_retained_inputs(map: &str) -> Vec<RetainedInput> {
     }
 
     inputs.into_iter().collect()
-}
-
-pub(super) fn contains_retained_provenance(map: &str, expected: &str) -> bool {
-    let expected = expected.to_ascii_lowercase();
-
-    parse_retained_inputs(map).iter().any(|input| {
-        input.artifact.to_ascii_lowercase().contains(&expected)
-            || input
-                .member
-                .as_deref()
-                .is_some_and(|member| member.to_ascii_lowercase().contains(&expected))
-    })
 }
 
 fn retained_map_tokens(map: &str) -> impl Iterator<Item = &str> {

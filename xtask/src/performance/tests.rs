@@ -25,8 +25,7 @@ use super::model::{
     WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
-    bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
-    sections_for_test,
+    bounded_retained_inputs_for_test, retained_inputs_for_test, sections_for_test,
 };
 use super::statistics::summarize;
 
@@ -203,40 +202,6 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
 }
 
 #[test]
-fn retention_provenance_ignores_unselected_archive_load_records() {
-    let map = "LOAD libbray_platform_process.a\n\
-        libbray_platform_filesystem.a(hash-filesystem.o)\n\
-        0000 _run_output_context bray_platform_core:kernel32.dll\n\
-        0001 bray_platform_standard_output_write output.lto.bray_platform_standard_streams_optimization.libmodule_0002.obj";
-
-    assert!(!contains_retained_provenance(map, "bray_platform_process"));
-
-    assert!(contains_retained_provenance(
-        map,
-        "bray_platform_filesystem"
-    ));
-
-    assert!(contains_retained_provenance(
-        map,
-        "bray_platform_standard_streams"
-    ));
-
-    let inputs = retained_inputs_for_test(map);
-
-    assert!(
-        !inputs
-            .iter()
-            .any(|input| input.artifact.contains("bray_platform_process"))
-    );
-
-    assert!(
-        !inputs
-            .iter()
-            .any(|input| input.artifact.contains("bray_platform_core"))
-    );
-}
-
-#[test]
 fn retained_input_reports_are_bounded_and_disclose_omissions() {
     let map = (0..4_100)
         .map(|index| format!("archive.lib({index}.o)"))
@@ -252,12 +217,13 @@ fn retained_input_reports_are_bounded_and_disclose_omissions() {
 #[test]
 fn object_sections_use_raw_size_only_within_section_records() {
     let sections = sections_for_test(
-        "Name: ignored\nSection {\n  Name: .text (1)\n  Size: 0x80\n  RawDataSize: 0x40\n}\n",
+        "Name: ignored\nSection {\n  Name: .text (1)\n  Size: 0x80\n  RawDataSize: 0x40\n}\n\
+         Section {\n  Name: .text (1)\n  Size: 0x20\n  RawDataSize: 0x10\n}\n",
     );
 
     assert_eq!(sections.len(), 1);
     assert_eq!(sections[0].name, ".text");
-    assert_eq!(sections[0].bytes, 64);
+    assert_eq!(sections[0].bytes, 80);
 }
 
 #[test]
@@ -719,6 +685,16 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
         .entries
         .sort();
 
+    let logical_provenance = &mut workload.artifacts[0]
+        .linker_map
+        .as_mut()
+        .unwrap_or_else(|| panic!("fixture executable must have a linker map"))
+        .logical_provenance
+        .entries;
+
+    logical_provenance.push("provider".to_owned());
+    logical_provenance.sort();
+
     workload.observations.allocation_count = Observation::Measured {
         value: 12,
         scope: "process".to_owned(),
@@ -753,6 +729,8 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
         artifact.added_static_inputs,
         [retained("new.lib", "member.o")]
     );
+
+    assert_eq!(artifact.added_logical_provenance, ["provider".to_owned()]);
 
     assert!(matches!(
         workload.observations.allocation_count,
@@ -1065,7 +1043,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                     static_inputs: bounded(vec![retained("runtime.lib", "startup.o")]),
                     dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
                 },
-                linker_map: None,
+                linker_map: Some(linker_map()),
             }],
             observations: WorkloadObservations {
                 allocation_count: unavailable(),
@@ -1243,6 +1221,7 @@ fn linker_map() -> LinkerMapReport {
     LinkerMapReport {
         bytes: 1,
         sha256: bray_base::lowercase_hex(&Sha256::digest("linker map")),
+        logical_provenance: bounded(vec!["std".to_owned()]),
     }
 }
 

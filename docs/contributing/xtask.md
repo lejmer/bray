@@ -285,18 +285,22 @@ The corpus covers a minimal executable plus scale-sensitive byte growth, borrowe
 formatting, stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access.
 The text pipeline covers merged literals, UTF-8 substrings, long and repeated input, imported parsing, comparison,
 hashing, and raw and escaped formatting. Representative stream-only and file-only workloads also enforce required and
-forbidden linker-map provenance so resource capability boundaries remain independently retainable. Add a workload only
-when it has a stable identity, deterministic output, an explicit scale and unit, and exercises a distinct implemented
-cost boundary. Prefer increasing the scale of a focused workload over combining unrelated operations in one source file.
+forbidden logical optimization provenance so resource capability boundaries remain independently retainable. Logical
+provenance combines optimization-partition identities, platform-provider families derived from exact retained service
+symbols, and exact archive identities for definitions that remain in their input archive. Add a workload only when it has
+a stable identity, deterministic output, an explicit scale and unit, and exercises a distinct implemented cost boundary.
+Prefer increasing the scale of a focused workload over combining unrelated operations in one source file.
 
 Use repeated `--workload <identity>` options for focused development runs. The selected workload set participates in the
 corpus digest, so a focused report can only compare with the same focused selection.
 
-Reports keep executable and relocatable-object sizes, per-section sizes, static linker-map provenance, dynamic library
-dependencies, the complete compiler profile, and robust median and MAD execution statistics. The HTML report presents
-duration in milliseconds and artifact size in KiB, with exact nanoseconds available as hover text. It reports process
-wall time separately from the measured Bray root execution interval, and bases throughput on the Bray interval. Exact
-byte counts appear beside rounded KiB values. Allocation, copying, and platform-call observations are tagged as measured
+Reports keep executable and relocatable-object sizes, per-section sizes, logical optimization-partition provenance,
+physical static linker-map inputs, dynamic library dependencies, the complete compiler profile, and robust median and
+MAD execution statistics. Logical provenance remains stable when cross-module optimization emits a retained provider
+definition from a product module. Physical inputs continue to describe the files observed by the linker. The HTML report
+presents duration in milliseconds and artifact size in KiB, with exact nanoseconds available as hover text. It reports
+process wall time separately from the measured Bray root execution interval, and bases throughput on the Bray interval.
+Exact byte counts appear beside rounded KiB values. Allocation, copying, and platform-call observations are tagged as measured
 or unavailable. Never replace a missing observation hook with an inferred count. Section, dynamic-library, and
 retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports to grow
 without bound.

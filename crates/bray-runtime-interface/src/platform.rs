@@ -2,9 +2,22 @@ use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, shared_slice};
 
-/// One closed platform-service role understood by the compiler, standard library, and runtime.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum PlatformServiceRole {
+macro_rules! define_platform_service_roles {
+    ($( $(#[$documentation:meta])* $role:ident, )+) => {
+        /// One closed platform-service role understood by the compiler, standard library, and runtime.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum PlatformServiceRole {
+            $( $(#[$documentation])* $role, )+
+        }
+
+        impl PlatformServiceRole {
+            /// Every platform-service role in stable numeric order.
+            pub const ALL: &'static [Self] = &[$(Self::$role, )+];
+        }
+    };
+}
+
+define_platform_service_roles! {
     /// Reads the immutable process identity.
     ContextIdentity,
     /// Reads the target-native text width.
@@ -709,7 +722,36 @@ impl PlatformServiceBinding {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{PlatformAbiType, PlatformServiceBinding, PlatformServiceRole};
+
+    #[test]
+    fn complete_platform_role_catalog_has_unique_identities() {
+        let ids = PlatformServiceRole::ALL
+            .iter()
+            .map(|role| role.id())
+            .collect::<BTreeSet<_>>();
+
+        let names = PlatformServiceRole::ALL
+            .iter()
+            .map(|role| role.as_str())
+            .collect::<BTreeSet<_>>();
+
+        let symbols = PlatformServiceRole::ALL
+            .iter()
+            .map(|role| crate::native_platform_service_role_symbol(*role))
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(ids.len(), PlatformServiceRole::ALL.len());
+        assert_eq!(names.len(), PlatformServiceRole::ALL.len());
+        assert_eq!(symbols.len(), PlatformServiceRole::ALL.len());
+
+        for role in PlatformServiceRole::ALL {
+            assert_eq!(PlatformServiceRole::from_id(role.id()), Some(*role));
+            assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(*role));
+        }
+    }
 
     #[test]
     fn platform_roles_have_stable_names_ids_and_shapes() {

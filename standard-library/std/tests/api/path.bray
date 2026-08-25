@@ -25,10 +25,10 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
 
     assert(slash_form || backslash_form);
 
-    let unicode: std.path.Path = try std.path.Path.from_string(&"data/Bray-λ");
+    let unicode: std.path.Path = try std.path.Path.from_string(&"data/Bray-λ-🦀");
     let unicode_text: string = try unicode.to_string();
 
-    assert(std.string.equals(&unicode_text, &"data/Bray-λ"));
+    assert(std.string.equals(&unicode_text, &"data/Bray-λ-🦀"));
 
     if trusted internal std.platform.native_text_width() == 16
     {

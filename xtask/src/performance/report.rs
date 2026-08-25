@@ -449,10 +449,20 @@ fn artifact_comparison_details(
             );
         }
 
+        let _ = write!(
+            html,
+            "<dt>Omitted logical provenance</dt><dd>{}</dd>",
+            comparison_metric(artifact.omitted_logical_provenance, MetricUnit::Count),
+        );
+
         html.push_str("</dl><h4>Added static inputs</h4><ul>");
         retained_inputs(html, &artifact.added_static_inputs);
         html.push_str("</ul><h4>Removed static inputs</h4><ul>");
         retained_inputs(html, &artifact.removed_static_inputs);
+        html.push_str("</ul><h4>Added logical provenance</h4><ul>");
+        escaped_list(html, &artifact.added_logical_provenance);
+        html.push_str("</ul><h4>Removed logical provenance</h4><ul>");
+        escaped_list(html, &artifact.removed_logical_provenance);
         html.push_str("</ul><h4>Added dynamic libraries</h4><ul>");
         escaped_list(html, &artifact.added_dynamic_libraries);
         html.push_str("</ul><h4>Removed dynamic libraries</h4><ul>");
@@ -617,11 +627,22 @@ fn measurement_detail(
 
 fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactReport]) {
     for artifact in artifacts {
+        let (logical_provenance_count, omitted_logical_provenance) = artifact
+            .linker_map
+            .as_ref()
+            .map_or((0, 0), |map| {
+                (
+                    map.logical_provenance.entries.len(),
+                    map.logical_provenance.omitted_count,
+                )
+            });
+
         let _ = write!(
             html,
             "<details><summary>{:?} artifact, {}</summary><dl><dt>Path</dt><dd><code>{}</code></dd>\
             <dt>Static inputs</dt><dd>{} shown, {} omitted</dd><dt>Dynamic libraries</dt>\
-            <dd>{} shown, {} omitted</dd><dt>Sections</dt><dd>{} shown, {} omitted</dd></dl>",
+            <dd>{} shown, {} omitted</dd><dt>Logical provenance</dt><dd>{} shown, {} omitted</dd>\
+            <dt>Sections</dt><dd>{} shown, {} omitted</dd></dl>",
             artifact.kind,
             kibibytes(artifact.bytes),
             escape(&artifact.path),
@@ -629,6 +650,8 @@ fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactR
             artifact.dependencies.static_inputs.omitted_count,
             artifact.dependencies.dynamic_libraries.entries.len(),
             artifact.dependencies.dynamic_libraries.omitted_count,
+            logical_provenance_count,
+            omitted_logical_provenance,
             artifact.sections.entries.len(),
             artifact.sections.omitted_count,
         );
@@ -642,6 +665,12 @@ fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactR
             );
 
             let _ = write!(html, "<li><code>{}</code></li>", escape(&identity));
+        }
+
+        html.push_str("</ul><h4>Logical provenance</h4><ul>");
+
+        if let Some(map) = &artifact.linker_map {
+            escaped_list(html, &map.logical_provenance.entries);
         }
 
         html.push_str("</ul><h4>Dynamic libraries</h4><ul>");
@@ -760,7 +789,7 @@ mod tests {
     use super::super::html::{BoundedHtml, MAX_HTML_BYTES, escape, finish};
     use super::super::model::PeerLanguage;
     use super::super::ranking::CandidateWinners;
-    use super::{render_candidate, render_comparison};
+    use super::{MetricUnit, comparison_metric, render_candidate, render_comparison};
 
     #[test]
     fn html_escaping_covers_text_and_attribute_delimiters() {
@@ -800,6 +829,8 @@ mod tests {
         report.workloads[0].id = "workload<&>\"'".to_owned();
         report.workloads[0].artifacts[0].path = "<artifact>".to_owned();
 
+        first_workload_logical_provenance(&mut report).omitted_count = 3;
+
         let first = render_candidate(&report)
             .unwrap_or_else(|error| panic!("candidate report must render: {error}"));
 
@@ -814,6 +845,7 @@ mod tests {
         assert!(first.contains("Shared comparison contract"));
         assert!(first.contains("Rust execution details"));
         assert!(first.contains("C++ execution details"));
+        assert!(first.contains("<dt>Logical provenance</dt><dd>1 shown, 3 omitted</dd>"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(first.contains("<tr class=\"bray-row\">"));
         assert_eq!(first.matches("class=\"metric-best\"").count(), 32);
@@ -853,8 +885,11 @@ mod tests {
 
     #[test]
     fn comparison_html_is_deterministic_and_agrees_with_structured_deltas() {
-        let baseline = super::super::tests::report("corpus", 2_500_000, 100_000);
-        let candidate = super::super::tests::report("corpus", 1_000_000, 100_000);
+        let mut baseline = super::super::tests::report("corpus", 2_500_000, 100_000);
+        let mut candidate = super::super::tests::report("corpus", 1_000_000, 100_000);
+
+        first_workload_logical_provenance(&mut baseline).omitted_count = 1;
+        first_workload_logical_provenance(&mut candidate).omitted_count = 3;
 
         let comparison = super::super::comparison::compare(&baseline, &candidate)
             .unwrap_or_else(|error| panic!("reports must compare: {error}"));
@@ -868,6 +903,14 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.contains("-1.500 ms"));
         assert!(first.contains("Improved"));
+
+        let omission = comparison.workloads[0].artifacts[0].omitted_logical_provenance;
+
+        assert!(first.contains(&format!(
+            "<dt>Omitted logical provenance</dt><dd>{}</dd>",
+            comparison_metric(omission, MetricUnit::Count),
+        )));
+
         assert!(first.contains("<tr class=\"bray-row\">"));
 
         assert!(first.contains(
@@ -875,5 +918,15 @@ mod tests {
         ));
 
         assert!(first.contains(&comparison.candidate_identity.corpus_sha256));
+    }
+
+    fn first_workload_logical_provenance(
+        report: &mut super::super::model::PerformanceReport,
+    ) -> &mut super::super::model::BoundedList<String> {
+        &mut report.workloads[0].artifacts[0]
+            .linker_map
+            .as_mut()
+            .unwrap_or_else(|| panic!("fixture artifact must have a linker map"))
+            .logical_provenance
     }
 }

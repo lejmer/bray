@@ -71,6 +71,11 @@ fn execute(mut options: Options) -> Result<(), String> {
     let prepared = super::toolchain::prepare(&root, options.target)?;
     crate::native_toolchain::build_compiler(&root)?;
 
+    let optimization_catalog = super::super::optimization::OptimizationCatalog::load(
+        prepared.standard_library(),
+        options.target,
+    )?;
+
     let compiler = crate::native_toolchain::compiler_executable(&root, "brayc");
 
     fs::create_dir_all(&options.output)
@@ -122,15 +127,12 @@ fn execute(mut options: Options) -> Result<(), String> {
             prepared.standard_library(),
             prepared.runtime(),
             prepared.observation_runtime(),
+            &optimization_catalog,
             timer_resolution_nanoseconds,
         )?);
     }
 
-    let optimization_artifacts = super::optimization_artifacts::inspect(
-        prepared.standard_library(),
-        options.target,
-        &workloads,
-    )?;
+    let optimization_artifacts = optimization_catalog.reports(&workloads);
 
     let candidate = PerformanceReport {
         schema_revision: SCHEMA_REVISION,
@@ -207,6 +209,7 @@ fn run_workload(
     standard_library: &Path,
     runtime: &Path,
     observation_runtime: &Path,
+    optimization_catalog: &super::super::optimization::OptimizationCatalog,
     timer_resolution_nanoseconds: u64,
 ) -> Result<WorkloadReport, String> {
     let output = options.output.join("workloads").join(workload.id);
@@ -291,7 +294,9 @@ fn run_workload(
         BuildConfiguration::Release,
     )?;
 
-    audit_retention_contract(workload, &map)?;
+    let linker_map = retention::inspect_map(&map, Some(optimization_catalog))?;
+
+    audit_retention_contract(workload, &linker_map)?;
 
     let compiler_profile = compilation
         .profile_report()
@@ -393,7 +398,7 @@ fn run_workload(
     let mut artifacts = vec![retention::inspect(
         ArtifactKind::Executable,
         &executable,
-        Some(&map),
+        Some(linker_map),
     )?];
 
     if let Some(object) = object {
@@ -555,10 +560,10 @@ fn peer_reports(
             .remove(&ImplementationKey::Peer(built.language))
             .ok_or_else(|| "interleaved execution omitted a measured peer".to_owned())?;
 
-        let artifacts = vec![retention::inspect(
+        let artifacts = vec![retention::inspect_physical(
             ArtifactKind::Executable,
             &built.executable,
-            Some(&built.linker_map),
+            &built.linker_map,
         )?];
 
         peers.insert(
@@ -660,16 +665,12 @@ fn unavailable_peer_observations() -> super::super::model::WorkloadObservations 
     }
 }
 
-fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {
-    let contents = fs::read_to_string(map).map_err(|error| {
-        format!(
-            "could not read workload linker map {}: {error}",
-            map.display()
-        )
-    })?;
-
+fn audit_retention_contract(
+    workload: &Workload,
+    map: &retention::InspectedLinkerMap,
+) -> Result<(), String> {
     for symbol in workload.retention.required_symbols {
-        if !crate::link_map::contains_symbol(&contents, symbol) {
+        if !map.contains_symbol(symbol) {
             return Err(retention_error(
                 workload,
                 "did not retain required symbol",
@@ -679,7 +680,7 @@ fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), Strin
     }
 
     for symbol in workload.retention.forbidden_symbols {
-        if crate::link_map::contains_symbol(&contents, symbol) {
+        if map.contains_symbol(symbol) {
             return Err(retention_error(
                 workload,
                 "retained forbidden symbol",
@@ -689,7 +690,7 @@ fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), Strin
     }
 
     for provenance in workload.retention.required_provenance {
-        if !retention::contains_retained_provenance(&contents, provenance) {
+        if !map.contains_logical_provenance(provenance) {
             return Err(retention_error(
                 workload,
                 "did not retain required provenance",
@@ -699,7 +700,7 @@ fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), Strin
     }
 
     for provenance in workload.retention.forbidden_provenance {
-        if retention::contains_retained_provenance(&contents, provenance) {
+        if map.contains_logical_provenance(provenance) {
             return Err(retention_error(
                 workload,
                 "retained forbidden provenance",

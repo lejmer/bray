@@ -492,19 +492,19 @@ mod tests {
             }
         });
 
-        assert_eq!(
+        assert!(
             StandardLibraryTargetArtifacts::try_new(
                 target.target().clone(),
                 target.runtime_abi(),
                 bray_optimization_native_link,
-            ),
-            Err(StandardLibraryManifestError::InvalidNativeLink)
+            )
+            .is_ok()
         );
 
         let ordinary_native_link = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::StaticLibrary,
-            "targets/x86_64-unknown-linux-gnu/1.0/libinvalid-native-link.a",
-            b"invalid native link owner",
+            "targets/x86_64-unknown-linux-gnu/1.0/libnative-link.a",
+            b"native link owner",
         )
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
@@ -515,7 +515,7 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("artifact metadata must be valid: {error:?}"));
 
-        assert_eq!(
+        assert!(
             StandardLibraryTargetArtifacts::try_new(
                 target.target().clone(),
                 target.runtime_abi(),
@@ -524,6 +524,23 @@ mod tests {
                     .iter()
                     .cloned()
                     .chain([ordinary_native_link]),
+            )
+            .is_ok()
+        );
+
+        let metadata_native_link = target.artifacts().iter().cloned().map(|artifact| {
+            if artifact.kind() == StandardLibraryArtifactKind::PackageImplementation {
+                artifact.with_native_links([optimization_native_link.clone()])
+            } else {
+                artifact
+            }
+        });
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                metadata_native_link,
             ),
             Err(StandardLibraryManifestError::InvalidNativeLink)
         );

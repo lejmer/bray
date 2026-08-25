@@ -327,6 +327,7 @@ pub(super) struct ArtifactDependencies {
 pub(super) struct LinkerMapReport {
     pub bytes: u64,
     pub sha256: String,
+    pub logical_provenance: BoundedList<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -398,6 +399,9 @@ pub(super) struct ArtifactComparison {
     pub added_static_inputs: Vec<RetainedInput>,
     pub removed_static_inputs: Vec<RetainedInput>,
     pub omitted_static_inputs: MetricComparison,
+    pub added_logical_provenance: Vec<String>,
+    pub removed_logical_provenance: Vec<String>,
+    pub omitted_logical_provenance: MetricComparison,
     pub added_dynamic_libraries: Vec<String>,
     pub removed_dynamic_libraries: Vec<String>,
     pub omitted_dynamic_libraries: MetricComparison,

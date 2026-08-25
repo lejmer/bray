@@ -8,6 +8,7 @@ mod format;
 mod html;
 mod model;
 mod observation;
+mod optimization;
 mod peer;
 mod presentation;
 mod ranking;

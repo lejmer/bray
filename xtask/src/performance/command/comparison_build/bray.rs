@@ -117,10 +117,10 @@ pub(super) fn build(
             )
             .map_err(|error| format!("could not resolve matched Bray application: {error:?}"))?;
 
-            let artifact = crate::performance::retention::inspect(
+            let artifact = crate::performance::retention::inspect_physical(
                 ArtifactKind::Executable,
                 &executable,
-                Some(&linker_map_path),
+                &linker_map_path,
             )?;
 
             let reuse =
