@@ -108,6 +108,7 @@ pub enum DiagnosticEmissionPlanningFailure {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticPackageInterfaceFailure {
     Unavailable,
+    ExportCancelled,
     InvalidCompilation,
     RecoveredPublicSymbol(String),
     IncompletePublicDeclaration(String),
@@ -180,6 +181,20 @@ pub enum DiagnosticPackageInterfaceFailure {
         name: String,
     },
     MissingSemanticContent(String),
+    IncompleteSemanticFragment,
+    ConflictingSemanticFragment,
+    CyclicSemanticFragment,
+    FragmentCoordination,
+    FragmentMissingReference {
+        table: String,
+        reference: u32,
+    },
+    FragmentUnexpectedPackageRecord,
+    FragmentConflictingRecord {
+        kind: String,
+    },
+    FragmentCyclicReference(String),
+    FragmentIdentityOverflow(String),
     DuplicateExecutableTemplate(u32),
     InvalidExecutableTemplateFamily(u32),
     DuplicateNativeBoundary(u32),
@@ -416,6 +431,7 @@ impl DiagnosticPackageInterfaceFailure {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Unavailable => "unavailable",
+            Self::ExportCancelled => "export_cancelled",
             Self::InvalidCompilation => "invalid_compilation",
             Self::RecoveredPublicSymbol(_) => "recovered_public_symbol",
             Self::IncompletePublicDeclaration(_) => "incomplete_public_declaration",
@@ -449,6 +465,15 @@ impl DiagnosticPackageInterfaceFailure {
             Self::InvalidDirectExportTarget(_) => "invalid_direct_export_target",
             Self::DuplicateExportName { .. } => "duplicate_export_name",
             Self::MissingSemanticContent(_) => "missing_semantic_content",
+            Self::IncompleteSemanticFragment => "incomplete_semantic_fragment",
+            Self::ConflictingSemanticFragment => "conflicting_semantic_fragment",
+            Self::CyclicSemanticFragment => "cyclic_semantic_fragment",
+            Self::FragmentCoordination => "fragment_coordination",
+            Self::FragmentMissingReference { .. } => "fragment_missing_reference",
+            Self::FragmentUnexpectedPackageRecord => "fragment_unexpected_package_record",
+            Self::FragmentConflictingRecord { .. } => "fragment_conflicting_record",
+            Self::FragmentCyclicReference(_) => "fragment_cyclic_reference",
+            Self::FragmentIdentityOverflow(_) => "fragment_identity_overflow",
             Self::DuplicateExecutableTemplate(_) => "duplicate_executable_template",
             Self::InvalidExecutableTemplateFamily(_) => "invalid_executable_template_family",
             Self::DuplicateNativeBoundary(_) => "duplicate_native_boundary",

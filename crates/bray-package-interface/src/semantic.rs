@@ -1,4 +1,5 @@
 mod codec;
+mod construction;
 mod interning;
 mod model;
 mod validation;
@@ -10,6 +11,10 @@ pub(crate) use codec::{
     selected_semantic_sections, validate_decode_allocation, write_symbol_reference,
 };
 pub use codec::{EncodedSemanticSection, decode_semantics, encode_semantics};
+pub use construction::{
+    InterfaceSemanticCommitError, InterfaceSemanticIdRemap, InterfaceSemanticTableKind,
+    commit_interface_semantic_fragments,
+};
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContract, ImportedCallableParameterDefault,
     ImportedCallableSignature, ImportedConstraint, ImportedDeclarationTemplate,

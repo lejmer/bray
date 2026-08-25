@@ -703,8 +703,9 @@ mod tests {
         package_version, source_function_body_key, source_named_trait_callable_fulfillment_body_key,
     };
     use crate::{
-        Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
+        Compilation, CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
+        CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
+        SelectedTarget, WorkerBudget,
     };
 
     #[test]
@@ -890,6 +891,67 @@ mod tests {
         assert_eq!(semantics.declaration_templates().len(), 3);
         assert_eq!(semantics.declared_types().len(), 2);
         assert_eq!(semantics.type_representations().len(), 2);
+    }
+
+    #[test]
+    fn parallel_interface_discovery_preserves_encoded_identity() {
+        let sources = [
+            concat!(
+                "module app.first;\n",
+                "public struct Boxed<T>\n",
+                "{\n",
+                "    value: T;\n",
+                "}\n",
+                "public func first(pos value: Boxed<i32>) -> Boxed<i32>\n",
+                "{\n",
+                "    return value;\n",
+                "}\n",
+            ),
+            concat!(
+                "module app.second;\n",
+                "public func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>\n",
+                "{\n",
+                "    return value;\n",
+                "}\n",
+            ),
+        ];
+
+        let serial = compilation_from_sources_with_worker_budget(sources, WorkerBudget::serial());
+
+        let parallel_budget = WorkerBudget::new(4)
+            .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
+
+        let parallel = profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
+
+        let serial_artifact = encode_package_interface(export(&serial))
+            .unwrap_or_else(|error| panic!("serial interface must encode: {error:?}"));
+
+        let parallel_artifact = encode_package_interface(export(&parallel))
+            .unwrap_or_else(|error| panic!("parallel interface must encode: {error:?}"));
+
+        assert_eq!(
+            serial_artifact.shared_bytes(),
+            parallel_artifact.shared_bytes()
+        );
+
+        let profile = parallel
+            .profile_report()
+            .unwrap_or_else(|| panic!("parallel compilation must retain its profile"));
+
+        let fragment = profile
+            .descriptors
+            .operations
+            .iter()
+            .find(|operation| operation.name == "compiler.interface.fragment")
+            .and_then(|descriptor| {
+                profile
+                    .operations
+                    .iter()
+                    .find(|operation| operation.id == descriptor.id)
+            })
+            .unwrap_or_else(|| panic!("parallel fragment discovery must be profiled"));
+
+        assert!(fragment.maximum_active_workers > 1);
     }
 
     #[test]
@@ -2041,6 +2103,34 @@ trusted internal func flush() -> PlatformStatus
         compilation_from_sources_for_product(sources, ProductKind::Library)
     }
 
+    fn compilation_from_sources_with_worker_budget<const N: usize>(
+        sources: [&str; N],
+        worker_budget: WorkerBudget,
+    ) -> Compilation {
+        compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+            sources,
+            ProductKind::Library,
+            std::iter::empty(),
+            worker_budget,
+            None,
+        )
+    }
+
+    fn profiled_compilation_from_sources_with_worker_budget<const N: usize>(
+        sources: [&str; N],
+        worker_budget: WorkerBudget,
+    ) -> Compilation {
+        compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+            sources,
+            ProductKind::Library,
+            std::iter::empty(),
+            worker_budget,
+            Some(CompilationProfileConfiguration::new(
+                CompilationProfileMode::Summary,
+            )),
+        )
+    }
+
     fn compilation_from_sources_for_product<const N: usize>(
         sources: [&str; N],
         product_kind: ProductKind,
@@ -2056,6 +2146,24 @@ trusted internal func flush() -> PlatformStatus
         sources: [&str; N],
         product_kind: ProductKind,
         platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+    ) -> Compilation {
+        compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+            sources,
+            product_kind,
+            platform_services,
+            WorkerBudget::default(),
+            None,
+        )
+    }
+
+    fn compilation_from_sources_for_product_with_platform_services_and_worker_budget<
+        const N: usize,
+    >(
+        sources: [&str; N],
+        product_kind: ProductKind,
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+        worker_budget: WorkerBudget,
+        profile: Option<CompilationProfileConfiguration>,
     ) -> Compilation {
         let package = PackageIdentity::try_new("example.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
@@ -2078,7 +2186,7 @@ trusted internal func flush() -> PlatformStatus
         let sources = test_source_inputs("test", sources);
 
         let options = CompilationOptions::new(
-            WorkerBudget::default(),
+            worker_budget,
             product_kind,
             SelectedTarget::default(),
         );
@@ -2086,6 +2194,11 @@ trusted internal func flush() -> PlatformStatus
         let request = CompilationRequest::with_options(package, sources, options)
             .with_platform_services(platform_services)
             .with_package_interface_export(export);
+
+        let request = match profile {
+            Some(profile) => request.with_profile(profile),
+            None => request,
+        };
 
         Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))

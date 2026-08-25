@@ -10,3 +10,4 @@ pub(crate) use declaration::{
 };
 pub(super) use root::{checked_index, saturating_u64};
 pub(crate) use template::validate_constraint_templates;
+pub(super) use value::{InterfaceTypeGraphError, interface_type_graph_depth};

@@ -13,7 +13,7 @@ use bray_symbols::{
 
 use super::super::PackageInterfaceExportError;
 
-use super::context::SemanticExporter;
+use super::context::{SemanticExporter, export_acyclic_semantic_value};
 use super::implementation::incomplete_type;
 use super::templates::{incomplete, index};
 
@@ -26,12 +26,13 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .constant_term_data(id)
-            .map_err(|_| incomplete_type())?;
+        export_acyclic_semantic_value!(self, active_constant_terms, id, {
+            let data = self
+                .values
+                .constant_term_data(id)
+                .map_err(|_| incomplete_type())?;
 
-        let term = match data.as_ref() {
+            let term = match data.as_ref() {
             ConstantTermData::Value(value) => {
                 InterfaceConstantTerm::Value(self.constant_value_id(*value)?)
             }
@@ -172,14 +173,15 @@ impl<'a> SemanticExporter<'a> {
                     }
                 },
             },
-        };
+            };
 
-        let exported = InterfaceConstantTermId::new(index(self.constant_terms.len())?);
+            let exported = InterfaceConstantTermId::new(index(self.constant_terms.len())?);
 
-        self.constant_terms.push(term);
-        self.constant_term_ids.insert(id, exported);
+            self.constant_terms.push(term);
+            self.constant_term_ids.insert(id, exported);
 
-        Ok(exported)
+            Ok(exported)
+        })
     }
 
     pub(in crate::compilation::export) fn constant_value_term_id(
@@ -259,12 +261,13 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .constant_value_data(id)
-            .map_err(|_| incomplete_type())?;
+        export_acyclic_semantic_value!(self, active_constant_values, id, {
+            let data = self
+                .values
+                .constant_value_data(id)
+                .map_err(|_| incomplete_type())?;
 
-        let kind = match data.kind() {
+            let kind = match data.kind() {
             ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
                 return Err(incomplete_type());
             }
@@ -313,17 +316,18 @@ impl<'a> SemanticExporter<'a> {
                     .collect::<Result<Vec<_>, _>>()?
                     .into(),
             },
-        };
+            };
 
-        let exported = InterfaceConstantValueId::new(index(self.constant_values.len())?);
-        let ty = self.type_id(data.ty())?;
+            let exported = InterfaceConstantValueId::new(index(self.constant_values.len())?);
+            let ty = self.type_id(data.ty())?;
 
-        self.constant_values
-            .push(InterfaceConstantValue::new(ty, kind));
+            self.constant_values
+                .push(InterfaceConstantValue::new(ty, kind));
 
-        self.constant_value_ids.insert(id, exported);
+            self.constant_value_ids.insert(id, exported);
 
-        Ok(exported)
+            Ok(exported)
+        })
     }
 
     pub(super) fn constant_value_ids(

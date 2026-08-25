@@ -551,6 +551,27 @@ pub enum InterfaceSemanticRecordKind {
     Runtime,
 }
 
+impl InterfaceSemanticRecordKind {
+    /// Returns the stable machine key for this semantic record category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CallableSignature => "callable_signature",
+            Self::GenericDeclaration => "generic_declaration",
+            Self::CallableParameterDefault => "callable_parameter_default",
+            Self::PredicateDefinition => "predicate_definition",
+            Self::DeclaredType => "declared_type",
+            Self::TypeRepresentation => "type_representation",
+            Self::GenericConstraint => "generic_constraint",
+            Self::CallableContracts => "callable_contracts",
+            Self::DeclarationTemplate => "declaration_template",
+            Self::Implementation => "implementation",
+            Self::TargetProperty => "target_property",
+            Self::Abi => "abi",
+            Self::Runtime => "runtime",
+        }
+    }
+}
+
 /// One stable record-directory entry.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceSemanticRecord {

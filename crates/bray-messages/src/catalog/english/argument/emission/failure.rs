@@ -210,6 +210,7 @@ fn format_english_package_interface_failure(
         Failure::Unavailable => {
             "package-interface output was requested without export configuration".to_owned()
         }
+        Failure::ExportCancelled => "package-interface export was cancelled".to_owned(),
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
@@ -322,6 +323,35 @@ fn format_english_package_interface_failure(
         }
         Failure::MissingSemanticContent(kind) => {
             format!("an exported {kind} declaration has no completed semantic content")
+        }
+        Failure::IncompleteSemanticFragment => {
+            "an exported declaration is missing semantic content required by its interface records"
+                .to_owned()
+        }
+        Failure::ConflictingSemanticFragment => {
+            "two exported declarations have the same stable symbol identity".to_owned()
+        }
+        Failure::CyclicSemanticFragment => {
+            "an exported semantic value contains an unsupported recursive reference".to_owned()
+        }
+        Failure::FragmentCoordination => {
+            "package-interface declaration discovery could not be coordinated".to_owned()
+        }
+        Failure::FragmentMissingReference { table, reference } => format!(
+            "semantic {table} reference {reference} has no package-wide identity"
+        ),
+        Failure::FragmentUnexpectedPackageRecord => {
+            "a declaration fragment contains a record that belongs to the complete package"
+                .to_owned()
+        }
+        Failure::FragmentConflictingRecord { kind } => format!(
+            "two declaration fragments provide different {kind} records for one symbol"
+        ),
+        Failure::FragmentCyclicReference(table) => {
+            format!("the semantic {table} table contains a recursive local reference")
+        }
+        Failure::FragmentIdentityOverflow(table) => {
+            format!("the semantic {table} table exceeds the compact identity range")
         }
         Failure::DuplicateExecutableTemplate(owner) => {
             format!("two executable templates claim callable record {owner}")

@@ -5,7 +5,8 @@ use bray_diagnostics::{
 };
 use bray_emitter::BackendContributionMergeErrorKind;
 use bray_package_interface::{
-    InterfaceValidationError, PackageImplementationArtifactBuildError,
+    InterfaceSemanticCommitError, InterfaceValidationError,
+    PackageImplementationArtifactBuildError,
     PackageInterfaceExportBuildError, PackageInterfaceExportSurfaceError,
     PackageInterfaceSurfaceBuildError,
 };
@@ -220,6 +221,11 @@ fn package_interface_export_failure_diagnostic(
     target: &TargetIdentity,
 ) -> Option<Diagnostic> {
     let diagnostic = match error {
+        PackageInterfaceExportError::Cancelled => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::ExportCancelled,
+            product,
+            target,
+        ),
         PackageInterfaceExportError::InvalidCompilation => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::InvalidCompilation,
             product,
@@ -239,6 +245,29 @@ fn package_interface_export_failure_diagnostic(
                 target,
             )
         }
+        PackageInterfaceExportError::IncompleteSemanticFragment => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::IncompleteSemanticFragment,
+            product,
+            target,
+        ),
+        PackageInterfaceExportError::ConflictingSemanticFragment => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::ConflictingSemanticFragment,
+            product,
+            target,
+        ),
+        PackageInterfaceExportError::CyclicSemanticFragment => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::CyclicSemanticFragment,
+            product,
+            target,
+        ),
+        PackageInterfaceExportError::FragmentCoordination => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::FragmentCoordination,
+            product,
+            target,
+        ),
+        PackageInterfaceExportError::FragmentCommit(error) => {
+            package_interface_fragment_failure_diagnostic(error, product, target)
+        }
         PackageInterfaceExportError::Surface(error) => {
             package_interface_surface_failure_diagnostic(error, product, target)
         }
@@ -248,6 +277,39 @@ fn package_interface_export_failure_diagnostic(
     };
 
     Some(diagnostic)
+}
+
+fn package_interface_fragment_failure_diagnostic(
+    error: &InterfaceSemanticCommitError,
+    product: &ProductIdentity,
+    target: &TargetIdentity,
+) -> Diagnostic {
+    let failure = match error {
+        InterfaceSemanticCommitError::MissingReference { table, reference } => {
+            DiagnosticPackageInterfaceFailure::FragmentMissingReference {
+                table: table.as_str().to_owned(),
+                reference: *reference,
+            }
+        }
+        InterfaceSemanticCommitError::UnexpectedPackageRecord => {
+            DiagnosticPackageInterfaceFailure::FragmentUnexpectedPackageRecord
+        }
+        InterfaceSemanticCommitError::ConflictingRecord { kind, .. } => {
+            DiagnosticPackageInterfaceFailure::FragmentConflictingRecord {
+                kind: kind.as_str().to_owned(),
+            }
+        }
+        InterfaceSemanticCommitError::CyclicReference(table) => {
+            DiagnosticPackageInterfaceFailure::FragmentCyclicReference(table.as_str().to_owned())
+        }
+        InterfaceSemanticCommitError::IdentityOverflow(table) => {
+            DiagnosticPackageInterfaceFailure::FragmentIdentityOverflow(
+                table.as_str().to_owned(),
+            )
+        }
+    };
+
+    package_failure_diagnostic(failure, product, target)
 }
 
 fn package_interface_surface_failure_diagnostic(

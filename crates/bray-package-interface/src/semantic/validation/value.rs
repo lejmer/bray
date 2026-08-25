@@ -436,6 +436,21 @@ fn validate_type_depth(
     semantics: &InterfaceSemantics,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
+    let depth = interface_type_graph_depth(&semantics.types)
+        .map_err(|_| InterfaceValidationError::Malformed)?;
+
+    limits.check(InterfaceLimit::SemanticTypeDepth, depth)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::semantic) enum InterfaceTypeGraphError {
+    MissingReference(u32),
+    Cycle,
+}
+
+pub(in crate::semantic) fn interface_type_graph_depth(
+    types: &[InterfaceType],
+) -> Result<u64, InterfaceTypeGraphError> {
     #[derive(Clone, Copy)]
     enum VisitState {
         Unvisited,
@@ -443,9 +458,10 @@ fn validate_type_depth(
         Complete(u64),
     }
 
-    let mut states = vec![VisitState::Unvisited; semantics.types.len()];
+    let mut states = vec![VisitState::Unvisited; types.len()];
+    let mut maximum = 0_u64;
 
-    for root in 0..semantics.types.len() {
+    for root in 0..types.len() {
         if matches!(states[root], VisitState::Complete(_)) {
             continue;
         }
@@ -453,8 +469,10 @@ fn validate_type_depth(
         let mut pending = vec![(root, false)];
 
         while let Some((index, exiting)) = pending.pop() {
-            let Some(ty) = semantics.types.get(index) else {
-                return Err(InterfaceValidationError::Malformed);
+            let Some(ty) = types.get(index) else {
+                return Err(InterfaceTypeGraphError::MissingReference(
+                    u32::try_from(index).unwrap_or(u32::MAX),
+                ));
             };
 
             if exiting {
@@ -462,25 +480,25 @@ fn validate_type_depth(
 
                 for child in direct_type_children(ty) {
                     let Some(child) = child.to_index() else {
-                        return Err(InterfaceValidationError::Malformed);
+                        return Err(InterfaceTypeGraphError::MissingReference(child.raw()));
                     };
 
                     let Some(VisitState::Complete(child_depth)) = states.get(child).copied() else {
-                        return Err(InterfaceValidationError::Malformed);
+                        return Err(InterfaceTypeGraphError::Cycle);
                     };
 
                     depth = depth.max(child_depth.saturating_add(1));
                 }
 
-                limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
                 states[index] = VisitState::Complete(depth);
+                maximum = maximum.max(depth);
 
                 continue;
             }
 
             match states[index] {
                 VisitState::Complete(_) => continue,
-                VisitState::Visiting => return Err(InterfaceValidationError::Malformed),
+                VisitState::Visiting => return Err(InterfaceTypeGraphError::Cycle),
                 VisitState::Unvisited => states[index] = VisitState::Visiting,
             }
 
@@ -488,22 +506,24 @@ fn validate_type_depth(
 
             for child in direct_type_children(ty).into_iter().rev() {
                 let Some(index) = child.to_index() else {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(InterfaceTypeGraphError::MissingReference(child.raw()));
                 };
 
                 match states.get(index).copied() {
                     Some(VisitState::Unvisited) => pending.push((index, false)),
                     Some(VisitState::Visiting) => {
-                        return Err(InterfaceValidationError::Malformed);
+                        return Err(InterfaceTypeGraphError::Cycle);
                     }
                     Some(VisitState::Complete(_)) => {}
-                    None => return Err(InterfaceValidationError::Malformed),
+                    None => {
+                        return Err(InterfaceTypeGraphError::MissingReference(child.raw()));
+                    }
                 }
             }
         }
     }
 
-    Ok(())
+    Ok(maximum)
 }
 
 fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {

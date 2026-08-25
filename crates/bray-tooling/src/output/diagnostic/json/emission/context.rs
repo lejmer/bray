@@ -116,6 +116,16 @@ pub(super) fn package_interface_failure_context(
         | Failure::DuplicateSymbol(kind)
         | Failure::MissingSymbol(kind)
         | Failure::MissingSemanticContent(kind) => vec![text_field("symbol_kind", kind)],
+        Failure::FragmentMissingReference { table, reference } => vec![
+            text_field("semantic_table", table),
+            count_field("reference", *reference),
+        ],
+        Failure::FragmentConflictingRecord { kind } => {
+            vec![text_field("record_kind", kind)]
+        }
+        Failure::FragmentCyclicReference(table) | Failure::FragmentIdentityOverflow(table) => {
+            vec![text_field("semantic_table", table)]
+        }
         Failure::DuplicateDependencyPackage(package) => {
             vec![text_field("package", package)]
         }
@@ -200,12 +210,18 @@ pub(super) fn package_interface_failure_context(
             text_field("name", name),
         ],
         Failure::Unavailable
+        | Failure::ExportCancelled
         | Failure::InvalidCompilation
         | Failure::SymbolCountOverflow
         | Failure::NonLibraryProduct
         | Failure::DependencyCountOverflow
         | Failure::IdentityEmpty
         | Failure::IdentitySymbolCountOverflow
+        | Failure::IncompleteSemanticFragment
+        | Failure::ConflictingSemanticFragment
+        | Failure::CyclicSemanticFragment
+        | Failure::FragmentCoordination
+        | Failure::FragmentUnexpectedPackageRecord
         | Failure::ImplementationContentTooLarge
         | Failure::ImplementationDuplicateSpecialization
         | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
