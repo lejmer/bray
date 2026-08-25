@@ -664,7 +664,6 @@ func main() -> Result<unit, std.io.IoError>
         ],
         retention: RetentionContract {
             required_symbols: &[
-                "bray_platform_context_native_text_width",
                 "bray_platform_file_open",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
@@ -672,6 +671,7 @@ func main() -> Result<unit, std.io.IoError>
                 "bray_platform_path_remove_file",
             ],
             forbidden_symbols: &[
+                "bray_platform_context_native_text_width",
                 "bray_platform_standard_output_write",
                 "bray_platform_standard_error_write",
                 "bray_platform_process_pipe_read",
@@ -679,8 +679,9 @@ func main() -> Result<unit, std.io.IoError>
                 "bray_platform_process_pipe_flush",
                 "bray_platform_process_pipe_close",
             ],
-            required_provenance: &["bray_platform_core", "bray_platform_filesystem"],
+            required_provenance: &["bray_platform_filesystem"],
             forbidden_provenance: &[
+                "bray_platform_core",
                 "bray_platform_process",
                 "bray_platform_standard_streams",
                 "bray_runtime_test_host",
@@ -688,9 +689,9 @@ func main() -> Result<unit, std.io.IoError>
             ],
         },
         storage: Some(StorageExpectation {
-            allocation_count: 6,
-            allocated_bytes: 380,
-            copied_bytes: 60,
+            allocation_count: 5,
+            allocated_bytes: 486,
+            copied_bytes: 168,
         }),
     },
     Workload {
@@ -718,18 +719,20 @@ func main()
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &["platform.context.identity"],
         retention: RetentionContract {
-            required_symbols: &["bray_platform_context_identity"],
+            required_symbols: &[],
             forbidden_symbols: &[
                 "bray_platform_context_argument",
                 "bray_platform_context_argument_count",
                 "bray_platform_context_environment_entry",
                 "bray_platform_context_environment_count",
                 "bray_platform_context_environment_key_equals",
+                "bray_platform_context_identity",
                 "bray_platform_context_native_text_width",
                 "bray_platform_context_working_directory",
             ],
-            required_provenance: &["bray_platform_core"],
+            required_provenance: &[],
             forbidden_provenance: &[
+                "bray_platform_core",
                 "bray_platform_process",
                 "bray_platform_standard_streams",
                 "bray_platform_filesystem",

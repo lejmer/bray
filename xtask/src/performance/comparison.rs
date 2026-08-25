@@ -418,6 +418,9 @@ fn compare_artifact(
         .cloned()
         .collect();
 
+    let baseline_provenance = logical_provenance(baseline);
+    let candidate_provenance = logical_provenance(candidate);
+
     let baseline_dynamic: BTreeSet<_> = baseline
         .dependencies
         .dynamic_libraries
@@ -448,6 +451,12 @@ fn compare_artifact(
             baseline.dependencies.static_inputs.omitted_count,
             candidate.dependencies.static_inputs.omitted_count,
         ),
+        added_logical_provenance: difference(&candidate_provenance, &baseline_provenance),
+        removed_logical_provenance: difference(&baseline_provenance, &candidate_provenance),
+        omitted_logical_provenance: exact_metric(
+            omitted_logical_provenance(baseline),
+            omitted_logical_provenance(candidate),
+        ),
         added_dynamic_libraries: difference(&candidate_dynamic, &baseline_dynamic),
         removed_dynamic_libraries: difference(&baseline_dynamic, &candidate_dynamic),
         omitted_dynamic_libraries: exact_metric(
@@ -456,6 +465,21 @@ fn compare_artifact(
         ),
         linker_map_bytes: compare_linker_map_bytes(baseline, candidate)?,
     })
+}
+
+fn logical_provenance(artifact: &super::model::ArtifactReport) -> BTreeSet<String> {
+    artifact
+        .linker_map
+        .iter()
+        .flat_map(|map| map.logical_provenance.entries.iter().cloned())
+        .collect()
+}
+
+fn omitted_logical_provenance(artifact: &super::model::ArtifactReport) -> u64 {
+    artifact
+        .linker_map
+        .as_ref()
+        .map_or(0, |map| map.logical_provenance.omitted_count)
 }
 
 fn compare_linker_map_bytes(

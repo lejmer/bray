@@ -88,10 +88,10 @@ pub(super) fn build(
                 "collecting matched Rust application evidence",
             )?;
 
-            let artifact = crate::performance::retention::inspect(
+            let artifact = crate::performance::retention::inspect_physical(
                 ArtifactKind::Executable,
                 &evidence_executable,
-                Some(&linker_map_path),
+                &linker_map_path,
             )?;
 
             let reuse = reuse_evidence(

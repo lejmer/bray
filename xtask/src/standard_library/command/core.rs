@@ -333,6 +333,12 @@ fn build_bundle(
         }
 
         let abi = selected.runtime_abi();
+
+        let native_links = crate::standard_library::os_bindings::native_links(
+            selected.profile().identity(),
+        )
+        .map_err(BuildError::OsBindings)?;
+
         let target_path = standard_library_target_artifact_directory(target, abi);
 
         let interface_path = format!("{target_path}/std.brayi");
@@ -367,6 +373,7 @@ fn build_bundle(
             portable_path,
             &archive_bytes,
         )
+        .map(|artifact| artifact.with_native_links(native_links))
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         let provenance_path = format!("{target_path}/temporal-provider.json");

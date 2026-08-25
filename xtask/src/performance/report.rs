@@ -453,6 +453,10 @@ fn artifact_comparison_details(
         retained_inputs(html, &artifact.added_static_inputs);
         html.push_str("</ul><h4>Removed static inputs</h4><ul>");
         retained_inputs(html, &artifact.removed_static_inputs);
+        html.push_str("</ul><h4>Added logical provenance</h4><ul>");
+        escaped_list(html, &artifact.added_logical_provenance);
+        html.push_str("</ul><h4>Removed logical provenance</h4><ul>");
+        escaped_list(html, &artifact.removed_logical_provenance);
         html.push_str("</ul><h4>Added dynamic libraries</h4><ul>");
         escaped_list(html, &artifact.added_dynamic_libraries);
         html.push_str("</ul><h4>Removed dynamic libraries</h4><ul>");
@@ -642,6 +646,12 @@ fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactR
             );
 
             let _ = write!(html, "<li><code>{}</code></li>", escape(&identity));
+        }
+
+        html.push_str("</ul><h4>Logical provenance</h4><ul>");
+
+        if let Some(map) = &artifact.linker_map {
+            escaped_list(html, &map.logical_provenance.entries);
         }
 
         html.push_str("</ul><h4>Dynamic libraries</h4><ul>");

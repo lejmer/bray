@@ -122,7 +122,7 @@ fn validate_identity(report: &PerformanceReport) -> Result<NativeTarget, String>
     let sha_is_valid = |value: &str| value.len() == 64 && is_lowercase_hex(value);
 
     let target = bray_target::TargetIdentity::try_new(identity.target.as_str())
-        .and_then(|identity| bray_target::NativeTarget::for_identity(&identity))
+        .and_then(|identity| NativeTarget::for_identity(&identity))
         .ok_or_else(|| "report target is not a supported native target".to_owned())?;
 
     let expected_runtime_linkage = super::peer::runtime_linkage(target)?;
@@ -672,6 +672,17 @@ fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {
     {
         return Err(format!(
             "{:?} artifact linker-map digest is invalid",
+            artifact.kind
+        ));
+    }
+
+    if let Some(map) = &artifact.linker_map
+        && (map.logical_provenance.entries.len() > MAX_RETAINED_INPUT_COUNT
+            || !strictly_sorted(&map.logical_provenance.entries)
+            || map.logical_provenance.entries.iter().any(String::is_empty))
+    {
+        return Err(format!(
+            "{:?} artifact logical provenance is outside its bounds",
             artifact.kind
         ));
     }

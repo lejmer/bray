@@ -3,7 +3,6 @@ mod compiler;
 mod execution;
 mod identity;
 mod measurement;
-mod optimization_artifacts;
 mod options;
 mod output;
 mod progress;

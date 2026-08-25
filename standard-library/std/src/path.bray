@@ -18,10 +18,11 @@ struct NativeText
     construct from_string(pos value: &string) -> Result<Self, PathError>
     {
         let width: usize = trusted internal std.platform.native_text_width();
+        let encoded: &[u8] = std.string.utf8(value);
 
         if width == 8
         {
-            let buffer: std.bytes.Buffer = try buffer_from_utf8(std.string.utf8(value));
+            let buffer: std.bytes.Buffer = try buffer_from_utf8(encoded);
 
             return Ok(
                 {
@@ -35,8 +36,9 @@ struct NativeText
             return Error(PathError.InvalidNativeValue);
         }
 
-        let mut buffer: std.bytes.Buffer = try empty_buffer();
         let count: usize = std.string.scalar_count(value);
+        let capacity: usize = try utf16_byte_length(encoded);
+        let mut buffer: std.bytes.Buffer = try allocate_buffer(capacity = capacity);
         let mut index: usize = 0;
 
         while index < count
@@ -154,7 +156,7 @@ struct Path
         let prefix_length: usize = path_prefix_length(source);
         let rooted: bool = path_has_root(source);
         let anchored: bool = path_is_anchored(source);
-        let mut output: std.bytes.Buffer = try empty_buffer();
+        let mut output: std.bytes.Buffer = try allocate_buffer();
         let mut segment_starts: std.collection.List<usize> = try empty_segment_starts();
         let mut output_length: usize = prefix_length;
         let mut index: usize = prefix_length;
@@ -278,13 +280,60 @@ internal func path_from_buffer(pos buffer: std.bytes.Buffer) -> Result<Path, Pat
     return Path.from_native(native);
 }
 
-internal func empty_buffer() -> Result<std.bytes.Buffer, PathError>
+internal func allocate_buffer(capacity: usize = 0) -> Result<std.bytes.Buffer, PathError>
 {
-    match trusted std.bytes.Buffer(capacity = 0)
+    match trusted std.bytes.Buffer(capacity = capacity)
     {
         case Ok(buffer) { return Ok(buffer); }
         case Error(_) { return Error(PathError.MemoryLayout); }
     }
+}
+
+internal func utf16_byte_length(pos encoded: &[u8]) -> Result<usize, PathError>
+{
+    let mut bytes: usize = 0;
+    let mut index: usize = 0;
+
+    while index < std.bytes.slice_length(encoded)
+    {
+        let first: u8 = encoded[index];
+
+        let utf8_bytes: usize = if first <= 127
+        {
+            yield 1;
+        }
+        else if first <= 223
+        {
+            yield 2;
+        }
+        else if first <= 239
+        {
+            yield 3;
+        }
+        else
+        {
+            yield 4;
+        };
+
+        let utf16_bytes: usize = if utf8_bytes <= 3
+        {
+            yield 2;
+        }
+        else
+        {
+            yield 4;
+        };
+
+        match std.numeric.checked_add<usize>(bytes, utf16_bytes)
+        {
+            case ?total { bytes = total; }
+            case none { return Error(PathError.MemoryLayout); }
+        }
+
+        index += utf8_bytes;
+    }
+
+    return Ok(bytes);
 }
 
 internal func buffer_from_utf8(pos bytes: &[u8]) -> Result<std.bytes.Buffer, PathError>
@@ -360,7 +409,7 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
         return Error(PathError.InvalidNativeValue);
     }
 
-    let mut utf8: std.bytes.Buffer = try empty_buffer();
+    let mut utf8: std.bytes.Buffer = try allocate_buffer();
     let mut index: usize = 0;
 
     while index < std.bytes.slice_length(bytes)
