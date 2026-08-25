@@ -838,20 +838,20 @@ mod tests {
     #[test]
     fn reachable_native_symbols_select_only_their_platform_roles() {
         let available_services = [
-            bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
-            bray_runtime_interface::PlatformServiceRole::FileRead,
+            PlatformServiceRole::StandardOutputWrite,
+            PlatformServiceRole::FileRead,
         ];
 
         let selected = super::super::link::platform_services_for_imported_symbols(
             &available_services,
             [bray_runtime_interface::native_platform_service_role_symbol(
-                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                PlatformServiceRole::StandardOutputWrite,
             )],
         );
 
         assert_eq!(
             selected,
-            BTreeSet::from([bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,])
+            BTreeSet::from([PlatformServiceRole::StandardOutputWrite,])
         );
     }
 
@@ -920,7 +920,7 @@ mod tests {
         )
         .map(|artifact| {
             artifact.with_platform_services([
-                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                PlatformServiceRole::StandardOutputWrite,
             ])
         })
         .map(|artifact| {
@@ -943,7 +943,7 @@ mod tests {
             filesystem_archive_bytes,
         )
         .map(|artifact| {
-            artifact.with_platform_services([bray_runtime_interface::PlatformServiceRole::FileRead])
+            artifact.with_platform_services([PlatformServiceRole::FileRead])
         })
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
@@ -966,7 +966,7 @@ mod tests {
         )
         .map(|artifact| {
             artifact
-                .with_platform_services([bray_runtime_interface::PlatformServiceRole::ChildSpawn])
+                .with_platform_services([PlatformServiceRole::ChildSpawn])
         })
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
@@ -1056,7 +1056,7 @@ mod tests {
                 ProductKind::Executable,
                 &BTreeSet::from(
                     [bray_runtime_interface::native_platform_service_role_symbol(
-                        bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                        PlatformServiceRole::StandardOutputWrite,
                     )],
                 ),
                 &BTreeSet::new(),
@@ -1125,7 +1125,7 @@ mod tests {
                 ProductKind::Executable,
                 &BTreeSet::from(
                     [bray_runtime_interface::native_platform_service_role_symbol(
-                        bray_runtime_interface::PlatformServiceRole::FileRead,
+                        PlatformServiceRole::FileRead,
                     )],
                 ),
                 &BTreeSet::new(),
@@ -1170,10 +1170,10 @@ mod tests {
                 ProductKind::Test,
                 &BTreeSet::from(
                     [bray_runtime_interface::native_platform_service_role_symbol(
-                        bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                        PlatformServiceRole::StandardOutputWrite,
                     )],
                 ),
-                &BTreeSet::from([bray_runtime_interface::PlatformServiceRole::StandardOutputWrite]),
+                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
             )
             .unwrap_or_else(|error| panic!("overridden inputs must resolve: {error:?}"));
 
