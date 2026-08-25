@@ -37,6 +37,14 @@ pub enum CompilationProfileValidationError {
     InvalidRuntimeArtifactIdentity { index: usize },
     /// Selected runtime artifacts are duplicated or not in canonical identity order.
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    /// One selected runtime role has no stable identity.
+    InvalidRuntimeRole { index: usize },
+    /// Selected runtime roles are duplicated or not in canonical identity order.
+    NonCanonicalRuntimeRoles { first: String, second: String },
+    /// One native callback entry has no stable symbol identity.
+    InvalidNativeCallbackEntry { index: usize },
+    /// Native callback entries are duplicated or not in canonical symbol order.
+    NonCanonicalNativeCallbackEntries { first: String, second: String },
     /// Scheduler aggregates contradict the configured worker budget or ready-work counts.
     InvalidSchedulerStatistics,
     /// Query aggregates contradict their request, evaluation, or distribution counts.
@@ -121,6 +129,9 @@ impl CompilationProfileReport {
             );
         }
 
+        validate_runtime_roles(&self.runtime_roles)?;
+        validate_native_callback_entries(&self.native_callback_entries)?;
+
         for event in &self.events {
             if self.operation_descriptor(event.operation_id).is_none() {
                 return Err(CompilationProfileValidationError::UnknownDescriptor {
@@ -141,6 +152,48 @@ impl CompilationProfileReport {
 
         Ok(())
     }
+}
+
+fn validate_runtime_roles(roles: &[String]) -> Result<(), CompilationProfileValidationError> {
+    validate_canonical_strings(
+        roles,
+        |index| CompilationProfileValidationError::InvalidRuntimeRole { index },
+        |first, second| CompilationProfileValidationError::NonCanonicalRuntimeRoles {
+            first,
+            second,
+        },
+    )
+}
+
+fn validate_native_callback_entries(
+    entries: &[String],
+) -> Result<(), CompilationProfileValidationError> {
+    validate_canonical_strings(
+        entries,
+        |index| CompilationProfileValidationError::InvalidNativeCallbackEntry { index },
+        |first, second| {
+            CompilationProfileValidationError::NonCanonicalNativeCallbackEntries {
+                first,
+                second,
+            }
+        },
+    )
+}
+
+fn validate_canonical_strings(
+    entries: &[String],
+    invalid: impl FnOnce(usize) -> CompilationProfileValidationError,
+    noncanonical: impl FnOnce(String, String) -> CompilationProfileValidationError,
+) -> Result<(), CompilationProfileValidationError> {
+    if let Some(index) = entries.iter().position(|entry| entry.trim().is_empty()) {
+        return Err(invalid(index));
+    }
+
+    if let Some(entries) = entries.windows(2).find(|entries| entries[0] >= entries[1]) {
+        return Err(noncanonical(entries[0].clone(), entries[1].clone()));
+    }
+
+    Ok(())
 }
 
 fn valid_scheduler_statistics(report: &CompilationProfileReport) -> bool {
@@ -356,6 +409,51 @@ mod tests {
                 CompilationProfileValidationError::NonCanonicalRuntimeArtifacts {
                     first: "runtime.host".to_owned(),
                     second: "runtime.host".to_owned(),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn validation_requires_canonical_runtime_roles_and_callback_entries() {
+        let mut invalid_role = report(1_000_000);
+        invalid_role.runtime_roles = vec![" ".to_owned()];
+
+        assert_eq!(
+            invalid_role.validate(),
+            Err(CompilationProfileValidationError::InvalidRuntimeRole { index: 0 })
+        );
+
+        let mut duplicate_role = report(1_000_000);
+        duplicate_role.runtime_roles = vec!["panic_reporting".to_owned(); 2];
+
+        assert_eq!(
+            duplicate_role.validate(),
+            Err(
+                CompilationProfileValidationError::NonCanonicalRuntimeRoles {
+                    first: "panic_reporting".to_owned(),
+                    second: "panic_reporting".to_owned(),
+                }
+            )
+        );
+
+        let mut invalid_entry = report(1_000_000);
+        invalid_entry.native_callback_entries = vec![String::new()];
+
+        assert_eq!(
+            invalid_entry.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCallbackEntry { index: 0 })
+        );
+
+        let mut duplicate_entry = report(1_000_000);
+        duplicate_entry.native_callback_entries = vec!["callback".to_owned(); 2];
+
+        assert_eq!(
+            duplicate_entry.validate(),
+            Err(
+                CompilationProfileValidationError::NonCanonicalNativeCallbackEntries {
+                    first: "callback".to_owned(),
+                    second: "callback".to_owned(),
                 }
             )
         );

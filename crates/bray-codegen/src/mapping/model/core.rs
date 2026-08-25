@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_ir::MirSourceAnchor;
 use bray_runtime_interface::ProtectedFrameOperation;
-use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
+use bray_symbols::{CallableAbi, ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
@@ -221,26 +221,13 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::DuplicateTerminator);
         }
 
-        let mut symbol_names: Vec<_> = symbols.iter().map(CodegenSymbolMapping::name).collect();
-
-        symbol_names.sort_unstable();
-
-        if symbol_names.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
-        }
+        validate_symbol_structure(&symbols, target)?;
 
         if debug_locations
             .windows(2)
             .any(|pair| pair[0].anchor() == pair[1].anchor())
         {
             return Err(CodegenMappingsBuildError::DuplicateDebugLocation);
-        }
-
-        if symbols
-            .iter()
-            .any(|symbol| !target.symbols().supports(symbol.linkage()))
-        {
-            return Err(CodegenMappingsBuildError::UnsupportedLinkage);
         }
 
         let expected_instances: BTreeSet<_> = unit
@@ -620,6 +607,51 @@ impl CodegenMappings {
     }
 }
 
+fn validate_symbol_structure(
+    symbols: &[CodegenSymbolMapping],
+    target: &CodegenTarget,
+) -> Result<(), CodegenMappingsBuildError> {
+    let mut names: Vec<_> = symbols
+        .iter()
+        .flat_map(|symbol| {
+            std::iter::once(symbol.name())
+                .chain(symbol.native_entry().map(crate::CodegenNativeEntryMapping::name))
+        })
+        .collect();
+
+    names.sort_unstable();
+
+    if names.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
+    }
+
+    if symbols.iter().any(|symbol| {
+        !target.symbols().supports(symbol.linkage())
+            || symbol
+                .native_entry()
+                .is_some_and(|entry| !target.symbols().supports(entry.linkage()))
+    }) {
+        return Err(CodegenMappingsBuildError::UnsupportedLinkage);
+    }
+
+    if symbols.iter().any(|symbol| {
+        symbol.native_entry().is_some_and(|entry| {
+            !matches!(symbol.key(), CodegenSymbolKey::Instance(_))
+                || symbol.name() == entry.name()
+                || symbol.linkage() == crate::CodegenLinkage::Import
+                || !matches!(
+                    entry.linkage(),
+                    crate::CodegenLinkage::Export | crate::CodegenLinkage::Weak
+                )
+                || matches!(symbol.signature().abi(), CallableAbi::Bray)
+        })
+    }) {
+        return Err(CodegenMappingsBuildError::InvalidNativeEntry);
+    }
+
+    Ok(())
+}
+
 /// A contract violation that prevents creation of code generation mappings.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenMappingsBuildError {
@@ -665,6 +697,8 @@ pub enum CodegenMappingsBuildError {
     DuplicateDebugLocation,
     /// One selected linkage is unsupported by the target contract.
     UnsupportedLinkage,
+    /// One native entry does not identify a foreign callback definition.
+    InvalidNativeEntry,
     /// Concrete local and external definitions do not have exact symbol coverage.
     InstanceSymbolCoverageMismatch,
     /// Callable references do not map exactly to compatible concrete instances.

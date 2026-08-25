@@ -1291,6 +1291,8 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
         queries: Vec::new(),
         metrics: vec![CompilationProfileMetric { id: 2, value: 3 }],
         runtime_artifacts: Vec::new(),
+        runtime_roles: Vec::new(),
+        native_callback_entries: Vec::new(),
         events: Vec::new(),
         dropped_events: 0,
     }

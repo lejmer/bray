@@ -9,11 +9,13 @@ rust-version.workspace = true
 crate-type = ["staticlib"]
 
 [features]
+callback = []
 cancellation = []
 event = []
 host = []
 scheduler = []
 test-host = [
+    "callback",
     "cancellation",
     "dep:bray-platform",
     "bray-platform/test-output",

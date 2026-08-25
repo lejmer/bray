@@ -296,6 +296,14 @@ pub enum DiagnosticProfileValidationProblem {
     InvalidRuntimeArtifactIdentity { index: usize },
     /// Runtime artifacts are duplicated or are not in canonical identity order.
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    /// A selected runtime role has no stable identity.
+    InvalidRuntimeRole { index: usize },
+    /// Runtime roles are duplicated or are not in canonical identity order.
+    NonCanonicalRuntimeRoles { first: String, second: String },
+    /// A native callback entry has no stable symbol identity.
+    InvalidNativeCallbackEntry { index: usize },
+    /// Native callback entries are duplicated or are not in canonical symbol order.
+    NonCanonicalNativeCallbackEntries { first: String, second: String },
     /// Scheduler aggregates contradict the configured worker budget or ready-work counts.
     InvalidSchedulerStatistics,
     /// Query aggregates contradict their request, evaluation, or distribution counts.

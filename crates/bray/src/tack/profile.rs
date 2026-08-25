@@ -136,6 +136,26 @@ fn load_profile(path: &Path) -> Result<CompilationProfileReport, DiagnosticBag> 
                     first,
                     second,
                 },
+                CompilationProfileValidationError::InvalidRuntimeRole { index } => {
+                    DiagnosticProfileValidationProblem::InvalidRuntimeRole { index }
+                }
+                CompilationProfileValidationError::NonCanonicalRuntimeRoles {
+                    first,
+                    second,
+                } => DiagnosticProfileValidationProblem::NonCanonicalRuntimeRoles {
+                    first,
+                    second,
+                },
+                CompilationProfileValidationError::InvalidNativeCallbackEntry { index } => {
+                    DiagnosticProfileValidationProblem::InvalidNativeCallbackEntry { index }
+                }
+                CompilationProfileValidationError::NonCanonicalNativeCallbackEntries {
+                    first,
+                    second,
+                } => DiagnosticProfileValidationProblem::NonCanonicalNativeCallbackEntries {
+                    first,
+                    second,
+                },
                 CompilationProfileValidationError::InvalidSchedulerStatistics => {
                     DiagnosticProfileValidationProblem::InvalidSchedulerStatistics
                 }
@@ -291,6 +311,8 @@ mod tests {
                 value: 1,
             }],
             runtime_artifacts: Vec::new(),
+            runtime_roles: Vec::new(),
+            native_callback_entries: Vec::new(),
             events: Vec::new(),
             dropped_events: 0,
         }

@@ -264,6 +264,11 @@ fn build_contents(
                 &["host"][..],
                 "bray_runtime_adapter-",
             ),
+            RuntimeArchiveKind::Callback => (
+                "bray-runtime-adapter",
+                &["callback"][..],
+                "bray_runtime_adapter-",
+            ),
             RuntimeArchiveKind::Scheduler => (
                 "bray-runtime-adapter",
                 &["scheduler"][..],
@@ -469,6 +474,7 @@ fn metadata(
         if purpose == RuntimeArtifactPurpose::Product {
             for (kind, name, capabilities) in [
                 (RuntimeArchiveKind::Host, "host", &[][..]),
+                (RuntimeArchiveKind::Callback, "callback", &[][..]),
                 (
                     RuntimeArchiveKind::Scheduler,
                     "scheduler",
@@ -588,7 +594,6 @@ fn component_identity(
 fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
     Some(match role {
         RuntimeAbiRole::SynchronousRootExecution
-        | RuntimeAbiRole::ForeignCallbackExecution
         | RuntimeAbiRole::ThreadAttachmentIdentity
         | RuntimeAbiRole::ThreadStaticCleanupRegistration
         | RuntimeAbiRole::ProductHostControl
@@ -600,6 +605,7 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
         | RuntimeAbiRole::StructuredShutdown
         | RuntimeAbiRole::PanicReportConstruction
         | RuntimeAbiRole::PanicPropagation => RuntimeArchiveKind::Host,
+        RuntimeAbiRole::ForeignCallbackExecution => RuntimeArchiveKind::Callback,
         RuntimeAbiRole::RootExecution
         | RuntimeAbiRole::TaskAllocation
         | RuntimeAbiRole::TaskStart
@@ -732,6 +738,7 @@ pub(super) enum RuntimeArchiveKind {
     String,
     Character,
     Host,
+    Callback,
     Scheduler,
     Cancellation,
     Event,
@@ -745,24 +752,26 @@ enum MemoryObservation {
 }
 
 impl RuntimeArchiveKind {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Common,
         Self::TestCommon,
         Self::Memory,
         Self::String,
         Self::Character,
         Self::Host,
+        Self::Callback,
         Self::Scheduler,
         Self::Cancellation,
         Self::Event,
         Self::TestHost,
     ];
 
-    const OWNING: [Self; 8] = [
+    const OWNING: [Self; 9] = [
         Self::Memory,
         Self::String,
         Self::Character,
         Self::Host,
+        Self::Callback,
         Self::Scheduler,
         Self::Cancellation,
         Self::Event,
@@ -777,6 +786,7 @@ impl RuntimeArchiveKind {
             Self::String => "bray_runtime_string",
             Self::Character => "bray_runtime_character",
             Self::Host => "bray_runtime_host",
+            Self::Callback => "bray_runtime_callback",
             Self::Scheduler => "bray_runtime_scheduler",
             Self::Cancellation => "bray_runtime_cancellation",
             Self::Event => "bray_runtime_event",
@@ -1029,6 +1039,14 @@ mod tests {
         );
 
         assert_eq!(
+            archive_file_name(
+                NativeTarget::Aarch64LinuxGnu,
+                RuntimeArchiveKind::Callback
+            ),
+            "libbray_runtime_callback.a"
+        );
+
+        assert_eq!(
             archive_file_name(NativeTarget::Aarch64LinuxGnu, RuntimeArchiveKind::Character),
             "libbray_runtime_character.a"
         );
@@ -1064,7 +1082,7 @@ mod tests {
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 13);
+            assert_eq!(first.components().len(), 14);
 
             let common = first
                 .components()
@@ -1079,6 +1097,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("runtime metadata must contain memory support"));
 
             assert_eq!(memory.dependencies(), [common.identity().clone()]);
+
+            let callback = first
+                .components()
+                .iter()
+                .find(|component| component.identity().as_str().ends_with("product.callback"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain callback support"));
+
+            assert_eq!(
+                callback.roles(),
+                [RuntimeAbiRole::ForeignCallbackExecution]
+            );
+
+            assert_eq!(callback.dependencies(), [common.identity().clone()]);
 
             let has_synchronization = common
                 .native_links()

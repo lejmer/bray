@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
@@ -92,6 +92,8 @@ pub(crate) struct ProfileSession {
     shards: Box<[Mutex<ProfileShard>]>,
     concurrency: ProfileConcurrency,
     runtime_artifacts: Mutex<BTreeMap<String, u64>>,
+    runtime_roles: Mutex<BTreeSet<String>>,
+    native_callback_entries: Mutex<BTreeSet<String>>,
 }
 
 impl std::fmt::Debug for ProfileSession {
@@ -150,6 +152,8 @@ impl ProfileSession {
             concurrency: ProfileConcurrency::new(),
             shards,
             runtime_artifacts: Mutex::new(BTreeMap::new()),
+            runtime_roles: Mutex::new(BTreeSet::new()),
+            native_callback_entries: Mutex::new(BTreeSet::new()),
         })
     }
 
@@ -413,6 +417,15 @@ impl ProfileSession {
         artifacts.insert(identity.to_owned(), bytes);
     }
 
+    pub(crate) fn add_native_product_contract<'entry>(
+        &self,
+        runtime_roles: impl IntoIterator<Item = &'entry str>,
+        native_callback_entries: impl IntoIterator<Item = &'entry str>,
+    ) {
+        extend_profile_strings(&self.runtime_roles, runtime_roles);
+        extend_profile_strings(&self.native_callback_entries, native_callback_entries);
+    }
+
     pub(crate) fn report(&self) -> CompilationProfileReport {
         let mut operations = [ProfileAggregate::default(); ProfileOperation::COUNT];
         let mut queries = [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT];
@@ -457,6 +470,9 @@ impl ProfileSession {
             })
             .collect();
 
+        let runtime_roles = profile_strings(&self.runtime_roles);
+        let native_callback_entries = profile_strings(&self.native_callback_entries);
+
         CompilationProfileReport {
             schema_revision: COMPILATION_PROFILE_SCHEMA_REVISION,
             mode: self.configuration.mode(),
@@ -477,6 +493,8 @@ impl ProfileSession {
             queries: query_reports(&queries),
             metrics: metric_reports(&metrics),
             runtime_artifacts,
+            runtime_roles,
+            native_callback_entries,
             events: event_reports(events),
             dropped_events,
         }
@@ -570,6 +588,25 @@ impl ProfileSession {
     fn shard(&self) -> MutexGuard<'_, ProfileShard> {
         available_shard(&self.shards[self.worker_index()])
     }
+}
+
+fn extend_profile_strings<'entry>(
+    storage: &Mutex<BTreeSet<String>>,
+    entries: impl IntoIterator<Item = &'entry str>,
+) {
+    storage
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .extend(entries.into_iter().map(str::to_owned));
+}
+
+fn profile_strings(storage: &Mutex<BTreeSet<String>>) -> Vec<String> {
+    storage
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .cloned()
+        .collect()
 }
 
 pub(crate) struct ProfileQueryRequest<'session> {
@@ -779,6 +816,36 @@ mod tests {
         fn now_nanoseconds(&self) -> u64 {
             self.0.load(Ordering::Relaxed)
         }
+    }
+
+    #[test]
+    fn native_product_contracts_are_profiled_canonically() {
+        let session = ProfileSession::with_clock(
+            CompilationProfileConfiguration::new(CompilationProfileMode::Summary),
+            1,
+            context(),
+            Arc::new(TestClock::new()),
+        );
+
+        session.add_native_product_contract(
+            ["panic_reporting", "foreign_callback_execution"],
+            ["second_callback", "first_callback"],
+        );
+
+        let report = session.report();
+
+        assert_eq!(
+            report.runtime_roles,
+            [
+                "foreign_callback_execution".to_owned(),
+                "panic_reporting".to_owned(),
+            ]
+        );
+
+        assert_eq!(
+            report.native_callback_entries,
+            ["first_callback".to_owned(), "second_callback".to_owned()]
+        );
     }
 
     #[test]

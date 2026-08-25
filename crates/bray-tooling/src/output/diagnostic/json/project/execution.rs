@@ -63,6 +63,10 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProfileValidationProblemJ
     UnknownDescriptor { kind: &'static str, id: u16 },
     InvalidRuntimeArtifactIdentity { index: usize },
     NonCanonicalRuntimeArtifacts { first: String, second: String },
+    InvalidRuntimeRole { index: usize },
+    NonCanonicalRuntimeRoles { first: String, second: String },
+    InvalidNativeCallbackEntry { index: usize },
+    NonCanonicalNativeCallbackEntries { first: String, second: String },
     InvalidSchedulerStatistics,
     InvalidQueryStatistics { id: u16 },
 }
@@ -95,6 +99,22 @@ impl DiagnosticProfileValidationProblemJson {
             }
             Problem::NonCanonicalRuntimeArtifacts { first, second } => {
                 Self::NonCanonicalRuntimeArtifacts {
+                    first: first.clone(),
+                    second: second.clone(),
+                }
+            }
+            Problem::InvalidRuntimeRole { index } => Self::InvalidRuntimeRole { index: *index },
+            Problem::NonCanonicalRuntimeRoles { first, second } => {
+                Self::NonCanonicalRuntimeRoles {
+                    first: first.clone(),
+                    second: second.clone(),
+                }
+            }
+            Problem::InvalidNativeCallbackEntry { index } => {
+                Self::InvalidNativeCallbackEntry { index: *index }
+            }
+            Problem::NonCanonicalNativeCallbackEntries { first, second } => {
+                Self::NonCanonicalNativeCallbackEntries {
                     first: first.clone(),
                     second: second.clone(),
                 }

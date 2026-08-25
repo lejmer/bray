@@ -163,6 +163,7 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
     let required = [bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL];
 
     let forbidden = [
+        bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
         bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::TASK_ALLOCATION_SYMBOL,
         bray_runtime_abi::TASK_START_SYMBOL,
@@ -267,7 +268,20 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     "bray_runtime_character_",
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TASK_START_SYMBOL,
+                    bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_platform_standard_",
+                ],
+            ),
+            RuntimeArchiveKind::Callback => (
+                &[bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL],
+                &[
+                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_runtime_memory_",
+                    "bray_runtime_string_",
+                    "bray_runtime_character_",
                     "bray_platform_standard_",
                 ],
             ),

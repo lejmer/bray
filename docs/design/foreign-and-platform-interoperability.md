@@ -212,6 +212,9 @@ target gates and compiled-interface dependencies like the existing filesystem an
 A foreign callback is a non-Bray ABI entry through which external code invokes Bray code. Its callable type, ownership,
 context, thread-entry behavior, reentrancy, panic policy, and lifetime must all be explicit.
 
+An explicit exported foreign entry contract selects a callback boundary. ABI visibility alone leaves target platform
+fallback definitions as direct Bray call targets.
+
 ### Plain Function Pointers
 
 A plain ABI-qualified callback value can refer only to a noncapturing static callable whose ABI and complete parameter

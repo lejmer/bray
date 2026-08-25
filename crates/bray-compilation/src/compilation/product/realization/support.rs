@@ -28,6 +28,7 @@ use bray_target::{
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
+use super::symbols::NativeBoundaryMapping;
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) fn atomic_storage_is_padding_free(
@@ -269,7 +270,7 @@ pub(super) fn native_boundary_mapping(
     symbol: &str,
     direction: ForeignCallableDirection,
     binding: NativeSymbolBinding,
-) -> Result<(BinarySymbolName, CodegenLinkage), CodegenPreparationError> {
+) -> Result<NativeBoundaryMapping, CodegenPreparationError> {
     let name =
         BinarySymbolName::try_new(symbol).ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
@@ -282,7 +283,10 @@ pub(super) fn native_boundary_mapping(
         }
     };
 
-    Ok((name, linkage))
+    Ok(match direction {
+        ForeignCallableDirection::Import => NativeBoundaryMapping::Direct { name, linkage },
+        ForeignCallableDirection::Export => NativeBoundaryMapping::Callback { name, linkage },
+    })
 }
 
 pub(super) fn scalar_mapping(

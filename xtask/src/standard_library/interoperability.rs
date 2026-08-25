@@ -565,6 +565,8 @@ mod tests {
             queries: Vec::new(),
             metrics: vec![CompilationProfileMetric { id: 1, value: 3 }],
             runtime_artifacts: Vec::new(),
+            runtime_roles: Vec::new(),
+            native_callback_entries: Vec::new(),
             events: Vec::new(),
             dropped_events: 0,
         };

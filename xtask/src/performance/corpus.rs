@@ -39,6 +39,13 @@ const NO_RETENTION_CONTRACT: RetentionContract = RetentionContract {
     forbidden_provenance: &[],
 };
 
+const NO_CALLBACK_RETENTION_CONTRACT: RetentionContract = RetentionContract {
+    required_symbols: &[],
+    forbidden_symbols: &["bray_runtime_foreign_callback_execution"],
+    required_provenance: &[],
+    forbidden_provenance: &[],
+};
+
 #[derive(Clone, Copy)]
 pub(super) enum ExpectedOutput {
     Empty,
@@ -72,7 +79,7 @@ func main() {}
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
-        retention: NO_RETENTION_CONTRACT,
+        retention: NO_CALLBACK_RETENTION_CONTRACT,
         storage: None,
     },
     Workload {
@@ -505,6 +512,7 @@ func main()
                 "bray_platform_standard_output_unlock",
             ],
             forbidden_symbols: &[
+                "bray_runtime_foreign_callback_execution",
                 "bray_platform_standard_input_read",
                 "bray_platform_standard_error_write",
                 "bray_platform_file_read",

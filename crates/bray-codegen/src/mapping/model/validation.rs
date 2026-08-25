@@ -10,7 +10,6 @@ use crate::{
     CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenOperationMapping,
     CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
     CodegenTypeMapping, CodegenUnit, FOREIGN_CALLBACK_RUNTIME_ROLES,
-    requires_foreign_callback_boundary,
 };
 
 use super::core::CodegenMappingsBuildError;
@@ -90,9 +89,17 @@ pub fn mapped_runtime_references(
         })
     }));
 
-    if symbols.iter().any(|symbol| {
-        requires_foreign_callback_boundary(symbol.linkage(), symbol.signature().abi())
-    }) {
+    if symbols
+        .iter()
+        .any(|symbol| {
+            symbol.native_entry().is_some()
+                && matches!(
+                    symbol.key(),
+                    CodegenSymbolKey::Instance(instance)
+                        if unit.instances().iter().any(|member| member.key() == instance)
+                )
+        })
+    {
         references.extend(
             FOREIGN_CALLBACK_RUNTIME_ROLES
                 .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
@@ -374,5 +381,59 @@ fn terminator_runtime_references(
         | MirTerminatorKind::ContinueCleanup(_)
         | MirTerminatorKind::Panic { .. }
         | MirTerminatorKind::CancelCurrentRun { .. } => [None, None, None],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole};
+
+    use crate::test_support::codegen_request;
+    use crate::{
+        CodegenLinkage, CodegenNativeEntryMapping, CodegenSymbolMapping,
+        mapped_runtime_references,
+    };
+
+    #[test]
+    fn callback_runtime_roles_follow_explicit_native_entry() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+
+        let symbol = request
+            .mappings()
+            .symbols()
+            .first()
+            .unwrap_or_else(|| panic!("fixture must map one symbol"));
+
+        let direct = CodegenSymbolMapping::new(
+            symbol.key().clone(),
+            symbol.name().clone(),
+            CodegenLinkage::Fallback,
+            symbol.signature().clone(),
+        );
+
+        let references = mapped_runtime_references(request.unit(), &[], &[direct.clone()]);
+
+        assert!(
+            !references
+                .iter()
+                .any(|reference| reference.role() == RuntimeAbiRole::ForeignCallbackExecution)
+        );
+
+        let callback = direct.with_native_entry(CodegenNativeEntryMapping::new(
+            BinarySymbolName::try_new("native_callback")
+                .unwrap_or_else(|| panic!("native callback symbol must validate")),
+            CodegenLinkage::Export,
+        ));
+
+        let references = mapped_runtime_references(request.unit(), &[], &[callback]);
+
+        for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
+            assert!(
+                references
+                    .iter()
+                    .any(|reference| reference.role() == role)
+            );
+        }
     }
 }

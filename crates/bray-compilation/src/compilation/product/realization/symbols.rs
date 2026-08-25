@@ -5,10 +5,10 @@ use bray_base::StableDigestHasher;
 use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
-    CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenOperationMapping,
-    CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenUnit, child_constants, demanded_callable_instances,
-    demanded_constant_terms, demanded_constants,
+    CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenNativeEntryMapping,
+    CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey,
+    CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping, CodegenUnit, child_constants,
+    demanded_callable_instances, demanded_constant_terms, demanded_constants,
 };
 use bray_ir::{MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
@@ -30,6 +30,48 @@ use super::support::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
+fn default_instance_linkage(
+    instance: &CodegenInstance,
+    roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+) -> CodegenLinkage {
+    if roots.contains(instance.key()) {
+        CodegenLinkage::Export
+    } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+        CodegenLinkage::LinkOnce
+    } else {
+        CodegenLinkage::Internal
+    }
+}
+
+pub(in crate::compilation::product) enum NativeBoundaryMapping {
+    Direct {
+        name: BinarySymbolName,
+        linkage: CodegenLinkage,
+    },
+    Callback {
+        name: BinarySymbolName,
+        linkage: CodegenLinkage,
+    },
+}
+
+impl NativeBoundaryMapping {
+    pub(in crate::compilation::product) const fn name(&self) -> &BinarySymbolName {
+        match self {
+            Self::Direct { name, .. } | Self::Callback { name, .. } => name,
+        }
+    }
+
+    pub(in crate::compilation::product) const fn linkage(&self) -> CodegenLinkage {
+        match self {
+            Self::Direct { linkage, .. } | Self::Callback { linkage, .. } => *linkage,
+        }
+    }
+
+    pub(in crate::compilation::product) const fn is_callback(&self) -> bool {
+        matches!(self, Self::Callback { .. })
+    }
+}
+
 impl Compilation {
     pub(super) fn codegen_symbols(
         &self,
@@ -45,11 +87,12 @@ impl Compilation {
         let mut symbols = Vec::new();
 
         for instance in unit.instances() {
-            let (name, linkage, signature) = match instance.mir().kind() {
+            let (name, linkage, signature, native_entry) = match instance.mir().kind() {
                 MirUnitKind::ExecutableHost(host) => (
                     host.native_entry().clone(),
                     CodegenLinkage::Export,
                     void_signature(CallableAbi::Bray),
+                    None,
                 ),
                 MirUnitKind::GeneratedLifecycle(reference) => {
                     let name = generated_instance_symbol_name(
@@ -60,42 +103,45 @@ impl Compilation {
 
                     let signature = self.generated_lifecycle_signature(reference, cancellation)?;
 
-                    (name, CodegenLinkage::LinkOnce, signature)
+                    (name, CodegenLinkage::LinkOnce, signature, None)
                 }
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
                     let realization = reachability
                         .instance(instance.key())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let (boundary, linkage) = self.codegen_instance_boundary(
-                        instance,
-                        roots,
+                    let boundary = self.codegen_native_boundary(
+                        instance.key(),
                         platform_overrides,
                         cancellation,
                     )?;
 
-                    let name = match boundary {
-                        Some(name) => name,
-                        None => self.generated_callable_symbol_name(
-                            target,
-                            linkage,
-                            realization,
-                            cancellation,
-                        )?,
-                    };
+                    let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
+                        target,
+                        realization,
+                        boundary,
+                        default_instance_linkage(instance, roots),
+                        cancellation,
+                    )?;
 
                     let signature = self.codegen_instance_signature(realization, cancellation)?;
 
-                    (name, linkage, signature)
+                    (name, linkage, signature, native_entry)
                 }
             };
 
-            symbols.push(CodegenSymbolMapping::new(
+            let mut symbol = CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.key().clone()),
                 name,
                 linkage,
                 signature,
-            ));
+            );
+
+            if let Some(native_entry) = native_entry {
+                symbol = symbol.with_native_entry(native_entry);
+            }
+
+            symbols.push(symbol);
         }
 
         for instance in unit.external_instances() {
@@ -106,26 +152,28 @@ impl Compilation {
             let boundary =
                 self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
 
-            let linkage = boundary
-                .as_ref()
-                .map(|(_, linkage)| *linkage)
-                .unwrap_or(CodegenLinkage::Import);
-
-            let name = match boundary {
-                Some((name, _)) => name,
-                None => {
-                    self.generated_callable_symbol_name(target, linkage, realization, cancellation)?
-                }
-            };
+            let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
+                target,
+                realization,
+                boundary,
+                CodegenLinkage::Import,
+                cancellation,
+            )?;
 
             let signature = self.codegen_instance_signature(realization, cancellation)?;
 
-            symbols.push(CodegenSymbolMapping::new(
+            let mut symbol = CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.clone()),
                 name,
                 linkage,
                 signature,
-            ));
+            );
+
+            if let Some(native_entry) = native_entry {
+                symbol = symbol.with_native_entry(native_entry);
+            }
+
+            symbols.push(symbol);
         }
 
         for reference in codegen_runtime_references(unit, operations, &symbols) {
@@ -189,6 +237,52 @@ impl Compilation {
         Ok(symbols)
     }
 
+    fn codegen_callable_symbol_boundary(
+        &self,
+        target: &CodegenTarget,
+        realization: &ConcreteCodegenInstance,
+        boundary: Option<NativeBoundaryMapping>,
+        default_linkage: CodegenLinkage,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            BinarySymbolName,
+            CodegenLinkage,
+            Option<CodegenNativeEntryMapping>,
+        ),
+        CodegenPreparationError,
+    > {
+        match boundary {
+            Some(NativeBoundaryMapping::Callback { name, linkage }) => {
+                let body_linkage = CodegenLinkage::LinkOnce;
+
+                let body_name = self.generated_callable_symbol_name(
+                    target,
+                    body_linkage,
+                    realization,
+                    cancellation,
+                )?;
+
+                Ok((
+                    body_name,
+                    body_linkage,
+                    Some(CodegenNativeEntryMapping::new(name, linkage)),
+                ))
+            }
+            Some(NativeBoundaryMapping::Direct { name, linkage }) => {
+                Ok((name, linkage, None))
+            }
+            None => self
+                .generated_callable_symbol_name(
+                    target,
+                    default_linkage,
+                    realization,
+                    cancellation,
+                )
+                .map(|name| (name, default_linkage, None)),
+        }
+    }
+
     pub(in crate::compilation::product) fn codegen_partition_compatibility(
         &self,
         instance: &CodegenInstance,
@@ -233,17 +327,11 @@ impl Compilation {
                 let boundary =
                     self.codegen_native_boundary(instance.key(), platform_overrides, cancellation)?;
 
-                if let Some((name, linkage)) = boundary {
-                    return Ok((Some(name), linkage));
+                if let Some(boundary) = boundary {
+                    return Ok((Some(boundary.name().clone()), boundary.linkage()));
                 }
 
-                let linkage = if roots.contains(instance.key()) {
-                    CodegenLinkage::Export
-                } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
-                    CodegenLinkage::LinkOnce
-                } else {
-                    CodegenLinkage::Internal
-                };
+                let linkage = default_instance_linkage(instance, roots);
 
                 Ok((None, linkage))
             }
@@ -290,7 +378,7 @@ impl Compilation {
         instance: &bray_codegen::CodegenInstanceKey,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         cancellation: &CancellationToken,
-    ) -> Result<Option<(BinarySymbolName, CodegenLinkage)>, CodegenPreparationError> {
+    ) -> Result<Option<NativeBoundaryMapping>, CodegenPreparationError> {
         if matches!(
             instance.template(),
             MirUnitKey::GeneratedLifecycle(_)
@@ -326,23 +414,6 @@ impl Compilation {
             return Ok(None);
         };
 
-        let contract = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
-
-        if let Some(contract) = contract.value() {
-            let name = contract
-                .symbol()
-                .identity()
-                .name()
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
-
-            return native_boundary_mapping(
-                name,
-                contract.direction(),
-                contract.symbol().binding(),
-            )
-            .map(Some);
-        }
-
         let platform_service = match instance.template() {
             MirUnitKey::Bound(_) => {
                 crate::compilation::foreign::platform::platform_service_role(self, function)?
@@ -366,7 +437,24 @@ impl Compilation {
                 CodegenLinkage::Fallback
             };
 
-            return Ok(Some((name, linkage)));
+            return Ok(Some(NativeBoundaryMapping::Direct { name, linkage }));
+        }
+
+        let contract = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+        if let Some(contract) = contract.value() {
+            let name = contract
+                .symbol()
+                .identity()
+                .name()
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            return native_boundary_mapping(
+                name,
+                contract.direction(),
+                contract.symbol().binding(),
+            )
+            .map(Some);
         }
 
         let boundary =

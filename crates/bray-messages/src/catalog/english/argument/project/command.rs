@@ -218,56 +218,11 @@ pub(crate) fn format_english_project_command_failure(
                 )
             }
         },
-        Failure::ProfileValidation { path, problem } => {
-            let problem = match problem {
-                bray_diagnostics::DiagnosticProfileValidationProblem::SchemaRevision {
-                    expected,
-                    actual,
-                } => format!(
-                    "uses schema revision {actual}, but this toolchain requires revision {expected}"
-                ),
-                bray_diagnostics::DiagnosticProfileValidationProblem::DuplicateDescriptor {
-                    kind,
-                    id,
-                } => format!(
-                    "contains duplicate {} descriptor {id}",
-                    format_english_profile_descriptor_kind(*kind)
-                ),
-                bray_diagnostics::DiagnosticProfileValidationProblem::DuplicateObservation {
-                    kind,
-                    id,
-                } => format!(
-                    "contains duplicate observation for {} descriptor {id}",
-                    format_english_profile_descriptor_kind(*kind)
-                ),
-                bray_diagnostics::DiagnosticProfileValidationProblem::UnknownDescriptor {
-                    kind,
-                    id,
-                } => format!(
-                    "references undeclared {} descriptor {id}",
-                    format_english_profile_descriptor_kind(*kind)
-                ),
-                bray_diagnostics::DiagnosticProfileValidationProblem::InvalidRuntimeArtifactIdentity {
-                    index,
-                } => format!("contains an empty runtime artifact identity at index {index}"),
-                bray_diagnostics::DiagnosticProfileValidationProblem::NonCanonicalRuntimeArtifacts {
-                    first,
-                    second,
-                } => format!(
-                    "contains non-canonical runtime artifact identities {} followed by {}",
-                    format_english_quoted_text(first),
-                    format_english_quoted_text(second)
-                ),
-                bray_diagnostics::DiagnosticProfileValidationProblem::InvalidSchedulerStatistics => {
-                    "contains inconsistent scheduler statistics".to_owned()
-                }
-                bray_diagnostics::DiagnosticProfileValidationProblem::InvalidQueryStatistics {
-                    id,
-                } => format!("contains inconsistent request statistics for descriptor {id}"),
-            };
-
-            format!("profile report {} {problem}", format_english_path(path))
-        }
+        Failure::ProfileValidation { path, problem } => format!(
+            "profile report {} {}",
+            format_english_path(path),
+            format_english_profile_validation_problem(problem)
+        ),
         Failure::MissingTestHostLocation(test) => format!(
             "selected test {} has no published host executable",
             format_english_quoted_text(test)
@@ -342,6 +297,60 @@ const fn format_english_profile_descriptor_kind(
         bray_diagnostics::DiagnosticProfileDescriptorKind::Operation => "operation",
         bray_diagnostics::DiagnosticProfileDescriptorKind::Query => "query",
         bray_diagnostics::DiagnosticProfileDescriptorKind::Metric => "metric",
+    }
+}
+
+fn format_english_profile_validation_problem(
+    problem: &bray_diagnostics::DiagnosticProfileValidationProblem,
+) -> String {
+    use bray_diagnostics::DiagnosticProfileValidationProblem as Problem;
+
+    match problem {
+        Problem::SchemaRevision { expected, actual } => {
+            format!("uses schema revision {actual}, but this toolchain requires revision {expected}")
+        }
+        Problem::DuplicateDescriptor { kind, id } => format!(
+            "contains duplicate {} descriptor {id}",
+            format_english_profile_descriptor_kind(*kind)
+        ),
+        Problem::DuplicateObservation { kind, id } => format!(
+            "contains duplicate observation for {} descriptor {id}",
+            format_english_profile_descriptor_kind(*kind)
+        ),
+        Problem::UnknownDescriptor { kind, id } => format!(
+            "references undeclared {} descriptor {id}",
+            format_english_profile_descriptor_kind(*kind)
+        ),
+        Problem::InvalidRuntimeArtifactIdentity { index } => {
+            format!("contains an empty runtime artifact identity at index {index}")
+        }
+        Problem::NonCanonicalRuntimeArtifacts { first, second } => format!(
+            "contains non-canonical runtime artifact identities {} followed by {}",
+            format_english_quoted_text(first),
+            format_english_quoted_text(second)
+        ),
+        Problem::InvalidRuntimeRole { index } => {
+            format!("contains an empty runtime role at index {index}")
+        }
+        Problem::NonCanonicalRuntimeRoles { first, second } => format!(
+            "contains non-canonical runtime roles {} followed by {}",
+            format_english_quoted_text(first),
+            format_english_quoted_text(second)
+        ),
+        Problem::InvalidNativeCallbackEntry { index } => {
+            format!("contains an empty native callback entry at index {index}")
+        }
+        Problem::NonCanonicalNativeCallbackEntries { first, second } => format!(
+            "contains non-canonical native callback entries {} followed by {}",
+            format_english_quoted_text(first),
+            format_english_quoted_text(second)
+        ),
+        Problem::InvalidSchedulerStatistics => {
+            "contains inconsistent scheduler statistics".to_owned()
+        }
+        Problem::InvalidQueryStatistics { id } => {
+            format!("contains inconsistent request statistics for descriptor {id}")
+        }
     }
 }
 
