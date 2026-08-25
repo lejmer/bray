@@ -21,12 +21,18 @@ pub(crate) struct FactCell<T> {
 
 #[derive(Debug)]
 struct FactCellStorage<T> {
-    value: OnceLock<T>,
+    publication: OnceLock<FactCellPublication<T>>,
     published: AtomicBool,
     state: Mutex<FactCellState>,
     changed: Condvar,
     #[cfg(test)]
     observer: Mutex<Option<FactCellTestObserver>>,
+}
+
+#[derive(Debug)]
+struct FactCellPublication<T> {
+    key: CompilationFactKey,
+    value: T,
 }
 
 #[cfg(test)]
@@ -68,14 +74,14 @@ enum FactCellState {
         cancellation: SharedCancellation,
         priority: QueryPriorityDemand,
     },
-    Ready(CompilationFactKey),
+    Ready,
 }
 
 impl<T> FactCell<T> {
     pub(crate) fn new() -> Self {
         Self {
             storage: Arc::new(FactCellStorage {
-                value: OnceLock::new(),
+                publication: OnceLock::new(),
                 published: AtomicBool::new(false),
                 state: Mutex::new(FactCellState::Vacant),
                 changed: Condvar::new(),
@@ -86,15 +92,32 @@ impl<T> FactCell<T> {
     }
 
     pub(crate) fn get(&self) -> Option<&T> {
-        self.storage.value.get()
+        self.storage
+            .publication
+            .get()
+            .map(|publication| &publication.value)
     }
 
-    pub(crate) fn get_if_published(&self) -> Option<&T> {
+    pub(crate) fn get_if_published(
+        &self,
+        key: &CompilationFactKey,
+    ) -> Result<Option<&T>, FactQueryError> {
+        // Acquire pairs with final Release publication after the dependency record commits.
         if !self.storage.published.load(Ordering::Acquire) {
-            return None;
+            return Ok(None);
         }
 
-        self.storage.value.get()
+        let publication = self
+            .storage
+            .publication
+            .get()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        if &publication.key != key {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        Ok(Some(&publication.value))
     }
 
     #[cfg(test)]
@@ -125,11 +148,7 @@ impl<T> FactCell<T> {
     }
 
     pub(super) fn is_ready_for(&self, key: &CompilationFactKey) -> bool {
-        let Ok(state) = self.storage.state.lock() else {
-            return false;
-        };
-
-        matches!(&*state, FactCellState::Ready(ready_key) if ready_key == key)
+        self.get_if_published(key).is_ok_and(|value| value.is_some())
     }
 
     pub(super) fn is_vacant(&self) -> bool {
@@ -150,9 +169,14 @@ impl<T> FactCell<T> {
     where
         T: Hash + Send,
     {
-        let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
-
-        self.get_or_compute_with_priority(runtime, key, cancellation, priority, compute)
+        self.get_or_compute_requested_with_cycle_key_and_priority(
+            runtime,
+            key.clone(),
+            key,
+            cancellation,
+            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
+            |_| compute(),
+        )
     }
 
     pub(crate) fn get_or_compute_with_priority(
@@ -171,12 +195,32 @@ impl<T> FactCell<T> {
             key.clone(),
             key,
             cancellation,
-            priority,
+            || Ok(priority),
             |_| compute(),
         )
     }
 
     pub(crate) fn get_or_compute_requested(
+        &self,
+        runtime: &FactRuntime,
+        key: CompilationFactKey,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
+    ) -> Result<&T, FactQueryError>
+    where
+        T: Hash + Send,
+    {
+        self.get_or_compute_requested_with_cycle_key_and_priority(
+            runtime,
+            key.clone(),
+            key,
+            cancellation,
+            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
+            compute,
+        )
+    }
+
+    pub(crate) fn get_or_compute_requested_with_priority(
         &self,
         runtime: &FactRuntime,
         key: CompilationFactKey,
@@ -192,7 +236,7 @@ impl<T> FactCell<T> {
             key.clone(),
             key,
             cancellation,
-            priority,
+            || Ok(priority),
             compute,
         )
     }
@@ -208,14 +252,12 @@ impl<T> FactCell<T> {
     where
         T: Hash + Send,
     {
-        let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
-
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
             key,
             cycle_key,
             cancellation,
-            priority,
+            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
             |_| compute(),
         )
     }
@@ -226,7 +268,7 @@ impl<T> FactCell<T> {
         key: CompilationFactKey,
         cycle_key: CompilationFactKey,
         cancellation: &CancellationToken,
-        priority: QueryPriority,
+        priority: impl FnOnce() -> Result<QueryPriority, FactQueryError>,
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
@@ -240,6 +282,16 @@ impl<T> FactCell<T> {
 
         let mut query_request = profile.map(|(profile, query)| profile.start_query_request(query));
 
+        if let Some(value) = self.get_if_published(&key)? {
+            runtime.request_with_cycle_key(&key, &cycle_key)?;
+            cancellation.check()?;
+            record_cache_outcome(&mut query_request, true);
+
+            return Ok(value);
+        }
+
+        let priority = priority()?;
+
         runtime.request_with_cycle_key(&key, &cycle_key)?;
 
         loop {
@@ -252,14 +304,10 @@ impl<T> FactCell<T> {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             match &*state {
-                FactCellState::Ready(ready_key) => {
-                    if ready_key != &key {
-                        return Err(FactQueryError::InfrastructureFailure);
-                    }
-
+                FactCellState::Ready => {
                     record_cache_outcome(&mut query_request, true);
 
-                    return self.ready_value();
+                    return self.published_value(&key);
                 }
                 FactCellState::Vacant => {
                     record_cache_outcome(&mut query_request, false);
@@ -316,7 +364,7 @@ impl<T> FactCell<T> {
 
                     let commit = evaluation.prepare(&value)?;
 
-                    self.publish(value, task, key, commit)?;
+                    let value = self.publish(value, task, key, commit)?;
 
                     if let Some((profile, query)) = profile {
                         profile.record_query_publication(query, std::mem::size_of::<T>());
@@ -326,7 +374,7 @@ impl<T> FactCell<T> {
 
                     cancellation.check()?;
 
-                    return self.ready_value();
+                    return Ok(value);
                 }
                 FactCellState::Computing {
                     task,
@@ -413,7 +461,7 @@ impl<T> FactCell<T> {
         task: FactTaskIdentity,
         key: CompilationFactKey,
         commit: EvaluationCommit<'_>,
-    ) -> Result<(), FactQueryError> {
+    ) -> Result<&T, FactQueryError> {
         let mut state = self
             .storage
             .state
@@ -432,26 +480,28 @@ impl<T> FactCell<T> {
         }
 
         self.storage
-            .value
-            .set(value)
+            .publication
+            .set(FactCellPublication { key, value })
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         commit.commit();
 
-        *state = FactCellState::Ready(key);
+        *state = FactCellState::Ready;
 
-        // Release publication exposes both the value and dependency record to lock-free readers.
+        // Release publication exposes the immutable key, value, and dependency record together.
         self.storage.published.store(true, Ordering::Release);
 
         self.storage.changed.notify_all();
 
-        Ok(())
+        self.storage
+            .publication
+            .get()
+            .map(|publication| &publication.value)
+            .ok_or(FactQueryError::InfrastructureFailure)
     }
 
-    fn ready_value(&self) -> Result<&T, FactQueryError> {
-        self.storage
-            .value
-            .get()
+    fn published_value(&self, key: &CompilationFactKey) -> Result<&T, FactQueryError> {
+        self.get_if_published(key)?
             .ok_or(FactQueryError::InfrastructureFailure)
     }
 
@@ -503,9 +553,9 @@ impl<T> FactCell<T> {
             return;
         }
 
-        *state = if self.storage.value.get().is_some() {
+        *state = if self.storage.publication.get().is_some() {
             // Recovery must retain the initialized value's cache identity after the guard drops.
-            FactCellState::Ready(key.clone())
+            FactCellState::Ready
         } else {
             FactCellState::Vacant
         };
@@ -605,17 +655,7 @@ mod tests {
 
     #[test]
     fn concurrent_requests_compute_one_value() {
-        let runtime = FactRuntime::with_profile(
-            WorkerBudget::default(),
-            Some((
-                CompilationProfileConfiguration::new(CompilationProfileMode::Summary),
-                CompilationProfileContext {
-                    package: "test.package".to_owned(),
-                    product: "test.product".to_owned(),
-                    target: "test-target".to_owned(),
-                },
-            )),
-        );
+        let runtime = profiled_runtime(WorkerBudget::default().get());
 
         let cancellation = CancellationToken::new();
 
@@ -675,6 +715,170 @@ mod tests {
         assert_eq!(query.cache_hits, 0);
         assert_eq!(query.cache_misses, 8);
         assert_eq!(query.evaluations, 1);
+    }
+
+    #[test]
+    fn published_values_do_not_lock_fact_state() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+
+        assert_eq!(
+            cell.get_or_compute(&runtime, key.clone(), &cancellation, || Ok(42_u32)),
+            Ok(&42)
+        );
+
+        let state = cell
+            .storage
+            .state
+            .lock()
+            .unwrap_or_else(|_| panic!("fact state must remain available"));
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let result = cell
+                    .get_or_compute(&runtime, key, &cancellation, || Ok(99_u32))
+                    .copied();
+
+                let _ = sender.send(result);
+            });
+
+            let result = receiver.recv_timeout(Duration::from_secs(1));
+
+            drop(state);
+
+            assert_eq!(result, Ok(Ok(42)));
+        });
+    }
+
+    #[test]
+    fn published_values_record_profile_hits_without_new_evaluations() {
+        let runtime = profiled_runtime(1);
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+
+        let first = cell.get_or_compute(&runtime, key.clone(), &cancellation, || Ok(7_u32));
+        let second = cell.get_or_compute(&runtime, key, &cancellation, || Ok(9_u32));
+
+        assert_eq!(first, Ok(&7));
+        assert_eq!(second, Ok(&7));
+
+        let report = runtime
+            .profile_report()
+            .unwrap_or_else(|| panic!("profiled fact runtime must report"));
+
+        let query = report
+            .queries
+            .iter()
+            .find(|query| {
+                report
+                    .query_descriptor(query.id)
+                    .is_some_and(|descriptor| descriptor.name == "syntax_tree")
+            })
+            .unwrap_or_else(|| panic!("syntax-tree query statistics must be present"));
+
+        assert_eq!(query.requests, 2);
+        assert_eq!(query.cache_hits, 1);
+        assert_eq!(query.cache_misses, 1);
+        assert_eq!(query.evaluations, 1);
+    }
+
+    #[test]
+    fn published_values_remain_complete_under_repeated_parallel_reads() {
+        let runtime = runtime(8);
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+        let computations = AtomicUsize::new(0);
+        let expected = (0_u64..128).collect::<Vec<_>>();
+
+        let published = cell.get_or_compute(&runtime, key.clone(), &cancellation, || {
+            computations.fetch_add(1, Ordering::SeqCst);
+
+            Ok(expected.clone())
+        });
+
+        assert_eq!(published, Ok(&expected));
+
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                scope.spawn(|| {
+                    for _ in 0..512 {
+                        let value = cell
+                            .get_or_compute(&runtime, key.clone(), &cancellation, || {
+                                computations.fetch_add(1, Ordering::SeqCst);
+
+                                Ok(Vec::new())
+                            })
+                            .unwrap_or_else(|error| {
+                                panic!("published value must remain readable: {error:?}")
+                            });
+
+                        assert_eq!(value, &expected);
+                    }
+                });
+            }
+        });
+
+        assert_eq!(computations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn published_values_preserve_cycle_checks() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let parent = FactCell::new();
+        let child = FactCell::new();
+        let parent_key = CompilationFactKey::DeclarationTable;
+        let child_key = CompilationFactKey::SyntaxTree;
+
+        assert_eq!(
+            child.get_or_compute(&runtime, child_key.clone(), &cancellation, || Ok(1_u32)),
+            Ok(&1)
+        );
+
+        let cycle = parent.get_or_compute_with_cycle_key(
+            &runtime,
+            parent_key,
+            child_key.clone(),
+            &cancellation,
+            || {
+                child
+                    .get_or_compute(&runtime, child_key.clone(), &cancellation, || Ok(2_u32))
+                    .copied()
+            },
+        );
+
+        let Err(FactQueryError::Cycle(cycle)) = cycle else {
+            panic!("published recursive dependency must report a cycle");
+        };
+
+        assert_eq!(cycle.facts(), &[child_key.clone(), child_key.clone()]);
+    }
+
+    #[test]
+    fn published_values_preserve_cancellation_checks() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+
+        assert_eq!(
+            cell.get_or_compute(&runtime, key.clone(), &cancellation, || Ok(1_u32)),
+            Ok(&1)
+        );
+
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+
+        assert_eq!(
+            cell.get_or_compute(&runtime, key, &cancelled, || Ok(2_u32)),
+            Err(FactQueryError::Cancelled)
+        );
     }
 
     #[test]
@@ -1538,7 +1742,7 @@ mod tests {
 
             let owner = scope.spawn(move || {
                 owner_cell
-                    .get_or_compute_requested(
+                    .get_or_compute_requested_with_priority(
                         owner_runtime,
                         owner_key,
                         owner_token,
@@ -1670,6 +1874,23 @@ mod tests {
             .unwrap_or_else(|error| panic!("test worker budget must be valid: {error:?}"));
 
         FactRuntime::new(worker_budget)
+    }
+
+    fn profiled_runtime(workers: usize) -> FactRuntime {
+        let worker_budget = crate::WorkerBudget::new(workers)
+            .unwrap_or_else(|error| panic!("test worker budget must be valid: {error:?}"));
+
+        FactRuntime::with_profile(
+            worker_budget,
+            Some((
+                CompilationProfileConfiguration::new(CompilationProfileMode::Summary),
+                CompilationProfileContext {
+                    package: "test.package".to_owned(),
+                    product: "test.product".to_owned(),
+                    target: "test-target".to_owned(),
+                },
+            )),
+        )
     }
 
     fn join<T>(

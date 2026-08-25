@@ -167,7 +167,8 @@ Use `Self` to find query families consuming worker capacity. Use the inclusive v
 dependency subtree. Do not sum query rows.
 
 `Top queries by ready-value access time` ranks cache hits by the time between beginning a query request and reaching its
-already-published value. This includes fact-cell synchronization and ready-value retrieval. It reveals query families
+already-published value. This includes acquire publication checks, exact dependency recording, cancellation checks, and
+ready-value retrieval. Mapped caches also include their key lookup and retention accounting. It reveals query families
 where a high hit rate still carries meaningful overhead.
 
 `Top query publication and result-copy volume` attributes immutable result publication and query-result ownership copies

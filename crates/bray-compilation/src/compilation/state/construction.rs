@@ -540,7 +540,9 @@ impl Compilation {
     where
         T: std::hash::Hash + Send,
     {
-        if let Some(value) = cache.get_if_published() {
+        if let Some(value) = cache.get_if_published(&key).unwrap_or_else(|error| {
+            panic!("frozen compilation value publication must remain valid: {error:?}")
+        }) {
             self.state
                 .fact_runtime
                 .record_frozen_fact(&key)
@@ -564,17 +566,10 @@ impl Compilation {
     where
         T: std::hash::Hash + Send,
     {
-        let priority = self
-            .state
-            .fact_runtime
-            .current_priority()?
-            .unwrap_or(crate::QueryPriority::Normal);
-
         cache.get_or_compute_requested(
             &self.state.fact_runtime,
             key,
             cancellation,
-            priority,
             compute,
         )
     }

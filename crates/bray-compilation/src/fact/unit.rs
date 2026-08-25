@@ -117,7 +117,7 @@ where
         // The map owns the immutable unit identity independently of the caller's request.
         let cell = self.cells.cell(unit_key.clone())?;
 
-        let published = cell.get_or_compute_requested(
+        let published = cell.get_or_compute_requested_with_priority(
             runtime,
             semantic_key,
             cancellation,
