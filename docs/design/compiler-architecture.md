@@ -171,7 +171,7 @@ requests this package query result beside source, syntax, and declaration diagno
 the check-diagnostics query enumerates semantic units or invokes binder entry points directly.
 
 Each query keeps newly emitted diagnostics in one local immutable collection. Dependent results retain collection
-references in prerequisite order instead of copying complete diagnostic histories. A deterministic parent publication
+references in prerequisite order. A deterministic parent publication
 tags the collections with source-and-stage order and traverses them once, so worker completion order cannot affect
 diagnostic content or rendering.
 
