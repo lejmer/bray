@@ -31,7 +31,7 @@ struct FactCellStorage<T> {
 
 #[derive(Debug)]
 struct FactCellPublication<T> {
-    key: CompilationFactKey,
+    key: Arc<CompilationFactKey>,
     value: T,
 }
 
@@ -70,7 +70,7 @@ enum FactCellState {
     Vacant,
     Computing {
         task: FactTaskIdentity,
-        key: CompilationFactKey,
+        key: Arc<CompilationFactKey>,
         cancellation: SharedCancellation,
         priority: QueryPriorityDemand,
     },
@@ -113,7 +113,7 @@ impl<T> FactCell<T> {
             .get()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        if &publication.key != key {
+        if publication.key.as_ref() != key {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -312,23 +312,26 @@ impl<T> FactCell<T> {
                 FactCellState::Vacant => {
                     record_cache_outcome(&mut query_request, false);
 
-                    // The task, cell state, and rollback guard independently retain this key.
+                    // The task owns its request key while cell publication shares one identity.
                     let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
                     let task = context.identity();
+                    let cell_key = Arc::new(key.clone());
                     let shared_cancellation = SharedCancellation::new();
                     let _interest = shared_cancellation.register(cancellation)?;
                     let shared_priority = QueryPriorityDemand::new(priority);
 
                     *state = FactCellState::Computing {
                         task,
-                        key: key.clone(),
+                        key: Arc::clone(&cell_key),
                         cancellation: shared_cancellation.clone(),
                         priority: shared_priority.clone(),
                     };
 
                     drop(state);
 
-                    let mut publication = PublicationGuard::new(self, task, key.clone());
+                    let mut publication =
+                        PublicationGuard::new(self, task, Arc::clone(&cell_key));
+
                     let evaluation = runtime.begin(context)?;
 
                     #[cfg(test)]
@@ -364,7 +367,7 @@ impl<T> FactCell<T> {
 
                     let commit = evaluation.prepare(&value)?;
 
-                    let value = self.publish(value, task, key, commit)?;
+                    let value = self.publish(value, task, cell_key, commit)?;
 
                     if let Some((profile, query)) = profile {
                         profile.record_query_publication(query, std::mem::size_of::<T>());
@@ -382,7 +385,7 @@ impl<T> FactCell<T> {
                     cancellation: shared_cancellation,
                     priority: shared_priority,
                 } => {
-                    if computing_key != &key {
+                    if computing_key.as_ref() != &key {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
@@ -430,7 +433,7 @@ impl<T> FactCell<T> {
                             task: current_task,
                             key: current_key,
                             ..
-                        } if *current_task == task && current_key == &key
+                        } if *current_task == task && current_key.as_ref() == &key
                     );
 
                     if same_evaluation {
@@ -459,7 +462,7 @@ impl<T> FactCell<T> {
         &self,
         value: T,
         task: FactTaskIdentity,
-        key: CompilationFactKey,
+        key: Arc<CompilationFactKey>,
         commit: EvaluationCommit<'_>,
     ) -> Result<&T, FactQueryError> {
         let mut state = self
@@ -474,7 +477,7 @@ impl<T> FactCell<T> {
                 task: active_task,
                 key: active_key,
                 ..
-            } if *active_task == task && active_key == &key
+            } if *active_task == task && active_key.as_ref() == key.as_ref()
         ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -548,7 +551,7 @@ impl<T> FactCell<T> {
                 task: active_task,
                 key: active_key,
                 ..
-            } if *active_task == task && active_key == key
+            } if *active_task == task && active_key.as_ref() == key
         ) {
             return;
         }
@@ -604,12 +607,12 @@ impl<T> Default for FactCell<T> {
 struct PublicationGuard<'a, T> {
     cell: &'a FactCell<T>,
     task: FactTaskIdentity,
-    key: CompilationFactKey,
+    key: Arc<CompilationFactKey>,
     active: bool,
 }
 
 impl<'a, T> PublicationGuard<'a, T> {
-    fn new(cell: &'a FactCell<T>, task: FactTaskIdentity, key: CompilationFactKey) -> Self {
+    fn new(cell: &'a FactCell<T>, task: FactTaskIdentity, key: Arc<CompilationFactKey>) -> Self {
         Self {
             cell,
             task,
@@ -626,7 +629,7 @@ impl<'a, T> PublicationGuard<'a, T> {
 impl<T> Drop for PublicationGuard<'_, T> {
     fn drop(&mut self) {
         if self.active {
-            self.cell.abandon(self.task, &self.key);
+            self.cell.abandon(self.task, self.key.as_ref());
         }
     }
 }
@@ -644,7 +647,9 @@ mod tests {
         Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
     };
 
-    use super::{FactCell, FactCellState, FactCellTestEvent, FactCellTestObserver};
+    use super::{
+        FactCell, FactCellPublication, FactCellState, FactCellTestEvent, FactCellTestObserver,
+    };
     use crate::fact::task::FactTaskContext;
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
     use crate::test_support::FactTestGate;
@@ -1860,6 +1865,14 @@ mod tests {
 
         assert_send_sync::<FactCell<u32>>();
         assert_send_sync::<Arc<FactCell<u32>>>();
+    }
+
+    #[test]
+    fn fact_cells_keep_large_compilation_keys_indirect() {
+        let key_size = std::mem::size_of::<CompilationFactKey>();
+
+        assert!(std::mem::size_of::<FactCellState>() < key_size);
+        assert!(std::mem::size_of::<FactCellPublication<Arc<()>>>() < key_size);
     }
 
     fn task_context(runtime: &FactRuntime, key: CompilationFactKey) -> FactTaskContext {
