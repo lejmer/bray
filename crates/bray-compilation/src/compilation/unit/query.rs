@@ -4130,9 +4130,7 @@ func mutate(pos input: Value)
             "{diagnostics:#?}"
         );
 
-        let [diagnostic] = diagnostics.diagnostics() else {
-            panic!("missing mutable protocol must publish one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(diagnostics);
 
         assert_eq!(
             diagnostic.args(),

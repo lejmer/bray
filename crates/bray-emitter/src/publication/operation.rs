@@ -908,7 +908,10 @@ mod tests {
                 EmissionStatus::Failed(EmissionFailure::Publication(_))
             ));
 
-            assert_eq!(outcome.diagnostics().diagnostics()[0].kind(), diagnostic);
+            assert_eq!(
+                bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
+                diagnostic
+            );
 
             match failure {
                 IndirectFailure::Write => assert_goal_state_diagnostic_kind(
@@ -958,7 +961,7 @@ mod tests {
         ));
 
         assert_eq!(
-            rejected.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(rejected.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionArtifactCommitFailed
         );
 
@@ -1242,7 +1245,7 @@ mod tests {
         ));
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionGenerationCollision
         );
 
@@ -1288,7 +1291,7 @@ mod tests {
             .publish(&plan, [contribution(&plan, b"stable", None)]);
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionGenerationCollision
         );
 
@@ -1455,7 +1458,7 @@ mod tests {
         ));
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionArtifactDigestMismatch
         );
 
@@ -1464,7 +1467,7 @@ mod tests {
             DiagnosticKind::EmissionArtifactDigestMismatch,
         );
 
-        let diagnostic = &outcome.diagnostics().diagnostics()[0];
+        let diagnostic = bray_testing::diagnostic_at(outcome.diagnostics(), 0);
 
         let Some(expected) = diagnostic
             .args()
@@ -1533,7 +1536,7 @@ mod tests {
         assert_eq!(outcome.diagnostics().warnings().count(), 1);
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionInvalidContribution
         );
 
@@ -1629,7 +1632,7 @@ mod tests {
         assert_eq!(outcome.diagnostics().len(), 1);
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionMissingContribution
         );
 
@@ -1639,7 +1642,7 @@ mod tests {
         );
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].severity(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).severity(),
             SeverityKind::Error
         );
     }
@@ -1799,7 +1802,7 @@ mod tests {
         ));
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionArtifactReadFailed
         );
 
@@ -1856,7 +1859,7 @@ mod tests {
         ));
 
         assert_eq!(
-            outcome.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
             DiagnosticKind::EmissionArtifactLengthMismatch
         );
 

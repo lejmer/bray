@@ -1420,9 +1420,7 @@ mod tests {
             [DiagnosticKind::StandardLibraryManifestInvalid]
         );
 
-        let [malformed_diagnostic] = malformed_result.diagnostics().diagnostics() else {
-            panic!("malformed manifest must produce one diagnostic");
-        };
+        let malformed_diagnostic = bray_testing::single_diagnostic(malformed_result.diagnostics());
 
         assert_eq!(
             malformed_diagnostic.args(),
@@ -1465,9 +1463,8 @@ mod tests {
             .dependency_interface_result(interface_id(&unavailable, "std", "library"))
             .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
 
-        let [unavailable_diagnostic] = unavailable_result.diagnostics().diagnostics() else {
-            panic!("unavailable target must produce one diagnostic");
-        };
+        let unavailable_diagnostic =
+            bray_testing::single_diagnostic(unavailable_result.diagnostics());
 
         assert_eq!(
             unavailable_diagnostic.kind(),
@@ -1500,9 +1497,7 @@ mod tests {
             .dependency_interface_result(interface_id(&mismatch, "std", "library"))
             .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
 
-        let [mismatch_diagnostic] = mismatch_result.diagnostics().diagnostics() else {
-            panic!("digest mismatch must produce one diagnostic");
-        };
+        let mismatch_diagnostic = bray_testing::single_diagnostic(mismatch_result.diagnostics());
 
         assert_eq!(
             mismatch_diagnostic.kind(),
@@ -1937,9 +1932,7 @@ mod tests {
             ImportedInterfaceId::CAPACITY,
         );
 
-        let [interface_diagnostic] = interface_capacity.diagnostics() else {
-            panic!("interface capacity must produce one diagnostic");
-        };
+        let interface_diagnostic = bray_testing::single_diagnostic(&interface_capacity);
 
         assert_eq!(
             interface_diagnostic.args(),
@@ -1963,9 +1956,7 @@ mod tests {
             SymbolId::CAPACITY,
         );
 
-        let [symbol_diagnostic] = symbol_capacity.diagnostics() else {
-            panic!("symbol capacity must produce one diagnostic");
-        };
+        let symbol_diagnostic = bray_testing::single_diagnostic(&symbol_capacity);
 
         assert_eq!(
             symbol_diagnostic.args(),
@@ -2010,7 +2001,9 @@ mod tests {
         );
 
         assert_eq!(
-            duplicate_package.diagnostics()[0].related_locations().len(),
+            bray_testing::single_diagnostic(&duplicate_package)
+                .related_locations()
+                .len(),
             1
         );
 
@@ -2136,7 +2129,12 @@ mod tests {
             DiagnosticKind::InterfaceSymbolGraphInvalid,
         );
 
-        assert_eq!(invalid_graph.diagnostics()[0].related_locations().len(), 1);
+        assert_eq!(
+            bray_testing::single_diagnostic(&invalid_graph)
+                .related_locations()
+                .len(),
+            1
+        );
     }
 
     #[test]

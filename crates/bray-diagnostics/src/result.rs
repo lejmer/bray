@@ -58,14 +58,18 @@ mod tests {
         assert_eq!(result.value(), &7);
 
         assert_eq!(
-            result.diagnostics().diagnostics(),
-            std::slice::from_ref(&diagnostic)
+            result.diagnostics().iter().collect::<Vec<_>>(),
+            [&diagnostic]
         );
 
         let (value, diagnostics) = result.into_parts();
 
         assert_eq!(value, 7);
-        assert_eq!(diagnostics.diagnostics(), &[diagnostic]);
+
+        assert_eq!(
+            diagnostics.iter().cloned().collect::<Vec<_>>(),
+            [diagnostic]
+        );
     }
 
     #[test]
@@ -80,7 +84,11 @@ mod tests {
             .map(|value| value.to_string());
 
         assert_eq!(result.value(), "3");
-        assert_eq!(result.diagnostics().diagnostics(), &[diagnostic]);
+
+        assert_eq!(
+            result.diagnostics().iter().cloned().collect::<Vec<_>>(),
+            [diagnostic]
+        );
     }
 
     #[test]

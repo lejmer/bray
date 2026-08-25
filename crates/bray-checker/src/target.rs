@@ -652,7 +652,9 @@ mod tests {
             panic!("target representation validity must complete");
         };
 
-        let [diagnostic] = result.diagnostics().diagnostics() else {
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [diagnostic] = diagnostics.as_slice() else {
             panic!("an unavailable selected representation must report one diagnostic");
         };
 
@@ -714,7 +716,7 @@ mod tests {
         assert_eq!(*result.value(), TargetValidity::Invalid);
 
         assert_eq!(
-            result.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(result.diagnostics(), 0).kind(),
             DiagnosticKind::CheckingTargetAbiRepresentationUnsupported
         );
 
@@ -747,7 +749,7 @@ mod tests {
         assert_eq!(*result.value(), TargetValidity::Invalid);
 
         assert_eq!(
-            result.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(result.diagnostics(), 0).kind(),
             DiagnosticKind::CheckingTargetAlignmentUnsupported
         );
 

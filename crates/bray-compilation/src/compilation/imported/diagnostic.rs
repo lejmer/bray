@@ -448,9 +448,7 @@ mod tests {
             &input,
         );
 
-        let [diagnostic] = read_bag.diagnostics() else {
-            panic!("artifact failure must produce one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(&read_bag);
 
         assert_eq!(
             diagnostic.args()[0],
@@ -517,9 +515,7 @@ mod tests {
             &input,
         );
 
-        let [diagnostic] = abi_bag.diagnostics() else {
-            panic!("ABI mismatch must produce one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(&abi_bag);
 
         assert_eq!(
             diagnostic.args()[1],

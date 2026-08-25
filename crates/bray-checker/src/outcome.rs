@@ -151,7 +151,15 @@ mod tests {
         };
 
         assert_eq!(completed.value(), &result);
-        assert_eq!(completed.diagnostics().diagnostics(), &[diagnostic]);
+
+        assert_eq!(
+            completed
+                .diagnostics()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            [diagnostic]
+        );
     }
 
     #[test]

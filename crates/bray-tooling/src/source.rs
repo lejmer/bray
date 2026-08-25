@@ -289,10 +289,12 @@ mod tests {
             Err(diagnostics) => diagnostics,
         };
 
-        let diagnostic = match diagnostics.diagnostics() {
-            [diagnostic] => diagnostic,
-            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
-        };
+        assert_eq!(diagnostics.len(), 1, "expected one diagnostic");
+
+        let diagnostic = diagnostics
+            .iter()
+            .next()
+            .unwrap_or_else(|| panic!("expected one diagnostic"));
 
         assert_eq!(diagnostic.kind(), DiagnosticKind::SourceFileReadFailed);
 

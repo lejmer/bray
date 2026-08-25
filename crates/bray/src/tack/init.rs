@@ -398,9 +398,7 @@ mod tests {
             panic!("missing native target must reject initialization");
         };
 
-        let [diagnostic] = diagnostics.diagnostics() else {
-            panic!("unsupported target must produce one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(&diagnostics);
 
         assert_eq!(
             diagnostic.kind(),
@@ -438,9 +436,7 @@ mod tests {
             panic!("filesystem failure must reject initialization");
         };
 
-        let [diagnostic] = diagnostics.diagnostics() else {
-            panic!("filesystem failure must produce one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(&diagnostics);
 
         assert_eq!(
             diagnostic.kind(),

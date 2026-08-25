@@ -1027,7 +1027,7 @@ mod tests {
         assert_eq!(result, MemberLookupResult::NotFound);
 
         assert_eq!(
-            output.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(output.diagnostics(), 0).kind(),
             DiagnosticKind::BindingUnresolvedName
         );
     }
@@ -1086,7 +1086,6 @@ mod tests {
 
         assert_eq!(
             finish(binder)
-                .diagnostics()
                 .diagnostics()
                 .iter()
                 .map(|diagnostic| diagnostic.kind())
@@ -1168,7 +1167,6 @@ mod tests {
         assert_eq!(
             result
                 .diagnostics()
-                .diagnostics()
                 .iter()
                 .map(|diagnostic| diagnostic.kind())
                 .collect::<Vec<_>>(),
@@ -1204,7 +1202,6 @@ mod tests {
 
         assert_eq!(
             result
-                .diagnostics()
                 .diagnostics()
                 .iter()
                 .map(|diagnostic| diagnostic.kind())
@@ -1308,7 +1305,6 @@ mod tests {
 
         let kinds = result
             .diagnostics()
-            .diagnostics()
             .iter()
             .map(|diagnostic| diagnostic.kind())
             .collect::<Vec<_>>();
@@ -1324,7 +1320,7 @@ mod tests {
             ]
         );
 
-        let wrong_kind = &result.diagnostics().diagnostics()[1];
+        let wrong_kind = bray_testing::diagnostic_at(result.diagnostics(), 1);
 
         assert_eq!(
             wrong_kind.primary_span().map(|span| span.range()),
@@ -1416,7 +1412,7 @@ mod tests {
         ));
 
         assert_eq!(
-            finish(binder).diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(finish(binder).diagnostics(), 0).kind(),
             DiagnosticKind::BindingAmbiguousName
         );
     }

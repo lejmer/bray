@@ -8,7 +8,7 @@ pub(in crate::compilation) struct LoadedDependencyInterface {
 }
 
 impl LoadedDependencyInterface {
-    pub(super) const fn new(
+    pub(super) fn new(
         validated: ValidatedPackageInterface,
         surface: PackageInterfaceSurface,
     ) -> Self {

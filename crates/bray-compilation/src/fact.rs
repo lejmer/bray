@@ -3,6 +3,7 @@ mod cache;
 mod cancellation;
 mod cell_map;
 mod completion;
+mod diagnostic;
 mod error;
 mod fingerprint;
 mod key;
@@ -27,6 +28,9 @@ pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
 pub(crate) use cancellation::SharedCancellation;
 pub(crate) use cell_map::FactCellMap;
 pub(crate) use completion::complete_symbol;
+pub(crate) use diagnostic::{
+    DiagnosticPublicationOrder, OrderedDiagnosticCollection, publish_diagnostics,
+};
 pub(crate) use fingerprint::{
     CompilationInputKey, CompilationInputs, FactDependencyRecord, FactFingerprint, fact_fingerprint,
 };

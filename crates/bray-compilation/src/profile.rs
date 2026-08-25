@@ -22,5 +22,5 @@ pub(crate) use descriptor::{
 };
 pub(crate) use session::{
     ProfileQueryRequest, ProfileSession, merge_diagnostics, profile_operation,
-    record_query_diagnostic_collection, record_query_result_copy,
+    record_query_diagnostic_collection, record_query_result_reference,
 };

@@ -761,9 +761,7 @@ mod tests {
             DiagnosticKind::BindingConflictingModuleExport,
         );
 
-        let [conflict] = conflicting_diagnostics.diagnostics() else {
-            panic!("one conflicting export diagnostic expected");
-        };
+        let conflict = bray_testing::single_diagnostic(&conflicting_diagnostics);
 
         let [prior] = conflict.related_locations() else {
             panic!("conflicting export must retain its prior declaration");
@@ -786,9 +784,7 @@ mod tests {
             DiagnosticKind::BindingConflictingModuleExport,
         );
 
-        let [child_conflict] = child_conflict_diagnostics.diagnostics() else {
-            panic!("one child-module conflict diagnostic expected");
-        };
+        let child_conflict = bray_testing::single_diagnostic(&child_conflict_diagnostics);
 
         assert_eq!(child_conflict.related_locations().len(), 1);
 
@@ -803,9 +799,7 @@ mod tests {
             DiagnosticKind::BindingConflictingModuleExport,
         );
 
-        let [duplicate_export] = duplicate_export_diagnostics.diagnostics() else {
-            panic!("one duplicate export diagnostic expected");
-        };
+        let duplicate_export = bray_testing::single_diagnostic(&duplicate_export_diagnostics);
 
         assert_eq!(duplicate_export.related_locations().len(), 1);
 
