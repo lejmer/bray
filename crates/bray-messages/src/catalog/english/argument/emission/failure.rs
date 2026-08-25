@@ -367,7 +367,7 @@ use crate::catalog::english::argument::interface::{
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             if cycle.is_empty() {
                 format!(
-                    "the compiler could not finish package-interface export: {}",
+                    "the compiler could not finish package-interface export because {}",
                     format_english_emission_evaluation_failure(*cause)
                 )
             } else {
@@ -486,6 +486,18 @@ mod tests {
         assert_eq!(
             cycle,
             "the compiler could not finish package-interface export because internal requests depend on one another: declaration_table -> symbol_graph"
+        );
+
+        let infrastructure = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
+                cause: DiagnosticEmissionEvaluationFailure::Infrastructure,
+                cycle: Box::new([]),
+            },
+        );
+
+        assert_eq!(
+            infrastructure,
+            "the compiler could not finish package-interface export because the compiler evaluation state became inconsistent"
         );
 
         let overflow = format_english_package_interface_failure(

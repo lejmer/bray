@@ -110,6 +110,30 @@ impl SemanticFragment {
             .map_err(PackageInterfaceExportError::FragmentCoordination)
     }
 
+    pub(super) fn exact_diagnostic_identity(
+        &self,
+        graph: &bray_symbols::SymbolGraph,
+    ) -> Result<
+        bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
+        PackageInterfaceExportError,
+    > {
+        graph
+            .symbol_key(self.symbol)
+            .map(bray_symbols::diagnostic_symbol_identity)
+            .ok_or(PackageInterfaceExportError::FragmentCoordination(
+                crate::fact::FactQueryError::InfrastructureFailure,
+            ))
+    }
+
+    pub(super) fn diagnostic_span(
+        &self,
+        graph: &bray_symbols::SymbolGraph,
+    ) -> Option<bray_source::SourceSpan> {
+        graph.declaration_syntax_anchor(self.symbol).map(|anchor| {
+            bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range())
+        })
+    }
+
     pub(super) fn commit(
         self,
         export: &mut SemanticExporter<'_>,

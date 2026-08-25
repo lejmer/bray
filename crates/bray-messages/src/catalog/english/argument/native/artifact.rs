@@ -26,7 +26,7 @@ pub(crate) const fn format_english_emission_evaluation_failure(
 
     match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
-        Failure::Infrastructure => "the compiler could not complete the evaluation",
+        Failure::Infrastructure => "the compiler evaluation state became inconsistent",
         Failure::AtomicRepresentationTypeUnavailable => {
             "the selected atomic value has no available representation type"
         }

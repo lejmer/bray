@@ -149,13 +149,17 @@ fn resolve_fragments(
         .windows(2)
         .find(|pair| pair[0].identity() == pair[1].identity())
     {
-        let first = pair[0].diagnostic_identity(graph)?;
-        let second = pair[1].diagnostic_identity(graph)?;
+        let first = pair[0].exact_diagnostic_identity(graph)?;
+        let second = pair[1].exact_diagnostic_identity(graph)?;
+        let first_span = pair[0].diagnostic_span(graph);
+        let second_span = pair[1].diagnostic_span(graph);
 
         // The error owns the stable identity after the temporary fragment batch is released.
         return Err(PackageInterfaceExportError::ConflictingSemanticFragment {
             first,
             second,
+            first_span,
+            second_span,
             identity: pair[0].identity().clone(),
         });
     }

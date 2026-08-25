@@ -3,6 +3,7 @@ use bray_package_interface::{
     PackageInterfaceExportSurfaceError,
 };
 use bray_diagnostics::DiagnosticInterfaceSymbolIdentity;
+use bray_source::SourceSpan;
 use bray_symbols::{ExternalSymbolKey, SymbolKind};
 
 use crate::fact::FactQueryError;
@@ -28,6 +29,8 @@ pub enum PackageInterfaceExportError {
     ConflictingSemanticFragment {
         first: DiagnosticInterfaceSymbolIdentity,
         second: DiagnosticInterfaceSymbolIdentity,
+        first_span: Option<SourceSpan>,
+        second_span: Option<SourceSpan>,
         identity: ExternalSymbolKey,
     },
     /// A semantic value graph contains a cycle that cannot be represented in table order.

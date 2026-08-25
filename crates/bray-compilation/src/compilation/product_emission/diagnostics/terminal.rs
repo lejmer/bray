@@ -1,8 +1,9 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticBag,
     DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticIoErrorKind, DiagnosticPackageInterfaceFailure,
-    DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticEmissionFailure, DiagnosticIoErrorKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticPackageInterfaceFailure, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
 use bray_package_interface::{
@@ -264,10 +265,12 @@ fn package_interface_export_failure_diagnostic(
         PackageInterfaceExportError::ConflictingSemanticFragment {
             first,
             second,
+            first_span,
+            second_span,
             identity,
         } => {
             // The emitted diagnostic remains valid after the product error is released.
-            package_compiler_defect_diagnostic(
+            let diagnostic = package_compiler_defect_diagnostic(
                 DiagnosticPackageInterfaceFailure::DuplicateDeclarationIdentity {
                     first: first.clone(),
                     second: second.clone(),
@@ -275,7 +278,9 @@ fn package_interface_export_failure_diagnostic(
                 },
                 product,
                 target,
-            )
+            );
+
+            with_duplicate_declaration_locations(diagnostic, *first_span, *second_span)
         }
         PackageInterfaceExportError::CyclicSemanticFragment {
             declaration,
@@ -334,6 +339,34 @@ fn package_compiler_defect_diagnostic(
     package_failure_diagnostic(failure, product, target).with_note(DiagnosticNote::new(
         DiagnosticNoteKind::ReportCompilerDefect,
     ))
+}
+
+fn with_duplicate_declaration_locations(
+    mut diagnostic: Diagnostic,
+    first: Option<bray_source::SourceSpan>,
+    second: Option<bray_source::SourceSpan>,
+) -> Diagnostic {
+    let primary = second.or(first);
+
+    if let Some(primary) = primary {
+        diagnostic = diagnostic
+            .with_primary_span(primary)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::DuplicateDeclaration,
+                primary,
+            ));
+    }
+
+    if let Some(first) = first
+        && Some(first) != primary
+    {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            first,
+        ));
+    }
+
+    diagnostic
 }
 
 fn package_interface_fragment_failure_diagnostic(
@@ -756,9 +789,14 @@ fn diagnostic_evaluation_failure(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticNoteKind;
+    use bray_diagnostics::{
+        DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind, DiagnosticLabelKind,
+        DiagnosticNoteKind, DiagnosticRelatedLocationKind,
+    };
+    use bray_messages::DiagnosticRenderer;
     use bray_package_interface::{InterfaceSemanticCommitError, InterfaceSemanticTableKind};
-    use bray_symbols::{PackageIdentity, ProductIdentity};
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+    use bray_symbols::{ExternalSymbolKey, PackageIdentity, ProductIdentity};
     use bray_target::TargetIdentity;
 
     use super::{
@@ -810,5 +848,59 @@ mod tests {
         assert!(diagnostic.notes().iter().any(|note| {
             note.kind() == DiagnosticNoteKind::ReportCompilerDefect
         }));
+    }
+
+    #[test]
+    fn duplicate_interface_identities_point_to_both_source_declarations() {
+        let (product, target) = identities();
+
+        let first_span = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let second_span = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(30), TextSize::new(40)),
+        );
+
+        let owner = DiagnosticInterfaceSymbolIdentity::Package("example.package".to_owned());
+
+        let declaration = |ordinal| DiagnosticInterfaceSymbolIdentity::SourceDeclaration {
+            owner: Box::new(owner.clone()),
+            kind: DiagnosticInterfaceSymbolKind::Function,
+            declaration: ordinal,
+        };
+
+        let error = PackageInterfaceExportError::ConflictingSemanticFragment {
+            first: declaration(1),
+            second: declaration(2),
+            first_span: Some(first_span),
+            second_span: Some(second_span),
+            identity: ExternalSymbolKey::package(
+                PackageIdentity::try_new("example.shared")
+                    .unwrap_or_else(|| panic!("test package identity must be valid")),
+            ),
+        };
+
+        let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
+            .unwrap_or_else(|| panic!("duplicate identities must produce a diagnostic"));
+
+        assert_eq!(diagnostic.primary_span(), Some(second_span));
+
+        assert!(diagnostic.labels().iter().any(|label| {
+            label.kind() == DiagnosticLabelKind::DuplicateDeclaration
+                && label.span() == second_span
+        }));
+
+        assert!(diagnostic.related_locations().iter().any(|location| {
+            location.kind() == DiagnosticRelatedLocationKind::FirstDeclaration
+                && location.span() == first_span
+        }));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "cannot emit product 'example.package/library' for target 'test-target': exported declarations 'example.package::function declaration 1' and 'example.package::function declaration 2' both resolve to stable identity 'example.shared'"
+        );
     }
 }
