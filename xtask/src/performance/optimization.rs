@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 use bray_standard_library::{StandardLibraryArtifactKind, decode_standard_library_manifest};
@@ -7,6 +7,7 @@ use super::model::{OptimizationArtifactReport, RetainedInput, WorkloadReport};
 
 pub(super) struct OptimizationCatalog {
     entries: Vec<OptimizationEntry>,
+    provider_symbols: BTreeMap<&'static str, &'static str>,
 }
 
 impl OptimizationCatalog {
@@ -59,7 +60,21 @@ impl OptimizationCatalog {
 
         entries.sort_by(|left, right| left.partition.cmp(&right.partition));
 
-        Ok(Self { entries })
+        let provider_symbols = bray_runtime_interface::PlatformServiceRole::ALL
+            .iter()
+            .copied()
+            .map(|role| {
+                (
+                    bray_runtime_interface::native_platform_service_role_symbol(role),
+                    platform_provider_identity(role.family()),
+                )
+            })
+            .collect();
+
+        Ok(Self {
+            entries,
+            provider_symbols,
+        })
     }
 
     pub(super) fn retained_provenance(
@@ -86,8 +101,8 @@ impl OptimizationCatalog {
             {
                 retained_partition = true;
 
-                if let Some(provider) = platform_provider_identity(symbol) {
-                    provenance.insert(provider.to_owned());
+                if let Some(provider) = self.provider_symbols.get(symbol.as_str()) {
+                    provenance.insert((*provider).to_owned());
                 }
             }
 
@@ -126,32 +141,18 @@ impl OptimizationCatalog {
     }
 }
 
-fn platform_provider_identity(symbol: &str) -> Option<&'static str> {
-    let service = symbol.strip_prefix("bray_platform_")?;
+const fn platform_provider_identity(
+    family: bray_runtime_interface::PlatformServiceFamily,
+) -> &'static str {
+    use bray_runtime_interface::PlatformServiceFamily as Family;
 
-    if ["context_", "clock_", "entropy_"]
-        .iter()
-        .any(|prefix| service.starts_with(prefix))
-    {
-        Some("bray_platform_core")
-    } else if service.starts_with("standard_") {
-        Some("bray_platform_standard_streams")
-    } else if ["file_", "path_", "directory_"]
-        .iter()
-        .any(|prefix| service.starts_with(prefix))
-    {
-        Some("bray_platform_filesystem")
-    } else if ["process_", "child_"]
-        .iter()
-        .any(|prefix| service.starts_with(prefix))
-    {
-        Some("bray_platform_process")
-    } else if service.starts_with("time_") {
-        Some("bray_platform_temporal")
-    } else if service.starts_with("dynamic_library_") {
-        Some("bray_platform_dynamic")
-    } else {
-        None
+    match family {
+        Family::Core => "bray_platform_core",
+        Family::StandardStreams => "bray_platform_standard_streams",
+        Family::Filesystem => "bray_platform_filesystem",
+        Family::Process => "bray_platform_process",
+        Family::Temporal => "bray_platform_temporal",
+        Family::DynamicLibrary => "bray_platform_dynamic",
     }
 }
 
@@ -200,7 +201,7 @@ fn workload_selects_partition(workload: &WorkloadReport, partition: &str) -> boo
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::{OptimizationCatalog, OptimizationEntry, platform_provider_identity};
     use crate::performance::retention::retained_inputs_for_test;
@@ -213,6 +214,10 @@ mod tests {
                 "std.lib",
                 "bray_platform_standard_output_write",
             )],
+            provider_symbols: BTreeMap::from([(
+                "bray_platform_standard_output_write",
+                "bray_platform_standard_streams",
+            )]),
         };
 
         let map = "LOAD bray_platform_process.lib\n\
@@ -233,26 +238,20 @@ mod tests {
 
     #[test]
     fn platform_symbols_resolve_to_capability_families() {
+        use bray_runtime_interface::PlatformServiceFamily as Family;
+
         let cases = [
-            ("bray_platform_context_identity", "bray_platform_core"),
-            (
-                "bray_platform_standard_output_write",
-                "bray_platform_standard_streams",
-            ),
-            ("bray_platform_file_open", "bray_platform_filesystem"),
-            ("bray_platform_child_spawn", "bray_platform_process"),
-            ("bray_platform_time_observe", "bray_platform_temporal"),
-            (
-                "bray_platform_dynamic_library_symbol",
-                "bray_platform_dynamic",
-            ),
+            (Family::Core, "bray_platform_core"),
+            (Family::StandardStreams, "bray_platform_standard_streams"),
+            (Family::Filesystem, "bray_platform_filesystem"),
+            (Family::Process, "bray_platform_process"),
+            (Family::Temporal, "bray_platform_temporal"),
+            (Family::DynamicLibrary, "bray_platform_dynamic"),
         ];
 
-        for (symbol, provider) in cases {
-            assert_eq!(platform_provider_identity(symbol), Some(provider));
+        for (family, provider) in cases {
+            assert_eq!(platform_provider_identity(family), provider);
         }
-
-        assert_eq!(platform_provider_identity("bray_runtime_memory_copy"), None);
     }
 
     fn entry(partition: &str, fallback: &str, symbol: &str) -> OptimizationEntry {
