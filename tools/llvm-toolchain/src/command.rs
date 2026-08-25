@@ -75,7 +75,6 @@ fn fetch() -> Result<(), ToolchainError> {
 
     install_archive(
         &root,
-        &active,
         &archive,
         &source_archive,
         &manifest.version,
@@ -262,7 +261,6 @@ fn verify_archive(size: u64, sha256: &str, archive: &Path) -> Result<(), Toolcha
 
 fn install_archive(
     root: &Path,
-    active: &Path,
     archive: &Path,
     source_archive: &Path,
     version: &str,
@@ -270,6 +268,7 @@ fn install_archive(
     source: &ToolchainSource,
     native_sources: &Path,
 ) -> Result<(), ToolchainError> {
+    let active = root.join(ACTIVE_DIRECTORY);
     let staging = root.join(format!("active-{}.partial", std::process::id()));
     let backup = root.join("active.previous");
 
@@ -294,20 +293,20 @@ fn install_archive(
     }
 
     if active.exists()
-        && let Err(error) = fs::rename(active, &backup)
+        && let Err(error) = fs::rename(&active, &backup)
     {
-        let error = ToolchainError::rename(active, &backup, error);
+        let error = ToolchainError::rename(&active, &backup, error);
 
         return cleanup_after_failure(root, &staging, error);
     }
 
-    if let Err(error) = fs::rename(&staging, active) {
-        let publication = ToolchainError::rename(&staging, active, error);
+    if let Err(error) = fs::rename(&staging, &active) {
+        let publication = ToolchainError::rename(&staging, &active, error);
 
         if backup.exists()
-            && let Err(error) = fs::rename(&backup, active)
+            && let Err(error) = fs::rename(&backup, &active)
         {
-            let rollback = ToolchainError::rename(&backup, active, error);
+            let rollback = ToolchainError::rename(&backup, &active, error);
 
             let error = ToolchainError::PublicationRollback {
                 publication: Box::new(publication),

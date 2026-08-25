@@ -318,8 +318,6 @@ pub enum DiagnosticSelectionRejectionReason {
     RequiredLanguageOperation,
 }
 
-/// Exact malformed named-argument shape shared by native boundary directives.
-
 /// One deterministic rejected candidate and its exact mismatch with the request.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DiagnosticRejectedSelectionCandidate {

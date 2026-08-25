@@ -106,9 +106,7 @@ impl DiagnosticBag {
             .filter_map(|bag| {
                 let identity = Arc::as_ptr(&bag.root);
 
-                seen.insert(identity).then(|| {
-                    Arc::clone(&bag.root)
-                })
+                seen.insert(identity).then(|| Arc::clone(&bag.root))
             })
             .collect::<Vec<_>>();
 
@@ -542,10 +540,7 @@ mod tests {
 
         let merged = left.merged(&right);
 
-        assert_eq!(
-            merged.iter().cloned().collect::<Vec<_>>(),
-            [first, second]
-        );
+        assert_eq!(merged.iter().cloned().collect::<Vec<_>>(), [first, second]);
     }
 
     #[test]

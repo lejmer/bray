@@ -16,10 +16,6 @@ pub struct NativePlatformChildRequest {
 
 impl NativePlatformChildRequest {
     /// Creates one complete child-process request.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the constructor mirrors the fixed native ABI record"
-    )]
     pub const fn new(
         executable: NativePlatformText,
         working_directory: NativePlatformText,

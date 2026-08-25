@@ -45,8 +45,8 @@ pub(super) fn run_profile_command(
                             match error {
                                 CompilationProfileComparisonError::Context { before, after } => {
                                     DiagnosticProfileComparisonProblem::Context {
-                                        before: diagnostic_profile_context(before),
-                                        after: diagnostic_profile_context(after),
+                                        before: diagnostic_profile_context(*before),
+                                        after: diagnostic_profile_context(*after),
                                     }
                                 }
                                 CompilationProfileComparisonError::Descriptor { kind, id } => {

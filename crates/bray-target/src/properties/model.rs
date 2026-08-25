@@ -219,6 +219,10 @@ pub struct TargetProperties {
 
 impl TargetProperties {
     /// Creates a complete set of independently supplied language target properties.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the constructor keeps each independent target capability explicit"
+    )]
     pub const fn new(
         identity: TargetPlatformIdentity,
         scalars: TargetScalarSupport,

@@ -2,7 +2,6 @@ use super::super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
 
 impl DiagnosticArg {
     /// Creates an exact unsupported native-emission reason argument.
-
     pub fn unsupported_emission_reason(reason: crate::DiagnosticUnsupportedEmissionReason) -> Self {
         Self::new(
             DiagnosticArgName::UnsupportedEmissionReason,
