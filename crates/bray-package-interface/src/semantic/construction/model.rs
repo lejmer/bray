@@ -20,6 +20,12 @@ pub enum InterfaceSemanticTableKind {
     ConstantTerm,
     CheckedTemplate,
     SupportEntity,
+    Implementation,
+    Coherence,
+    TargetDependency,
+    AbiDependency,
+    RuntimeRequirement,
+    Provenance,
 }
 
 impl InterfaceSemanticTableKind {
@@ -36,6 +42,12 @@ impl InterfaceSemanticTableKind {
             Self::ConstantTerm => "constant_term",
             Self::CheckedTemplate => "checked_template",
             Self::SupportEntity => "support_entity",
+            Self::Implementation => "implementation",
+            Self::Coherence => "coherence",
+            Self::TargetDependency => "target_dependency",
+            Self::AbiDependency => "abi_dependency",
+            Self::RuntimeRequirement => "runtime_requirement",
+            Self::Provenance => "provenance",
         }
     }
 }
@@ -49,7 +61,7 @@ pub enum InterfaceSemanticCommitError {
         reference: u32,
     },
     /// A fragment contains records that require whole-package construction.
-    UnexpectedPackageRecord,
+    UnexpectedPackageRecord(InterfaceSemanticTableKind),
     /// Two fragments provide different records for one declaration-owned semantic key.
     ConflictingRecord {
         owner: InterfaceSymbolReference,

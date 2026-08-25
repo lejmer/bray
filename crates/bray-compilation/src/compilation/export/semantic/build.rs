@@ -164,8 +164,8 @@ fn fragment_batch_error(
         BatchCompletionError::Scheduler(FactQueryError::Cancelled) => {
             PackageInterfaceExportError::Cancelled
         }
-        BatchCompletionError::Scheduler(FactQueryError::Cycle(_)) => {
-            PackageInterfaceExportError::CyclicSemanticFragment
+        BatchCompletionError::Scheduler(FactQueryError::Cycle(cycle)) => {
+            PackageInterfaceExportError::FragmentCoordinationCycle(cycle)
         }
         BatchCompletionError::Scheduler(_) => PackageInterfaceExportError::FragmentCoordination,
     }
@@ -472,4 +472,34 @@ fn executable_template_unit(
                     && unit.declared_owner() == owner
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::AnySymbolId;
+
+    use super::fragment_batch_error;
+    use crate::compilation::PackageInterfaceExportError;
+    use crate::fact::{
+        BatchCompletionError, CompilationFactKey, FactCycle, FactQueryError,
+    };
+
+    #[test]
+    fn scheduler_cycles_remain_coordination_cycles() {
+        let cycle = FactCycle::new([
+            CompilationFactKey::SyntaxTree,
+            CompilationFactKey::DeclarationTable,
+            CompilationFactKey::SyntaxTree,
+        ]);
+
+        let error = fragment_batch_error(BatchCompletionError::<
+            AnySymbolId,
+            PackageInterfaceExportError,
+        >::Scheduler(FactQueryError::Cycle(cycle.clone())));
+
+        assert_eq!(
+            error,
+            PackageInterfaceExportError::FragmentCoordinationCycle(cycle)
+        );
+    }
 }

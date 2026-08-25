@@ -3,6 +3,7 @@ use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     digest_field, field, text_field,
 };
+use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use crate::output::path_to_output_string;
 
 pub(super) fn planning_failure_context(
@@ -116,12 +117,17 @@ pub(super) fn package_interface_failure_context(
         | Failure::DuplicateSymbol(kind)
         | Failure::MissingSymbol(kind)
         | Failure::MissingSemanticContent(kind) => vec![text_field("symbol_kind", kind)],
-        Failure::FragmentMissingReference { table, reference } => vec![
+        Failure::IncompleteSemanticFragment { table, reference }
+        | Failure::FragmentMissingReference { table, reference } => vec![
             text_field("semantic_table", table),
             count_field("reference", *reference),
         ],
-        Failure::FragmentConflictingRecord { kind } => {
-            vec![text_field("record_kind", kind)]
+        Failure::FragmentConflictingRecord { kind, owner } => {
+            let mut context = vec![text_field("record_kind", kind)];
+
+            context.extend(interface_symbol_reference_fields(owner));
+
+            context
         }
         Failure::FragmentCyclicReference(table) | Failure::FragmentIdentityOverflow(table) => {
             vec![text_field("semantic_table", table)]
@@ -209,6 +215,12 @@ pub(super) fn package_interface_failure_context(
             count_field("owner_record", *owner),
             text_field("name", name),
         ],
+        Failure::FragmentCoordinationCycle(cycle) => {
+            vec![text_field("query_cycle", cycle.join(" -> "))]
+        }
+        Failure::FragmentUnexpectedPackageRecord(table) => {
+            vec![text_field("semantic_table", table)]
+        }
         Failure::Unavailable
         | Failure::ExportCancelled
         | Failure::InvalidCompilation
@@ -217,14 +229,47 @@ pub(super) fn package_interface_failure_context(
         | Failure::DependencyCountOverflow
         | Failure::IdentityEmpty
         | Failure::IdentitySymbolCountOverflow
-        | Failure::IncompleteSemanticFragment
         | Failure::ConflictingSemanticFragment
         | Failure::CyclicSemanticFragment
         | Failure::FragmentCoordination
-        | Failure::FragmentUnexpectedPackageRecord
         | Failure::ImplementationContentTooLarge
         | Failure::ImplementationDuplicateSpecialization
         | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
+    }
+}
+
+fn interface_symbol_reference_fields(
+    reference: &bray_diagnostics::DiagnosticInterfaceSymbolReference,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    use bray_diagnostics::DiagnosticInterfaceSymbolReference as Reference;
+
+    match reference {
+        Reference::Local(symbol) => vec![
+            text_field("owner_reference_kind", "local"),
+            count_field("owner_symbol", *symbol),
+        ],
+        Reference::Dependency {
+            dependency,
+            identity,
+        } => vec![
+            text_field("owner_reference_kind", "dependency"),
+            count_field("owner_dependency", *dependency),
+            field(
+                "owner_identity",
+                DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
+                    DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+                ),
+            ),
+        ],
+        Reference::CompilerKnown(identity) => vec![
+            text_field("owner_reference_kind", "compiler_known"),
+            field(
+                "owner_identity",
+                DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
+                    DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+                ),
+            ),
+        ],
     }
 }
 

@@ -204,7 +204,9 @@ fn format_english_emission_planning_failure(
 fn format_english_package_interface_failure(
     failure: &bray_diagnostics::DiagnosticPackageInterfaceFailure,
 ) -> String {
-    use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
+use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
+
+use crate::catalog::english::argument::interface::format_english_interface_symbol_reference;
 
     match failure {
         Failure::Unavailable => {
@@ -324,10 +326,9 @@ fn format_english_package_interface_failure(
         Failure::MissingSemanticContent(kind) => {
             format!("an exported {kind} declaration has no completed semantic content")
         }
-        Failure::IncompleteSemanticFragment => {
-            "an exported declaration is missing semantic content required by its interface records"
-                .to_owned()
-        }
+        Failure::IncompleteSemanticFragment { table, reference } => format!(
+            "semantic {table} reference {reference} is missing from an exported declaration"
+        ),
         Failure::ConflictingSemanticFragment => {
             "two exported declarations have the same stable symbol identity".to_owned()
         }
@@ -337,15 +338,18 @@ fn format_english_package_interface_failure(
         Failure::FragmentCoordination => {
             "package-interface declaration discovery could not be coordinated".to_owned()
         }
+        Failure::FragmentCoordinationCycle(_) => {
+            "package-interface declaration discovery encountered a dependency cycle".to_owned()
+        }
         Failure::FragmentMissingReference { table, reference } => format!(
             "semantic {table} reference {reference} has no package-wide identity"
         ),
-        Failure::FragmentUnexpectedPackageRecord => {
-            "a declaration fragment contains a record that belongs to the complete package"
-                .to_owned()
-        }
-        Failure::FragmentConflictingRecord { kind } => format!(
-            "two declaration fragments provide different {kind} records for one symbol"
+        Failure::FragmentUnexpectedPackageRecord(table) => format!(
+            "a declaration fragment contains a package-level {table} record"
+        ),
+        Failure::FragmentConflictingRecord { kind, owner } => format!(
+            "two declaration fragments provide different {kind} records for {}",
+            format_english_interface_symbol_reference(owner)
         ),
         Failure::FragmentCyclicReference(table) => {
             format!("the semantic {table} table contains a recursive local reference")

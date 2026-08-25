@@ -105,7 +105,7 @@ pub(crate) fn format_english_interface_semantic_problem(
     }
 }
 
-fn format_english_interface_symbol_reference(
+pub(crate) fn format_english_interface_symbol_reference(
     reference: &bray_diagnostics::DiagnosticInterfaceSymbolReference,
 ) -> String {
     use bray_diagnostics::DiagnosticInterfaceSymbolReference as Reference;

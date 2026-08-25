@@ -191,19 +191,56 @@ impl SemanticValueOrigins {
 
         Ok(InterfaceSemanticIdRemap::new()
             .with_applications(
-                remap_values(&self.substitutions, &export.substitution_ids)?,
-                remap_values(&self.trait_applications, &export.trait_application_ids)?,
-                remap_values(&self.callable_instances, &export.callable_instance_ids)?,
+                remap_values(
+                    &self.substitutions,
+                    &export.substitution_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::GenericSubstitution,
+                    bray_package_interface::InterfaceGenericSubstitutionId::raw,
+                )?,
+                remap_values(
+                    &self.trait_applications,
+                    &export.trait_application_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::TraitApplication,
+                    bray_package_interface::InterfaceTraitApplicationId::raw,
+                )?,
+                remap_values(
+                    &self.callable_instances,
+                    &export.callable_instance_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::CallableInstance,
+                    bray_package_interface::InterfaceCallableInstanceId::raw,
+                )?,
                 remap_values(
                     &self.implementation_instances,
                     &export.implementation_instance_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::ImplementationInstance,
+                    bray_package_interface::InterfaceImplementationInstanceId::raw,
                 )?,
             )
             .with_values(
-                remap_values(&self.dependency_contracts, &export.dependency_contract_ids)?,
-                remap_values(&self.types, &export.type_ids)?,
-                remap_values(&self.constant_values, &export.constant_value_ids)?,
-                remap_values(&self.constant_terms, &export.constant_term_ids)?,
+                remap_values(
+                    &self.dependency_contracts,
+                    &export.dependency_contract_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::DependencyContract,
+                    bray_package_interface::InterfaceDependencyContractId::raw,
+                )?,
+                remap_values(
+                    &self.types,
+                    &export.type_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::Type,
+                    bray_package_interface::InterfaceTypeId::raw,
+                )?,
+                remap_values(
+                    &self.constant_values,
+                    &export.constant_value_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::ConstantValue,
+                    bray_package_interface::InterfaceConstantValueId::raw,
+                )?,
+                remap_values(
+                    &self.constant_terms,
+                    &export.constant_term_ids,
+                    bray_package_interface::InterfaceSemanticTableKind::ConstantTerm,
+                    bray_package_interface::InterfaceConstantTermId::raw,
+                )?,
             ))
     }
 }
@@ -230,6 +267,8 @@ where
 fn remap_values<K, I>(
     local: &BTreeMap<K, I>,
     package: &BTreeMap<K, I>,
+    table: bray_package_interface::InterfaceSemanticTableKind,
+    reference: impl Fn(I) -> u32,
 ) -> Result<Vec<I>, PackageInterfaceExportError>
 where
     K: Ord,
@@ -241,11 +280,46 @@ where
 
     ordered
         .into_iter()
-        .map(|(_, key)| {
+        .map(|(local_id, key)| {
             package
                 .get(key)
                 .copied()
-                .ok_or(PackageInterfaceExportError::IncompleteSemanticFragment)
+                .ok_or(PackageInterfaceExportError::IncompleteSemanticFragment {
+                    table,
+                    reference: reference(local_id),
+                })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use bray_package_interface::{InterfaceSemanticTableKind, InterfaceTypeId};
+
+    use super::remap_values;
+    use crate::compilation::PackageInterfaceExportError;
+
+    #[test]
+    fn missing_package_mapping_retains_local_table_reference() {
+        let local = BTreeMap::from([(1_u8, InterfaceTypeId::new(0))]);
+        let package = BTreeMap::new();
+
+        let error = remap_values(
+            &local,
+            &package,
+            InterfaceSemanticTableKind::Type,
+            InterfaceTypeId::raw,
+        )
+        .expect_err("missing package mapping must be rejected");
+
+        assert_eq!(
+            error,
+            PackageInterfaceExportError::IncompleteSemanticFragment {
+                table: InterfaceSemanticTableKind::Type,
+                reference: 0,
+            }
+        );
+    }
 }

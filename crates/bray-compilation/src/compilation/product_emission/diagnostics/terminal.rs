@@ -24,6 +24,7 @@ use crate::compilation::{
     CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind,
     PackageInterfaceExportError,
 };
+use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
 use crate::fact::FactQueryError;
 
 pub(super) fn codegen_failure_diagnostics(
@@ -245,11 +246,16 @@ fn package_interface_export_failure_diagnostic(
                 target,
             )
         }
-        PackageInterfaceExportError::IncompleteSemanticFragment => package_failure_diagnostic(
-            DiagnosticPackageInterfaceFailure::IncompleteSemanticFragment,
-            product,
-            target,
-        ),
+        PackageInterfaceExportError::IncompleteSemanticFragment { table, reference } => {
+            package_failure_diagnostic(
+                DiagnosticPackageInterfaceFailure::IncompleteSemanticFragment {
+                    table: table.as_str().to_owned(),
+                    reference: *reference,
+                },
+                product,
+                target,
+            )
+        }
         PackageInterfaceExportError::ConflictingSemanticFragment => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::ConflictingSemanticFragment,
             product,
@@ -265,6 +271,19 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
+        PackageInterfaceExportError::FragmentCoordinationCycle(cycle) => {
+            let facts = cycle
+                .facts()
+                .iter()
+                .map(|fact| crate::profile::ProfileQueryKind::from_key(fact).name().to_owned())
+                .collect();
+
+            package_failure_diagnostic(
+                DiagnosticPackageInterfaceFailure::FragmentCoordinationCycle(facts),
+                product,
+                target,
+            )
+        }
         PackageInterfaceExportError::FragmentCommit(error) => {
             package_interface_fragment_failure_diagnostic(error, product, target)
         }
@@ -291,12 +310,15 @@ fn package_interface_fragment_failure_diagnostic(
                 reference: *reference,
             }
         }
-        InterfaceSemanticCommitError::UnexpectedPackageRecord => {
-            DiagnosticPackageInterfaceFailure::FragmentUnexpectedPackageRecord
+        InterfaceSemanticCommitError::UnexpectedPackageRecord(table) => {
+            DiagnosticPackageInterfaceFailure::FragmentUnexpectedPackageRecord(
+                table.as_str().to_owned(),
+            )
         }
-        InterfaceSemanticCommitError::ConflictingRecord { kind, .. } => {
+        InterfaceSemanticCommitError::ConflictingRecord { owner, kind } => {
             DiagnosticPackageInterfaceFailure::FragmentConflictingRecord {
                 kind: kind.as_str().to_owned(),
+                owner: diagnostic_interface_symbol_reference(owner),
             }
         }
         InterfaceSemanticCommitError::CyclicReference(table) => {
