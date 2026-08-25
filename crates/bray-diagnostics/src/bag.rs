@@ -1,7 +1,8 @@
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, DiagnosticDuplicateKey};
 use crate::kind::DiagnosticKind;
 use crate::severity::SeverityKind;
 
@@ -97,7 +98,7 @@ impl DiagnosticBag {
     /// The merged bag preserves the first occurrence order of the input bags
     /// and of diagnostics within each bag.
     pub fn merged_all<'diagnostic>(bags: impl IntoIterator<Item = &'diagnostic Self>) -> Self {
-        let mut seen = Vec::new();
+        let mut seen = HashSet::new();
 
         let sources = bags
             .into_iter()
@@ -105,9 +106,7 @@ impl DiagnosticBag {
             .filter_map(|bag| {
                 let identity = Arc::as_ptr(&bag.root);
 
-                (!seen.contains(&identity)).then(|| {
-                    seen.push(identity);
-
+                seen.insert(identity).then(|| {
                     Arc::clone(&bag.root)
                 })
             })
@@ -193,8 +192,8 @@ impl DiagnosticBag {
 pub struct DiagnosticIter<'diagnostic> {
     leaf: Option<std::slice::Iter<'diagnostic, Diagnostic>>,
     frames: Vec<DiagnosticFrame<'diagnostic>>,
-    visited: Vec<*const DiagnosticCollection>,
-    yielded: Vec<&'diagnostic Diagnostic>,
+    visited: HashSet<*const DiagnosticCollection>,
+    yielded: HashSet<DiagnosticDuplicateKey<'diagnostic>>,
 }
 
 struct DiagnosticFrame<'diagnostic> {
@@ -211,8 +210,8 @@ impl<'diagnostic> DiagnosticIter<'diagnostic> {
             return Self {
                 leaf: Some(root.local.iter()),
                 frames: Vec::new(),
-                visited: Vec::new(),
-                yielded: Vec::new(),
+                visited: HashSet::new(),
+                yielded: HashSet::new(),
             };
         }
 
@@ -223,8 +222,8 @@ impl<'diagnostic> DiagnosticIter<'diagnostic> {
                 source: 0,
                 local: 0,
             }],
-            visited: vec![identity],
-            yielded: Vec::new(),
+            visited: HashSet::from([identity]),
+            yielded: HashSet::new(),
         }
     }
 }
@@ -247,9 +246,7 @@ impl<'diagnostic> Iterator for DiagnosticIter<'diagnostic> {
 
                 let identity = std::ptr::from_ref(source);
 
-                if !self.visited.contains(&identity) {
-                    self.visited.push(identity);
-
+                if self.visited.insert(identity) {
                     self.frames.push(DiagnosticFrame {
                         collection: source,
                         source: 0,
@@ -263,13 +260,7 @@ impl<'diagnostic> Iterator for DiagnosticIter<'diagnostic> {
             if let Some(diagnostic) = frame.collection.local.get(frame.local) {
                 frame.local += 1;
 
-                if self
-                    .yielded
-                    .iter()
-                    .all(|existing| existing.duplicate_key() != diagnostic.duplicate_key())
-                {
-                    self.yielded.push(diagnostic);
-
+                if self.yielded.insert(diagnostic.duplicate_key()) {
                     return Some(diagnostic);
                 }
 
