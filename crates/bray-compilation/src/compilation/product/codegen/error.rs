@@ -11,7 +11,7 @@ use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::{ExecutableHostContractBuildError, RuntimeArtifactSelectionError};
 use bray_symbols::ProductIdentity;
 
-use crate::fact::FactQueryError;
+use crate::fact::{BatchCompletionError, FactQueryError};
 
 /// A failure to derive complete native product plans.
 #[derive(Debug, Hash)]
@@ -58,6 +58,16 @@ pub enum NativeProductPlanningError {
     StandardLibrary(bray_standard_library::StandardLibraryLoadError),
     /// One code generation plan is unavailable.
     Codegen(super::super::super::CodegenPreparationError),
+}
+
+pub(super) fn native_batch_error<K>(
+    error: BatchCompletionError<K, NativeProductPlanningError>,
+) -> NativeProductPlanningError {
+    match error {
+        BatchCompletionError::Cancelled => FactQueryError::Cancelled.into(),
+        BatchCompletionError::Evaluation { error, .. } => error,
+        BatchCompletionError::Scheduler(error) => error.into(),
+    }
 }
 
 impl NativeProductPlanningError {

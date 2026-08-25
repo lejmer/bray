@@ -32,7 +32,7 @@ use super::super::substitution::named_type;
 use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct ConcreteCodegenInstance {
     key: CodegenInstanceKey,
     callable: Option<CallableInstanceData>,

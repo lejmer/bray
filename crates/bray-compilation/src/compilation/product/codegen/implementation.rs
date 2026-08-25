@@ -1,11 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_codegen::{
-    AssemblySyntaxKind, CodegenInstanceKey, CodegenPartitionPolicy, CodegenTarget,
-    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
-    partition_codegen_units,
+    AssemblySyntaxKind, CodegenInstanceKey, CodegenTarget, DebugInformationMode,
+    DebugInformationOutputMode, LinkableArtifactKind,
 };
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend};
 use bray_ir::{MirUnitId, MirUnitKey};
@@ -16,12 +15,11 @@ use bray_runtime_interface::{
 use bray_symbols::{CallableDefinitionId, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
-use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductPlanningError;
 use super::plan::NativeProductPlan;
 use crate::fact::{CancellationToken, CompilationFactKey, NativeProductQueryKey};
 
-const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
+pub(super) const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
 impl Compilation {
     /// Returns the native plan required to emit one selected product.
@@ -329,7 +327,7 @@ impl Compilation {
     }
 
     #[inline(always)]
-    fn profile_native_product_operation<T>(
+    pub(super) fn profile_native_product_operation<T>(
         &self,
         operation: crate::profile::ProfileOperation,
         action: impl FnOnce() -> Result<T, NativeProductPlanningError>,
@@ -340,207 +338,6 @@ impl Compilation {
             action,
             crate::profile::result_outcome,
         )
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "native product preparation keeps each selected contract explicit"
-    )]
-    fn prepare_native_codegen(
-        &self,
-        product: &ProductIdentity,
-        kind: ProductKind,
-        source_roots: Vec<ConcreteCodegenInstance>,
-        entry_roots: &[ConcreteCodegenInstance],
-        runtime: Option<&RuntimeArtifact>,
-        required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        target: &CodegenTarget,
-        debug_information: DebugInformationMode,
-        cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Option<bray_runtime_interface::ExecutableHostContract>,
-            Arc<[bray_codegen::CodegenUnit]>,
-            Vec<bray_codegen::CodegenMappings>,
-            Vec<super::super::realization::ProductStaticHostEntry>,
-        ),
-        NativeProductPlanningError,
-    > {
-        if source_roots.is_empty() && kind != ProductKind::Test {
-            return Ok((None, Arc::from([]), Vec::new(), Vec::new()));
-        }
-
-        let source_reachability = if source_roots.is_empty() {
-            None
-        } else {
-            // Reachability owns its Arc-backed roots while preparation retains them for host MIR.
-            let reachability = self.profile_native_product_operation(
-                crate::profile::ProfileOperation::NativeReachability,
-                || self.codegen_reachability(source_roots.clone(), None, target, cancellation),
-            )?;
-
-            Some(reachability)
-        };
-
-        let host_statics = match source_reachability.as_ref() {
-            Some(reachability) => {
-                let entries = self.profile_native_product_operation(
-                    crate::profile::ProfileOperation::NativeHostPreparation,
-                    || {
-                        self.product_static_host_entries(reachability, target, cancellation)
-                            .map_err(NativeProductPlanningError::from)
-                    },
-                )?;
-
-                entries
-            }
-            None => Vec::new(),
-        };
-
-        let host = self.profile_native_product_operation(
-            crate::profile::ProfileOperation::NativeHostPreparation,
-            || {
-                self.executable_host(
-                    product,
-                    kind,
-                    entry_roots,
-                    source_reachability
-                        .as_ref()
-                        .map(ConcreteCodegenReachability::graph),
-                    host_statics.iter().any(
-                        super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident,
-                    ),
-                    runtime,
-                    required_capabilities,
-                    target,
-                    cancellation,
-                )
-            },
-        )?;
-
-        let platform_overrides = match (runtime, host.as_ref()) {
-            (Some(runtime), Some(host)) if host.requirements().requires_implementation() => {
-                let selection = runtime
-                    .select(runtime_artifact_purpose(kind), host.requirements())
-                    .map_err(NativeProductPlanningError::InvalidRuntimeSelection)?;
-
-                super::link::runtime_platform_services(Some(&selection))
-            }
-            (Some(_) | None, Some(_) | None) => BTreeSet::new(),
-        };
-
-        let reachability = match host.as_ref() {
-            Some(host) => {
-                // Generated host MIR owns its target and host contracts after this query returns.
-                let host_target = source_roots.first().map_or_else(
-                    || {
-                        bray_ir::MirTargetContract::new(
-                            target.profile().clone(),
-                            self.selected_target().target().runtime_abi(),
-                        )
-                    },
-                    |root| root.key().target().clone(),
-                );
-
-                let host_mir = self.profile_native_product_operation(
-                    crate::profile::ProfileOperation::NativeHostPreparation,
-                    || {
-                        bray_lowering::lower_executable_host(
-                            bray_lowering::ExecutableHostLoweringInput::new(
-                                GENERATED_HOST_UNIT,
-                                entry_roots
-                                    .iter()
-                                    .map(|root| bound_template(root.key()))
-                                    .collect::<Result<Vec<_>, _>>()?,
-                                host.clone(),
-                                host_target,
-                            )
-                            .with_statics(
-                                host_statics
-                                    .iter()
-                                    .filter(|entry| {
-                                        entry.key().duration()
-                                            == bray_symbols::StaticStorageDuration::Product
-                                    })
-                                    .map(|entry| entry.lowering_entry()),
-                            ),
-                        )
-                        .map_err(NativeProductPlanningError::InvalidHostMir)
-                    },
-                )?;
-
-                let host =
-                    ConcreteCodegenInstance::generated(CodegenInstanceKey::non_generic(&host_mir));
-
-                self.profile_native_product_operation(
-                    crate::profile::ProfileOperation::NativeReachability,
-                    || {
-                        self.codegen_reachability(
-                            [host],
-                            Some((host_mir, source_roots)),
-                            target,
-                            cancellation,
-                        )
-                    },
-                )?
-            }
-            None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
-        };
-
-        let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
-
-        let units = self.profile_native_product_operation(
-            crate::profile::ProfileOperation::NativePartitioning,
-            || {
-                let compatibility = reachability
-                    .graph()
-                    .instances()
-                    .iter()
-                    .map(|instance| {
-                        self.codegen_partition_compatibility(
-                            instance,
-                            product.package(),
-                            &roots,
-                            cancellation,
-                        )
-                        // The lookup table owns the Arc-backed instance identity during partitioning.
-                        .map(|compatibility| (instance.key().clone(), compatibility))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-                // The partitioner receives owned compatibility identities independently of the table.
-                partition_codegen_units(
-                    CodegenPartitionPolicy::NATIVE_BALANCED,
-                    reachability.graph(),
-                    |instance| compatibility.get(instance.key()).cloned(),
-                )
-                .map_err(NativeProductPlanningError::InvalidCodegenPartition)
-            },
-        )?;
-
-        let mappings = self.profile_native_product_operation(
-            crate::profile::ProfileOperation::NativeMapping,
-            || {
-                units
-                    .iter()
-                    .map(|unit| {
-                        self.codegen_mappings_for_product(
-                            unit,
-                            host.as_ref(),
-                            &platform_overrides,
-                            target,
-                            &roots,
-                            &reachability,
-                            debug_information != DebugInformationMode::None,
-                            cancellation,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(NativeProductPlanningError::from)
-            },
-        )?;
-
-        Ok((host, units, mappings, host_statics))
     }
 
     fn select_runtime(
@@ -664,14 +461,14 @@ impl Compilation {
     }
 }
 
-const fn runtime_artifact_purpose(kind: ProductKind) -> RuntimeArtifactPurpose {
+pub(super) const fn runtime_artifact_purpose(kind: ProductKind) -> RuntimeArtifactPurpose {
     match kind {
         ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
         ProductKind::Executable | ProductKind::Library => RuntimeArtifactPurpose::Product,
     }
 }
 
-fn bound_template(
+pub(super) fn bound_template(
     key: &CodegenInstanceKey,
 ) -> Result<bray_bound_tree::BoundUnitKey, NativeProductPlanningError> {
     let MirUnitKey::Bound(template) = key.template() else {
@@ -737,6 +534,7 @@ mod tests {
     use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
 
+    use super::super::super::specialization::ConcreteCodegenInstance;
     use super::NativeProductPlanningError;
     use crate::compilation::CodegenPreparationError;
     use crate::{
@@ -1892,6 +1690,97 @@ mod tests {
     }
 
     #[test]
+    fn native_preparation_is_deterministic_across_worker_budgets() {
+        let (serial_backend, serial_compilation) =
+            codegen_compilation_for_product_with_worker_budget(
+                CONCRETE_GENERIC_SOURCE,
+                ProductKind::Library,
+                WorkerBudget::serial(),
+            );
+
+        let parallel_budget = WorkerBudget::new(4)
+            .unwrap_or_else(|error| panic!("parallel worker budget must validate: {error:?}"));
+
+        let (parallel_backend, parallel_compilation) =
+            codegen_compilation_for_product_with_worker_budget(
+                CONCRETE_GENERIC_SOURCE,
+                ProductKind::Library,
+                parallel_budget,
+            );
+
+        let serial = serial_compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("serial native plan must prepare: {error:?}"));
+
+        let parallel = parallel_compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("parallel native plan must prepare: {error:?}"));
+
+        assert_eq!(
+            native_partition_recipe(&serial),
+            native_partition_recipe(&parallel)
+        );
+
+        assert_eq!(serial.executable_host(), parallel.executable_host());
+        assert_eq!(serial.product_host(), parallel.product_host());
+        assert_eq!(serial.static_instances(), parallel.static_instances());
+
+        assert_eq!(
+            generated_artifacts(&serial_backend, &serial),
+            generated_artifacts(&parallel_backend, &parallel)
+        );
+    }
+
+    #[test]
+    fn cancelled_native_preparation_publishes_no_partial_plan() {
+        let (_, compilation) = codegen_compilation_for_product_with_worker_budget(
+            CONCRETE_GENERIC_SOURCE,
+            ProductKind::Library,
+            WorkerBudget::new(4)
+                .unwrap_or_else(|error| panic!("parallel worker budget must validate: {error:?}")),
+        );
+
+        let cancellation = CancellationToken::new();
+
+        cancellation.cancel();
+
+        let cancelled = compilation.native_product_plan_with_cancellation(
+            test_product_identity(),
+            crate::BuildConfiguration::Development,
+            None,
+            [],
+            None,
+            &cancellation,
+        );
+
+        assert!(cancelled.is_err_and(|error| error.is_cancelled()));
+
+        assert!(
+            compilation
+                .native_product_plan(
+                    test_product_identity(),
+                    crate::BuildConfiguration::Development,
+                    None,
+                    [],
+                    None,
+                )
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn independently_started_tasks_emit_native_units() {
         let source = concat!(
             "module async_tasks;\n",
@@ -2865,7 +2754,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test concrete root must realize: {error:?}"));
 
         assert!(
-            super::ConcreteCodegenInstance::try_callable(
+            ConcreteCodegenInstance::try_callable(
                 root.key().clone(),
                 root.callable_instance()
                     .unwrap_or_else(|| panic!("test root must retain its callable")),
@@ -3783,6 +3672,24 @@ mod tests {
         codegen_compilation_for_product_target(source, product_kind, SelectedTarget::baseline())
     }
 
+    fn codegen_compilation_for_product_with_worker_budget(
+        source: &str,
+        product_kind: ProductKind,
+        worker_budget: WorkerBudget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
+        codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
+            &[source],
+            product_kind,
+            SelectedTarget::baseline(),
+            &[],
+            [],
+            worker_budget,
+        )
+    }
+
     fn codegen_compilation_for_product_target(
         source: &str,
         product_kind: ProductKind,
@@ -3822,6 +3729,27 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
     ) {
+        codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+            platform_services,
+            WorkerBudget::serial(),
+        )
+    }
+
+    fn codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+        worker_budget: WorkerBudget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
         let backend = Arc::new(
             bray_codegen_llvm::LlvmCodeGenerator::try_new()
                 .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
@@ -3847,7 +3775,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            CompilationOptions::new(WorkerBudget::serial(), product_kind, target)
+            CompilationOptions::new(worker_budget, product_kind, target)
                 .with_native_link_inputs(native_link_inputs.iter().cloned()),
         )
         .with_platform_services(platform_services);
@@ -3993,6 +3921,27 @@ mod tests {
         plan: &super::NativeProductPlan,
     ) -> Vec<Vec<u8>> {
         generated_artifacts_of_kind(backend, plan, BackendArtifactKind::RelocatableObject)
+    }
+
+    fn native_partition_recipe(
+        plan: &super::NativeProductPlan,
+    ) -> Vec<(
+        Vec<bray_codegen::CodegenInstanceKey>,
+        bray_codegen::CodegenWork,
+        Option<bray_codegen::CodegenOversizedUnit>,
+    )> {
+        plan.units()
+            .iter()
+            .map(|unit| {
+                let key = unit.key();
+
+                (
+                    key.instances().to_vec(),
+                    key.estimated_work(),
+                    key.oversized(),
+                )
+            })
+            .collect()
     }
 
     fn generated_artifacts_of_kind(
