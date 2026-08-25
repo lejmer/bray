@@ -44,20 +44,6 @@ pub(super) struct ExportedDeclarations {
     pub(super) support_entities: Vec<InterfaceSupportEntity>,
 }
 
-impl ExportedDeclarations {
-    pub(super) fn sort_canonical(&mut self) {
-        self.signatures.sort_unstable();
-        self.generic_declarations.sort_unstable();
-        self.parameter_defaults.sort_unstable();
-        self.constraints.sort_unstable();
-        self.callable_contracts.sort_unstable();
-        self.predicate_definitions.sort_unstable();
-        self.declared_types.sort_unstable();
-        self.type_representations.sort_unstable();
-        self.declaration_templates.sort_unstable();
-    }
-}
-
 pub(super) fn export_callable_semantics(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,

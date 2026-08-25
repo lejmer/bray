@@ -14,7 +14,7 @@ use bray_symbols::{
 
 use super::super::PackageInterfaceExportError;
 
-use super::context::SemanticExporter;
+use super::context::{SemanticExporter, export_acyclic_semantic_value};
 use super::implementation::{dependency_requirement_kind, incomplete_type};
 use super::templates::index;
 
@@ -150,39 +150,49 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .generic_substitution_data(id)
-            .map_err(|_| incomplete_type())?;
+        export_acyclic_semantic_value!(
+            self,
+            active_substitutions,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::GenericSubstitution,
+            {
+            let data = self
+                .values
+                .generic_substitution_data(id)
+                .map_err(|_| incomplete_type())?;
 
-        let bindings = data
-            .bindings()
-            .iter()
-            .map(|binding| {
-                let argument = match binding.argument() {
-                    GenericArgument::Type(ty) => InterfaceGenericArgument::Type(self.type_id(ty)?),
-                    GenericArgument::Constant(term) => {
-                        InterfaceGenericArgument::Constant(self.constant_term_id(term)?)
-                    }
-                };
+            let bindings = data
+                .bindings()
+                .iter()
+                .map(|binding| {
+                    let argument = match binding.argument() {
+                        GenericArgument::Type(ty) => {
+                            InterfaceGenericArgument::Type(self.type_id(ty)?)
+                        }
+                        GenericArgument::Constant(term) => {
+                            InterfaceGenericArgument::Constant(self.constant_term_id(term)?)
+                        }
+                    };
 
-                Ok(InterfaceGenericBinding::new(
-                    self.symbol_reference(binding.parameter().into_any())?,
-                    argument,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+                    Ok(InterfaceGenericBinding::new(
+                        self.symbol_reference(binding.parameter().into_any())?,
+                        argument,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-        let exported = InterfaceGenericSubstitutionId::new(index(self.substitutions.len())?);
+            let exported = InterfaceGenericSubstitutionId::new(index(self.substitutions.len())?);
 
-        self.substitutions.push(InterfaceGenericSubstitution::new(
-            self.symbol_reference(data.owner().symbol())?,
-            bindings,
-        ));
+            self.substitutions.push(InterfaceGenericSubstitution::new(
+                self.symbol_reference(data.owner().symbol())?,
+                bindings,
+            ));
 
-        self.substitution_ids.insert(id, exported);
+            self.substitution_ids.insert(id, exported);
 
-        Ok(exported)
+            Ok(exported)
+            }
+        )
     }
 
     pub(in crate::compilation::export) fn trait_application_id(

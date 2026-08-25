@@ -26,10 +26,12 @@ pub(crate) enum ProfileOperation {
     NativePartitioning,
     NativeMapping,
     NativePlanFinalization,
+    InterfaceFragmentDiscovery,
+    InterfaceCommit,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 19;
+    pub(crate) const COUNT: usize = 21;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -46,6 +48,8 @@ impl ProfileOperation {
             Self::Linking => "compiler.link",
             Self::Emission => "compiler.emit",
             Self::InterfaceExport => "compiler.interface.export",
+            Self::InterfaceFragmentDiscovery => "compiler.interface.fragment",
+            Self::InterfaceCommit => "compiler.interface.commit",
             Self::EmissionCodeGeneration => "compiler.emit.codegen",
             Self::LinkInputStaging => "compiler.emit.stage",
             Self::EmissionLinking => "compiler.emit.link",
@@ -70,6 +74,8 @@ impl ProfileOperation {
             Self::Linking => 7,
             Self::Emission => 8,
             Self::InterfaceExport => 9,
+            Self::InterfaceFragmentDiscovery => 20,
+            Self::InterfaceCommit => 21,
             Self::EmissionCodeGeneration => 10,
             Self::LinkInputStaging => 11,
             Self::EmissionLinking => 12,
@@ -93,6 +99,8 @@ impl ProfileOperation {
             | Self::CodeGeneration
             | Self::Emission
             | Self::InterfaceExport
+            | Self::InterfaceFragmentDiscovery
+            | Self::InterfaceCommit
             | Self::EmissionCodeGeneration
             | Self::LinkInputStaging
             | Self::EmissionLinking
@@ -125,6 +133,8 @@ impl ProfileOperation {
             Self::CodeGeneration => &[CodegenUnit],
             Self::Linking
             | Self::InterfaceExport
+            | Self::InterfaceFragmentDiscovery
+            | Self::InterfaceCommit
             | Self::EmissionCodeGeneration
             | Self::EmissionLinking
             | Self::NativeRootSelection
@@ -160,6 +170,8 @@ impl ProfileOperation {
             Self::NativePartitioning,
             Self::NativeMapping,
             Self::NativePlanFinalization,
+            Self::InterfaceFragmentDiscovery,
+            Self::InterfaceCommit,
         ]
     }
 }
@@ -639,7 +651,7 @@ mod tests {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
             [
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
             ]
         );
 

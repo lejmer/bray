@@ -4,6 +4,7 @@ mod context;
 mod declarations;
 mod defaults;
 mod dependencies;
+mod fragment;
 mod implementation;
 mod templates;
 

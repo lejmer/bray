@@ -4,19 +4,18 @@ use bray_bound_tree::BoundUnitKey;
 use bray_package_interface::{
     InterfaceExecutableTemplate, InterfaceNativeBoundary, InterfaceRuntimeRequirement,
     InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
+    commit_interface_semantic_fragments,
 };
 use bray_symbols::{AnySymbolId, ExternalSymbolKey, InterfaceSymbolId};
 
 use super::super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
+use crate::fact::{BatchCompletionError, BatchWork, FactQueryError};
 
 use super::context::SemanticExporter;
-use super::declarations::{
-    ExportedDeclarations, export_callable_semantics, export_default_semantics,
-    export_generic_semantics, export_predicate_semantics, export_type_semantics,
-};
 use super::defaults::target_dependencies;
-use super::implementation::{export_constant_semantics, implementation_semantics};
+use super::fragment::SemanticFragment;
+use super::implementation::implementation_semantics;
 use super::templates::ExecutableTemplateExporter;
 
 pub(in crate::compilation::export) fn build_semantics(
@@ -41,40 +40,33 @@ pub(in crate::compilation::export) fn build_semantics(
         .binding_context(&compilation.state.cancellation)
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
+    let fragments = resolve_fragments(
+        compilation,
+        graph,
+        &binder,
+        surface,
+        selected,
+        keys,
+        values,
+    )?;
+
     let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
-    let mut declarations = ExportedDeclarations::default();
 
-    for symbol in selected.iter().copied() {
-        export_callable_semantics(
-            compilation,
-            graph,
-            &binder,
-            symbol,
-            &mut export,
-            &mut declarations,
-        )?;
-
-        export_generic_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
-        export_constant_semantics(compilation, &binder, symbol, &mut export, &mut declarations)?;
-        export_predicate_semantics(&binder, symbol, &export, &mut declarations)?;
-
-        export_default_semantics(
-            compilation,
-            graph,
-            &binder,
-            symbol,
-            &mut export,
-            &mut declarations,
-        )?;
-
-        export_type_semantics(compilation, symbol, &mut export, &mut declarations)?;
-    }
+    let committed_fragments = crate::profile::profile_operation(
+        compilation.state.fact_runtime.profile(),
+        crate::profile::ProfileOperation::InterfaceCommit,
+        || {
+            fragments
+                .into_iter()
+                .map(|fragment| fragment.commit(&mut export))
+                .collect::<Result<Vec<_>, _>>()
+        },
+        crate::profile::result_outcome,
+    )?;
 
     let (implementations, coherence) = implementation_semantics(&mut export, &binder, selected)?;
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
-
-    declarations.sort_canonical();
 
     let (executable_templates, runtime_requirements) =
         executable_templates(compilation, graph, selected, &mut export)?;
@@ -94,26 +86,102 @@ pub(in crate::compilation::export) fn build_semantics(
             export.constant_values,
             export.constant_terms,
         )
-        .with_contracts(declarations.constraints, declarations.callable_contracts)
-        .with_declarations(
-            declarations.signatures,
-            declarations.generic_declarations,
-            declarations.parameter_defaults,
-            declarations.predicate_definitions,
-        )
-        .with_declared_types(declarations.declared_types)
-        .with_type_representations(declarations.type_representations)
-        .with_templates(
-            declarations.checked_templates,
-            declarations.declaration_templates,
-            declarations.support_entities,
-        )
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements);
 
+    let semantics = crate::profile::profile_operation(
+        compilation.state.fact_runtime.profile(),
+        crate::profile::ProfileOperation::InterfaceCommit,
+        || commit_interface_semantic_fragments(semantics, committed_fragments),
+        crate::profile::result_outcome,
+    )
+    .map_err(PackageInterfaceExportError::FragmentCommit)?;
+
     Ok((semantics, executable_templates, native_boundaries))
 }
+
+fn resolve_fragments(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    binder: &crate::compilation::binder::CompilationBindingContext<'_>,
+    surface: &PackageInterfaceSurface,
+    selected: &BTreeSet<AnySymbolId>,
+    keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
+    values: &bray_symbols::SemanticValueStore,
+) -> Result<Vec<SemanticFragment>, PackageInterfaceExportError> {
+    let fragments = compilation
+        .state
+        .fact_runtime
+        .complete_batch(
+            selected.iter().copied(),
+            &compilation.state.cancellation,
+            |symbol| {
+                crate::profile::profile_operation(
+                    compilation.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::InterfaceFragmentDiscovery,
+                    || {
+                        SemanticFragment::build(
+                            compilation,
+                            graph,
+                            binder,
+                            surface,
+                            keys,
+                            values,
+                            *symbol,
+                        )
+                        .map(BatchWork::leaf)
+                    },
+                    crate::profile::result_outcome,
+                )
+            },
+        )
+        .map_err(fragment_batch_error)?;
+
+    let mut fragments = fragments
+        .into_iter()
+        .map(|(_, fragment)| fragment)
+        .collect::<Vec<_>>();
+
+    fragments.sort_unstable_by(|left, right| left.identity().cmp(right.identity()));
+
+    if let Some(pair) = fragments
+        .windows(2)
+        .find(|pair| pair[0].identity() == pair[1].identity())
+    {
+        let first = pair[0].exact_diagnostic_identity(graph)?;
+        let second = pair[1].exact_diagnostic_identity(graph)?;
+        let first_span = pair[0].diagnostic_span(graph);
+        let second_span = pair[1].diagnostic_span(graph);
+
+        // The error owns the stable identity after the temporary fragment batch is released.
+        return Err(PackageInterfaceExportError::ConflictingSemanticFragment {
+            first,
+            second,
+            first_span,
+            second_span,
+            identity: pair[0].identity().clone(),
+        });
+    }
+
+    Ok(fragments)
+}
+
+fn fragment_batch_error(
+    error: BatchCompletionError<AnySymbolId, PackageInterfaceExportError>,
+) -> PackageInterfaceExportError {
+    match error {
+        BatchCompletionError::Cancelled => PackageInterfaceExportError::Cancelled,
+        BatchCompletionError::Evaluation { error, .. } => error,
+        BatchCompletionError::Scheduler(FactQueryError::Cancelled) => {
+            PackageInterfaceExportError::Cancelled
+        }
+        BatchCompletionError::Scheduler(error) => {
+            PackageInterfaceExportError::FragmentCoordination(error)
+        }
+    }
+}
+
 fn native_boundaries(
     compilation: &Compilation,
     selected: &BTreeSet<AnySymbolId>,
@@ -415,4 +483,34 @@ fn executable_template_unit(
                     && unit.declared_owner() == owner
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::AnySymbolId;
+
+    use super::fragment_batch_error;
+    use crate::compilation::PackageInterfaceExportError;
+    use crate::fact::{
+        BatchCompletionError, CompilationFactKey, FactCycle, FactQueryError,
+    };
+
+    #[test]
+    fn scheduler_failures_retain_their_cause() {
+        let cycle = FactCycle::new([
+            CompilationFactKey::SyntaxTree,
+            CompilationFactKey::DeclarationTable,
+            CompilationFactKey::SyntaxTree,
+        ]);
+
+        let error = fragment_batch_error(BatchCompletionError::<
+            AnySymbolId,
+            PackageInterfaceExportError,
+        >::Scheduler(FactQueryError::Cycle(cycle.clone())));
+
+        assert_eq!(
+            error,
+            PackageInterfaceExportError::FragmentCoordination(FactQueryError::Cycle(cycle))
+        );
+    }
 }

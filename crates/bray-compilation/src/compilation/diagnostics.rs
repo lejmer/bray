@@ -15,16 +15,17 @@ use bray_checker::{
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticProductKind, DiagnosticResult, SeverityKind,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
+use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsQuery, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
     ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, StaticInstanceTemplate, SymbolGraph,
     SymbolKey, SymbolOrigin, SymbolQueryRequest, TraitImplementationConformanceQuery,
-    diagnostic_symbol_identity, diagnostic_symbol_kind,
+    diagnostic_external_symbol_identity, diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 use bray_syntax::{
     ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
@@ -89,6 +90,27 @@ pub(super) fn symbol_diagnostic_identity(
     }
 
     Ok(diagnostic_symbol_identity(key))
+}
+
+pub(super) fn diagnostic_interface_symbol_reference(
+    reference: &InterfaceSymbolReference,
+) -> DiagnosticInterfaceSymbolReference {
+    match reference {
+        InterfaceSymbolReference::Local(symbol) => {
+            DiagnosticInterfaceSymbolReference::Local(symbol.raw())
+        }
+        InterfaceSymbolReference::Dependency { dependency, key } => {
+            DiagnosticInterfaceSymbolReference::Dependency {
+                dependency: dependency.raw(),
+                identity: diagnostic_external_symbol_identity(key),
+            }
+        }
+        InterfaceSymbolReference::CompilerKnown(reference) => {
+            DiagnosticInterfaceSymbolReference::CompilerKnown(diagnostic_symbol_identity(
+                reference.key(),
+            ))
+        }
+    }
 }
 
 impl Compilation {

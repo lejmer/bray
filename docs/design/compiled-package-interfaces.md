@@ -768,6 +768,12 @@ providers to the encoder.
 Interface construction requests exactly the semantic records required by the reachable public graph. Executable bodies
 remain unrequested unless a separate implementation payload contract requires them.
 
+Declaration-owned semantics are discovered as immutable fragments under the compilation worker budget. Each fragment
+uses structural compiler identities and artifact-local references, so discovery never assigns package-wide interface
+IDs or mutates a shared canonicalization table. A stable commit orders fragments by `ExternalSymbolKey`, interns shared
+semantic values, assigns package-wide IDs, remaps fragment references, validates conflicts and incomplete references,
+then freezes the complete tables. Cancellation or fragment failure discards the uncommitted fragments.
+
 The export bundle must be error-free for all semantic records required by the interface. A package with invalid public
 surface semantic records does not emit a successful importable interface.
 
@@ -1063,6 +1069,8 @@ The interface system must satisfy these invariants:
 
 - equivalent semantic inputs produce byte-identical interfaces,
 - external keys and interface IDs are independent of worker and request order,
+- declaration fragment discovery uses the compilation worker budget,
+- package-wide semantic identity is assigned only during stable commit,
 - structural validation publishes no partial loaded interface,
 - lazy semantic record decoding publishes no partial value,
 - diagnostic ordering is deterministic,

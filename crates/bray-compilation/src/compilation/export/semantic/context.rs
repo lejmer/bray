@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{CheckedTemplateConstantUsage, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_checker::resolve_type_expression_template;
@@ -28,6 +28,25 @@ use crate::compilation::Compilation;
 use super::implementation::incomplete_type;
 use super::templates::{incomplete, index};
 
+macro_rules! export_acyclic_semantic_value {
+    ($exporter:ident, $active:ident, $id:ident, $table:expr, $body:block) => {{
+        if !$exporter.$active.insert($id) {
+            Err($exporter
+                .cyclic_semantic_value_error($table, $id.slot())
+                .map_err(PackageInterfaceExportError::FragmentCoordination)?)
+        } else {
+            let result = (|| $body)();
+
+            let removed = $exporter.$active.remove(&$id);
+            debug_assert!(removed, "active semantic value must be released");
+
+            result
+        }
+    }};
+}
+
+pub(super) use export_acyclic_semantic_value;
+
 #[derive(Clone, Copy)]
 pub(super) struct CheckedConstantExpression {
     pub(super) term: ConstantTermId,
@@ -40,6 +59,7 @@ pub(in crate::compilation::export) struct SemanticExporter<'a> {
     pub(super) surface: &'a PackageInterfaceSurface,
     pub(super) keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
     pub(super) values: &'a SemanticValueStore,
+    declaration: Option<AnySymbolId>,
     pub(super) type_ids: BTreeMap<TypeId, InterfaceTypeId>,
     pub(super) substitution_ids: BTreeMap<GenericSubstitutionId, InterfaceGenericSubstitutionId>,
     pub(super) trait_application_ids: BTreeMap<TraitApplicationId, InterfaceTraitApplicationId>,
@@ -50,6 +70,10 @@ pub(in crate::compilation::export) struct SemanticExporter<'a> {
         BTreeMap<bray_symbols::DependencyContractTemplateId, InterfaceDependencyContractId>,
     pub(super) constant_term_ids: BTreeMap<ConstantTermId, InterfaceConstantTermId>,
     pub(super) constant_value_ids: BTreeMap<ConstantValueId, InterfaceConstantValueId>,
+    pub(super) active_types: BTreeSet<TypeId>,
+    pub(super) active_substitutions: BTreeSet<GenericSubstitutionId>,
+    pub(super) active_constant_terms: BTreeSet<ConstantTermId>,
+    pub(super) active_constant_values: BTreeSet<ConstantValueId>,
     pub(super) types: Vec<InterfaceType>,
     pub(super) substitutions: Vec<InterfaceGenericSubstitution>,
     pub(super) trait_applications: Vec<InterfaceTraitApplication>,
@@ -74,6 +98,7 @@ impl<'a> SemanticExporter<'a> {
             surface,
             keys,
             values,
+            declaration: None,
             type_ids: BTreeMap::new(),
             substitution_ids: BTreeMap::new(),
             trait_application_ids: BTreeMap::new(),
@@ -82,6 +107,10 @@ impl<'a> SemanticExporter<'a> {
             dependency_contract_ids: BTreeMap::new(),
             constant_term_ids: BTreeMap::new(),
             constant_value_ids: BTreeMap::new(),
+            active_types: BTreeSet::new(),
+            active_substitutions: BTreeSet::new(),
+            active_constant_terms: BTreeSet::new(),
+            active_constant_values: BTreeSet::new(),
             types: Vec::new(),
             substitutions: Vec::new(),
             trait_applications: Vec::new(),
@@ -91,6 +120,35 @@ impl<'a> SemanticExporter<'a> {
             constant_terms: Vec::new(),
             constant_values: Vec::new(),
         }
+    }
+
+    pub(super) fn with_declaration(mut self, declaration: AnySymbolId) -> Self {
+        self.declaration = Some(declaration);
+
+        self
+    }
+
+    pub(super) fn cyclic_semantic_value_error(
+        &self,
+        table: bray_package_interface::InterfaceSemanticTableKind,
+        reference: u32,
+    ) -> Result<PackageInterfaceExportError, crate::fact::FactQueryError> {
+        let declaration = self
+            .declaration
+            .map(|declaration| {
+                crate::compilation::diagnostics::symbol_diagnostic_identity(
+                    self.graph,
+                    None,
+                    declaration,
+                )
+            })
+            .transpose()?;
+
+        Ok(PackageInterfaceExportError::CyclicSemanticFragment {
+            declaration,
+            table,
+            reference,
+        })
     }
 
     pub(super) fn callable_signature(
@@ -302,9 +360,15 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
+        export_acyclic_semantic_value!(
+            self,
+            active_types,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::Type,
+            {
+            let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
 
-        let ty = match data.as_ref() {
+            let ty = match data.as_ref() {
             TypeData::Error => return Err(incomplete_type()),
             TypeData::Named {
                 definition,
@@ -358,13 +422,15 @@ impl<'a> SemanticExporter<'a> {
                 target: self.type_id(*target)?,
             },
             TypeData::Callable(callable) => self.callable_type(callable)?,
-        };
+            };
 
-        let exported = InterfaceTypeId::new(index(self.types.len())?);
-        self.types.push(ty);
-        self.type_ids.insert(id, exported);
+            let exported = InterfaceTypeId::new(index(self.types.len())?);
+            self.types.push(ty);
+            self.type_ids.insert(id, exported);
 
-        Ok(exported)
+            Ok(exported)
+            }
+        )
     }
 
     pub(super) fn callable_type(

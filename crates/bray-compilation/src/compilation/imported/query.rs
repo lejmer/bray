@@ -6,15 +6,15 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId, DiagnosticInterfaceLimit,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolGraphProblem,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference,
-    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticRelatedLocation,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
+    DiagnosticRelatedLocation,
     DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticSemanticContentProblem,
     DiagnosticSemanticValueKind, SeverityKind,
 };
 use bray_package_interface::{
     ImportedInterfaceSymbolResolver, ImportedSemanticRecord, ImportedSemantics,
-    ImportedSymbolConstructionError, InterfaceSemanticInternError, InterfaceSymbolReference,
-    LoadedInterfaceSurface, PackageInterfaceSurface, ValidatedPackageInterface,
+    ImportedSymbolConstructionError, InterfaceSemanticInternError, LoadedInterfaceSurface,
+    PackageInterfaceSurface, ValidatedPackageInterface,
     construct_imported_symbol_skeletons,
 };
 use bray_symbols::{
@@ -28,6 +28,7 @@ use super::diagnostic::{
     validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
+use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
 };
@@ -1041,25 +1042,6 @@ fn synthesized_identity(
     }
 }
 
-fn interface_symbol_reference(
-    reference: InterfaceSymbolReference,
-) -> DiagnosticInterfaceSymbolReference {
-    match reference {
-        InterfaceSymbolReference::Local(symbol) => {
-            DiagnosticInterfaceSymbolReference::Local(symbol.raw())
-        }
-        InterfaceSymbolReference::Dependency { dependency, key } => {
-            DiagnosticInterfaceSymbolReference::Dependency {
-                dependency: dependency.raw(),
-                identity: diagnostic_external_symbol_identity(&key),
-            }
-        }
-        InterfaceSymbolReference::CompilerKnown(reference) => {
-            DiagnosticInterfaceSymbolReference::CompilerKnown(symbol_identity(reference.key()))
-        }
-    }
-}
-
 fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanticContentProblem {
     match error {
         SemanticValueStoreError::ForeignId { expected, actual } => {
@@ -1233,15 +1215,15 @@ fn semantic_content_diagnostics(
     let (kind, problem) = match error {
         InterfaceSemanticInternError::UnresolvedSymbol(reference) => (
             DiagnosticKind::InterfaceSemanticSymbolUnresolved,
-            DiagnosticInterfaceSemanticProblem::UnresolvedSymbol(interface_symbol_reference(
-                reference,
-            )),
+            DiagnosticInterfaceSemanticProblem::UnresolvedSymbol(
+                diagnostic_interface_symbol_reference(&reference),
+            ),
         ),
         InterfaceSemanticInternError::InvalidSymbolKind(reference) => (
             DiagnosticKind::InterfaceSemanticSymbolKindInvalid,
-            DiagnosticInterfaceSemanticProblem::InvalidSymbolKind(interface_symbol_reference(
-                reference,
-            )),
+            DiagnosticInterfaceSemanticProblem::InvalidSymbolKind(
+                diagnostic_interface_symbol_reference(&reference),
+            ),
         ),
         InterfaceSemanticInternError::UnresolvedValueGraph => (
             DiagnosticKind::InterfaceSemanticValueGraphInvalid,
