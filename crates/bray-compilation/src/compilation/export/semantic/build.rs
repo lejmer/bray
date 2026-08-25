@@ -145,11 +145,19 @@ fn resolve_fragments(
 
     fragments.sort_unstable_by(|left, right| left.identity().cmp(right.identity()));
 
-    if fragments
+    if let Some(pair) = fragments
         .windows(2)
-        .any(|pair| pair[0].identity() == pair[1].identity())
+        .find(|pair| pair[0].identity() == pair[1].identity())
     {
-        return Err(PackageInterfaceExportError::ConflictingSemanticFragment);
+        let first = pair[0].diagnostic_identity(graph)?;
+        let second = pair[1].diagnostic_identity(graph)?;
+
+        // The error owns the stable identity after the temporary fragment batch is released.
+        return Err(PackageInterfaceExportError::ConflictingSemanticFragment {
+            first,
+            second,
+            identity: pair[0].identity().clone(),
+        });
     }
 
     Ok(fragments)
@@ -164,10 +172,9 @@ fn fragment_batch_error(
         BatchCompletionError::Scheduler(FactQueryError::Cancelled) => {
             PackageInterfaceExportError::Cancelled
         }
-        BatchCompletionError::Scheduler(FactQueryError::Cycle(cycle)) => {
-            PackageInterfaceExportError::FragmentCoordinationCycle(cycle)
+        BatchCompletionError::Scheduler(error) => {
+            PackageInterfaceExportError::FragmentCoordination(error)
         }
-        BatchCompletionError::Scheduler(_) => PackageInterfaceExportError::FragmentCoordination,
     }
 }
 
@@ -485,7 +492,7 @@ mod tests {
     };
 
     #[test]
-    fn scheduler_cycles_remain_coordination_cycles() {
+    fn scheduler_failures_retain_their_cause() {
         let cycle = FactCycle::new([
             CompilationFactKey::SyntaxTree,
             CompilationFactKey::DeclarationTable,
@@ -499,7 +506,7 @@ mod tests {
 
         assert_eq!(
             error,
-            PackageInterfaceExportError::FragmentCoordinationCycle(cycle)
+            PackageInterfaceExportError::FragmentCoordination(FactQueryError::Cycle(cycle))
         );
     }
 }

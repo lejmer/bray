@@ -29,9 +29,11 @@ use super::implementation::incomplete_type;
 use super::templates::{incomplete, index};
 
 macro_rules! export_acyclic_semantic_value {
-    ($exporter:ident, $active:ident, $id:ident, $body:block) => {{
+    ($exporter:ident, $active:ident, $id:ident, $table:expr, $body:block) => {{
         if !$exporter.$active.insert($id) {
-            Err(PackageInterfaceExportError::CyclicSemanticFragment)
+            Err($exporter
+                .cyclic_semantic_value_error($table, $id.slot())
+                .map_err(PackageInterfaceExportError::FragmentCoordination)?)
         } else {
             let result = (|| $body)();
 
@@ -57,6 +59,7 @@ pub(in crate::compilation::export) struct SemanticExporter<'a> {
     pub(super) surface: &'a PackageInterfaceSurface,
     pub(super) keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
     pub(super) values: &'a SemanticValueStore,
+    declaration: Option<AnySymbolId>,
     pub(super) type_ids: BTreeMap<TypeId, InterfaceTypeId>,
     pub(super) substitution_ids: BTreeMap<GenericSubstitutionId, InterfaceGenericSubstitutionId>,
     pub(super) trait_application_ids: BTreeMap<TraitApplicationId, InterfaceTraitApplicationId>,
@@ -95,6 +98,7 @@ impl<'a> SemanticExporter<'a> {
             surface,
             keys,
             values,
+            declaration: None,
             type_ids: BTreeMap::new(),
             substitution_ids: BTreeMap::new(),
             trait_application_ids: BTreeMap::new(),
@@ -116,6 +120,35 @@ impl<'a> SemanticExporter<'a> {
             constant_terms: Vec::new(),
             constant_values: Vec::new(),
         }
+    }
+
+    pub(super) fn with_declaration(mut self, declaration: AnySymbolId) -> Self {
+        self.declaration = Some(declaration);
+
+        self
+    }
+
+    pub(super) fn cyclic_semantic_value_error(
+        &self,
+        table: bray_package_interface::InterfaceSemanticTableKind,
+        reference: u32,
+    ) -> Result<PackageInterfaceExportError, crate::fact::FactQueryError> {
+        let declaration = self
+            .declaration
+            .map(|declaration| {
+                crate::compilation::diagnostics::symbol_diagnostic_identity(
+                    self.graph,
+                    None,
+                    declaration,
+                )
+            })
+            .transpose()?;
+
+        Ok(PackageInterfaceExportError::CyclicSemanticFragment {
+            declaration,
+            table,
+            reference,
+        })
     }
 
     pub(super) fn callable_signature(
@@ -327,7 +360,12 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        export_acyclic_semantic_value!(self, active_types, id, {
+        export_acyclic_semantic_value!(
+            self,
+            active_types,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::Type,
+            {
             let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
 
             let ty = match data.as_ref() {
@@ -391,7 +429,8 @@ impl<'a> SemanticExporter<'a> {
             self.type_ids.insert(id, exported);
 
             Ok(exported)
-        })
+            }
+        )
     }
 
     pub(super) fn callable_type(

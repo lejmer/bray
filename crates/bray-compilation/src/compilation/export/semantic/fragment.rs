@@ -22,6 +22,7 @@ use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 
 pub(super) struct SemanticFragment {
+    symbol: AnySymbolId,
     identity: ExternalSymbolKey,
     semantics: InterfaceSemantics,
     origins: SemanticValueOrigins,
@@ -41,7 +42,9 @@ impl SemanticFragment {
             PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
         )?;
 
-        let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
+        let mut export = SemanticExporter::new(compilation, graph, surface, keys, values)
+            .with_declaration(symbol);
+
         let mut declarations = ExportedDeclarations::default();
 
         export_callable_semantics(
@@ -85,6 +88,7 @@ impl SemanticFragment {
         let (semantics, origins) = SemanticValueOrigins::from_export(export, declarations);
 
         Ok(Self {
+            symbol,
             identity,
             semantics,
             origins,
@@ -95,11 +99,38 @@ impl SemanticFragment {
         &self.identity
     }
 
+    pub(super) fn diagnostic_identity(
+        &self,
+        graph: &bray_symbols::SymbolGraph,
+    ) -> Result<
+        bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
+        PackageInterfaceExportError,
+    > {
+        crate::compilation::diagnostics::symbol_diagnostic_identity(graph, None, self.symbol)
+            .map_err(PackageInterfaceExportError::FragmentCoordination)
+    }
+
     pub(super) fn commit(
         self,
         export: &mut SemanticExporter<'_>,
     ) -> Result<(InterfaceSemantics, InterfaceSemanticIdRemap), PackageInterfaceExportError> {
-        let remap = self.origins.commit(export)?;
+        let remap = match self.origins.commit(export) {
+            Ok(remap) => remap,
+            Err(PackageInterfaceExportError::IncompleteSemanticFragment {
+                declaration: None,
+                table,
+                reference,
+            }) => {
+                let declaration = self.diagnostic_identity(export.graph)?;
+
+                return Err(PackageInterfaceExportError::IncompleteSemanticFragment {
+                    declaration: Some(declaration),
+                    table,
+                    reference,
+                });
+            }
+            Err(error) => return Err(error),
+        };
 
         Ok((self.semantics, remap))
     }
@@ -285,6 +316,7 @@ where
                 .get(key)
                 .copied()
                 .ok_or(PackageInterfaceExportError::IncompleteSemanticFragment {
+                    declaration: None,
                     table,
                     reference: reference(local_id),
                 })
@@ -317,6 +349,7 @@ mod tests {
         assert_eq!(
             error,
             PackageInterfaceExportError::IncompleteSemanticFragment {
+                declaration: None,
                 table: InterfaceSemanticTableKind::Type,
                 reference: 0,
             }

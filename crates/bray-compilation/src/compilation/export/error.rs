@@ -2,9 +2,10 @@ use bray_package_interface::{
     InterfaceSemanticCommitError, InterfaceSemanticTableKind, PackageInterfaceExportBuildError,
     PackageInterfaceExportSurfaceError,
 };
-use bray_symbols::SymbolKind;
+use bray_diagnostics::DiagnosticInterfaceSymbolIdentity;
+use bray_symbols::{ExternalSymbolKey, SymbolKind};
 
-use crate::fact::FactCycle;
+use crate::fact::FactQueryError;
 
 /// Failure while producing the current library product's public interface.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -19,17 +20,24 @@ pub enum PackageInterfaceExportError {
     IncompletePublicDeclarationSemantics(SymbolKind),
     /// A resolved fragment omitted a value required by its declaration records.
     IncompleteSemanticFragment {
+        declaration: Option<DiagnosticInterfaceSymbolIdentity>,
         table: InterfaceSemanticTableKind,
         reference: u32,
     },
     /// Two independently resolved fragments use one stable symbol identity.
-    ConflictingSemanticFragment,
+    ConflictingSemanticFragment {
+        first: DiagnosticInterfaceSymbolIdentity,
+        second: DiagnosticInterfaceSymbolIdentity,
+        identity: ExternalSymbolKey,
+    },
     /// A semantic value graph contains a cycle that cannot be represented in table order.
-    CyclicSemanticFragment,
+    CyclicSemanticFragment {
+        declaration: Option<DiagnosticInterfaceSymbolIdentity>,
+        table: InterfaceSemanticTableKind,
+        reference: u32,
+    },
     /// Compiler coordination could not complete fragment discovery.
-    FragmentCoordination,
-    /// Compiler requests required by fragment discovery formed a dependency cycle.
-    FragmentCoordinationCycle(FactCycle),
+    FragmentCoordination(FactQueryError),
     /// Stable fragment commit rejected a reference or declaration record.
     FragmentCommit(InterfaceSemanticCommitError),
     /// Canonical identity-surface validation rejected the selected graph.

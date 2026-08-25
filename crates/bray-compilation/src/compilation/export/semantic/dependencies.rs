@@ -150,7 +150,12 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        export_acyclic_semantic_value!(self, active_substitutions, id, {
+        export_acyclic_semantic_value!(
+            self,
+            active_substitutions,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::GenericSubstitution,
+            {
             let data = self
                 .values
                 .generic_substitution_data(id)
@@ -186,7 +191,8 @@ impl<'a> SemanticExporter<'a> {
             self.substitution_ids.insert(id, exported);
 
             Ok(exported)
-        })
+            }
+        )
     }
 
     pub(in crate::compilation::export) fn trait_application_id(

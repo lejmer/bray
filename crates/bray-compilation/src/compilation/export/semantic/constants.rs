@@ -26,7 +26,12 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        export_acyclic_semantic_value!(self, active_constant_terms, id, {
+        export_acyclic_semantic_value!(
+            self,
+            active_constant_terms,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::ConstantTerm,
+            {
             let data = self
                 .values
                 .constant_term_data(id)
@@ -181,7 +186,8 @@ impl<'a> SemanticExporter<'a> {
             self.constant_term_ids.insert(id, exported);
 
             Ok(exported)
-        })
+            }
+        )
     }
 
     pub(in crate::compilation::export) fn constant_value_term_id(
@@ -261,7 +267,12 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        export_acyclic_semantic_value!(self, active_constant_values, id, {
+        export_acyclic_semantic_value!(
+            self,
+            active_constant_values,
+            id,
+            bray_package_interface::InterfaceSemanticTableKind::ConstantValue,
+            {
             let data = self
                 .values
                 .constant_value_data(id)
@@ -327,7 +338,8 @@ impl<'a> SemanticExporter<'a> {
             self.constant_value_ids.insert(id, exported);
 
             Ok(exported)
-        })
+            }
+        )
     }
 
     pub(super) fn constant_value_ids(

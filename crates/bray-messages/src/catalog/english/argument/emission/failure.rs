@@ -206,22 +206,23 @@ fn format_english_package_interface_failure(
 ) -> String {
 use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
-use crate::catalog::english::argument::interface::format_english_interface_symbol_reference;
+use crate::catalog::english::argument::interface::{
+    format_english_interface_symbol_identity, format_english_interface_symbol_reference,
+};
 
     match failure {
         Failure::Unavailable => {
             "package-interface output was requested without export configuration".to_owned()
         }
-        Failure::ExportCancelled => "package-interface export was cancelled".to_owned(),
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
-        Failure::IncompletePublicDeclaration(kind) => {
-            format!("a reachable public {kind} declaration has incomplete semantic content")
-        }
+        Failure::IncompletePublicDeclaration(kind) => format!(
+            "the compiler could not prepare complete data for a reachable public {kind} declaration"
+        ),
         Failure::DuplicateSymbol(kind) => {
             format!("the export surface contains a duplicate stable {kind} identity")
         }
@@ -323,40 +324,75 @@ use crate::catalog::english::argument::interface::format_english_interface_symbo
         Failure::DuplicateExportName { owner, name } => {
             format!("export owner record {owner} projects name {name} more than once")
         }
-        Failure::MissingSemanticContent(kind) => {
-            format!("an exported {kind} declaration has no completed semantic content")
-        }
-        Failure::IncompleteSemanticFragment { table, reference } => format!(
-            "semantic {table} reference {reference} is missing from an exported declaration"
+        Failure::MissingDeclarationData(declaration) => format!(
+            "the compiler could not prepare complete declaration data for exported {}",
+            format_english_interface_symbol_identity(declaration)
         ),
-        Failure::ConflictingSemanticFragment => {
-            "two exported declarations have the same stable symbol identity".to_owned()
-        }
-        Failure::CyclicSemanticFragment => {
-            "an exported semantic value contains an unsupported recursive reference".to_owned()
-        }
-        Failure::FragmentCoordination => {
-            "package-interface declaration discovery could not be coordinated".to_owned()
-        }
-        Failure::FragmentCoordinationCycle(_) => {
-            "package-interface declaration discovery encountered a dependency cycle".to_owned()
-        }
-        Failure::FragmentMissingReference { table, reference } => format!(
-            "semantic {table} reference {reference} has no package-wide identity"
+        Failure::LostDeclarationReference {
+            declaration,
+            table,
+            reference,
+        } => match declaration {
+            Some(declaration) => format!(
+                "the compiler lost {table} entry {reference} while preparing exported {}",
+                format_english_interface_symbol_identity(declaration)
+            ),
+            None => format!(
+                "the compiler lost {table} entry {reference} while preparing an exported declaration"
+            ),
+        },
+        Failure::DuplicateDeclarationIdentity {
+            first,
+            second,
+            identity,
+        } => format!(
+            "exported declarations {} and {} both resolve to stable identity {}",
+            format_english_interface_symbol_identity(first),
+            format_english_interface_symbol_identity(second),
+            format_english_interface_symbol_identity(identity)
         ),
-        Failure::FragmentUnexpectedPackageRecord(table) => format!(
-            "a declaration fragment contains a package-level {table} record"
+        Failure::RecursiveDeclarationData {
+            declaration,
+            table,
+            reference,
+        } => match declaration {
+            Some(declaration) => format!(
+                "the compiler created a recursive {table} entry {reference} while preparing exported {}",
+                format_english_interface_symbol_identity(declaration)
+            ),
+            None => format!(
+                "the compiler created a recursive {table} entry {reference} while preparing the package interface"
+            ),
+        },
+        Failure::DeclarationDiscoveryFailure { cause, cycle } => {
+            if cycle.is_empty() {
+                format!(
+                    "the compiler could not finish package-interface export: {}",
+                    format_english_emission_evaluation_failure(*cause)
+                )
+            } else {
+                format!(
+                    "the compiler could not finish package-interface export because internal requests depend on one another: {}",
+                    cycle.join(" -> ")
+                )
+            }
+        }
+        Failure::MissingPackageReference { table, reference } => format!(
+            "the compiler could not associate {table} entry {reference} with the package interface"
         ),
-        Failure::FragmentConflictingRecord { kind, owner } => format!(
-            "two declaration fragments provide different {kind} records for {}",
+        Failure::MisassignedPackageRecord(table) => format!(
+            "the compiler assigned package-level {table} data to one exported declaration"
+        ),
+        Failure::ConflictingDeclarationRecord { kind, owner } => format!(
+            "the compiler produced conflicting {kind} data for {}",
             format_english_interface_symbol_reference(owner)
         ),
-        Failure::FragmentCyclicReference(table) => {
-            format!("the semantic {table} table contains a recursive local reference")
+        Failure::RecursiveDeclarationReference(table) => {
+            format!("the compiler produced a recursive reference in the {table} data table")
         }
-        Failure::FragmentIdentityOverflow(table) => {
-            format!("the semantic {table} table exceeds the compact identity range")
-        }
+        Failure::SemanticTableOverflow { table, maximum } => format!(
+            "package-interface export requires more than {maximum} {table} records, which the file format cannot represent"
+        ),
         Failure::DuplicateExecutableTemplate(owner) => {
             format!("two executable templates claim callable record {owner}")
         }
@@ -396,6 +432,73 @@ use crate::catalog::english::argument::interface::format_english_interface_symbo
         Failure::ImplementationContentTooLarge => {
             "the implementation payload exceeds the representable artifact length".to_owned()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticPackageInterfaceFailure,
+    };
+
+    use super::format_english_package_interface_failure;
+
+    fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
+        DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
+    }
+
+    #[test]
+    fn package_interface_failures_render_actionable_context() {
+        let conflict = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::DuplicateDeclarationIdentity {
+                first: package("example.first"),
+                second: package("example.second"),
+                identity: package("example.shared"),
+            },
+        );
+
+        assert_eq!(
+            conflict,
+            "exported declarations 'example.first' and 'example.second' both resolve to stable identity 'example.shared'"
+        );
+
+        let recursive = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::RecursiveDeclarationData {
+                declaration: Some(package("example.value")),
+                table: "type".to_owned(),
+                reference: 19,
+            },
+        );
+
+        assert_eq!(
+            recursive,
+            "the compiler created a recursive type entry 19 while preparing exported 'example.value'"
+        );
+
+        let cycle = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
+                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+                cycle: ["declaration_table".to_owned(), "symbol_graph".to_owned()].into(),
+            },
+        );
+
+        assert_eq!(
+            cycle,
+            "the compiler could not finish package-interface export because internal requests depend on one another: declaration_table -> symbol_graph"
+        );
+
+        let overflow = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::SemanticTableOverflow {
+                table: "type".to_owned(),
+                maximum: u32::MAX,
+            },
+        );
+
+        assert_eq!(
+            overflow,
+            "package-interface export requires more than 4294967295 type records, which the file format cannot represent"
+        );
     }
 }
 

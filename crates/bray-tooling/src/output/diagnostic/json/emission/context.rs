@@ -115,23 +115,47 @@ pub(super) fn package_interface_failure_context(
         Failure::RecoveredPublicSymbol(kind)
         | Failure::IncompletePublicDeclaration(kind)
         | Failure::DuplicateSymbol(kind)
-        | Failure::MissingSymbol(kind)
-        | Failure::MissingSemanticContent(kind) => vec![text_field("symbol_kind", kind)],
-        Failure::IncompleteSemanticFragment { table, reference }
-        | Failure::FragmentMissingReference { table, reference } => vec![
+        | Failure::MissingSymbol(kind) => vec![text_field("symbol_kind", kind)],
+        Failure::MissingDeclarationData(declaration) => {
+            vec![interface_symbol_identity_field("declaration", declaration)]
+        }
+        Failure::LostDeclarationReference {
+            declaration,
+            table,
+            reference,
+        } => declaration_reference_fields(declaration.as_ref(), table, *reference),
+        Failure::MissingPackageReference { table, reference } => vec![
             text_field("semantic_table", table),
             count_field("reference", *reference),
         ],
-        Failure::FragmentConflictingRecord { kind, owner } => {
+        Failure::DuplicateDeclarationIdentity {
+            first,
+            second,
+            identity,
+        } => vec![
+            interface_symbol_identity_field("first_declaration", first),
+            interface_symbol_identity_field("second_declaration", second),
+            interface_symbol_identity_field("stable_identity", identity),
+        ],
+        Failure::RecursiveDeclarationData {
+            declaration,
+            table,
+            reference,
+        } => declaration_reference_fields(declaration.as_ref(), table, *reference),
+        Failure::ConflictingDeclarationRecord { kind, owner } => {
             let mut context = vec![text_field("record_kind", kind)];
 
             context.extend(interface_symbol_reference_fields(owner));
 
             context
         }
-        Failure::FragmentCyclicReference(table) | Failure::FragmentIdentityOverflow(table) => {
+        Failure::RecursiveDeclarationReference(table) => {
             vec![text_field("semantic_table", table)]
         }
+        Failure::SemanticTableOverflow { table, maximum } => vec![
+            text_field("semantic_table", table),
+            count_field("maximum_records", *maximum),
+        ],
         Failure::DuplicateDependencyPackage(package) => {
             vec![text_field("package", package)]
         }
@@ -215,27 +239,58 @@ pub(super) fn package_interface_failure_context(
             count_field("owner_record", *owner),
             text_field("name", name),
         ],
-        Failure::FragmentCoordinationCycle(cycle) => {
-            vec![text_field("query_cycle", cycle.join(" -> "))]
+        Failure::DeclarationDiscoveryFailure { cause, cycle } => {
+            let mut context = vec![text_field("cause", cause.as_str())];
+
+            if !cycle.is_empty() {
+                context.push(text_field("query_cycle", cycle.join(" -> ")));
+            }
+
+            context
         }
-        Failure::FragmentUnexpectedPackageRecord(table) => {
+        Failure::MisassignedPackageRecord(table) => {
             vec![text_field("semantic_table", table)]
         }
         Failure::Unavailable
-        | Failure::ExportCancelled
         | Failure::InvalidCompilation
         | Failure::SymbolCountOverflow
         | Failure::NonLibraryProduct
         | Failure::DependencyCountOverflow
         | Failure::IdentityEmpty
         | Failure::IdentitySymbolCountOverflow
-        | Failure::ConflictingSemanticFragment
-        | Failure::CyclicSemanticFragment
-        | Failure::FragmentCoordination
         | Failure::ImplementationContentTooLarge
         | Failure::ImplementationDuplicateSpecialization
         | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
     }
+}
+
+fn interface_symbol_identity_field(
+    name: &'static str,
+    identity: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
+) -> DiagnosticEmissionFieldJson {
+    field(
+        name,
+        DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
+            DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+        ),
+    )
+}
+
+fn declaration_reference_fields(
+    declaration: Option<&bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
+    table: &str,
+    reference: u32,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    let mut context = vec![
+        text_field("semantic_table", table),
+        count_field("reference", reference),
+    ];
+
+    if let Some(declaration) = declaration {
+        context.push(interface_symbol_identity_field("declaration", declaration));
+    }
+
+    context
 }
 
 fn interface_symbol_reference_fields(
@@ -426,5 +481,39 @@ pub(super) fn link_plan_failure_context(
         | Failure::MissingStartupInput
         | Failure::MissingDebugCompanion
         | Failure::UnexpectedDebugCompanion => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticInterfaceSymbolIdentity, DiagnosticPackageInterfaceFailure,
+    };
+
+    use super::package_interface_failure_context;
+
+    fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
+        DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
+    }
+
+    #[test]
+    fn identity_conflicts_preserve_every_declaration() {
+        let context = package_interface_failure_context(
+            &DiagnosticPackageInterfaceFailure::DuplicateDeclarationIdentity {
+                first: package("example.first"),
+                second: package("example.second"),
+                identity: package("example.shared"),
+            },
+        );
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("diagnostic context should serialize: {error:?}"));
+
+        assert_eq!(context[0]["name"], "first_declaration");
+        assert_eq!(context[0]["value"]["value"]["package"], "example.first");
+        assert_eq!(context[1]["name"], "second_declaration");
+        assert_eq!(context[1]["value"]["value"]["package"], "example.second");
+        assert_eq!(context[2]["name"], "stable_identity");
+        assert_eq!(context[2]["value"]["value"]["package"], "example.shared");
     }
 }
