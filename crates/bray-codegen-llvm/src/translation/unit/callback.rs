@@ -1,11 +1,10 @@
 use bray_codegen::{
-    CodegenFailure, CodegenLinkage, CodegenRequest, CodegenResultMapping, CodegenSymbolKey,
+    CodegenFailure, CodegenRequest, CodegenResultMapping, CodegenSymbolKey,
     CodegenSymbolMapping,
 };
 use bray_ir::MirRuntimeReference;
 use bray_runtime_abi::NativeRunState;
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::CallableAbi;
 use inkwell::AddressSpace;
 use inkwell::DLLStorageClass;
 use inkwell::builder::Builder;
@@ -24,11 +23,10 @@ pub(super) fn prepare<'context, 'request>(
     function: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(FunctionValue<'context>, Option<FunctionValue<'context>>), CodegenFailure> {
-    if !matches!(
+    if !bray_codegen::requires_foreign_callback_boundary(
         symbol.linkage(),
-        CodegenLinkage::Export | CodegenLinkage::Weak | CodegenLinkage::Fallback
-    ) || symbol.signature().abi() == CallableAbi::Bray
-    {
+        symbol.signature().abi(),
+    ) {
         return Ok((function, None));
     }
 

@@ -3622,6 +3622,20 @@ mod tests {
                 .any(|root| root.as_str() == symbol)
         );
 
+        let host = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("executable plan must retain its host"));
+
+        for role in bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES {
+            assert!(host.requirements().requires_role(role));
+
+            assert_eq!(
+                host.role_binding(role)
+                    .map(RuntimeRoleBinding::implementation),
+                Some(RuntimeRoleImplementation::BrayRuntime)
+            );
+        }
+
         assert!(
             generated_artifacts(&backend, &plan)
                 .iter()

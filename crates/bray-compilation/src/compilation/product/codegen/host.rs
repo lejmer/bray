@@ -119,6 +119,7 @@ impl Compilation {
         reachability: Option<&bray_codegen::CodegenReachability>,
         transfers_cleanup_incident: bool,
         runtime: Option<&RuntimeArtifact>,
+        required_roles: impl IntoIterator<Item = RuntimeAbiRole>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -168,10 +169,11 @@ impl Compilation {
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
-        let mut runtime_roles = match reachability {
-            Some(reachability) => demanded_product_runtime_roles(reachability),
-            None => BTreeSet::new(),
-        };
+        let mut runtime_roles: BTreeSet<_> = required_roles.into_iter().collect();
+
+        if let Some(reachability) = reachability {
+            runtime_roles.extend(demanded_product_runtime_roles(reachability));
+        }
 
         let has_statics = reachability
             .into_iter()
