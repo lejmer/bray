@@ -109,6 +109,14 @@ impl CodegenSymbolMapping {
         self.native_entry.as_ref()
     }
 
+    /// Returns the symbol whose address crosses a native callable boundary.
+    pub const fn callable_address_name(&self) -> &BinarySymbolName {
+        match &self.native_entry {
+            Some(entry) => entry.name(),
+            None => &self.name,
+        }
+    }
+
     /// Consumes the mapping into its completed symbol contributions.
     pub fn into_parts(
         self,

@@ -30,6 +30,8 @@ use super::support::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
+const CALLBACK_BODY_LINKAGE: CodegenLinkage = CodegenLinkage::LinkOnce;
+
 fn default_instance_linkage(
     instance: &CodegenInstance,
     roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
@@ -55,20 +57,15 @@ pub(in crate::compilation::product) enum NativeBoundaryMapping {
 }
 
 impl NativeBoundaryMapping {
-    pub(in crate::compilation::product) const fn name(&self) -> &BinarySymbolName {
-        match self {
-            Self::Direct { name, .. } | Self::Callback { name, .. } => name,
-        }
-    }
-
-    pub(in crate::compilation::product) const fn linkage(&self) -> CodegenLinkage {
-        match self {
-            Self::Direct { linkage, .. } | Self::Callback { linkage, .. } => *linkage,
-        }
-    }
-
     pub(in crate::compilation::product) const fn is_callback(&self) -> bool {
         matches!(self, Self::Callback { .. })
+    }
+
+    const fn definition_linkage(&self) -> CodegenLinkage {
+        match self {
+            Self::Direct { linkage, .. } => *linkage,
+            Self::Callback { .. } => CALLBACK_BODY_LINKAGE,
+        }
     }
 }
 
@@ -254,18 +251,16 @@ impl Compilation {
     > {
         match boundary {
             Some(NativeBoundaryMapping::Callback { name, linkage }) => {
-                let body_linkage = CodegenLinkage::LinkOnce;
-
                 let body_name = self.generated_callable_symbol_name(
                     target,
-                    body_linkage,
+                    CALLBACK_BODY_LINKAGE,
                     realization,
                     cancellation,
                 )?;
 
                 Ok((
                     body_name,
-                    body_linkage,
+                    CALLBACK_BODY_LINKAGE,
                     Some(CodegenNativeEntryMapping::new(name, linkage)),
                 ))
             }
@@ -293,8 +288,16 @@ impl Compilation {
         let package =
             self.codegen_instance_package(instance.key(), product_package, cancellation)?;
 
-        let (_, linkage) =
-            self.codegen_instance_boundary(instance, roots, &BTreeSet::new(), cancellation)?;
+        let linkage = match instance.mir().kind() {
+            MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
+            MirUnitKind::GeneratedLifecycle(_) => CodegenLinkage::LinkOnce,
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => self
+                .codegen_native_boundary(instance.key(), &BTreeSet::new(), cancellation)?
+                .map_or_else(
+                    || default_instance_linkage(instance, roots),
+                    |boundary| boundary.definition_linkage(),
+                ),
+        };
 
         let visibility = match linkage {
             CodegenLinkage::Private => CodegenDefinitionVisibility::Unit,
@@ -311,31 +314,6 @@ impl Compilation {
         Ok(CodegenPartitionCompatibility::new(
             package, linkage, visibility,
         ))
-    }
-
-    pub(super) fn codegen_instance_boundary(
-        &self,
-        instance: &CodegenInstance,
-        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
-        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-        cancellation: &CancellationToken,
-    ) -> Result<(Option<BinarySymbolName>, CodegenLinkage), CodegenPreparationError> {
-        match instance.mir().kind() {
-            MirUnitKind::ExecutableHost(_) => Ok((None, CodegenLinkage::Export)),
-            MirUnitKind::GeneratedLifecycle(_) => Ok((None, CodegenLinkage::LinkOnce)),
-            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
-                let boundary =
-                    self.codegen_native_boundary(instance.key(), platform_overrides, cancellation)?;
-
-                if let Some(boundary) = boundary {
-                    return Ok((Some(boundary.name().clone()), boundary.linkage()));
-                }
-
-                let linkage = default_instance_linkage(instance, roots);
-
-                Ok((None, linkage))
-            }
-        }
     }
 
     pub(super) fn codegen_instance_package(

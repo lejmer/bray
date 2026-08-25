@@ -21,6 +21,7 @@ pub(crate) struct LlvmTypeMappings<'context, 'mappings> {
     instance: Option<&'mappings CodegenInstanceKey>,
     mapped: BTreeMap<TypeId, BasicTypeEnum<'context>>,
     active: BTreeSet<TypeId>,
+    named_type_ordinal: u32,
 }
 
 impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
@@ -38,6 +39,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             instance: None,
             mapped: BTreeMap::new(),
             active: BTreeSet::new(),
+            named_type_ordinal: 0,
         }
     }
 
@@ -243,9 +245,8 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             .layout()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let structure = self
-            .context
-            .opaque_struct_type(&format!("bray.type.{}", mapping.ty().slot()));
+        let name = self.next_type_name("bray.type")?;
+        let structure = self.context.opaque_struct_type(&name);
 
         let mut current_offset = 0_u64;
         let mut elements = Vec::new();
@@ -310,9 +311,8 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             .layout()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let structure = self
-            .context
-            .opaque_struct_type(&format!("bray.union.{}", mapping.ty().slot()));
+        let name = self.next_type_name("bray.union")?;
+        let structure = self.context.opaque_struct_type(&name);
 
         let mut elements = Vec::new();
 
@@ -322,6 +322,17 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         structure.set_body(&elements, false);
 
         Ok(structure.into())
+    }
+
+    fn next_type_name(&mut self, prefix: &str) -> Result<String, CodegenFailure> {
+        let ordinal = self.named_type_ordinal;
+
+        self.named_type_ordinal = self
+            .named_type_ordinal
+            .checked_add(1)
+            .ok_or(CodegenFailure::UnsupportedTarget)?;
+
+        Ok(format!("{prefix}.{ordinal}"))
     }
 }
 
@@ -395,30 +406,8 @@ mod tests {
     fn demanded_types_map_to_exact_llvm_representations() {
         let fixture = codegen_request();
         let request = fixture.request();
-        let mappings = request.mappings();
         let types = mapped_type_fixture();
-
-        let all_types = mappings
-            .types()
-            .iter()
-            .cloned()
-            .chain(types.mappings.iter().cloned());
-
-        let Ok(mappings) = CodegenMappings::try_new(
-            request.unit(),
-            request.target(),
-            all_types,
-            mappings.instance_types().iter().cloned(),
-            mappings.symbols().iter().cloned(),
-            mappings.constants().iter().cloned(),
-            mappings.constant_terms().iter().cloned(),
-            mappings.callables().iter().cloned(),
-            mappings.operations().iter().cloned(),
-            mappings.terminators().iter().cloned(),
-            mappings.debug_locations().iter().cloned(),
-        ) else {
-            panic!("representative type mappings must validate");
-        };
+        let mappings = combined_mappings(request, &types);
 
         let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
             panic!("test target must construct an LLVM machine");
@@ -452,6 +441,44 @@ mod tests {
             llvm.map(types.unsized_trait_view)
                 .map(|ty| ty.print_to_string().to_string()),
             Ok("{ ptr, ptr }".to_owned())
+        );
+    }
+
+    #[test]
+    fn identified_type_names_follow_stable_realization_order() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let types = mapped_type_fixture();
+        let mappings = combined_mappings(request, &types);
+
+        let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
+            panic!("test target must construct an LLVM machine");
+        };
+
+        let target_data = machine.target_data();
+        let context = Context::create();
+        let mut llvm = LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
+
+        let aggregate = llvm
+            .map(types.aggregate)
+            .unwrap_or_else(|error| panic!("aggregate type must map: {error:?}"));
+
+        let union = llvm
+            .map(types.union)
+            .unwrap_or_else(|error| panic!("union type must map: {error:?}"));
+
+        assert!(
+            aggregate
+                .print_to_string()
+                .to_string()
+                .starts_with("%bray.type.0 = type")
+        );
+
+        assert!(
+            union
+                .print_to_string()
+                .to_string()
+                .starts_with("%bray.union.1 = type")
         );
     }
 
@@ -514,6 +541,8 @@ mod tests {
         mappings: Vec<CodegenTypeMapping>,
         byte: bray_symbols::TypeId,
         scalar: bray_symbols::TypeId,
+        aggregate: bray_symbols::TypeId,
+        union: bray_symbols::TypeId,
         invalid_aggregate: bray_symbols::TypeId,
         unsized_slice: bray_symbols::TypeId,
         unsized_trait_view: bray_symbols::TypeId,
@@ -603,10 +632,40 @@ mod tests {
             mappings,
             byte,
             scalar,
+            aggregate,
+            union,
             invalid_aggregate,
             unsized_slice,
             unsized_trait_view,
         }
+    }
+
+    fn combined_mappings(
+        request: bray_codegen::CodegenRequest<'_>,
+        types: &MappedTypeFixture,
+    ) -> CodegenMappings {
+        let mappings = request.mappings();
+
+        let all_types = mappings
+            .types()
+            .iter()
+            .cloned()
+            .chain(types.mappings.iter().cloned());
+
+        CodegenMappings::try_new(
+            request.unit(),
+            request.target(),
+            all_types,
+            mappings.instance_types().iter().cloned(),
+            mappings.symbols().iter().cloned(),
+            mappings.constants().iter().cloned(),
+            mappings.constant_terms().iter().cloned(),
+            mappings.callables().iter().cloned(),
+            mappings.operations().iter().cloned(),
+            mappings.terminators().iter().cloned(),
+            mappings.debug_locations().iter().cloned(),
+        )
+        .unwrap_or_else(|error| panic!("representative type mappings must validate: {error:?}"))
     }
 
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {

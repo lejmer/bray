@@ -3765,6 +3765,23 @@ mod tests {
         assert_eq!(callback.linkage(), CodegenLinkage::LinkOnce);
         assert_ne!(callback.name().as_str(), entry_name);
 
+        let bray_codegen::CodegenSymbolKey::Instance(instance) = callback.key() else {
+            panic!("native callback entry must map a concrete instance");
+        };
+
+        let compatibility = plan
+            .units()
+            .iter()
+            .find_map(|unit| unit.key().compatibility(instance))
+            .unwrap_or_else(|| panic!("callback instance must retain partition compatibility"));
+
+        assert_eq!(compatibility.linkage(), CodegenLinkage::LinkOnce);
+
+        assert_eq!(
+            compatibility.visibility(),
+            bray_codegen::CodegenDefinitionVisibility::Product
+        );
+
         let host = plan
             .executable_host()
             .unwrap_or_else(|| panic!("callback plan must retain an executable host"));

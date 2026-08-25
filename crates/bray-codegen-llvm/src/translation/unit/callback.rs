@@ -1,7 +1,4 @@
-use bray_codegen::{
-    CodegenFailure, CodegenRequest, CodegenResultMapping, CodegenSymbolKey,
-    CodegenSymbolMapping,
-};
+use bray_codegen::{CodegenFailure, CodegenRequest, CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping};
 use bray_ir::MirRuntimeReference;
 use bray_runtime_abi::NativeRunState;
 use bray_runtime_interface::RuntimeAbiRole;
@@ -13,7 +10,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 
 use super::support::{int_value, llvm, native_run_outcome, native_run_state_is, pointer_value};
-use crate::mapping::{LlvmTypeMappings, apply_signature_call_attributes, declare_symbol};
+use crate::mapping::{LlvmTypeMappings, apply_signature_call_attributes, declare_native_entry};
 
 pub(super) fn prepare<'context, 'request>(
     module: &Module<'context>,
@@ -22,18 +19,12 @@ pub(super) fn prepare<'context, 'request>(
     function: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(FunctionValue<'context>, Option<FunctionValue<'context>>), CodegenFailure> {
-    let Some(native_entry) = symbol.native_entry() else {
+    if symbol.native_entry().is_none() {
         return Ok((function, None));
-    };
+    }
 
-    let entry_symbol = CodegenSymbolMapping::new(
-        symbol.key().clone(),
-        native_entry.name().clone(),
-        native_entry.linkage(),
-        symbol.signature().clone(),
-    );
-
-    let trampoline = declare_symbol(module, &entry_symbol, request.target(), true, types)?;
+    let trampoline = declare_native_entry(module, symbol, request.target(), true, types)?
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     Ok((function, Some(trampoline)))
 }

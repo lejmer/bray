@@ -82,7 +82,10 @@ pub(super) fn audit(
     {
         return Err(BuildError::conformance(
             "foreign interoperability",
-            "the repeated native link did not report reuse of every optimized partition",
+            format!(
+                "the repeated native link did not reuse every optimized partition: executable_match={}, cache_hits={repeated_hits}, reused_partitions={repeated_reuse}, cache_misses={repeated_misses}, cache_writes={repeated_writes}",
+                repeated.executable == first.executable,
+            ),
         ));
     }
 
