@@ -423,9 +423,15 @@ constant, callable, and implementation-instance substitutions beside each reacha
 forward-derived identity matches the key, and uses that retained payload to realize signatures, layouts, symbols,
 callees, and mappings.
 
-Specialization discovery remains demand-driven. Compilation starts from concrete product roots, realizes direct MIR
-dependencies only when their owning instance reaches the frontier, and publishes the closed graph and its validated
-payloads in stable key order. Backends receive completed immutable mappings and do not query semantic values.
+Specialization discovery remains demand-driven. Compilation starts from concrete product roots and realizes each
+frontier as one bounded batch. Workers derive direct MIR dependencies independently. Compilation admits newly
+discovered work and publishes the closed graph and its validated payloads in stable key order only after each batch
+completes. Backends receive completed immutable mappings and do not query semantic values.
+
+Native product preparation evaluates per-instance partition compatibility independently, commits the cost-aware
+partition in stable instance order, and builds each unit's mappings independently. The completed mappings are committed
+in codegen-unit order before artifact generation begins. Cancellation or failure publishes no partial reachability
+graph, partition, mapping set, or native product plan.
 
 The backend does not:
 
@@ -607,6 +613,9 @@ A cached result is complete and immutable. Cancellation and failed generation pu
 
 Compilation schedules independent codegen units in parallel within its worker budget. A backend generates one unit per
 task and does not own a second competing global scheduler.
+
+Reachability frontiers, partition compatibility, and unit mappings use the same bounded compilation scheduler. Batch
+completion order cannot affect discovery, partitioning, mapping order, diagnostics, or artifact order.
 
 Backend implementations must be `Send` and `Sync` at their immutable service boundary. Mutable module, builder, pass,
 and diagnostic state remains local to one generation task.

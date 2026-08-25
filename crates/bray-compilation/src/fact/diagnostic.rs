@@ -19,10 +19,7 @@ pub(crate) struct OrderedDiagnosticCollection {
 }
 
 impl OrderedDiagnosticCollection {
-    pub(crate) fn new(
-        order: DiagnosticPublicationOrder,
-        diagnostics: &DiagnosticBag,
-    ) -> Self {
+    pub(crate) fn new(order: DiagnosticPublicationOrder, diagnostics: &DiagnosticBag) -> Self {
         Self {
             order,
             // Bags retain immutable collection nodes without copying diagnostic records.
@@ -40,9 +37,7 @@ pub(crate) fn publish_diagnostics(
 
     crate::profile::merge_diagnostics(
         profile,
-        collections
-            .iter()
-            .map(|collection| &collection.diagnostics),
+        collections.iter().map(|collection| &collection.diagnostics),
     )
 }
 
@@ -52,9 +47,7 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
     };
 
-    use super::{
-        DiagnosticPublicationOrder, OrderedDiagnosticCollection, publish_diagnostics,
-    };
+    use super::{DiagnosticPublicationOrder, OrderedDiagnosticCollection, publish_diagnostics};
 
     #[test]
     fn publication_order_is_independent_of_worker_completion_order() {

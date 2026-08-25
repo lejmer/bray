@@ -781,10 +781,7 @@ fn ordered_diagnostic_collections<'diagnostic>(
         .into_iter()
         .enumerate()
         .map(|(ordinal, diagnostics)| {
-            OrderedDiagnosticCollection::new(
-                DiagnosticPublicationOrder::new(ordinal),
-                diagnostics,
-            )
+            OrderedDiagnosticCollection::new(DiagnosticPublicationOrder::new(ordinal), diagnostics)
         })
         .collect()
 }

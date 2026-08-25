@@ -3,6 +3,7 @@ mod host;
 mod implementation;
 mod link;
 mod plan;
+mod preparation;
 mod reachability;
 mod roots;
 

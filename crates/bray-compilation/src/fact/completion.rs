@@ -104,10 +104,7 @@ where
         .iter()
         .enumerate()
         .map(|(ordinal, (_, diagnostics))| {
-            OrderedDiagnosticCollection::new(
-                DiagnosticPublicationOrder::new(ordinal),
-                diagnostics,
-            )
+            OrderedDiagnosticCollection::new(DiagnosticPublicationOrder::new(ordinal), diagnostics)
         })
         .collect();
 

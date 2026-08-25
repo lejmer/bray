@@ -139,8 +139,8 @@ impl Compilation {
         }
 
         if semantic.kind() != ProductKind::Test {
-            roots.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-            roots.dedup_by(|left, right| left.key() == right.key());
+            roots.sort_unstable();
+            roots.dedup();
         }
 
         if roots.is_empty() && semantic.kind() == ProductKind::Executable {

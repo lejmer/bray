@@ -8,8 +8,13 @@ use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 
 use super::super::super::Compilation;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
-use super::error::NativeProductPlanningError;
-use crate::fact::{CancellationToken, FactQueryError};
+use super::error::{NativeProductPlanningError, native_batch_error};
+use crate::fact::{BatchWork, CancellationToken, FactQueryError};
+
+enum ReachabilityEvaluation {
+    External,
+    Instance(CodegenInstance),
+}
 
 impl Compilation {
     pub(super) fn codegen_reachability(
@@ -21,24 +26,117 @@ impl Compilation {
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         let roots: Vec<_> = roots.into_iter().collect();
 
-        let mut realizations: BTreeMap<_, _> = roots
-            .iter()
-            .cloned()
-            .map(|instance| (instance.key().clone(), instance))
-            .collect();
+        let generated_host = generated_host
+            .map(|(mir, source_roots)| (CodegenInstanceKey::non_generic(&mir), mir, source_roots));
+
+        let completed = self
+            .state
+            .fact_runtime
+            .complete_batch(roots.clone(), cancellation, |realization| {
+                self.profile_native_product_operation(
+                    crate::profile::ProfileOperation::NativeReachability,
+                    || {
+                        cancellation.check()?;
+
+                        let key = realization.key();
+
+                        if matches!(
+                            key.template(),
+                            MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_)
+                        ) {
+                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External));
+                        }
+
+                        let mir = if let Some((host_key, host_mir, _)) = &generated_host
+                            && key == host_key
+                        {
+                            host_mir.clone()
+                        } else {
+                            match realization.generated_lifecycle_reference() {
+                                Some(reference) => self.codegen_generated_lifecycle_mir(
+                                    key,
+                                    reference,
+                                    MirUnitId::new(0),
+                                    cancellation,
+                                ),
+                                None => self.codegen_mir_for_plan(
+                                    key,
+                                    MirUnitId::new(0),
+                                    None,
+                                    cancellation,
+                                ),
+                            }?
+                        };
+
+                        let mut concrete_dependencies = self
+                            .concrete_codegen_dependencies_for_mir(
+                                &realization,
+                                &mir,
+                                target,
+                                cancellation,
+                            )?;
+
+                        if let Some((host_key, _, source_roots)) = &generated_host
+                            && key == host_key
+                        {
+                            for root in source_roots {
+                                if !concrete_dependencies
+                                    .iter()
+                                    .any(|dependency| dependency.key() == root.key())
+                                {
+                                    concrete_dependencies.push(root.clone());
+                                }
+                            }
+                        }
+
+                        concrete_dependencies.sort_unstable();
+                        concrete_dependencies.dedup();
+
+                        let dependencies = concrete_dependencies
+                            .iter()
+                            .map(|dependency| {
+                                CodegenInstanceDependency::definition(dependency.key().clone())
+                            })
+                            .collect::<Vec<_>>();
+
+                        let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
+                            .map_err(NativeProductPlanningError::InvalidCodegenInstance)?;
+
+                        Ok(BatchWork::new(
+                            ReachabilityEvaluation::Instance(instance),
+                            concrete_dependencies,
+                        ))
+                    },
+                )
+            })
+            .map_err(native_batch_error)?;
+
+        let mut realizations = BTreeMap::new();
+        let mut evaluations = BTreeMap::new();
+
+        for (realization, evaluation) in completed {
+            let key = realization.key().clone();
+
+            match realizations.entry(key.clone()) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(realization);
+                }
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    if entry.get() != &realization {
+                        return Err(FactQueryError::InfrastructureFailure.into());
+                    }
+                }
+            }
+
+            if evaluations.insert(key, evaluation).is_some() {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            }
+        }
 
         let mut builder = CodegenReachabilityBuilder::try_new(
             roots.iter().map(|instance| instance.key().clone()),
         )
         .map_err(NativeProductPlanningError::InvalidReachability)?;
-
-        let generated_host = generated_host.map(|(mir, source_roots)| {
-            for root in &source_roots {
-                realizations.insert(root.key().clone(), root.clone());
-            }
-
-            (CodegenInstanceKey::non_generic(&mir), mir, source_roots)
-        });
 
         loop {
             let frontier = builder.take_frontier();
@@ -48,92 +146,20 @@ impl Compilation {
             }
 
             for key in frontier.iter() {
-                cancellation.check()?;
-
-                let realization = realizations
-                    .get(key)
-                    .cloned()
+                let evaluation = evaluations
+                    .remove(key)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                if matches!(
-                    key.template(),
-                    MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_)
-                ) {
-                    builder
-                        .push_external(key.clone())
-                        .map_err(NativeProductPlanningError::InvalidReachability)?;
-
-                    continue;
+                match evaluation {
+                    ReachabilityEvaluation::External => builder.push_external(key.clone()),
+                    ReachabilityEvaluation::Instance(instance) => builder.push_instance(instance),
                 }
-
-                let mir = if let Some((host_key, host_mir, _)) = &generated_host
-                    && key == host_key
-                {
-                    host_mir.clone()
-                } else {
-                    match realization.generated_lifecycle_reference() {
-                        Some(reference) => self.codegen_generated_lifecycle_mir(
-                            key,
-                            reference,
-                            MirUnitId::new(0),
-                            cancellation,
-                        ),
-                        None => {
-                            self.codegen_mir_for_plan(key, MirUnitId::new(0), None, cancellation)
-                        }
-                    }?
-                };
-
-                let mut concrete_dependencies = self.concrete_codegen_dependencies_for_mir(
-                    &realization,
-                    &mir,
-                    target,
-                    cancellation,
-                )?;
-
-                if let Some((host_key, _, source_roots)) = &generated_host
-                    && key == host_key
-                {
-                    for root in source_roots {
-                        if !concrete_dependencies
-                            .iter()
-                            .any(|dependency| dependency.key() == root.key())
-                        {
-                            concrete_dependencies.push(root.clone());
-                        }
-                    }
-                }
-
-                concrete_dependencies.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-                concrete_dependencies.dedup_by(|left, right| left.key() == right.key());
-
-                let dependencies = concrete_dependencies
-                    .iter()
-                    .map(|dependency| {
-                        CodegenInstanceDependency::definition(dependency.key().clone())
-                    })
-                    .collect::<Vec<_>>();
-
-                for dependency in concrete_dependencies {
-                    match realizations.entry(dependency.key().clone()) {
-                        std::collections::btree_map::Entry::Vacant(entry) => {
-                            entry.insert(dependency);
-                        }
-                        std::collections::btree_map::Entry::Occupied(entry) => {
-                            if entry.get() != &dependency {
-                                return Err(FactQueryError::InfrastructureFailure.into());
-                            }
-                        }
-                    }
-                }
-
-                let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
-                    .map_err(NativeProductPlanningError::InvalidCodegenInstance)?;
-
-                builder
-                    .push_instance(instance)
-                    .map_err(NativeProductPlanningError::InvalidReachability)?;
+                .map_err(NativeProductPlanningError::InvalidReachability)?;
             }
+        }
+
+        if !evaluations.is_empty() {
+            return Err(FactQueryError::InfrastructureFailure.into());
         }
 
         let graph = builder

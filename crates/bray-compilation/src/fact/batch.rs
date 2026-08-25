@@ -169,8 +169,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{BatchCompletionError, BatchWork};
-    use crate::{QueryPriority, WorkerBudget};
     use crate::fact::{CancellationToken, FactRuntime};
+    use crate::{QueryPriority, WorkerBudget};
 
     #[test]
     fn serial_and_parallel_closures_are_deduplicated_and_ordered() {
@@ -222,9 +222,7 @@ mod tests {
         let completed = runtime.run(QueryPriority::Interactive, || {
             runtime
                 .complete_batch([1], &cancellation, |_| {
-                    runtime
-                        .current_priority()
-                        .map(BatchWork::<u32, _>::leaf)
+                    runtime.current_priority().map(BatchWork::<u32, _>::leaf)
                 })
                 .map_err(BatchCompletionError::into_fact_query_error)
         });

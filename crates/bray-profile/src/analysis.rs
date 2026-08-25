@@ -389,8 +389,8 @@ pub struct CompilationProfileComparison<'profile> {
 pub enum CompilationProfileComparisonError {
     /// Package, product, or target identity differs.
     Context {
-        before: CompilationProfileContext,
-        after: CompilationProfileContext,
+        before: Box<CompilationProfileContext>,
+        after: Box<CompilationProfileContext>,
     },
     /// A shared descriptor identity has different metadata.
     Descriptor {
@@ -407,8 +407,8 @@ impl<'profile> CompilationProfileComparison<'profile> {
     ) -> Result<Self, CompilationProfileComparisonError> {
         if before.context != after.context {
             return Err(CompilationProfileComparisonError::Context {
-                before: before.context.clone(),
-                after: after.context.clone(),
+                before: Box::new(before.context.clone()),
+                after: Box::new(after.context.clone()),
             });
         }
 

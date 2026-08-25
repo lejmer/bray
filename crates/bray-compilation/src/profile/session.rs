@@ -1051,13 +1051,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("baseline compilation must load: {error:?}"));
 
             let profiled = Compilation::load(
-                CompilationRequest::new(
-                    package_identity(),
-                    vec![source_input(source, 1)],
-                )
-                .with_profile(CompilationProfileConfiguration::new(
-                    CompilationProfileMode::Trace,
-                )),
+                CompilationRequest::new(package_identity(), vec![source_input(source, 1)])
+                    .with_profile(CompilationProfileConfiguration::new(
+                        CompilationProfileMode::Trace,
+                    )),
             )
             .unwrap_or_else(|error| panic!("profiled compilation must load: {error:?}"));
 
@@ -1074,9 +1071,12 @@ mod tests {
                     .any(|query| query.result_diagnostics > 0)
             );
 
-            assert!(report.queries.iter().all(|query| {
-                query.diagnostic_copies == 0 && query.cloned_diagnostics == 0
-            }));
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .all(|query| { query.diagnostic_copies == 0 && query.cloned_diagnostics == 0 })
+            );
         }
 
         #[test]
@@ -1102,13 +1102,19 @@ mod tests {
             assert!(report.queries.iter().any(|query| query.requests > 0));
             assert!(report.queries.iter().any(|query| query.cache_misses > 0));
 
-            assert!(report.queries.iter().any(|query| {
-                query.diagnostic_collections > 0 && query.cloned_values > 0
-            }));
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .any(|query| { query.diagnostic_collections > 0 && query.cloned_values > 0 })
+            );
 
-            assert!(report.queries.iter().all(|query| {
-                query.diagnostic_copies == 0 && query.cloned_diagnostics == 0
-            }));
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .all(|query| { query.diagnostic_copies == 0 && query.cloned_diagnostics == 0 })
+            );
 
             assert!(
                 report
