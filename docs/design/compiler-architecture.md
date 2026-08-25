@@ -1066,6 +1066,11 @@ persistent content-addressed store only when their schema, compiler semantic rev
 dependencies, and recorded dependency fingerprints match exactly. Cancellation, invariant failure, and incomplete
 computation publish no reusable entry. Discarding any cache cannot change compilation semantics.
 
+Within one snapshot, a fact cell publishes its immutable typed key and value only after committing the matching
+dependency record. A release publication flag makes those writes visible together. Ready readers use an acquire check,
+validate the typed key, and return the value without locking the cell state. A request made during another evaluation
+still records the exact dependency and checks for a cycle before returning the ready value.
+
 Numeric arena and semantic IDs are snapshot-local handles. Persistent data uses stable structural keys and source
 anchors, and a snapshot deterministically remaps reused values into its local IDs. Raw pointers, arena slots, request
 order, worker order, process identity, and process-global mutable state are never persistent identities.

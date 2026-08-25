@@ -252,17 +252,10 @@ impl Compilation {
 
         let cell = self.state.codegen_artifacts.cell(key.clone())?;
 
-        let priority = self
-            .state
-            .fact_runtime
-            .current_priority()?
-            .unwrap_or(crate::QueryPriority::Normal);
-
         let outcome = cell.get_or_compute_requested(
             &self.state.fact_runtime,
             CompilationFactKey::CodegenArtifact(key),
             cancellation,
-            priority,
             |shared_cancellation| {
                 self.record_codegen_configuration();
 
