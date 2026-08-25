@@ -66,6 +66,14 @@ impl Compilation {
             None => Vec::new(),
         };
 
+        let foreign_callback_roles = if kind == ProductKind::Library {
+            BTreeSet::new()
+        } else if let Some(reachability) = source_reachability.as_ref() {
+            self.foreign_callback_runtime_roles(reachability, cancellation)?
+        } else {
+            BTreeSet::new()
+        };
+
         let host = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativeHostPreparation,
             || {
@@ -80,6 +88,7 @@ impl Compilation {
                         .iter()
                         .any(ProductStaticHostEntry::transfers_cleanup_incident),
                     runtime,
+                    foreign_callback_roles,
                     required_capabilities,
                     target,
                     cancellation,
@@ -180,6 +189,37 @@ impl Compilation {
         )?;
 
         Ok((host, units, mappings, host_statics))
+    }
+
+    fn foreign_callback_runtime_roles(
+        &self,
+        reachability: &ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<bray_runtime_interface::RuntimeAbiRole>, NativeProductPlanningError> {
+        for instance in reachability.graph().instances() {
+            let Some((_, linkage)) = self.codegen_native_boundary(
+                instance.key(),
+                &BTreeSet::new(),
+                cancellation,
+            )?
+            else {
+                continue;
+            };
+
+            let realization = reachability
+                .instance(instance.key())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let signature = self.codegen_instance_signature(realization, cancellation)?;
+
+            if bray_codegen::requires_foreign_callback_boundary(linkage, signature.abi()) {
+                return Ok(BTreeSet::from(
+                    bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES,
+                ));
+            }
+        }
+
+        Ok(BTreeSet::new())
     }
 
     fn partition_native_codegen(

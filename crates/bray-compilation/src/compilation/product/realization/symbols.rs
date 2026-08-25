@@ -285,7 +285,7 @@ impl Compilation {
         Ok(key.package_identity().unwrap_or(product_package).clone())
     }
 
-    pub(super) fn codegen_native_boundary(
+    pub(in crate::compilation::product) fn codegen_native_boundary(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,

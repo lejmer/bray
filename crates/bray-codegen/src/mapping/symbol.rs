@@ -1,7 +1,27 @@
 use bray_ir::MirRuntimeReference;
-use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation};
+use bray_runtime_interface::{
+    BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
+};
+use bray_symbols::CallableAbi;
 
 use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
+
+/// Runtime roles required by every native entry that invokes a Bray callable.
+pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
+    RuntimeAbiRole::ForeignCallbackExecution,
+    RuntimeAbiRole::PanicReporting,
+];
+
+/// Returns whether one definition needs a native-to-Bray callback boundary.
+pub const fn requires_foreign_callback_boundary(
+    linkage: CodegenLinkage,
+    abi: CallableAbi,
+) -> bool {
+    matches!(
+        linkage,
+        CodegenLinkage::Export | CodegenLinkage::Weak | CodegenLinkage::Fallback
+    ) && !matches!(abi, CallableAbi::Bray)
+}
 
 /// Stable semantic identity of one binary definition or reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

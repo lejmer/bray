@@ -31,7 +31,10 @@ pub use static_storage::{
     CodegenStaticFinalization, CodegenStaticInstanceKey, CodegenStaticRelocation,
     CodegenStaticStorageMapping, CodegenStaticWitness,
 };
-pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
+pub use symbol::{
+    CodegenSymbolKey, CodegenSymbolMapping, FOREIGN_CALLBACK_RUNTIME_ROLES,
+    requires_foreign_callback_boundary,
+};
 pub use ty::{
     CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
     CodegenInstanceTypeMapping, CodegenIntegerExtension, CodegenParameterMapping,

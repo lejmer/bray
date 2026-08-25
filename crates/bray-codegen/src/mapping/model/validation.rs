@@ -7,9 +7,10 @@ use bray_ir::{
 use bray_symbols::TypeId;
 
 use crate::{
-    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenLinkage, CodegenOperationMapping,
+    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenOperationMapping,
     CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnit,
+    CodegenTypeMapping, CodegenUnit, FOREIGN_CALLBACK_RUNTIME_ROLES,
+    requires_foreign_callback_boundary,
 };
 
 use super::core::CodegenMappingsBuildError;
@@ -90,17 +91,11 @@ pub fn mapped_runtime_references(
     }));
 
     if symbols.iter().any(|symbol| {
-        matches!(
-            symbol.linkage(),
-            CodegenLinkage::Export | CodegenLinkage::Weak | CodegenLinkage::Fallback
-        ) && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
+        requires_foreign_callback_boundary(symbol.linkage(), symbol.signature().abi())
     }) {
         references.extend(
-            [
-                bray_runtime_interface::RuntimeAbiRole::ForeignCallbackExecution,
-                bray_runtime_interface::RuntimeAbiRole::PanicReporting,
-            ]
-            .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
+            FOREIGN_CALLBACK_RUNTIME_ROLES
+                .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
         );
     }
 
