@@ -63,11 +63,11 @@ fn assert_lexical_diagnostics_are_preserved(
     parse_diagnostics: &DiagnosticBag,
     lexical_diagnostics: &DiagnosticBag,
 ) {
-    assert_eq!(
+    assert!(
         parse_diagnostics
-            .diagnostics()
-            .get(..lexical_diagnostics.len()),
-        Some(lexical_diagnostics.diagnostics())
+            .iter()
+            .take(lexical_diagnostics.len())
+            .eq(lexical_diagnostics.iter())
     );
 }
 

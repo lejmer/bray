@@ -76,12 +76,11 @@ pub(crate) fn record_query_diagnostic_collection(
 }
 
 #[inline(always)]
-pub(crate) fn record_query_result_copy<T>(
+pub(crate) fn record_query_result_reference<T>(
     profile: Option<(&ProfileSession, ProfileQueryKind)>,
-    diagnostics: usize,
 ) {
     if let Some((session, query)) = profile {
-        session.record_query_clone(query, std::mem::size_of::<Arc<T>>(), diagnostics);
+        session.record_query_clone(query, std::mem::size_of::<Arc<T>>(), 0);
     }
 }
 
@@ -307,11 +306,13 @@ impl ProfileSession {
             .cloned_inline_bytes
             .saturating_add(u64::try_from(inline_bytes).unwrap_or(u64::MAX));
 
-        statistics.diagnostic_copies = statistics.diagnostic_copies.saturating_add(1);
+        if diagnostics > 0 {
+            statistics.diagnostic_copies = statistics.diagnostic_copies.saturating_add(1);
 
-        statistics.cloned_diagnostics = statistics
-            .cloned_diagnostics
-            .saturating_add(u64::try_from(diagnostics).unwrap_or(u64::MAX));
+            statistics.cloned_diagnostics = statistics
+                .cloned_diagnostics
+                .saturating_add(u64::try_from(diagnostics).unwrap_or(u64::MAX));
+        }
     }
 
     pub(crate) fn record_diagnostic_merge(&self, diagnostics: usize) {
@@ -1035,16 +1036,24 @@ mod tests {
 
         #[test]
         fn profiling_preserves_compilation_diagnostics() {
+            let source = concat!(
+                "module test.package;\n",
+                "func broken()\n",
+                "{\n",
+                "    missing;\n",
+                "}\n",
+            );
+
             let baseline = Compilation::load(CompilationRequest::new(
                 package_identity(),
-                vec![source_input("module test.package;\nfn broken( {\n", 1)],
+                vec![source_input(source, 1)],
             ))
             .unwrap_or_else(|error| panic!("baseline compilation must load: {error:?}"));
 
             let profiled = Compilation::load(
                 CompilationRequest::new(
                     package_identity(),
-                    vec![source_input("module test.package;\nfn broken( {\n", 1)],
+                    vec![source_input(source, 1)],
                 )
                 .with_profile(CompilationProfileConfiguration::new(
                     CompilationProfileMode::Trace,
@@ -1053,6 +1062,21 @@ mod tests {
             .unwrap_or_else(|error| panic!("profiled compilation must load: {error:?}"));
 
             assert_eq!(baseline.check_diagnostics(), profiled.check_diagnostics());
+
+            let report = profiled
+                .profile_report()
+                .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+
+            assert!(
+                report
+                    .queries
+                    .iter()
+                    .any(|query| query.result_diagnostics > 0)
+            );
+
+            assert!(report.queries.iter().all(|query| {
+                query.diagnostic_copies == 0 && query.cloned_diagnostics == 0
+            }));
         }
 
         #[test]
@@ -1079,9 +1103,11 @@ mod tests {
             assert!(report.queries.iter().any(|query| query.cache_misses > 0));
 
             assert!(report.queries.iter().any(|query| {
-                query.diagnostic_collections > 0
-                    && query.cloned_values > 0
-                    && query.diagnostic_copies > 0
+                query.diagnostic_collections > 0 && query.cloned_values > 0
+            }));
+
+            assert!(report.queries.iter().all(|query| {
+                query.diagnostic_copies == 0 && query.cloned_diagnostics == 0
             }));
 
             assert!(

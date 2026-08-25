@@ -34,7 +34,8 @@ use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::state::Compilation;
 use crate::fact::{
-    BatchWork, CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult,
+    BatchWork, CancellationToken, CompilationFactKey, DiagnosticPublicationOrder, FactQueryError,
+    OrderedDiagnosticCollection, PublishedUnitResult, publish_diagnostics,
 };
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -195,9 +196,9 @@ impl Compilation {
 
         let diagnostics = diagnostics.into_iter().collect::<Result<Vec<_>, _>>()?;
 
-        Ok(crate::profile::merge_diagnostics(
+        Ok(publish_diagnostics(
             self.state.fact_runtime.profile(),
-            diagnostics,
+            ordered_diagnostic_collections(diagnostics),
         ))
     }
 
@@ -315,26 +316,25 @@ impl Compilation {
             sources.extend(unit_sources);
         }
 
-        let query_diagnostics = crate::profile::merge_diagnostics(
-            self.state.fact_runtime.profile(),
-            sources.iter().map(SemanticDiagnosticSource::diagnostics),
-        );
-
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
         let product = self.product_semantics_with_cancellation(cancellation)?;
 
-        Ok(crate::profile::merge_diagnostics(
+        let collections = ordered_diagnostic_collections(
+            std::iter::once(source_graph.diagnostics())
+                .chain(sources.iter().map(SemanticDiagnosticSource::diagnostics))
+                .chain([
+                    coherence,
+                    callable_overloads,
+                    foreign_callables,
+                    product.diagnostics(),
+                ]),
+        );
+
+        Ok(publish_diagnostics(
             self.state.fact_runtime.profile(),
-            [
-                source_graph.diagnostics(),
-                &query_diagnostics,
-                coherence,
-                callable_overloads,
-                foreign_callables,
-                product.diagnostics(),
-            ],
+            collections,
         ))
     }
 
@@ -345,9 +345,11 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         let (_, sources) = self.semantic_unit_diagnostic_sources(key, cancellation)?;
 
-        Ok(crate::profile::merge_diagnostics(
+        Ok(publish_diagnostics(
             self.state.fact_runtime.profile(),
-            sources.iter().map(SemanticDiagnosticSource::diagnostics),
+            ordered_diagnostic_collections(
+                sources.iter().map(SemanticDiagnosticSource::diagnostics),
+            ),
         ))
     }
 
@@ -772,6 +774,21 @@ impl SemanticDiagnosticSource {
     }
 }
 
+fn ordered_diagnostic_collections<'diagnostic>(
+    diagnostics: impl IntoIterator<Item = &'diagnostic DiagnosticBag>,
+) -> Vec<OrderedDiagnosticCollection> {
+    diagnostics
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, diagnostics)| {
+            OrderedDiagnosticCollection::new(
+                DiagnosticPublicationOrder::new(ordinal),
+                diagnostics,
+            )
+        })
+        .collect()
+}
+
 struct SemanticSyntaxIndex {
     entries: HashMap<SyntaxAnchor, SemanticSyntaxEntry>,
 }
@@ -912,7 +929,8 @@ mod tests {
     use bray_binder::semantic_unit_context;
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
     use bray_checker::SemanticUnitContext;
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+    use bray_messages::{DiagnosticRenderer, RenderedDiagnostic};
     use bray_source::TextSize;
     use bray_symbols::{
         CallableContractClauseKind, ConstantTermData, PackageIdentity, ProductKind,
@@ -1688,11 +1706,23 @@ func main(value: r16)
         assert_eq!(serial.check_diagnostics(), parallel.check_diagnostics());
 
         assert_eq!(
+            rendered_diagnostics(serial.check_diagnostics()),
+            rendered_diagnostics(parallel.check_diagnostics())
+        );
+
+        assert_eq!(
             diagnostic_kinds(serial.check_diagnostics()),
             [
                 DiagnosticKind::BindingNameAlreadyDefined,
                 DiagnosticKind::BindingUnresolvedName,
             ]
         );
+    }
+
+    fn rendered_diagnostics(diagnostics: &DiagnosticBag) -> Vec<RenderedDiagnostic> {
+        diagnostics
+            .iter()
+            .map(|diagnostic| DiagnosticRenderer::english().render(diagnostic))
+            .collect()
     }
 }

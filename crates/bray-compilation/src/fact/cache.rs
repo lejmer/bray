@@ -1641,7 +1641,12 @@ mod tests {
 
         assert!(std::ptr::eq(first, second));
         assert_eq!(first.value(), &11);
-        assert_eq!(first.diagnostics().diagnostics(), &[diagnostic]);
+
+        assert_eq!(
+            first.diagnostics().iter().collect::<Vec<_>>(),
+            [&diagnostic]
+        );
+
         assert_eq!(computations.load(Ordering::SeqCst), 1);
     }
 

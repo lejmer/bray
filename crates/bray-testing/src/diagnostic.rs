@@ -12,6 +12,21 @@ pub fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) ->
     )
 }
 
+/// Returns the diagnostic at one expected test position.
+pub fn diagnostic_at(diagnostics: &DiagnosticBag, index: usize) -> &Diagnostic {
+    diagnostics
+        .iter()
+        .nth(index)
+        .unwrap_or_else(|| panic!("expected diagnostic at index {index}"))
+}
+
+/// Returns the only diagnostic in a test result.
+pub fn single_diagnostic(diagnostics: &DiagnosticBag) -> &Diagnostic {
+    assert_eq!(diagnostics.len(), 1, "expected one diagnostic");
+
+    diagnostic_at(diagnostics, 0)
+}
+
 /// Asserts that an actual produced diagnostic satisfies its goal-state contract.
 pub fn assert_goal_state_diagnostic(diagnostic: &Diagnostic) {
     let contract = diagnostic.kind().quality_contract();

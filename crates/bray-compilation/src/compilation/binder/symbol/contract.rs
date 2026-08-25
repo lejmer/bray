@@ -924,9 +924,7 @@ mod tests {
             [DiagnosticKind::CheckingUndeclaredTrustedCapability]
         );
 
-        let [diagnostic] = contracts.diagnostics().diagnostics() else {
-            panic!("missing capability must publish one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(contracts.diagnostics());
 
         assert_eq!(
             diagnostic.args(),
@@ -963,9 +961,7 @@ mod tests {
             DiagnosticKind::CheckingUnusedTrustedCapability,
         );
 
-        let [diagnostic] = contracts.diagnostics().diagnostics() else {
-            panic!("unused capability must publish one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(contracts.diagnostics());
 
         assert_eq!(
             diagnostic
@@ -1000,9 +996,7 @@ mod tests {
             DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
         );
 
-        let [diagnostic] = contracts.diagnostics().diagnostics() else {
-            panic!("untrusted capability must publish one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(contracts.diagnostics());
 
         assert_eq!(
             diagnostic
@@ -1029,9 +1023,7 @@ mod tests {
             DiagnosticKind::CheckingUndeclaredTrustedCapability,
         );
 
-        let [diagnostic] = contracts.diagnostics().diagnostics() else {
-            panic!("undeclared capability must publish one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(contracts.diagnostics());
 
         assert_eq!(diagnostic.related_locations().len(), 2);
 

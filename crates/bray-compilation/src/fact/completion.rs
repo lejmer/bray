@@ -6,7 +6,10 @@ use bray_symbols::{
     SymbolCompletionQuery, SymbolGraph,
 };
 
-use super::{BatchCompletionError, BatchWork, CancellationToken, FactRuntime};
+use super::{
+    BatchCompletionError, BatchWork, CancellationToken, DiagnosticPublicationOrder, FactRuntime,
+    OrderedDiagnosticCollection, publish_diagnostics,
+};
 
 /// An outer symbol-completion outcome that is not a source diagnostic.
 #[derive(Debug, Eq, PartialEq)]
@@ -97,10 +100,18 @@ where
         Err(_) => return Err(SymbolCompletionError::WorkerFailure),
     };
 
-    Ok(crate::profile::merge_diagnostics(
-        runtime.profile(),
-        diagnostics.iter().map(|(_, diagnostics)| diagnostics),
-    ))
+    let diagnostics = diagnostics
+        .iter()
+        .enumerate()
+        .map(|(ordinal, (_, diagnostics))| {
+            OrderedDiagnosticCollection::new(
+                DiagnosticPublicationOrder::new(ordinal),
+                diagnostics,
+            )
+        })
+        .collect();
+
+    Ok(publish_diagnostics(runtime.profile(), diagnostics))
 }
 
 fn symbol_completion_error<E>(

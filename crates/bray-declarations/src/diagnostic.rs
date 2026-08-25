@@ -563,7 +563,9 @@ mod tests {
 
         assert_goal_state_diagnostics(result.diagnostics());
 
-        let [visibility, trust] = result.diagnostics().diagnostics() else {
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [visibility, trust] = diagnostics.as_slice() else {
             panic!(
                 "expected visibility and trust diagnostics: {:?}",
                 result.diagnostics()
@@ -800,7 +802,9 @@ mod tests {
 
         assert_goal_state_diagnostics(result.diagnostics());
 
-        let [diagnostic] = result.diagnostics().diagnostics() else {
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [diagnostic] = diagnostics.as_slice() else {
             panic!(
                 "expected one lifecycle-slot diagnostic: {:?}",
                 result.diagnostics()

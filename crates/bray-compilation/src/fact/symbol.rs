@@ -70,10 +70,9 @@ where
             Ok(Arc::new(result))
         })?;
 
-        crate::profile::record_query_result_copy::<bray_diagnostics::DiagnosticResult<C::Value>>(
-            profile,
-            published.diagnostics().len(),
-        );
+        crate::profile::record_query_result_reference::<
+            bray_diagnostics::DiagnosticResult<C::Value>,
+        >(profile);
 
         // The returned value must outlive the short-lived cache-cell borrow.
         Ok(Arc::clone(published))

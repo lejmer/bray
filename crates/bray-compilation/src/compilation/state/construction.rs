@@ -740,10 +740,7 @@ mod tests {
                 Err(error) => panic!("empty requests should load with diagnostics: {error:?}"),
             };
 
-        let diagnostic = match compilation.source_diagnostics().diagnostics() {
-            [diagnostic] => diagnostic,
-            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
-        };
+        let diagnostic = bray_testing::single_diagnostic(compilation.source_diagnostics());
 
         assert_eq!(diagnostic.kind(), DiagnosticKind::RequestMissingSourceInput);
 
@@ -978,10 +975,7 @@ mod tests {
         assert!(diagnostics.has_errors());
         assert_eq!(diagnostics.len(), 1);
 
-        let diagnostic = match diagnostics.diagnostics() {
-            [diagnostic] => diagnostic,
-            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
-        };
+        let diagnostic = bray_testing::single_diagnostic(diagnostics);
 
         assert_eq!(diagnostic.id(), DiagnosticId::new(0));
         assert_eq!(diagnostic.kind(), DiagnosticKind::SourceInvalidUtf8);
@@ -1041,9 +1035,7 @@ mod tests {
 
         assert_eq!(compilation.source_count(), 1);
 
-        let [diagnostic] = compilation.source_diagnostics().diagnostics() else {
-            panic!("duplicate source input must produce one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(compilation.source_diagnostics());
 
         assert_eq!(
             diagnostic.kind(),

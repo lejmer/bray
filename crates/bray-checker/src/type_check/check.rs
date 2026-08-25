@@ -525,7 +525,7 @@ mod tests {
         );
 
         assert_eq!(
-            result.diagnostics().diagnostics()[0].kind(),
+            bray_testing::diagnostic_at(result.diagnostics(), 0).kind(),
             DiagnosticKind::CheckingIncompatibleExpressionType
         );
 

@@ -1,13 +1,16 @@
-use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 use crate::kind::DiagnosticKind;
 use crate::severity::SeverityKind;
 
-/// Ordered collection of diagnostics produced by one compiler operation.
+/// Persistent ordered collection of stage-local diagnostics.
 ///
-/// A bag preserves insertion order. Callers that need global deterministic
-/// ordering should add diagnostics in deterministic phase order or sort them.
+/// A bag preserves insertion order. Merging retains immutable references to the
+/// source collections, so dependent results do not copy diagnostic records.
+/// Callers that need global deterministic ordering should merge bags in stable
+/// source-and-stage order.
 ///
 /// Merge deduplication compares structured content: severity, kind, primary span,
 /// labels, notes, related locations, suggestions, and typed arguments. Localized
@@ -15,23 +18,38 @@ use crate::severity::SeverityKind;
 ///
 /// Shared access is thread-safe. Mutation requires exclusive `&mut self` access
 /// or caller-owned synchronization.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone)]
 pub struct DiagnosticBag {
-    diagnostics: Vec<Diagnostic>,
+    root: Arc<DiagnosticCollection>,
+}
+
+#[derive(Debug)]
+struct DiagnosticCollection {
+    sources: Box<[Arc<Self>]>,
+    local: Vec<Diagnostic>,
+    has_diagnostics: bool,
 }
 
 impl DiagnosticBag {
     /// Creates an empty diagnostic bag.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            diagnostics: Vec::new(),
+            root: Arc::new(DiagnosticCollection {
+                sources: Box::new([]),
+                local: Vec::new(),
+                has_diagnostics: false,
+            }),
         }
     }
 
     /// Creates an empty diagnostic bag with space for at least `capacity` items.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            diagnostics: Vec::with_capacity(capacity),
+            root: Arc::new(DiagnosticCollection {
+                sources: Box::new([]),
+                local: Vec::with_capacity(capacity),
+                has_diagnostics: false,
+            }),
         }
     }
 
@@ -45,12 +63,25 @@ impl DiagnosticBag {
 
     /// Adds one diagnostic to the end of the bag.
     pub fn add(&mut self, diagnostic: Diagnostic) {
-        self.diagnostics.push(diagnostic);
+        if let Some(root) = Arc::get_mut(&mut self.root) {
+            root.local.push(diagnostic);
+            root.has_diagnostics = true;
+
+            return;
+        }
+
+        self.root = Arc::new(DiagnosticCollection {
+            sources: Box::new([Arc::clone(&self.root)]),
+            local: vec![diagnostic],
+            has_diagnostics: true,
+        });
     }
 
     /// Adds diagnostics to the end of the bag, preserving iterator order.
     pub fn add_range(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
-        self.diagnostics.extend(diagnostics);
+        for diagnostic in diagnostics {
+            self.add(diagnostic);
+        }
     }
 
     /// Returns a new bag containing diagnostics from both bags without duplicates.
@@ -58,7 +89,7 @@ impl DiagnosticBag {
     /// The merged bag preserves the first occurrence order from `self`, then
     /// appends diagnostics from `other` that were not already present.
     pub fn merged(&self, other: &Self) -> Self {
-        Self::deduplicated_from(self.iter().chain(other.iter()))
+        Self::merged_all([self, other])
     }
 
     /// Returns a new bag containing diagnostics from all bags without duplicates.
@@ -66,17 +97,40 @@ impl DiagnosticBag {
     /// The merged bag preserves the first occurrence order of the input bags
     /// and of diagnostics within each bag.
     pub fn merged_all<'diagnostic>(bags: impl IntoIterator<Item = &'diagnostic Self>) -> Self {
-        Self::deduplicated_from(bags.into_iter().flat_map(Self::iter))
-    }
+        let mut seen = Vec::new();
 
-    /// Returns all diagnostics in insertion order.
-    pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
+        let sources = bags
+            .into_iter()
+            .filter(|bag| !bag.is_empty())
+            .filter_map(|bag| {
+                let identity = Arc::as_ptr(&bag.root);
+
+                (!seen.contains(&identity)).then(|| {
+                    seen.push(identity);
+
+                    Arc::clone(&bag.root)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        match sources.as_slice() {
+            [] => Self::new(),
+            [source] => Self {
+                root: Arc::clone(source),
+            },
+            [_, _, ..] => Self {
+                root: Arc::new(DiagnosticCollection {
+                    sources: sources.into_boxed_slice(),
+                    local: Vec::new(),
+                    has_diagnostics: true,
+                }),
+            },
+        }
     }
 
     /// Returns an iterator over diagnostics in insertion order.
-    pub fn iter(&self) -> std::slice::Iter<'_, Diagnostic> {
-        self.diagnostics.iter()
+    pub fn iter(&self) -> DiagnosticIter<'_> {
+        DiagnosticIter::new(self.root.as_ref())
     }
 
     /// Returns diagnostics with the requested stable category.
@@ -107,35 +161,150 @@ impl DiagnosticBag {
     }
 
     /// Returns the number of diagnostics in the bag.
-    pub const fn len(&self) -> usize {
-        self.diagnostics.len()
+    pub fn len(&self) -> usize {
+        if self.root.sources.is_empty() {
+            return self.root.local.len();
+        }
+
+        self.iter().count()
     }
 
     /// Returns whether the bag contains no diagnostics.
-    pub const fn is_empty(&self) -> bool {
-        self.diagnostics.is_empty()
+    pub fn is_empty(&self) -> bool {
+        !self.root.has_diagnostics
     }
 
     /// Converts the bag into its underlying ordered diagnostics.
     pub fn into_vec(self) -> Vec<Diagnostic> {
-        self.diagnostics
-    }
-
-    fn deduplicated_from<'diagnostic>(
-        diagnostics: impl IntoIterator<Item = &'diagnostic Diagnostic>,
-    ) -> Self {
-        let mut seen = HashSet::new();
-        let mut merged = Vec::new();
-
-        for diagnostic in diagnostics {
-            if seen.insert(diagnostic.duplicate_key()) {
-                // Merged bags own their diagnostics. Source bags remain unchanged.
-                merged.push(diagnostic.clone());
+        match Arc::try_unwrap(self.root) {
+            Ok(root) if root.sources.is_empty() => root.local,
+            Ok(root) => Self {
+                root: Arc::new(root),
             }
+            .iter()
+            .cloned()
+            .collect(),
+            Err(root) => Self { root }.iter().cloned().collect(),
+        }
+    }
+}
+
+/// Iterator over the unique diagnostics referenced by a bag.
+pub struct DiagnosticIter<'diagnostic> {
+    leaf: Option<std::slice::Iter<'diagnostic, Diagnostic>>,
+    frames: Vec<DiagnosticFrame<'diagnostic>>,
+    visited: Vec<*const DiagnosticCollection>,
+    yielded: Vec<&'diagnostic Diagnostic>,
+}
+
+struct DiagnosticFrame<'diagnostic> {
+    collection: &'diagnostic DiagnosticCollection,
+    source: usize,
+    local: usize,
+}
+
+impl<'diagnostic> DiagnosticIter<'diagnostic> {
+    fn new(root: &'diagnostic DiagnosticCollection) -> Self {
+        let identity = std::ptr::from_ref(root);
+
+        if root.sources.is_empty() {
+            return Self {
+                leaf: Some(root.local.iter()),
+                frames: Vec::new(),
+                visited: Vec::new(),
+                yielded: Vec::new(),
+            };
         }
 
         Self {
-            diagnostics: merged,
+            leaf: None,
+            frames: vec![DiagnosticFrame {
+                collection: root,
+                source: 0,
+                local: 0,
+            }],
+            visited: vec![identity],
+            yielded: Vec::new(),
+        }
+    }
+}
+
+impl<'diagnostic> Iterator for DiagnosticIter<'diagnostic> {
+    type Item = &'diagnostic Diagnostic;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(leaf) = &mut self.leaf {
+            return leaf.next();
+        }
+
+        loop {
+            let frame = self.frames.last_mut()?;
+
+            if let Some(source) = frame.collection.sources.get(frame.source) {
+                frame.source += 1;
+
+                let source = source.as_ref();
+
+                let identity = std::ptr::from_ref(source);
+
+                if !self.visited.contains(&identity) {
+                    self.visited.push(identity);
+
+                    self.frames.push(DiagnosticFrame {
+                        collection: source,
+                        source: 0,
+                        local: 0,
+                    });
+                }
+
+                continue;
+            }
+
+            if let Some(diagnostic) = frame.collection.local.get(frame.local) {
+                frame.local += 1;
+
+                if self
+                    .yielded
+                    .iter()
+                    .all(|existing| existing.duplicate_key() != diagnostic.duplicate_key())
+                {
+                    self.yielded.push(diagnostic);
+
+                    return Some(diagnostic);
+                }
+
+                continue;
+            }
+
+            self.frames.pop();
+        }
+    }
+}
+
+impl Default for DiagnosticBag {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for DiagnosticBag {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl PartialEq for DiagnosticBag {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for DiagnosticBag {}
+
+impl Hash for DiagnosticBag {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for diagnostic in self {
+            diagnostic.hash(state);
         }
     }
 }
@@ -148,7 +317,15 @@ impl From<Diagnostic> for DiagnosticBag {
 
 impl From<Vec<Diagnostic>> for DiagnosticBag {
     fn from(diagnostics: Vec<Diagnostic>) -> Self {
-        Self { diagnostics }
+        let has_diagnostics = !diagnostics.is_empty();
+
+        Self {
+            root: Arc::new(DiagnosticCollection {
+                sources: Box::new([]),
+                local: diagnostics,
+                has_diagnostics,
+            }),
+        }
     }
 }
 
@@ -178,13 +355,13 @@ impl IntoIterator for DiagnosticBag {
     type IntoIter = std::vec::IntoIter<Diagnostic>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.diagnostics.into_iter()
+        self.into_vec().into_iter()
     }
 }
 
 impl<'a> IntoIterator for &'a DiagnosticBag {
     type Item = &'a Diagnostic;
-    type IntoIter = std::slice::Iter<'a, Diagnostic>;
+    type IntoIter = DiagnosticIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -193,6 +370,8 @@ impl<'a> IntoIterator for &'a DiagnosticBag {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 
     use super::DiagnosticBag;
@@ -213,7 +392,7 @@ mod tests {
         bag.add(first.clone());
         bag.add(second.clone());
 
-        assert_eq!(bag.diagnostics(), &[first, second]);
+        assert_eq!(bag.iter().cloned().collect::<Vec<_>>(), [first, second]);
         assert_eq!(bag.len(), 2);
         assert!(!bag.is_empty());
     }
@@ -233,9 +412,60 @@ mod tests {
 
         let merged = left.merged(&right);
 
-        assert_eq!(merged.diagnostics(), &[first.clone(), second.clone()]);
-        assert_eq!(left.diagnostics(), &[first.clone(), second.clone()]);
-        assert_eq!(right.diagnostics(), &[second, first]);
+        assert_eq!(
+            merged.iter().cloned().collect::<Vec<_>>(),
+            [first.clone(), second.clone()]
+        );
+
+        assert_eq!(
+            left.iter().cloned().collect::<Vec<_>>(),
+            [first.clone(), second.clone()]
+        );
+
+        assert_eq!(right.iter().cloned().collect::<Vec<_>>(), [second, first]);
+    }
+
+    #[test]
+    fn cloned_and_merged_bags_reference_their_owning_collections() {
+        let first = DiagnosticBag::single(diagnostic(
+            0,
+            DiagnosticKind::SourceInvalidUtf8,
+            SeverityKind::Error,
+        ));
+
+        let second = DiagnosticBag::single(diagnostic(
+            1,
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        ));
+
+        let cloned = first.clone();
+        let merged = first.merged(&second);
+
+        assert!(Arc::ptr_eq(&first.root, &cloned.root));
+        assert!(Arc::ptr_eq(&first.root, &merged.root.sources[0]));
+        assert!(Arc::ptr_eq(&second.root, &merged.root.sources[1]));
+    }
+
+    #[test]
+    fn adding_to_a_shared_bag_retains_the_original_collection() {
+        let original = DiagnosticBag::single(diagnostic(
+            0,
+            DiagnosticKind::SourceInvalidUtf8,
+            SeverityKind::Error,
+        ));
+
+        let mut extended = original.clone();
+
+        extended.add(diagnostic(
+            1,
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        ));
+
+        assert!(Arc::ptr_eq(&original.root, &extended.root.sources[0]));
+        assert_eq!(original.len(), 1);
+        assert_eq!(extended.len(), 2);
     }
 
     #[test]
@@ -261,8 +491,8 @@ mod tests {
         let merged = DiagnosticBag::merged_all([&first_bag, &second_bag, &third_bag]);
 
         assert_eq!(
-            merged.diagnostics(),
-            &[
+            merged.iter().cloned().collect::<Vec<_>>(),
+            [
                 first,
                 diagnostic(
                     1,
@@ -287,7 +517,7 @@ mod tests {
 
         let merged = left.merged(&right);
 
-        assert_eq!(merged.diagnostics(), &[first]);
+        assert_eq!(merged.iter().cloned().collect::<Vec<_>>(), [first]);
     }
 
     #[test]
@@ -321,7 +551,10 @@ mod tests {
 
         let merged = left.merged(&right);
 
-        assert_eq!(merged.diagnostics(), &[first, second]);
+        assert_eq!(
+            merged.iter().cloned().collect::<Vec<_>>(),
+            [first, second]
+        );
     }
 
     #[test]

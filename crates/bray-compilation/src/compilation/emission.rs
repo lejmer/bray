@@ -374,7 +374,6 @@ mod tests {
         assert_eq!(
             result
                 .diagnostics()
-                .diagnostics()
                 .iter()
                 .map(|diagnostic| diagnostic.id().raw())
                 .collect::<Vec<_>>(),

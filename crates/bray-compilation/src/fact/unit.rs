@@ -144,10 +144,7 @@ where
             },
         )?;
 
-        crate::profile::record_query_result_copy::<PublishedUnitResult<T>>(
-            profile,
-            published.result().diagnostics().len(),
-        );
+        crate::profile::record_query_result_reference::<PublishedUnitResult<T>>(profile);
 
         // Publication must outlive the short-lived map and cell borrows returned by this query.
         Ok(Arc::clone(published))

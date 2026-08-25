@@ -89,6 +89,17 @@ Symbol query results, checked semantic units, and other demand-driven semantic r
 than defining equivalent phase-named copies. A category-specific result type remains appropriate when it adds a stronger
 root, identity, or relationship contract rather than merely pairing one value with one diagnostic bag.
 
+A diagnostic bag is a persistent ordered collection. Diagnostics emitted by one stage remain in that stage's local
+collection. A dependent result composes its local collection with immutable references to the prerequisite collections
+needed to interpret its value. Composition does not copy diagnostic records or transfer their ownership.
+
+Parallel workers build local collections independently. The parent publication boundary tags those collections with
+their stable source-and-stage order, waits for every required result, then traverses and deduplicates the collection
+graph once in that order. Cancellation or dependency failure publishes neither the value nor a partial collection.
+
+Focused accessors can therefore expose the complete diagnostics required by their result without republishing earlier
+diagnostic records. Compilation-wide diagnostic queries use the same references and deterministic publication path.
+
 ---
 
 ## Identity

@@ -69,7 +69,11 @@ mod tests {
         };
 
         assert_eq!(result.value(), &7);
-        assert_eq!(result.diagnostics().diagnostics(), &[diagnostic]);
+
+        assert_eq!(
+            result.diagnostics().iter().cloned().collect::<Vec<_>>(),
+            [diagnostic]
+        );
     }
 
     #[test]

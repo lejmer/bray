@@ -403,7 +403,9 @@ mod tests {
             .product_source_graph()
             .unwrap_or_else(|error| panic!("test source graph must build: {error:?}"));
 
-        let [second, third] = graph.diagnostics().diagnostics() else {
+        let diagnostics = graph.diagnostics().iter().collect::<Vec<_>>();
+
+        let [second, third] = diagnostics.as_slice() else {
             panic!("each duplicate contribution gate must produce one diagnostic");
         };
 

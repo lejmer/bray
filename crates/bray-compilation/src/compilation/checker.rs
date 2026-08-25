@@ -1065,9 +1065,7 @@ mod tests {
             Err(error) => panic!("target-validity dependencies must be readable: {error:?}"),
         };
 
-        let [diagnostic] = validity.diagnostics().diagnostics() else {
-            panic!("invalid target requirement must report one diagnostic");
-        };
+        let diagnostic = bray_testing::single_diagnostic(validity.diagnostics());
 
         assert_eq!(*validity.value(), TargetValidity::Invalid);
 

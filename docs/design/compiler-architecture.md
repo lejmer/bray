@@ -170,6 +170,11 @@ nested-unit keys, and merges the diagnostics owned by those query results determ
 requests this package query result beside source, syntax, and declaration diagnostics. Neither the command driver nor
 the check-diagnostics query enumerates semantic units or invokes binder entry points directly.
 
+Each query keeps newly emitted diagnostics in one local immutable collection. Dependent results retain collection
+references in prerequisite order instead of copying complete diagnostic histories. A deterministic parent publication
+tags the collections with source-and-stage order and traverses them once, so worker completion order cannot affect
+diagnostic content or rendering.
+
 One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that
 identity and lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs
 construct their read-only query result context internally from compilation-owned inputs. They must not accept arbitrary
