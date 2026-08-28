@@ -57,6 +57,8 @@ pub enum CheckerInfrastructureError {
     AtomicInitializerArgumentUnavailable,
     /// The atomic initializer result cannot be retained as a compile-time value.
     AtomicInitializerResultUnavailable,
+    /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
+    UninitInitializerResultUnavailable,
     /// An imported native operation does not match its compiled definition.
     ImportedExecutableTemplateMismatch,
     /// A required compiler-known representation is unavailable for the selected target.

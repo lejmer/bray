@@ -400,6 +400,9 @@ impl Compilation {
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::UninitInitializerResultUnavailable
+                | FactQueryError::ConstantCallableBodyUnavailable
+                | FactQueryError::ConstantCallableRootUnavailable
                 | FactQueryError::ImportedExecutableTemplateMismatch),
             ) => {
                 panic!("scheduled query failed: {error}")
@@ -518,6 +521,9 @@ impl Compilation {
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::UninitInitializerResultUnavailable
+                | FactQueryError::ConstantCallableBodyUnavailable
+                | FactQueryError::ConstantCallableRootUnavailable
                 | FactQueryError::ImportedExecutableTemplateMismatch),
             ) => {
                 panic!("compilation query failed: {error}")
@@ -566,12 +572,7 @@ impl Compilation {
     where
         T: std::hash::Hash + Send,
     {
-        cache.get_or_compute_requested(
-            &self.state.fact_runtime,
-            key,
-            cancellation,
-            compute,
-        )
+        cache.get_or_compute_requested(&self.state.fact_runtime, key, cancellation, compute)
     }
 
     pub(in crate::compilation) fn unit_query<T>(

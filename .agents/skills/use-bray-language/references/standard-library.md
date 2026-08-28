@@ -19,6 +19,8 @@ Bray's standard library is the ordinary `std` package. It provides public module
 
 For text output, pass string directly to print or print_line and handle their IoError result only when needed. Use write_all and read_exact, or their async forms, to complete an entire borrowed byte range with exact failure progress. Use individual reader and writer operations when handling partial transfers yourself. Buffered streams coalesce small writes, bypass empty buffers for transfers at least as large as their capacity, and flush only when requested. I/O that can block requires blocking_execution(). See [I/O and platform services][io-platform] for detailed transfer, synchronization, and cleanup rules.
 
+For shared mutable state, use `std.sync` guards or `std.atomic` operations. Synchronous waits require `blocking_execution()` and defer pending cancellation to the next checkpoint. Use `std.channel.bounded<T>` for cancellation-safe async transfer with explicit backpressure, including capacity-zero rendezvous.
+
 `std.platform` is an internal implementation module, not part of the public standard-library surface. The compiler-provided `core` namespace is also separate from `std`. Consult [compiler-known declarations](compiler-known.md) when a task concerns protected representations or compiler-provided operations rather than ordinary library APIs.
 
 [io-platform]: https://github.com/lejmer/bray/blob/develop/docs/language/io-and-platform-services.md

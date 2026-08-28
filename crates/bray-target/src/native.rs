@@ -68,6 +68,17 @@ impl NativeTarget {
         }
     }
 
+    /// Returns the oldest system release supported by this native target.
+    pub const fn minimum_system_version(self) -> Option<&'static str> {
+        match self {
+            Self::X86_64MacOs | Self::Aarch64MacOs => Some("14.4"),
+            Self::X86_64LinuxGnu
+            | Self::Aarch64LinuxGnu
+            | Self::X86_64WindowsMsvc
+            | Self::Aarch64WindowsMsvc => None,
+        }
+    }
+
     /// Returns the canonical backend CPU selection.
     pub const fn cpu(self) -> &'static str {
         match self {
@@ -355,6 +366,15 @@ mod tests {
                 profile.machine().object_format(),
                 ObjectFormat::Elf | ObjectFormat::Coff | ObjectFormat::MachO
             ));
+
+            assert_eq!(
+                target.minimum_system_version(),
+                matches!(
+                    target,
+                    NativeTarget::X86_64MacOs | NativeTarget::Aarch64MacOs
+                )
+                .then_some("14.4")
+            );
 
             let expected_long = if matches!(
                 target,

@@ -197,7 +197,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
         implementation UninitNew;
 
-        surface { func uninit<T>() -> Uninit<T>; }
+        surface { const func uninit<T>() -> Uninit<T>; }
     }
 
     declaration UninitPointer {

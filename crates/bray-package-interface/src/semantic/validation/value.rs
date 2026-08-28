@@ -236,6 +236,10 @@ impl InterfaceSemantics {
         limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
         match term {
+            InterfaceConstantTerm::Typed { term, ty } => {
+                validate_index(term.to_index(), self.constant_terms.len())?;
+                validate_index(ty.to_index(), self.types.len())?;
+            }
             InterfaceConstantTerm::Value(id) => {
                 validate_index(id.to_index(), self.constant_values.len())?;
             }
@@ -245,6 +249,7 @@ impl InterfaceSemantics {
                     saturating_u64(value.magnitude().len()),
                 )?;
             }
+            InterfaceConstantTerm::CallableArgument(_) => {}
             InterfaceConstantTerm::Parameter(symbol)
             | InterfaceConstantTerm::TargetProperty(symbol) => {
                 validate_symbol(symbol, symbol_count, dependency_count)?;

@@ -1,0 +1,199 @@
+trusted module std.channel;
+
+@copy
+internal union WaiterKind
+{
+    Sender;
+    Receiver;
+}
+
+@copy
+internal struct WaiterEntry
+{
+    ticket: usize;
+    mut cancelled: bool;
+    mut completed: bool;
+}
+
+internal struct WaitQueue
+{
+    mut entries: std.collection.List<WaiterEntry>;
+    mut head: usize;
+    mut next_ticket: usize;
+
+    trusted construct() -> Self
+    {
+        let entries: std.collection.List<WaiterEntry> = match trusted std.collection.List<WaiterEntry>()
+        {
+            case Ok(list) { yield list; }
+            case Error(_) { panic("channel waiter storage cannot be allocated"); }
+        };
+
+        return
+        {
+            entries = entries,
+            head = 0,
+            next_ticket = 0,
+        };
+    }
+
+    trusted mut func enqueue() -> usize
+    {
+        trusted self.compact();
+
+        if self.next_ticket == ~0
+        {
+            panic("channel waiter count exceeded the target range");
+        }
+
+        let ticket: usize = self.next_ticket;
+
+        let entry: WaiterEntry =
+        {
+            ticket = ticket,
+            cancelled = false,
+            completed = false,
+        };
+
+        match trusted std.collection.push<WaiterEntry>(&mut self.entries, entry)
+        {
+            case Ok(_) {}
+            case Error(_) { panic("channel waiter storage cannot be allocated"); }
+        }
+
+        self.next_ticket += 1;
+
+        return ticket;
+    }
+
+    func is_empty() -> bool
+    {
+        return self.head == std.collection.length<WaiterEntry>(&self.entries);
+    }
+
+    func is_head(pos ticket: usize) -> bool
+    {
+        if self.is_empty()
+        {
+            return false;
+        }
+
+        return std.collection.as_slice<WaiterEntry>(&self.entries)[self.head].ticket == ticket;
+    }
+
+    func is_head_completed(pos ticket: usize) -> bool
+    {
+        if !self.is_head(ticket)
+        {
+            return false;
+        }
+
+        return std.collection.as_slice<WaiterEntry>(&self.entries)[self.head].completed;
+    }
+
+    mut func complete_head(pos ticket: usize)
+    {
+        if self.is_head(ticket)
+        {
+            std.collection.as_slice_mut<WaiterEntry>(&mut self.entries)[self.head].completed = true;
+        }
+    }
+
+    mut func pop_head()
+    {
+        if self.is_empty()
+        {
+            return unit;
+        }
+
+        self.head += 1;
+
+        self.skip_cancelled();
+    }
+
+    mut func remove(pos ticket: usize) -> bool
+    {
+        let mut removed: bool = false;
+
+        {
+            let mut index: usize = self.head;
+            let entries: &mut [WaiterEntry] = std.collection.as_slice_mut<WaiterEntry>(&mut self.entries);
+            let length: usize = internal std.memory.slice_length<WaiterEntry>(&entries);
+
+            while index < length
+            {
+                if entries[index].ticket == ticket
+                {
+                    entries[index].cancelled = true;
+                    removed = true;
+
+                    break;
+                }
+
+                index += 1;
+            }
+        }
+
+        if removed
+        {
+            self.skip_cancelled();
+        }
+
+        return removed;
+    }
+
+    mut func skip_cancelled()
+    {
+        let length: usize = std.collection.length<WaiterEntry>(&self.entries);
+        let mut next_head: usize = self.head;
+
+        {
+            let entries: &[WaiterEntry] = std.collection.as_slice<WaiterEntry>(&self.entries);
+
+            while next_head < length && entries[next_head].cancelled
+            {
+                next_head += 1;
+            }
+        }
+
+        self.head = next_head;
+
+        if self.head == length
+        {
+            trusted std.collection.clear<WaiterEntry>(&mut self.entries);
+            self.head = 0;
+        }
+    }
+
+    trusted mut func compact()
+    {
+        let length: usize = std.collection.length<WaiterEntry>(&self.entries);
+
+        if self.head < 64 || self.head < length - self.head
+        {
+            return unit;
+        }
+
+        let remaining: usize = length - self.head;
+
+        {
+            let entries: &mut [WaiterEntry] = std.collection.as_slice_mut<WaiterEntry>(&mut self.entries);
+            let mut index: usize = 0;
+
+            while index < remaining
+            {
+                entries[index] = entries[self.head + index];
+                index += 1;
+            }
+        }
+
+        trusted std.collection.truncate<WaiterEntry>(&mut self.entries, new_length = remaining);
+        self.head = 0;
+    }
+
+    trusted mut func release_storage()
+    {
+        trusted internal std.collection.release_list_storage<WaiterEntry>(&mut self.entries);
+        self.head = 0;
+    }
+}

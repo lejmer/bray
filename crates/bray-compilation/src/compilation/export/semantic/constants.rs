@@ -32,160 +32,175 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::ConstantTerm,
             {
-            let data = self
-                .values
-                .constant_term_data(id)
-                .map_err(|_| incomplete_type())?;
+                let data = self
+                    .values
+                    .constant_term_data(id)
+                    .map_err(|_| incomplete_type())?;
 
-            let term = match data.as_ref() {
-            ConstantTermData::Value(value) => {
-                InterfaceConstantTerm::Value(self.constant_value_id(*value)?)
-            }
-            ConstantTermData::IntegerLiteral { ty, value } => {
-                InterfaceConstantTerm::IntegerLiteral {
-                    ty: *ty,
-                    value: value.clone(),
-                }
-            }
-            ConstantTermData::Parameter(parameter) => {
-                InterfaceConstantTerm::Parameter(self.symbol_reference((*parameter).into())?)
-            }
-            ConstantTermData::TargetProperty(semantics) => {
-                InterfaceConstantTerm::TargetProperty(self.symbol_reference((*semantics).into())?)
-            }
-            ConstantTermData::Unary { operation, operand } => InterfaceConstantTerm::Unary {
-                operation: *operation,
-                operand: self.constant_term_id(*operand)?,
-            },
-            ConstantTermData::Binary {
-                operation,
-                left,
-                right,
-            } => InterfaceConstantTerm::Binary {
-                operation: *operation,
-                left: self.constant_term_id(*left)?,
-                right: self.constant_term_id(*right)?,
-            },
-            ConstantTermData::Conversion { operand, target } => InterfaceConstantTerm::Conversion {
-                operand: self.constant_term_id(*operand)?,
-                target: self.type_id(*target)?,
-            },
-            ConstantTermData::NullablePresent(value) => {
-                InterfaceConstantTerm::NullablePresent(self.constant_term_id(*value)?)
-            }
-            ConstantTermData::Tuple(values) => InterfaceConstantTerm::Tuple(
-                values
-                    .iter()
-                    .copied()
-                    .map(|value| self.constant_term_id(value))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            ),
-            ConstantTermData::Array(values) => InterfaceConstantTerm::Array(
-                values
-                    .iter()
-                    .copied()
-                    .map(|value| self.constant_term_id(value))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            ),
-            ConstantTermData::Product(fields) => InterfaceConstantTerm::Product(
-                fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            self.symbol_reference((*field.field()).into())?,
-                            self.constant_term_id(*field.value())?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            ),
-            ConstantTermData::Union { variant, fields } => InterfaceConstantTerm::Union {
-                variant: self.symbol_reference((*variant).into())?,
-                fields: fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            self.symbol_reference((*field.field()).into())?,
-                            self.constant_term_id(*field.value())?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            },
-            ConstantTermData::DefinitionApplication {
-                definition,
-                substitution,
-                selected_implementation,
-            } => InterfaceConstantTerm::DefinitionApplication {
-                definition: self.symbol_reference(definition.into_any())?,
-                substitution: self.substitution_id(*substitution)?,
-                selected_implementation: selected_implementation
-                    .map(|instance| self.implementation_instance_id(instance))
-                    .transpose()?,
-            },
-            ConstantTermData::Call {
-                callable,
-                selected_implementation,
-                arguments,
-            } => InterfaceConstantTerm::Call {
-                callable: self.callable_instance_id(*callable)?,
-                selected_implementation: selected_implementation
-                    .map(|instance| self.implementation_instance_id(instance))
-                    .transpose()?,
-                arguments: arguments
-                    .iter()
-                    .copied()
-                    .map(|argument| self.constant_term_id(argument))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            },
-            ConstantTermData::PredicateCall {
-                predicate,
-                arguments,
-            } => InterfaceConstantTerm::PredicateCall {
-                predicate: self.symbol_reference(predicate.definition().into_any())?,
-                substitution: self.substitution_id(predicate.substitution())?,
-                arguments: arguments
-                    .iter()
-                    .copied()
-                    .map(|argument| self.constant_term_id(argument))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            },
-            ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
-                subject: self.constant_term_id(projection.subject())?,
-                kind: match projection.kind() {
-                    ConstantProjectionKind::TupleElement(ordinal) => {
-                        InterfaceConstantProjection::TupleElement(ordinal)
+                let term = match data.as_ref() {
+                    ConstantTermData::Typed { term, ty } => InterfaceConstantTerm::Typed {
+                        term: self.constant_term_id(*term)?,
+                        ty: self.type_id(*ty)?,
+                    },
+                    ConstantTermData::Value(value) => {
+                        InterfaceConstantTerm::Value(self.constant_value_id(*value)?)
                     }
-                    ConstantProjectionKind::ArrayElement(index) => {
-                        InterfaceConstantProjection::ArrayElement(self.constant_term_id(index)?)
+                    ConstantTermData::IntegerLiteral { ty, value } => {
+                        InterfaceConstantTerm::IntegerLiteral {
+                            ty: *ty,
+                            value: value.clone(),
+                        }
                     }
-                    ConstantProjectionKind::ProductField(field) => {
-                        InterfaceConstantProjection::ProductField(
-                            self.symbol_reference(field.into())?,
+                    ConstantTermData::Parameter(parameter) => InterfaceConstantTerm::Parameter(
+                        self.symbol_reference((*parameter).into())?,
+                    ),
+                    ConstantTermData::CallableArgument(ordinal) => {
+                        InterfaceConstantTerm::CallableArgument(*ordinal)
+                    }
+                    ConstantTermData::TargetProperty(semantics) => {
+                        InterfaceConstantTerm::TargetProperty(
+                            self.symbol_reference((*semantics).into())?,
                         )
                     }
-                    ConstantProjectionKind::UnionPayloadField(field) => {
-                        InterfaceConstantProjection::UnionPayloadField(
-                            self.symbol_reference(field.into())?,
-                        )
+                    ConstantTermData::Unary { operation, operand } => {
+                        InterfaceConstantTerm::Unary {
+                            operation: *operation,
+                            operand: self.constant_term_id(*operand)?,
+                        }
                     }
-                    ConstantProjectionKind::NullableValue => {
-                        InterfaceConstantProjection::NullableValue
+                    ConstantTermData::Binary {
+                        operation,
+                        left,
+                        right,
+                    } => InterfaceConstantTerm::Binary {
+                        operation: *operation,
+                        left: self.constant_term_id(*left)?,
+                        right: self.constant_term_id(*right)?,
+                    },
+                    ConstantTermData::Conversion { operand, target } => {
+                        InterfaceConstantTerm::Conversion {
+                            operand: self.constant_term_id(*operand)?,
+                            target: self.type_id(*target)?,
+                        }
                     }
-                },
-            },
-            };
+                    ConstantTermData::NullablePresent(value) => {
+                        InterfaceConstantTerm::NullablePresent(self.constant_term_id(*value)?)
+                    }
+                    ConstantTermData::Tuple(values) => InterfaceConstantTerm::Tuple(
+                        values
+                            .iter()
+                            .copied()
+                            .map(|value| self.constant_term_id(value))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    ),
+                    ConstantTermData::Array(values) => InterfaceConstantTerm::Array(
+                        values
+                            .iter()
+                            .copied()
+                            .map(|value| self.constant_term_id(value))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    ),
+                    ConstantTermData::Product(fields) => InterfaceConstantTerm::Product(
+                        fields
+                            .iter()
+                            .map(|field| {
+                                Ok(ConstantField::new(
+                                    self.symbol_reference((*field.field()).into())?,
+                                    self.constant_term_id(*field.value())?,
+                                ))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    ),
+                    ConstantTermData::Union { variant, fields } => InterfaceConstantTerm::Union {
+                        variant: self.symbol_reference((*variant).into())?,
+                        fields: fields
+                            .iter()
+                            .map(|field| {
+                                Ok(ConstantField::new(
+                                    self.symbol_reference((*field.field()).into())?,
+                                    self.constant_term_id(*field.value())?,
+                                ))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    },
+                    ConstantTermData::DefinitionApplication {
+                        definition,
+                        substitution,
+                        selected_implementation,
+                    } => InterfaceConstantTerm::DefinitionApplication {
+                        definition: self.symbol_reference(definition.into_any())?,
+                        substitution: self.substitution_id(*substitution)?,
+                        selected_implementation: selected_implementation
+                            .map(|instance| self.implementation_instance_id(instance))
+                            .transpose()?,
+                    },
+                    ConstantTermData::Call {
+                        callable,
+                        selected_implementation,
+                        arguments,
+                    } => InterfaceConstantTerm::Call {
+                        callable: self.callable_instance_id(*callable)?,
+                        selected_implementation: selected_implementation
+                            .map(|instance| self.implementation_instance_id(instance))
+                            .transpose()?,
+                        arguments: arguments
+                            .iter()
+                            .copied()
+                            .map(|argument| self.constant_term_id(argument))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    },
+                    ConstantTermData::PredicateCall {
+                        predicate,
+                        arguments,
+                    } => InterfaceConstantTerm::PredicateCall {
+                        predicate: self.symbol_reference(predicate.definition().into_any())?,
+                        substitution: self.substitution_id(predicate.substitution())?,
+                        arguments: arguments
+                            .iter()
+                            .copied()
+                            .map(|argument| self.constant_term_id(argument))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    },
+                    ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
+                        subject: self.constant_term_id(projection.subject())?,
+                        kind: match projection.kind() {
+                            ConstantProjectionKind::TupleElement(ordinal) => {
+                                InterfaceConstantProjection::TupleElement(ordinal)
+                            }
+                            ConstantProjectionKind::ArrayElement(index) => {
+                                InterfaceConstantProjection::ArrayElement(
+                                    self.constant_term_id(index)?,
+                                )
+                            }
+                            ConstantProjectionKind::ProductField(field) => {
+                                InterfaceConstantProjection::ProductField(
+                                    self.symbol_reference(field.into())?,
+                                )
+                            }
+                            ConstantProjectionKind::UnionPayloadField(field) => {
+                                InterfaceConstantProjection::UnionPayloadField(
+                                    self.symbol_reference(field.into())?,
+                                )
+                            }
+                            ConstantProjectionKind::NullableValue => {
+                                InterfaceConstantProjection::NullableValue
+                            }
+                        },
+                    },
+                };
 
-            let exported = InterfaceConstantTermId::new(index(self.constant_terms.len())?);
+                let exported = InterfaceConstantTermId::new(index(self.constant_terms.len())?);
 
-            self.constant_terms.push(term);
-            self.constant_term_ids.insert(id, exported);
+                self.constant_terms.push(term);
+                self.constant_term_ids.insert(id, exported);
 
-            Ok(exported)
+                Ok(exported)
             }
         )
     }
@@ -273,71 +288,83 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::ConstantValue,
             {
-            let data = self
-                .values
-                .constant_value_data(id)
-                .map_err(|_| incomplete_type())?;
+                let data = self
+                    .values
+                    .constant_value_data(id)
+                    .map_err(|_| incomplete_type())?;
 
-            let kind = match data.kind() {
-            ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
-                return Err(incomplete_type());
-            }
-            ConstantValueKind::Boolean(value) => InterfaceConstantValueKind::Boolean(*value),
-            ConstantValueKind::Character(value) => InterfaceConstantValueKind::Character(*value),
-            ConstantValueKind::Integer(value) => InterfaceConstantValueKind::Integer(value.clone()),
-            ConstantValueKind::Real(value) => InterfaceConstantValueKind::Real(*value),
-            ConstantValueKind::Complex { real, imaginary } => InterfaceConstantValueKind::Complex {
-                real: *real,
-                imaginary: *imaginary,
-            },
-            ConstantValueKind::String(value) => InterfaceConstantValueKind::String(value.clone()),
-            ConstantValueKind::Unit => InterfaceConstantValueKind::Unit,
-            ConstantValueKind::NullableAbsent => InterfaceConstantValueKind::NullableAbsent,
-            ConstantValueKind::NullablePresent(value) => {
-                InterfaceConstantValueKind::NullablePresent(self.constant_value_id(*value)?)
-            }
-            ConstantValueKind::Tuple(values) => {
-                InterfaceConstantValueKind::Tuple(self.constant_value_ids(values)?.into())
-            }
-            ConstantValueKind::Array(values) => {
-                InterfaceConstantValueKind::Array(self.constant_value_ids(values)?.into())
-            }
-            ConstantValueKind::Product(fields) => InterfaceConstantValueKind::Product(
-                fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            self.symbol_reference((*field.field()).into())?,
-                            self.constant_value_id(*field.value())?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            ),
-            ConstantValueKind::Union { variant, fields } => InterfaceConstantValueKind::Union {
-                variant: self.symbol_reference((*variant).into())?,
-                fields: fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            self.symbol_reference((*field.field()).into())?,
-                            self.constant_value_id(*field.value())?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            },
-            };
+                let kind = match data.kind() {
+                    ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
+                        return Err(incomplete_type());
+                    }
+                    ConstantValueKind::Boolean(value) => {
+                        InterfaceConstantValueKind::Boolean(*value)
+                    }
+                    ConstantValueKind::Character(value) => {
+                        InterfaceConstantValueKind::Character(*value)
+                    }
+                    ConstantValueKind::Integer(value) => {
+                        InterfaceConstantValueKind::Integer(value.clone())
+                    }
+                    ConstantValueKind::Real(value) => InterfaceConstantValueKind::Real(*value),
+                    ConstantValueKind::Complex { real, imaginary } => {
+                        InterfaceConstantValueKind::Complex {
+                            real: *real,
+                            imaginary: *imaginary,
+                        }
+                    }
+                    ConstantValueKind::String(value) => {
+                        InterfaceConstantValueKind::String(value.clone())
+                    }
+                    ConstantValueKind::Unit => InterfaceConstantValueKind::Unit,
+                    ConstantValueKind::NullableAbsent => InterfaceConstantValueKind::NullableAbsent,
+                    ConstantValueKind::NullablePresent(value) => {
+                        InterfaceConstantValueKind::NullablePresent(self.constant_value_id(*value)?)
+                    }
+                    ConstantValueKind::Tuple(values) => {
+                        InterfaceConstantValueKind::Tuple(self.constant_value_ids(values)?.into())
+                    }
+                    ConstantValueKind::Array(values) => {
+                        InterfaceConstantValueKind::Array(self.constant_value_ids(values)?.into())
+                    }
+                    ConstantValueKind::Product(fields) => InterfaceConstantValueKind::Product(
+                        fields
+                            .iter()
+                            .map(|field| {
+                                Ok(ConstantField::new(
+                                    self.symbol_reference((*field.field()).into())?,
+                                    self.constant_value_id(*field.value())?,
+                                ))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    ),
+                    ConstantValueKind::Union { variant, fields } => {
+                        InterfaceConstantValueKind::Union {
+                            variant: self.symbol_reference((*variant).into())?,
+                            fields: fields
+                                .iter()
+                                .map(|field| {
+                                    Ok(ConstantField::new(
+                                        self.symbol_reference((*field.field()).into())?,
+                                        self.constant_value_id(*field.value())?,
+                                    ))
+                                })
+                                .collect::<Result<Vec<_>, _>>()?
+                                .into(),
+                        }
+                    }
+                };
 
-            let exported = InterfaceConstantValueId::new(index(self.constant_values.len())?);
-            let ty = self.type_id(data.ty())?;
+                let exported = InterfaceConstantValueId::new(index(self.constant_values.len())?);
+                let ty = self.type_id(data.ty())?;
 
-            self.constant_values
-                .push(InterfaceConstantValue::new(ty, kind));
+                self.constant_values
+                    .push(InterfaceConstantValue::new(ty, kind));
 
-            self.constant_value_ids.insert(id, exported);
+                self.constant_value_ids.insert(id, exported);
 
-            Ok(exported)
+                Ok(exported)
             }
         )
     }

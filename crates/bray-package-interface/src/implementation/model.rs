@@ -7,7 +7,7 @@ use bray_symbols::{
 use crate::{InterfaceCheckedTemplate, InterfaceValidationError};
 
 /// One checked const-callable body addressed by its public interface identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceConstantCallableBody {
     owner: InterfaceSymbolId,
     template: InterfaceCheckedTemplate,

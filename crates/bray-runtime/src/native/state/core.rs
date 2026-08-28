@@ -327,6 +327,7 @@ pub(in crate::native) fn run_worker(
     });
 
     let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
+    let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
 
     while !runtime.workers.is_stopping() {
         control.drain();
@@ -336,7 +337,20 @@ pub(in crate::native) fn run_worker(
 
         match runtime.scheduler.wait_ready(lane, deadline) {
             Ok(Some(ready)) => {
+                if workload == ExecutionWorkload::Blocking {
+                    runtime.workers.begin_blocking_work(&runtime.core);
+                    accounted_as_idle = false;
+                }
+
                 let _ = runtime.drive_ready(ready);
+
+                if workload == ExecutionWorkload::Blocking {
+                    if !runtime.workers.finish_blocking_work() {
+                        break;
+                    }
+
+                    accounted_as_idle = true;
+                }
             }
             Ok(None) => {}
             Err(_) => break,
@@ -344,6 +358,10 @@ pub(in crate::native) fn run_worker(
     }
 
     control.drain();
+
+    runtime
+        .workers
+        .retire(workload, &control, accounted_as_idle);
 
     NATIVE_RUNTIME.take();
 }

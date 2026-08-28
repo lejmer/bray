@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use bray_compilation::{
-    CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
-};
+use bray_compilation::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
     PackageInterfaceIdentity,

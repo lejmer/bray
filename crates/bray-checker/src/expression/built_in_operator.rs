@@ -102,7 +102,7 @@ where
                 session,
             )? {
                 for operand in expression.child_expressions() {
-                    session.add_expectation(operand, ty)?;
+                    add_operand_expectation(request, session, operand, ty)?;
                 }
             }
 

@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
+pub use bray_bound_tree::CallableParameterDefaultTemplate;
+use bray_bound_tree::{
+    BoundExpressionId, CallableDeclarationTemplate, DeclaredValueTypeTerm, SelectionKind,
+};
 use bray_symbols::{
-    CallableContractTemplate, CallableDefinitionId, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, CallableSignatureTemplate, GenericArgumentTemplate,
-    GenericDeclarationTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplate, SymbolKey,
-    UnevaluatedDefaultTemplate,
+    CallableContractTemplate, CallableDefinitionId, CallableSignatureTemplate,
+    GenericArgumentTemplate, GenericDeclarationTemplate, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplate, SymbolKey,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -31,59 +33,10 @@ pub enum CallableCandidateTemplateState {
     Recovered,
 }
 
-/// One declaration parameter and its unevaluated default surface.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CallableParameterDefaultTemplate {
-    parameter: CallableParameterSymbolId,
-    value: UnevaluatedDefaultTemplate,
-    provider: Option<CallableParameterDefaultProviderSymbolId>,
-}
-
-impl CallableParameterDefaultTemplate {
-    /// Creates one declaration parameter default entry.
-    pub const fn new(
-        parameter: CallableParameterSymbolId,
-        value: UnevaluatedDefaultTemplate,
-        provider: Option<CallableParameterDefaultProviderSymbolId>,
-    ) -> Self {
-        Self {
-            parameter,
-            value,
-            provider,
-        }
-    }
-
-    /// Returns the declaration parameter.
-    pub const fn parameter(self) -> CallableParameterSymbolId {
-        self.parameter
-    }
-
-    /// Returns the unevaluated default expression surface.
-    pub const fn value(self) -> UnevaluatedDefaultTemplate {
-        self.value
-    }
-
-    /// Returns the declaration-owned provider for a present runtime default.
-    pub const fn provider(self) -> Option<CallableParameterDefaultProviderSymbolId> {
-        self.provider
-    }
-}
-
 /// One declared callable considered before substitution and applicability checking.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableDeclarationCandidateTemplate {
-    data: Arc<CallableDeclarationCandidateTemplateData>,
-}
-
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-struct CallableDeclarationCandidateTemplateData {
-    key: SymbolKey,
-    definition: CallableDefinitionId,
-    signature: CallableSignatureTemplate,
-    contract: CallableContractTemplate,
-    generic: GenericDeclarationTemplate,
-    generic_arguments: Arc<[GenericArgumentTemplate]>,
-    defaults: Arc<[CallableParameterDefaultTemplate]>,
+    declaration: CallableDeclarationTemplate,
     state: CallableCandidateTemplateState,
 }
 
@@ -99,17 +52,24 @@ impl CallableDeclarationCandidateTemplate {
         state: CallableCandidateTemplateState,
     ) -> Self {
         Self {
-            data: Arc::new(CallableDeclarationCandidateTemplateData {
+            declaration: CallableDeclarationTemplate::new(
                 key,
                 definition,
                 signature,
                 contract,
                 generic,
-                generic_arguments: shared_slice(generic_arguments),
-                defaults: Arc::new([]),
-                state,
-            }),
+                generic_arguments,
+            ),
+            state,
         }
+    }
+
+    /// Creates a candidate from a declaration template and participation state.
+    pub fn from_declaration(
+        declaration: CallableDeclarationTemplate,
+        state: CallableCandidateTemplateState,
+    ) -> Self {
+        Self { declaration, state }
     }
 
     /// Supplies declaration-owned parameter defaults in parameter order.
@@ -117,49 +77,49 @@ impl CallableDeclarationCandidateTemplate {
         mut self,
         defaults: impl IntoIterator<Item = CallableParameterDefaultTemplate>,
     ) -> Self {
-        Arc::make_mut(&mut self.data).defaults = shared_slice(defaults);
+        self.declaration = self.declaration.with_defaults(defaults);
 
         self
     }
 
     /// Returns the candidate's stable semantic key.
     pub fn key(&self) -> &SymbolKey {
-        &self.data.key
+        self.declaration.key()
     }
 
     /// Returns the exact callable declaration.
     pub fn definition(&self) -> CallableDefinitionId {
-        self.data.definition
+        self.declaration.definition()
     }
 
     /// Returns the complete unevaluated callable signature.
     pub fn signature(&self) -> &CallableSignatureTemplate {
-        &self.data.signature
+        self.declaration.signature()
     }
 
     /// Returns source or imported contract clauses retained for semantic checking.
     pub fn contract(&self) -> &CallableContractTemplate {
-        &self.data.contract
+        self.declaration.contract()
     }
 
     /// Returns generic parameters and constraint templates.
     pub fn generic(&self) -> &GenericDeclarationTemplate {
-        &self.data.generic
+        self.declaration.generic()
     }
 
     /// Returns explicit generic arguments bound for this candidate.
     pub fn generic_arguments(&self) -> &[GenericArgumentTemplate] {
-        &self.data.generic_arguments
+        self.declaration.generic_arguments()
     }
 
     /// Returns parameter defaults in declaration order.
     pub fn defaults(&self) -> &[CallableParameterDefaultTemplate] {
-        &self.data.defaults
+        self.declaration.defaults()
     }
 
     /// Returns the participation state known before applicability checking.
     pub fn state(&self) -> CallableCandidateTemplateState {
-        self.data.state
+        self.state
     }
 }
 

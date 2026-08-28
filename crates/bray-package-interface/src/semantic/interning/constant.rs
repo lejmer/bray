@@ -143,6 +143,14 @@ impl InternState {
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<ConstantTermData>, InterfaceSemanticInternError> {
         Ok(match input {
+            InterfaceConstantTerm::Typed { term, ty } => {
+                let (Some(term), Some(ty)) = (self.constant_term_id(*term), self.type_id(*ty))
+                else {
+                    return Ok(None);
+                };
+
+                Some(ConstantTermData::typed(term, ty))
+            }
             InterfaceConstantTerm::Value(id) => {
                 self.constant_value_id(*id).map(ConstantTermData::Value)
             }
@@ -156,6 +164,9 @@ impl InternState {
             InterfaceConstantTerm::Parameter(parameter) => Some(ConstantTermData::Parameter(
                 resolve_exact(symbols, parameter)?,
             )),
+            InterfaceConstantTerm::CallableArgument(ordinal) => {
+                Some(ConstantTermData::CallableArgument(*ordinal))
+            }
             InterfaceConstantTerm::TargetProperty(record) => Some(
                 ConstantTermData::TargetProperty(resolve_exact(symbols, record)?),
             ),

@@ -256,6 +256,11 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
 
 pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceConstantTerm) {
     match term {
+        InterfaceConstantTerm::Typed { term, ty } => {
+            encoder.write_u32(17);
+            encoder.write_u32(term.raw());
+            encoder.write_u32(ty.raw());
+        }
         InterfaceConstantTerm::Value(id) => write_tagged_id(encoder, 1, id.raw()),
         InterfaceConstantTerm::IntegerLiteral { ty, value } => {
             encoder.write_u32(9);
@@ -266,6 +271,9 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
         InterfaceConstantTerm::Parameter(parameter) => {
             encoder.write_u32(2);
             write_symbol_reference(encoder, parameter);
+        }
+        InterfaceConstantTerm::CallableArgument(ordinal) => {
+            write_tagged_id(encoder, 18, ordinal.raw());
         }
         InterfaceConstantTerm::TargetProperty(record) => {
             encoder.write_u32(3);

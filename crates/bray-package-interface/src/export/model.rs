@@ -184,6 +184,8 @@ pub enum PackageInterfaceExportBuildError {
     Validation(InterfaceValidationError),
     /// Two executable templates claim the same callable owner and artifact-local identity.
     DuplicateExecutableTemplate(bray_symbols::InterfaceSymbolId),
+    /// Two constant-callable bodies claim the same callable owner.
+    DuplicateConstantCallableBody(bray_symbols::InterfaceSymbolId),
     /// Executable templates for one owner do not form one contiguous root-first family.
     InvalidExecutableTemplateFamily(bray_symbols::InterfaceSymbolId),
     /// Two native boundaries claim the same function owner.
@@ -196,6 +198,7 @@ pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantics: InterfaceSemantics,
     implementation_configuration: crate::PackageImplementationConfiguration,
+    constant_callable_bodies: Arc<[crate::InterfaceConstantCallableBody]>,
     executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
     native_boundaries: Arc<[crate::InterfaceNativeBoundary]>,
     language_revision: InterfaceLanguageRevision,
@@ -224,10 +227,35 @@ impl PackageInterfaceExportBundle {
             surface,
             semantics,
             implementation_configuration,
+            constant_callable_bodies: Arc::from([]),
             executable_templates: Arc::from([]),
             native_boundaries: Arc::from([]),
             language_revision,
         })
+    }
+
+    /// Attaches constant-callable bodies in canonical owner order.
+    pub fn with_constant_callable_bodies(
+        mut self,
+        bodies: impl IntoIterator<Item = crate::InterfaceConstantCallableBody>,
+    ) -> Result<Self, PackageInterfaceExportBuildError> {
+        let mut bodies = bodies.into_iter().collect::<Vec<_>>();
+
+        bodies.sort_by_key(crate::InterfaceConstantCallableBody::owner);
+
+        for pair in bodies.windows(2) {
+            if pair[0].owner() == pair[1].owner() {
+                return Err(
+                    PackageInterfaceExportBuildError::DuplicateConstantCallableBody(
+                        pair[0].owner(),
+                    ),
+                );
+            }
+        }
+
+        self.constant_callable_bodies = bodies.into();
+
+        Ok(self)
     }
 
     /// Attaches executable templates in canonical owner and family-identity order.
@@ -269,6 +297,11 @@ impl PackageInterfaceExportBundle {
     /// Returns the exact target, runtime, and ABI identity of implementation payloads.
     pub const fn implementation_configuration(&self) -> &crate::PackageImplementationConfiguration {
         &self.implementation_configuration
+    }
+
+    /// Returns constant-callable bodies in canonical owner order.
+    pub fn constant_callable_bodies(&self) -> &[crate::InterfaceConstantCallableBody] {
+        &self.constant_callable_bodies
     }
 
     /// Returns executable templates in canonical owner and family-identity order.

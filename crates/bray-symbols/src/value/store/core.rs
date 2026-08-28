@@ -13,8 +13,8 @@ use super::{
         ConstantTermId, ConstantValueData, ConstantValueId, ConstantValueKind,
         DependencyContractTemplateData, DependencyContractTemplateId, GenericSubstitutionData,
         GenericSubstitutionId, ImplementationInstanceData, ImplementationInstanceId,
-        SemanticValueStoreCreateError, SemanticValueStoreError, SemanticValueStoreId,
-        TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+        IntegerConstant, SemanticValueStoreCreateError, SemanticValueStoreError,
+        SemanticValueStoreId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
     },
     table::SemanticTables,
     validation::{
@@ -241,6 +241,29 @@ impl SemanticValueStore {
         self.tables().constant_terms.get_shared(self.id, id)
     }
 
+    /// Returns the integer represented by a checked constant term when it is already known.
+    pub fn constant_term_integer(
+        &self,
+        id: ConstantTermId,
+    ) -> Result<Option<IntegerConstant>, SemanticValueStoreError> {
+        let data = self.constant_term_data(id)?;
+
+        match data.as_ref() {
+            ConstantTermData::Typed { term, .. } => self.constant_term_integer(*term),
+            ConstantTermData::IntegerLiteral { value, .. } => Ok(Some(value.clone())),
+            ConstantTermData::Value(value) => {
+                let value = self.constant_value_data(*value)?;
+
+                let ConstantValueKind::Integer(value) = value.kind() else {
+                    return Ok(None);
+                };
+
+                Ok(Some(value.clone()))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Interns one canonical ordered generic substitution.
     pub fn intern_generic_substitution(
         &self,
@@ -403,8 +426,8 @@ mod tests {
         FunctionSymbolId, GenericArgument, GenericConstParameterSymbolId, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
         ImplementationInstanceData, ImplementationSymbolId, InherentImplementationSymbolId,
-        NamedTypeSymbolId, SemanticValueStoreError, StructSymbolId, SymbolId, SymbolOrdinal,
-        TraitApplicationData, TraitSymbolId, TypeData,
+        IntegerConstant, IntegerSign, NamedTypeSymbolId, SemanticValueStoreError, StructSymbolId,
+        SymbolId, SymbolOrdinal, TraitApplicationData, TraitSymbolId, TypeData,
     };
 
     fn store() -> SemanticValueStore {
@@ -465,6 +488,26 @@ mod tests {
         let second = store.intern_type(TypeData::Error);
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn typed_integer_terms_preserve_known_integer_queries() {
+        let store = store();
+        let ty = concrete_named_type(&store, 1);
+        let integer = IntegerConstant::new(IntegerSign::NonNegative, [42]);
+
+        let term = store
+            .intern_constant_term(ConstantTermData::IntegerLiteral {
+                ty: crate::TargetSizedIntegerType::Usize,
+                value: integer.clone(),
+            })
+            .unwrap_or_else(|error| panic!("integer term must intern: {error:?}"));
+
+        let typed = store
+            .intern_constant_term(ConstantTermData::typed(term, ty))
+            .unwrap_or_else(|error| panic!("typed integer term must intern: {error:?}"));
+
+        assert_eq!(store.constant_term_integer(typed), Ok(Some(integer)));
     }
 
     #[test]

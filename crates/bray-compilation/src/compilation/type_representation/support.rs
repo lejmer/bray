@@ -1,9 +1,7 @@
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_source::SourceSpan;
-use bray_symbols::{
-    AnySymbolId, ConstantTermData, ConstantValueKind, IntegerConstant, SymbolGraph,
-};
+use bray_symbols::{AnySymbolId, IntegerConstant, SymbolGraph};
 
 use crate::fact::FactQueryError;
 
@@ -18,42 +16,9 @@ pub(super) fn checked_integer_constant(
     values: &bray_symbols::SemanticValueStore,
     term: bray_symbols::ConstantTermId,
 ) -> Result<Option<IntegerConstant>, FactQueryError> {
-    let data = values
-        .constant_term_data(term)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    let value = match data.as_ref() {
-        // Integer constants use shared immutable magnitude storage, so cloning preserves the
-        // checked value without copying its arbitrary-width byte sequence.
-        ConstantTermData::IntegerLiteral { value, .. } => Some(value.clone()),
-        ConstantTermData::Value(value) => {
-            let value = values
-                .constant_value_data(*value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-            let ConstantValueKind::Integer(integer) = value.kind() else {
-                return Ok(None);
-            };
-
-            Some(integer.clone())
-        }
-        ConstantTermData::Parameter(_)
-        | ConstantTermData::TargetProperty(_)
-        | ConstantTermData::Unary { .. }
-        | ConstantTermData::Binary { .. }
-        | ConstantTermData::Conversion { .. }
-        | ConstantTermData::NullablePresent(_)
-        | ConstantTermData::Tuple(_)
-        | ConstantTermData::Array(_)
-        | ConstantTermData::Product(_)
-        | ConstantTermData::Union { .. }
-        | ConstantTermData::DefinitionApplication { .. }
-        | ConstantTermData::Call { .. }
-        | ConstantTermData::PredicateCall { .. }
-        | ConstantTermData::Projection(_) => None,
-    };
-
-    Ok(value)
+    values
+        .constant_term_integer(term)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
 pub(super) fn integer_role(text: &str) -> Option<RepresentationRole> {

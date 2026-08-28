@@ -608,22 +608,13 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("callback-reference");
 
-        let mut types = LlvmTypeMappings::new(
-            &context,
-            request.mappings(),
-            request.target(),
-            &target_data,
-        );
+        let mut types =
+            LlvmTypeMappings::new(&context, request.mappings(), request.target(), &target_data);
 
-        let declaration = declare_native_entry(
-            &module,
-            &callback,
-            request.target(),
-            false,
-            &mut types,
-        )
-        .unwrap_or_else(|error| panic!("callback entry must declare: {error:?}"))
-        .unwrap_or_else(|| panic!("callback entry must exist"));
+        let declaration =
+            declare_native_entry(&module, &callback, request.target(), false, &mut types)
+                .unwrap_or_else(|error| panic!("callback entry must declare: {error:?}"))
+                .unwrap_or_else(|| panic!("callback entry must exist"));
 
         assert_eq!(declaration.get_name().to_str(), Ok(entry.as_str()));
         assert_eq!(declaration.get_linkage(), Linkage::External);

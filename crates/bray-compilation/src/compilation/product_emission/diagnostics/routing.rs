@@ -3,6 +3,10 @@ use bray_diagnostics::{
     DiagnosticBag, DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
     DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, SeverityKind,
 };
+use bray_package_interface::{
+    InterfaceValidationError, PackageImplementationArtifactBuildError,
+    PackageInterfaceExportBuildError,
+};
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
@@ -10,9 +14,26 @@ use super::linking::{link_plan_failure_diagnostics, staging_failure_diagnostics}
 use super::model::ProductEmissionErrorKind;
 use super::planning::planning_failure_diagnostics;
 use super::terminal::{
-    codegen_failure_diagnostics, package_interface_failure_diagnostics,
-    package_interface_validation_error, query_failure_diagnostics,
+    codegen_failure_diagnostics, package_interface_failure_diagnostics, query_failure_diagnostics,
 };
+
+const fn package_interface_validation_error(
+    kind: &ProductEmissionErrorKind,
+) -> Option<&InterfaceValidationError> {
+    match kind {
+        ProductEmissionErrorKind::PackageInterfaceEncoding(error)
+        | ProductEmissionErrorKind::PackageImplementation(
+            PackageImplementationArtifactBuildError::InvalidBody(error)
+            | PackageImplementationArtifactBuildError::InvalidArtifact(error),
+        )
+        | ProductEmissionErrorKind::PackageInterface(
+            crate::compilation::PackageInterfaceExportError::Bundle(
+                PackageInterfaceExportBuildError::Validation(error),
+            ),
+        ) => Some(error),
+        _ => None,
+    }
+}
 
 pub(super) fn product_emission_failure_diagnostics(
     kind: &ProductEmissionErrorKind,

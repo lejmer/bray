@@ -201,6 +201,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         match data.as_ref() {
+            ConstantTermData::Typed { term, ty } => {
+                self.tag(16);
+                self.constant_term(*term)?;
+                self.ty(*ty)?;
+            }
             ConstantTermData::Value(value) => {
                 self.tag(0);
                 self.constant_value(*value)?;
@@ -213,6 +218,10 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             ConstantTermData::Parameter(parameter) => {
                 self.tag(2);
                 self.symbol((*parameter).into())?;
+            }
+            ConstantTermData::CallableArgument(ordinal) => {
+                self.tag(17);
+                self.ordinal(*ordinal);
             }
             ConstantTermData::TargetProperty(definition) => {
                 self.tag(3);

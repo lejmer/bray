@@ -148,7 +148,8 @@ impl<T> FactCell<T> {
     }
 
     pub(super) fn is_ready_for(&self, key: &CompilationFactKey) -> bool {
-        self.get_if_published(key).is_ok_and(|value| value.is_some())
+        self.get_if_published(key)
+            .is_ok_and(|value| value.is_some())
     }
 
     pub(super) fn is_vacant(&self) -> bool {
@@ -174,7 +175,11 @@ impl<T> FactCell<T> {
             key.clone(),
             key,
             cancellation,
-            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
+            || {
+                runtime
+                    .current_priority()
+                    .map(|priority| priority.unwrap_or(QueryPriority::Normal))
+            },
             |_| compute(),
         )
     }
@@ -215,7 +220,11 @@ impl<T> FactCell<T> {
             key.clone(),
             key,
             cancellation,
-            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
+            || {
+                runtime
+                    .current_priority()
+                    .map(|priority| priority.unwrap_or(QueryPriority::Normal))
+            },
             compute,
         )
     }
@@ -257,7 +266,11 @@ impl<T> FactCell<T> {
             key,
             cycle_key,
             cancellation,
-            || runtime.current_priority().map(|priority| priority.unwrap_or(QueryPriority::Normal)),
+            || {
+                runtime
+                    .current_priority()
+                    .map(|priority| priority.unwrap_or(QueryPriority::Normal))
+            },
             |_| compute(),
         )
     }
@@ -283,8 +296,9 @@ impl<T> FactCell<T> {
         let mut query_request = profile.map(|(profile, query)| profile.start_query_request(query));
 
         if let Some(value) = self.get_if_published(&key)? {
-            runtime.request_with_cycle_key(&key, &cycle_key)?;
+            runtime.check_request_cycle(&cycle_key)?;
             cancellation.check()?;
+            runtime.record_completed_request(&key)?;
             record_cache_outcome(&mut query_request, true);
 
             return Ok(value);
@@ -292,7 +306,7 @@ impl<T> FactCell<T> {
 
         let priority = priority()?;
 
-        runtime.request_with_cycle_key(&key, &cycle_key)?;
+        runtime.check_request_cycle(&cycle_key)?;
 
         loop {
             cancellation.check()?;
@@ -307,7 +321,11 @@ impl<T> FactCell<T> {
                 FactCellState::Ready => {
                     record_cache_outcome(&mut query_request, true);
 
-                    return self.published_value(&key);
+                    let value = self.published_value(&key)?;
+
+                    runtime.record_completed_request(&key)?;
+
+                    return Ok(value);
                 }
                 FactCellState::Vacant => {
                     record_cache_outcome(&mut query_request, false);
@@ -329,8 +347,7 @@ impl<T> FactCell<T> {
 
                     drop(state);
 
-                    let mut publication =
-                        PublicationGuard::new(self, task, Arc::clone(&cell_key));
+                    let mut publication = PublicationGuard::new(self, task, Arc::clone(&cell_key));
 
                     let evaluation = runtime.begin(context)?;
 
@@ -376,6 +393,7 @@ impl<T> FactCell<T> {
                     publication.disarm();
 
                     cancellation.check()?;
+                    runtime.record_completed_request(&key)?;
 
                     return Ok(value);
                 }
@@ -1493,6 +1511,36 @@ mod tests {
         assert_eq!(
             runtime.dependencies(&parent_key),
             Ok(Some(vec![committed_key].into_boxed_slice()))
+        );
+    }
+
+    #[test]
+    fn recovered_failed_requests_are_not_recorded_as_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let dependency = FactCell::<u32>::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let dependency_key = CompilationFactKey::DeclarationTable;
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            assert_eq!(
+                dependency.get_or_compute(&runtime, dependency_key, &cancellation, || Err(
+                    FactQueryError::InfrastructureFailure
+                ),),
+                Err(FactQueryError::InfrastructureFailure)
+            );
+
+            Ok(3_u32)
+        });
+
+        assert_eq!(result, Ok(&3));
+
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(Some(Vec::<CompilationFactKey>::new().into_boxed_slice()))
         );
     }
 

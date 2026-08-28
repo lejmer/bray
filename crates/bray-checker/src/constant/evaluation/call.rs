@@ -55,11 +55,10 @@ where
                     )
                 })?;
 
-            return self.intern_term(ConstantTermData::call(
-                callable,
-                selected_implementation,
-                arguments,
-            ));
+            return self.intern_typed_term(
+                result_type,
+                ConstantTermData::call(callable, selected_implementation, arguments),
+            );
         }
 
         let values = arguments

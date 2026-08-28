@@ -246,6 +246,7 @@ pub(in crate::compilation::product) fn closed_array_length(
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     match term.as_ref() {
+        ConstantTermData::Typed { term, .. } => closed_array_length(values, *term),
         ConstantTermData::Value(value) => {
             let data = values
                 .constant_value_data(*value)

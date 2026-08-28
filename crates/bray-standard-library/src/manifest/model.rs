@@ -8,8 +8,8 @@ use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
 use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
-use super::wire::encode_payload;
 use super::StandardLibraryOptimizationMetadata;
+use super::wire::encode_payload;
 
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";

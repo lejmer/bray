@@ -1,0 +1,75 @@
+trusted module std.sync;
+
+@copy
+union BarrierWait
+{
+    Leader;
+    Follower;
+}
+
+@copy
+union BarrierError
+{
+    ZeroParticipants;
+}
+
+internal struct BarrierState
+{
+    mut arrived: usize;
+}
+
+struct Barrier
+{
+    internal participants: usize;
+    internal state: Mutex<BarrierState>;
+    internal generation: core.atomic.Atomic<u32>;
+
+    construct(participants: usize) -> Result<Self, BarrierError>
+    {
+        if participants == 0
+        {
+            return Error(BarrierError.ZeroParticipants);
+        }
+
+        return Ok(
+            {
+                participants = participants,
+                state = Mutex<BarrierState>(
+                    {
+                        arrived = 0,
+                    }
+                ),
+                generation = core.atomic.initialize<u32>(0),
+            }
+        );
+    }
+
+    func wait() -> BarrierWait
+        requires(blocking_execution())
+    {
+        let mut guard: MutexGuard<BarrierState> = self.state.lock();
+        let generation: u32 = core.atomic.load<u32, 1>(&self.generation);
+
+        guard.get().arrived += 1;
+
+        if guard.get().arrived == self.participants
+        {
+            guard.get().arrived = 0;
+            let _: u32 = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
+            guard.unlock();
+
+            trusted internal std.atomic.platform_wake_all_words(&self.generation);
+
+            return BarrierWait.Leader;
+        }
+
+        guard.unlock();
+
+        while core.atomic.load<u32, 1>(&self.generation) == generation
+        {
+            trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
+        }
+
+        return BarrierWait.Follower;
+    }
+}

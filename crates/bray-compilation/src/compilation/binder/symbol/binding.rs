@@ -24,8 +24,11 @@ pub(super) fn binder_error(error: FactQueryError) -> BindingQueryError {
         FactQueryError::Cancelled => BindingQueryError::Cancelled,
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
+        | FactQueryError::ConstantCallableBodyUnavailable
+        | FactQueryError::ConstantCallableRootUnavailable
         | FactQueryError::AtomicInitializerArgumentUnavailable
         | FactQueryError::AtomicInitializerResultUnavailable
+        | FactQueryError::UninitInitializerResultUnavailable
         | FactQueryError::ImportedExecutableTemplateMismatch
         | FactQueryError::SemanticUnitContext(_)
         | FactQueryError::CheckerInfrastructure(_) => BindingQueryError::DependencyUnavailable,

@@ -585,6 +585,10 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
                 symbol_kind: "local_binding",
                 id: symbol.ordinal(),
             },
+            StorageBindingTarget::PatternDiscard(pattern) => Self::LocalSymbol {
+                symbol_kind: "pattern_discard",
+                id: pattern.ordinal(),
+            },
             StorageBindingTarget::PostconditionResult(symbol) => Self::LocalSymbol {
                 symbol_kind: "postcondition_result",
                 id: symbol.ordinal(),

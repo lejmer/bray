@@ -104,12 +104,10 @@ impl DiagnosticProfileValidationProblemJson {
                 }
             }
             Problem::InvalidRuntimeRole { index } => Self::InvalidRuntimeRole { index: *index },
-            Problem::NonCanonicalRuntimeRoles { first, second } => {
-                Self::NonCanonicalRuntimeRoles {
-                    first: first.clone(),
-                    second: second.clone(),
-                }
-            }
+            Problem::NonCanonicalRuntimeRoles { first, second } => Self::NonCanonicalRuntimeRoles {
+                first: first.clone(),
+                second: second.clone(),
+            },
             Problem::InvalidNativeCallbackEntry { index } => {
                 Self::InvalidNativeCallbackEntry { index: *index }
             }

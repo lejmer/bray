@@ -14,14 +14,12 @@ use bray_emitter::{
 use bray_project::{ProjectGraph, ProjectProduct, load_standard_library_project_graph};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
-    STANDARD_LIBRARY_MANIFEST_FILE_NAME,
-    StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
-    StandardLibraryTargetArtifacts, decode_standard_library_manifest,
-    encode_standard_library_manifest, standard_library_target_artifact_directory,
+    STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
+    StandardLibraryBundleManifest, StandardLibraryTargetArtifacts,
+    decode_standard_library_manifest, encode_standard_library_manifest,
+    standard_library_target_artifact_directory,
 };
-use bray_symbols::{
-    NativeLinkRequirement, PackageIdentity, PackageVersion, ProductKind,
-};
+use bray_symbols::{NativeLinkRequirement, PackageIdentity, PackageVersion, ProductKind};
 use bray_target::{
     NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
 };

@@ -13,11 +13,12 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
-    CallableContractsQuery, CallableExecution, CallablePhaseBehavior, CallableSignatureQuery,
-    CallableSymbolId, CallableTrust, CheckedConstraint, CurrentRunCancellation,
+    CallableContractsQuery, CallableExecution, CallableExecutionRequirement,
+    CallablePhaseBehavior, CallableSignatureQuery, CallableSymbolId, CallableTrust,
+    CheckedConstraint, CurrentRunCancellation,
     DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsQuery,
     GenericDeclarationTemplateQuery, GenericOwnerId, SymbolQueryRequest,
-    TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
+    SymbolOrigin, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -26,7 +27,9 @@ use bray_syntax::{
 
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
-use super::declaration_body::checked_source_predicate_sequence;
+use super::declaration_body::{
+    CheckedSourcePredicateSequence, checked_source_predicate_sequence,
+};
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBindingContext;
@@ -175,6 +178,7 @@ fn bind_callable_contracts(
     })?;
 
     let mut predicates = Vec::new();
+    let mut declared_execution_requirements = Vec::new();
     let mut uses_clauses = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -187,6 +191,7 @@ fn bind_callable_contracts(
                 clause.expressions(),
                 CallableContractClauseKind::Requires,
                 &mut predicates,
+                &mut declared_execution_requirements,
                 &mut diagnostics,
             )?,
             ContractClauseSyntax::Ensures(clause) => bind_callable_predicates(
@@ -196,6 +201,7 @@ fn bind_callable_contracts(
                 clause.expressions(),
                 CallableContractClauseKind::Ensures,
                 &mut predicates,
+                &mut declared_execution_requirements,
                 &mut diagnostics,
             )?,
             ContractClauseSyntax::With(clause) => bind_callable_static_constraints(
@@ -276,6 +282,7 @@ fn bind_callable_contracts(
             .iter()
             .map(|capability| capability.requirement()),
         dependency,
+        declared_execution_requirements,
         body_behavior
             .as_ref()
             .map(|behavior| behavior.result().value()),
@@ -295,6 +302,42 @@ fn bind_callable_contracts(
         CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
         diagnostics,
     )
+}
+
+pub(in crate::compilation) fn bind_declared_execution_requirements(
+    context: &CompilationBindingContext<'_>,
+    owner: CallableSymbolId,
+) -> BindingQueryResult<DiagnosticResult<Vec<CallableExecutionRequirement>>> {
+    if context.symbols.symbol_origin(owner.into_any()) != Some(SymbolOrigin::Source) {
+        return Ok(DiagnosticResult::without_diagnostics(Vec::new()));
+    }
+
+    let clauses = with_declaration_root(context, owner.into_any(), |root| {
+        Ok(direct_contract_clauses(root))
+    })?;
+
+    let mut requirements = Vec::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    for clause in clauses {
+        let ContractClauseSyntax::Requires(clause) = clause else {
+            continue;
+        };
+
+        let expressions = clause.expressions().collect::<Vec<_>>();
+
+        let checked = checked_callable_predicates(
+            context,
+            owner.into_any(),
+            syntax_node_view(&clause),
+            expressions.len(),
+        )?;
+
+        diagnostics = diagnostics.merged(&checked.diagnostics);
+        requirements.extend(checked.execution_requirements);
+    }
+
+    Ok(DiagnosticResult::new(requirements, diagnostics))
 }
 
 pub(in crate::compilation) fn bind_declared_trusted_capabilities(
@@ -379,6 +422,7 @@ fn callable_phase_behaviors(
     execution: CallableExecution,
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
+    declared_execution_requirements: impl IntoIterator<Item = CallableExecutionRequirement>,
     body: Option<&bray_bound_tree::CheckedBodyBehavior>,
 ) -> (CallablePhaseBehavior, Option<CallablePhaseBehavior>) {
     let effects = body
@@ -391,10 +435,12 @@ fn callable_phase_behaviors(
         .flat_map(bray_bound_tree::CheckedBodyBehavior::capabilities)
         .copied();
 
-    let execution_requirements = body
+    let execution_requirements = declared_execution_requirements.into_iter().chain(
+        body
         .into_iter()
         .flat_map(bray_bound_tree::CheckedBodyBehavior::execution_requirements)
-        .copied();
+        .copied(),
+    );
 
     let lifecycle_obligations = body
         .into_iter()
@@ -589,6 +635,7 @@ fn bind_callable_predicates(
     expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
     kind: CallableContractClauseKind,
     predicates: &mut Vec<CallableContractClause>,
+    execution_requirements: &mut Vec<CallableExecutionRequirement>,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<()> {
     let expressions = expressions.into_iter().collect::<Vec<_>>();
@@ -615,8 +662,33 @@ fn bind_callable_predicates(
         return Ok(());
     }
 
-    let expression_count = expressions.len();
+    let checked = checked_callable_predicates(context, owner, syntax, expressions.len())?;
 
+    *diagnostics = diagnostics.merged(&checked.diagnostics);
+
+    if kind == CallableContractClauseKind::Requires {
+        execution_requirements.extend(checked.execution_requirements);
+    }
+
+    for dependency in checked.dependency_contracts {
+        let ordinal = symbol_ordinal(predicates.len())?;
+
+        predicates.push(CallableContractClause::new(
+            ordinal,
+            kind,
+            bray_symbols::PredicateSemanticSummary::new(dependency),
+        ));
+    }
+
+    Ok(())
+}
+
+fn checked_callable_predicates(
+    context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
+    syntax: SyntaxNodeView<'_>,
+    expression_count: usize,
+) -> BindingQueryResult<CheckedSourcePredicateSequence> {
     let owner_key = context
         .symbols
         .symbol_key(owner)
@@ -637,19 +709,7 @@ fn bind_callable_predicates(
         return Err(BindingQueryError::DependencyUnavailable);
     }
 
-    *diagnostics = diagnostics.merged(&checked.diagnostics);
-
-    for dependency in checked.dependency_contracts {
-        let ordinal = symbol_ordinal(predicates.len())?;
-
-        predicates.push(CallableContractClause::new(
-            ordinal,
-            kind,
-            bray_symbols::PredicateSemanticSummary::new(dependency),
-        ));
-    }
-
-    Ok(())
+    Ok(checked)
 }
 
 fn resolve_trait_satisfaction_constraint(
@@ -885,8 +945,9 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
         DiagnosticRelatedLocationKind, SeverityKind,
     };
+    use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
-        CallableContractTemplate, CallableContractsQuery, CallableSymbolId,
+        CallableContractTemplate, CallableContractsQuery, CallablePhaseBehavior, CallableSymbolId,
         DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolQueryRequest,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
@@ -1098,6 +1159,73 @@ mod tests {
             .unwrap_or_else(|error| panic!("predicate dependency must be available: {error:?}"));
 
         assert!(!dependency.requirements().is_empty());
+    }
+
+    #[test]
+    fn execution_predicates_apply_to_the_phase_that_executes_the_body() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func synchronous()\n",
+            "    requires(blocking_execution())\n",
+            "{\n",
+            "}\n",
+            "async func asynchronous()\n",
+            "    requires(blocking_execution())\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let synchronous = callable_contracts(&compilation, "synchronous");
+        let asynchronous = callable_contracts(&compilation, "asynchronous");
+
+        assert_execution_requirement(
+            &compilation,
+            synchronous.value().invocation_behavior(),
+            ImplementationHook::BlockingExecution,
+        );
+
+        assert!(
+            synchronous
+                .value()
+                .deferred_execution_behavior()
+                .is_none()
+        );
+
+        assert!(
+            asynchronous
+                .value()
+                .invocation_behavior()
+                .execution_requirements()
+                .is_empty()
+        );
+
+        let deferred = asynchronous
+            .value()
+            .deferred_execution_behavior()
+            .unwrap_or_else(|| panic!("async callable must publish deferred behavior"));
+
+        assert_execution_requirement(
+            &compilation,
+            deferred,
+            ImplementationHook::BlockingExecution,
+        );
+    }
+
+    fn assert_execution_requirement(
+        compilation: &Compilation,
+        behavior: &CallablePhaseBehavior,
+        expected: ImplementationHook,
+    ) {
+        let [requirement] = behavior.execution_requirements() else {
+            panic!("phase must publish one execution requirement");
+        };
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .symbol_implementation(requirement.declaration()),
+            Some(expected)
+        );
     }
 
     #[test]

@@ -1,4 +1,6 @@
-use bray_codegen::{CodegenFailure, CodegenRequest, CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping};
+use bray_codegen::{
+    CodegenFailure, CodegenRequest, CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping,
+};
 use bray_ir::MirRuntimeReference;
 use bray_runtime_abi::NativeRunState;
 use bray_runtime_interface::RuntimeAbiRole;

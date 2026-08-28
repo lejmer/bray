@@ -1,19 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::BoundUnitKey;
+use bray_binder::SymbolQueryProvider;
+use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
-    InterfaceExecutableTemplate, InterfaceNativeBoundary, InterfaceRuntimeRequirement,
-    InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
-    commit_interface_semantic_fragments,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceSymbolReference,
+    PackageInterfaceSurface, commit_interface_semantic_fragments,
 };
-use bray_symbols::{AnySymbolId, ExternalSymbolKey, InterfaceSymbolId};
+use bray_symbols::{
+    AnySymbolId, CallableConstness, CallableDefinitionId, CallableInstanceData,
+    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId, InterfaceSymbolId,
+    SymbolQueryRequest, diagnostic_external_symbol_identity,
+};
 
 use super::super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
 use crate::fact::{BatchCompletionError, BatchWork, FactQueryError};
 
-use super::context::SemanticExporter;
-use super::defaults::target_dependencies;
+use super::context::{CheckedConstantExpression, SemanticExporter};
+use super::defaults::{generic_parameters, target_dependencies};
 use super::fragment::SemanticFragment;
 use super::implementation::implementation_semantics;
 use super::templates::ExecutableTemplateExporter;
@@ -27,6 +32,7 @@ pub(in crate::compilation::export) fn build_semantics(
 ) -> Result<
     (
         InterfaceSemantics,
+        Vec<InterfaceConstantCallableBody>,
         Vec<InterfaceExecutableTemplate>,
         Vec<InterfaceNativeBoundary>,
     ),
@@ -40,15 +46,8 @@ pub(in crate::compilation::export) fn build_semantics(
         .binding_context(&compilation.state.cancellation)
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
-    let fragments = resolve_fragments(
-        compilation,
-        graph,
-        &binder,
-        surface,
-        selected,
-        keys,
-        values,
-    )?;
+    let fragments =
+        resolve_fragments(compilation, graph, &binder, surface, selected, keys, values)?;
 
     let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
 
@@ -67,6 +66,9 @@ pub(in crate::compilation::export) fn build_semantics(
     let (implementations, coherence) = implementation_semantics(&mut export, &binder, selected)?;
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
+
+    let constant_callable_bodies =
+        constant_callable_bodies(compilation, &binder, selected, &mut export)?;
 
     let (executable_templates, runtime_requirements) =
         executable_templates(compilation, graph, selected, &mut export)?;
@@ -98,7 +100,142 @@ pub(in crate::compilation::export) fn build_semantics(
     )
     .map_err(PackageInterfaceExportError::FragmentCommit)?;
 
-    Ok((semantics, executable_templates, native_boundaries))
+    Ok((
+        semantics,
+        constant_callable_bodies,
+        executable_templates,
+        native_boundaries,
+    ))
+}
+
+fn constant_callable_bodies(
+    compilation: &Compilation,
+    binder: &crate::compilation::binder::CompilationBindingContext<'_>,
+    selected: &BTreeSet<AnySymbolId>,
+    export: &mut SemanticExporter<'_>,
+) -> Result<Vec<InterfaceConstantCallableBody>, PackageInterfaceExportError> {
+    let values = export.values;
+    let mut bodies = Vec::new();
+
+    for symbol in selected.iter().copied() {
+        let Some(definition) = CallableDefinitionId::try_new(symbol) else {
+            continue;
+        };
+
+        if compilation
+            .callable_body_key(definition)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .is_none()
+        {
+            continue;
+        }
+
+        let signature = binder
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+                definition.callable_symbol(),
+            ))
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        if signature.diagnostics().has_errors()
+            || signature
+                .value()
+                .constness(values)
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+                != CallableConstness::Constant
+        {
+            continue;
+        }
+
+        let arguments = callable_argument_ordinals(signature.value())?;
+
+        let parameters = generic_parameters(binder, symbol)?;
+
+        let owner = GenericOwnerId::try_new(symbol)
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        let substitution =
+            crate::compilation::substitution::identity_substitution(values, owner, &parameters)
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        let result_type = export.resolve_type_template(symbol, signature.value().result())?;
+        let declaration = exported_declaration_identity(export, symbol)?;
+
+        let evaluated = compilation
+            .symbolic_constant_callable_body(
+                CallableInstanceData::new(definition, substitution),
+                result_type,
+                &arguments,
+                &compilation.state.cancellation,
+            )
+            .map_err(
+                |cause| PackageInterfaceExportError::ConstantCallableEvaluation {
+                    declaration: declaration.clone(),
+                    cause,
+                },
+            )?;
+
+        if evaluated.diagnostics().has_errors() {
+            continue;
+        }
+
+        let dependency = values
+            .empty_dependency_contract_template()
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        let template = export.checked_constant_template(
+            CheckedTemplateKind::ConstantCallableBody,
+            CheckedConstantExpression {
+                term: *evaluated.value(),
+                ty: result_type,
+            },
+            dependency,
+        )?;
+
+        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        };
+
+        bodies.push(InterfaceConstantCallableBody::new(owner, template));
+    }
+
+    Ok(bodies)
+}
+
+fn callable_argument_ordinals(
+    signature: &bray_symbols::CallableSignatureTemplate,
+) -> Result<BTreeMap<AnySymbolId, bray_symbols::SymbolOrdinal>, PackageInterfaceExportError> {
+    let parameters = signature
+        .receiver()
+        .map(|receiver| AnySymbolId::from(receiver.parameter()))
+        .into_iter()
+        .chain(
+            signature
+                .parameters()
+                .iter()
+                .map(|parameter| AnySymbolId::from(*parameter)),
+        );
+
+    parameters
+        .enumerate()
+        .map(|(index, parameter)| {
+            let ordinal = u32::try_from(index)
+                .map(bray_symbols::SymbolOrdinal::new)
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+            Ok((parameter, ordinal))
+        })
+        .collect()
+}
+
+fn exported_declaration_identity(
+    export: &SemanticExporter<'_>,
+    symbol: AnySymbolId,
+) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError> {
+    export
+        .keys
+        .get(&symbol)
+        .map(diagnostic_external_symbol_identity)
+        .ok_or(PackageInterfaceExportError::InvalidCompilation)
 }
 
 fn resolve_fragments(
@@ -491,9 +628,7 @@ mod tests {
 
     use super::fragment_batch_error;
     use crate::compilation::PackageInterfaceExportError;
-    use crate::fact::{
-        BatchCompletionError, CompilationFactKey, FactCycle, FactQueryError,
-    };
+    use crate::fact::{BatchCompletionError, CompilationFactKey, FactCycle, FactQueryError};
 
     #[test]
     fn scheduler_failures_retain_their_cause() {
@@ -506,7 +641,9 @@ mod tests {
         let error = fragment_batch_error(BatchCompletionError::<
             AnySymbolId,
             PackageInterfaceExportError,
-        >::Scheduler(FactQueryError::Cycle(cycle.clone())));
+        >::Scheduler(FactQueryError::Cycle(
+            cycle.clone(),
+        )));
 
         assert_eq!(
             error,

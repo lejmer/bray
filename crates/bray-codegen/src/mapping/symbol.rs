@@ -1,8 +1,8 @@
+use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
 use bray_ir::MirRuntimeReference;
 use bray_runtime_interface::{
     BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
 };
-use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
 
 /// Runtime roles required by every native entry that invokes a Bray callable.
 pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [

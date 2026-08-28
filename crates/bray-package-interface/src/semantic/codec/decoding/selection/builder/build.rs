@@ -704,6 +704,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
         )?;
 
         match &term {
+            InterfaceConstantTerm::Typed { term, ty } => {
+                self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                self.enqueue(PendingRecord::Type(ty.raw()));
+            }
             InterfaceConstantTerm::Value(value) => {
                 self.enqueue(PendingRecord::ConstantValue(value.raw()));
             }
@@ -781,6 +785,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 }
             }
             InterfaceConstantTerm::IntegerLiteral { .. }
+            | InterfaceConstantTerm::CallableArgument(_)
             | InterfaceConstantTerm::Parameter(_)
             | InterfaceConstantTerm::TargetProperty(_) => {}
         }

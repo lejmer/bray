@@ -638,7 +638,7 @@ where
                         )
                     })?;
 
-                Ok(term)
+                self.type_term(term, ty)
             }
             Some(ConstantReferenceResolution::Cycle { definition }) => {
                 Err(EvaluationFailure::Source {
@@ -674,7 +674,7 @@ where
 
                 match self.closed_elements(&terms)? {
                     Some(values) => self.intern_value_term(ty, ConstantValueKind::tuple(values)),
-                    None => self.intern_term(ConstantTermData::tuple(terms)),
+                    None => self.intern_typed_term(ty, ConstantTermData::tuple(terms)),
                 }
             }
             BoundStructuredExpressionKind::Array => {
@@ -682,7 +682,7 @@ where
 
                 match self.closed_elements(&terms)? {
                     Some(values) => self.intern_value_term(ty, ConstantValueKind::array(values)),
-                    None => self.intern_term(ConstantTermData::array(terms)),
+                    None => self.intern_typed_term(ty, ConstantTermData::array(terms)),
                 }
             }
             BoundStructuredExpressionKind::RepeatedArray => {
@@ -811,7 +811,10 @@ where
                 ty,
                 ConstantValueKind::array(std::iter::repeat_n(value, count)),
             ),
-            None => self.intern_term(ConstantTermData::array(std::iter::repeat_n(value, count))),
+            None => self.intern_typed_term(
+                ty,
+                ConstantTermData::array(std::iter::repeat_n(value, count)),
+            ),
         }
     }
 

@@ -90,6 +90,21 @@ impl FormatWriter {
         }
     }
 
+    pub(super) fn request_space_when_flat(&mut self) {
+        if self.is_line_start() {
+            return;
+        }
+
+        match &mut self.pending {
+            pending @ PendingWhitespace::None => *pending = PendingWhitespace::Space,
+            PendingWhitespace::OptionalBreak { space_when_flat }
+            | PendingWhitespace::FillBreak {
+                space_when_flat, ..
+            } => *space_when_flat = true,
+            PendingWhitespace::Space | PendingWhitespace::RequiredBreak(_) => {}
+        }
+    }
+
     pub(super) fn request_optional_break(&mut self, space_when_flat: bool) {
         if !matches!(self.pending, PendingWhitespace::RequiredBreak(_)) {
             self.pending = PendingWhitespace::OptionalBreak { space_when_flat };

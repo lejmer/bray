@@ -1,0 +1,108 @@
+trusted module std.sync;
+
+struct SpinLock<T>
+{
+    internal next_ticket: core.atomic.Atomic<u32>;
+    internal serving_ticket: core.atomic.Atomic<u32>;
+    internal storage: T;
+
+    construct(pos value: T) -> Self
+    {
+        return
+        {
+            next_ticket = core.atomic.initialize<u32>(0),
+            serving_ticket = core.atomic.initialize<u32>(0),
+            storage = value,
+        };
+    }
+
+    func lock() -> SpinLockGuard<T>
+    {
+        let ticket: u32 = core.atomic.fetch_add<u32, 0>(&self.next_ticket, 1);
+
+        while core.atomic.load<u32, 1>(&self.serving_ticket) != ticket
+        {
+            trusted internal spin_loop();
+        }
+
+        let guard: SpinLockGuard<T> =
+        {
+            lock = &self,
+            active = true,
+        };
+
+        return guard;
+    }
+
+    func try_lock() -> SpinLockGuard<T>?
+    {
+        let serving: u32 = core.atomic.load<u32, 1>(&self.serving_ticket);
+        let next: u32 = core.atomic.load<u32, 0>(&self.next_ticket);
+
+        if next != serving
+        {
+            return none;
+        }
+
+        let(_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
+            &self.next_ticket,
+            expected = next,
+            desired = next + 1,
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let mut result: SpinLockGuard<T>? = none;
+
+        let guard: SpinLockGuard<T> =
+        {
+            lock = &self,
+            active = true,
+        };
+
+        result = guard;
+
+        return result;
+    }
+}
+
+struct SpinLockGuard<T>
+{
+    internal lock: &SpinLock<T>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_spin_lock<T>(self.lock);
+        }
+    }
+
+    mut func get() -> &mut T
+    {
+        let pointer: RawPointer<T> = std.memory.address_of<T>(&self.lock.storage);
+
+        return trusted std.memory.borrow_mut_from<T, SpinLockGuard<T>>(&mut self, pointer);
+    }
+
+    consume mut func unlock()
+    {
+        trusted internal release_spin_lock<T>(self.lock);
+        self.active = false;
+    }
+}
+
+trusted internal func release_spin_lock<T>(pos lock: &SpinLock<T>)
+{
+    let _: u32 = core.atomic.fetch_add<u32, 2>(&lock.serving_ticket, 1);
+}
+
+trusted internal func spin_loop()
+    uses(intrinsic)
+{
+    trusted core.target.spin_loop_hint();
+}

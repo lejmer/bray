@@ -2,6 +2,7 @@
 module std.atomic;
 
 trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, pos expected: u32)
+    requires(blocking_execution())
     uses(foreign_call)
 {
     let address: RawPointer<u32> = trusted internal word_pointer(storage);
@@ -17,6 +18,33 @@ trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, 
     );
 }
 
+trusted internal func platform_wait_word_for(
+    pos storage: &core.atomic.Atomic<u32>,
+    pos expected: u32,
+    pos timeout_milliseconds: u32,
+)
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+
+    let timeout: std.os.linux.Timespec =
+    {
+        seconds = (timeout_milliseconds / 1_000) as i64,
+        nanoseconds = ((timeout_milliseconds % 1_000) as i64) * 1_000_000,
+    };
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAIT_PRIVATE,
+        expected,
+        std.memory.address_of<std.os.linux.Timespec>(&timeout),
+        std.memory.null<u8>(),
+        0,
+    );
+}
+
 trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
     uses(foreign_call)
 {
@@ -27,6 +55,22 @@ trusted internal func platform_wake_word(pos storage: &core.atomic.Atomic<u32>)
         address,
         std.os.linux.FUTEX_WAKE_PRIVATE,
         1,
+        std.memory.null<u8>(),
+        std.memory.null<u8>(),
+        0,
+    );
+}
+
+trusted internal func platform_wake_all_words(pos storage: &core.atomic.Atomic<u32>)
+    uses(foreign_call)
+{
+    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+
+    let _: isize = trusted std.os.linux.syscall(
+        std.os.linux.SYS_FUTEX,
+        address,
+        std.os.linux.FUTEX_WAKE_PRIVATE,
+        2_147_483_647,
         std.memory.null<u8>(),
         std.memory.null<u8>(),
         0,

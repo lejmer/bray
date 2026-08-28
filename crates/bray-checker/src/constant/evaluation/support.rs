@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundExpressionId, BoundOperator, ExpressionTypeStatus};
+use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundOperator, ExpressionTypeStatus};
 use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
@@ -19,6 +19,32 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn is_complex_literal(
+        &self,
+        binary: &bray_bound_tree::BoundBinaryExpression,
+    ) -> bool {
+        if !matches!(
+            binary.operator(),
+            BoundOperator::Add | BoundOperator::Subtract
+        ) {
+            return false;
+        }
+
+        let [real, imaginary] = binary.operands() else {
+            return false;
+        };
+
+        matches!(
+            self.request.view().expression(*real),
+            Some(BoundExpression::Literal(literal))
+                if literal.kind() == bray_bound_tree::BoundLiteralKind::Real
+        ) && matches!(
+            self.request.view().expression(*imaginary),
+            Some(BoundExpression::Literal(literal))
+                if literal.kind() == bray_bound_tree::BoundLiteralKind::Imaginary
+        )
+    }
+
     pub(super) fn expression_type(
         &self,
         expression: BoundExpressionId,
@@ -95,6 +121,28 @@ where
             })
     }
 
+    pub(super) fn intern_typed_term(
+        &self,
+        ty: TypeId,
+        data: ConstantTermData,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let term = self.intern_term(data)?;
+
+        self.type_term(term, ty)
+    }
+
+    pub(super) fn type_term(
+        &self,
+        term: ConstantTermId,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        if !self.input.retains_nested_term_types() {
+            return Ok(term);
+        }
+
+        self.intern_term(ConstantTermData::typed(term, ty))
+    }
+
     pub(super) fn term_value(
         &self,
         term: ConstantTermId,
@@ -110,8 +158,10 @@ where
             })?;
 
         Ok(match data.as_ref() {
+            ConstantTermData::Typed { term, .. } => return self.term_value(*term),
             ConstantTermData::Value(value) => Some(*value),
             ConstantTermData::IntegerLiteral { .. }
+            | ConstantTermData::CallableArgument(_)
             | ConstantTermData::Parameter(_)
             | ConstantTermData::TargetProperty(_)
             | ConstantTermData::Unary { .. }

@@ -122,6 +122,9 @@ impl SemanticUnifier<'_> {
         let term = self.values.constant_term_data(term)?;
 
         match term.as_ref() {
+            ConstantTermData::Typed { term, .. } => {
+                self.constant_contains_parameter(*term, parameter, visited)
+            }
             ConstantTermData::Parameter(candidate) => Ok(*candidate == parameter),
             ConstantTermData::Unary { operand, .. }
             | ConstantTermData::Conversion { operand, .. }
@@ -213,6 +216,7 @@ impl SemanticUnifier<'_> {
             }
             ConstantTermData::Value(_)
             | ConstantTermData::IntegerLiteral { .. }
+            | ConstantTermData::CallableArgument(_)
             | ConstantTermData::TargetProperty(_) => Ok(false),
         }
     }

@@ -679,6 +679,10 @@ fn constant_term_exposes_internal(
     };
 
     match data.as_ref() {
+        ConstantTermData::Typed { term, ty } => {
+            pending.push(SemanticValueDependency::ConstantTerm(*term));
+            pending.push(SemanticValueDependency::Type(*ty));
+        }
         ConstantTermData::Value(value) => {
             let Ok(value) = semantic_values.constant_value_data(*value) else {
                 return None;
@@ -687,6 +691,7 @@ fn constant_term_exposes_internal(
             pending.push(SemanticValueDependency::Type(value.ty()));
         }
         ConstantTermData::IntegerLiteral { .. } => {}
+        ConstantTermData::CallableArgument(_) => {}
         ConstantTermData::Parameter(_) => {}
         ConstantTermData::TargetProperty(constant) => {
             return source_symbol_is_not_publicly_reachable(

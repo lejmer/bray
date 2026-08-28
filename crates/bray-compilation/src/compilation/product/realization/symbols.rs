@@ -6,8 +6,8 @@ use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
     CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenNativeEntryMapping,
-    CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey,
-    CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping, CodegenUnit, child_constants,
+    CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTarget, CodegenTerminatorMapping, CodegenUnit, child_constants,
     demanded_callable_instances, demanded_constant_terms, demanded_constants,
 };
 use bray_ir::{MirUnitKey, MirUnitKind};
@@ -264,16 +264,9 @@ impl Compilation {
                     Some(CodegenNativeEntryMapping::new(name, linkage)),
                 ))
             }
-            Some(NativeBoundaryMapping::Direct { name, linkage }) => {
-                Ok((name, linkage, None))
-            }
+            Some(NativeBoundaryMapping::Direct { name, linkage }) => Ok((name, linkage, None)),
             None => self
-                .generated_callable_symbol_name(
-                    target,
-                    default_linkage,
-                    realization,
-                    cancellation,
-                )
+                .generated_callable_symbol_name(target, default_linkage, realization, cancellation)
                 .map(|name| (name, default_linkage, None)),
         }
     }

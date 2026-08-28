@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
-use bray_target::{RelocationModel, TargetArchitecture};
+use bray_target::{NativeTarget, RelocationModel, TargetArchitecture};
 
 use crate::LldFlavor;
 use crate::SystemLinkerFamily;
@@ -274,6 +274,13 @@ fn push_target_arguments(
         LldFlavor::MachO => {
             arguments.push("-arch".into());
             arguments.push(macho_architecture(plan.target().architecture())?.into());
+
+            if let Some(version) = NativeTarget::for_identity(plan.target().identity())
+                .and_then(NativeTarget::minimum_system_version)
+            {
+                arguments.push("-macos_version_min".into());
+                arguments.push(version.into());
+            }
         }
     }
 
@@ -1006,6 +1013,16 @@ mod tests {
 
             assert_eq!(first, second, "{}", native.as_str());
             assert!(!first.is_empty(), "{}", native.as_str());
+
+            if let Some(version) = native.minimum_system_version() {
+                assert!(first.windows(2).any(|arguments| {
+                    arguments
+                        == [
+                            OsString::from("-macos_version_min"),
+                            OsString::from(version),
+                        ]
+                }));
+            }
         }
     }
 

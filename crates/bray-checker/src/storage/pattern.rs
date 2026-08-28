@@ -64,6 +64,17 @@ where
             None => parent_access,
         };
 
+        if pattern.kind() == BoundPatternKind::Discard
+            && checked.operation() == PatternOperation::Consume
+        {
+            self.bind_owned_pattern_storage(
+                StorageBindingTarget::PatternDiscard(id),
+                id,
+                checked.input_type(),
+                checked.is_recovered(),
+            )?;
+        }
+
         if checked.target().is_none() {
             for binding in pattern.bindings() {
                 self.bind_pattern_local(*binding, id, subject_expression, access)?;
@@ -148,31 +159,12 @@ where
                 PatternOperation::Consume
                 | PatternOperation::Copy
                 | PatternOperation::Recovered => {
-                    let identity = self.bind_identity(
+                    self.bind_owned_pattern_storage(
                         target,
-                        StorageIdentity::LocalOwned(pattern.into()),
-                        Some(checked.ty()),
+                        pattern,
+                        checked.ty(),
+                        checked.is_recovered(),
                     )?;
-
-                    if let Some(identity) = identity {
-                        let pattern = self
-                            .request
-                            .view()
-                            .pattern(pattern)
-                            .ok_or_else(|| invalid_node(pattern))?;
-
-                        let access = StorageAccess::new(
-                            StorageAccessRoot::Storage(identity),
-                            [],
-                            checked.ty(),
-                            pattern.origin().source_anchor(),
-                            pattern.is_recovered() || checked.is_recovered(),
-                        );
-
-                        self.builder_mut()?
-                            .push_access(access)
-                            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
-                    }
 
                     None
                 }
@@ -225,6 +217,44 @@ where
         };
 
         self.record_purpose(subject_expression, Some(purpose), access)
+    }
+
+    fn bind_owned_pattern_storage(
+        &mut self,
+        target: StorageBindingTarget,
+        pattern: BoundPatternId,
+        ty: bray_symbols::TypeId,
+        is_recovered: bool,
+    ) -> Result<(), PlanError> {
+        let identity = self.bind_identity(
+            target,
+            StorageIdentity::LocalOwned(pattern.into()),
+            Some(ty),
+        )?;
+
+        let Some(identity) = identity else {
+            return Ok(());
+        };
+
+        let pattern = self
+            .request
+            .view()
+            .pattern(pattern)
+            .ok_or_else(|| invalid_node(pattern))?;
+
+        let access = StorageAccess::new(
+            StorageAccessRoot::Storage(identity),
+            [],
+            ty,
+            pattern.origin().source_anchor(),
+            pattern.is_recovered() || is_recovered,
+        );
+
+        self.builder_mut()?
+            .push_access(access)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        Ok(())
     }
 
     fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> Result<bool, PlanError> {

@@ -27,6 +27,12 @@ pub(crate) const fn format_english_emission_evaluation_failure(
     match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler evaluation state became inconsistent",
+        Failure::ConstantCallableBodyUnavailable => {
+            "the selected constant callable has no available body"
+        }
+        Failure::ConstantCallableRootUnavailable => {
+            "the selected constant callable body has no result expression"
+        }
         Failure::AtomicRepresentationTypeUnavailable => {
             "the selected atomic value has no available representation type"
         }
@@ -38,6 +44,9 @@ pub(crate) const fn format_english_emission_evaluation_failure(
         }
         Failure::AtomicInitializerResultUnavailable => {
             "the atomic initializer result cannot be represented as a compile-time value"
+        }
+        Failure::UninitInitializerResultUnavailable => {
+            "the uninitialized-storage initializer result cannot be represented as a compile-time value"
         }
         Failure::ImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
@@ -65,6 +74,12 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationConstantCallableBodyUnavailable => {
+            "the selected constant callable has no available body"
+        }
+        Kind::EvaluationConstantCallableRootUnavailable => {
+            "the selected constant callable body has no result expression"
+        }
         Kind::EvaluationAtomicRepresentationTypeUnavailable => {
             "the selected atomic value has no available representation type"
         }
@@ -76,6 +91,9 @@ pub(crate) const fn format_english_native_product_failure(
         }
         Kind::EvaluationAtomicInitializerResultUnavailable => {
             "the atomic initializer result cannot be represented as a compile-time value"
+        }
+        Kind::EvaluationUninitInitializerResultUnavailable => {
+            "the uninitialized-storage initializer result cannot be represented as a compile-time value"
         }
         Kind::EvaluationImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"

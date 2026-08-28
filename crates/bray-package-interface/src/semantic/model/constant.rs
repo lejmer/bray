@@ -74,6 +74,13 @@ pub enum InterfaceConstantValueKind {
 /// Durable checked open constant term.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceConstantTerm {
+    /// A term retained with its exact checked result type.
+    Typed {
+        /// Retained term.
+        term: InterfaceConstantTermId,
+        /// Exact checked result type.
+        ty: InterfaceTypeId,
+    },
     /// A closed constant value.
     Value(InterfaceConstantValueId),
     /// A typed integer literal awaiting selected-target representability checking.
@@ -85,6 +92,8 @@ pub enum InterfaceConstantTerm {
     },
     /// A generic constant parameter.
     Parameter(InterfaceSymbolReference),
+    /// A const-callable argument addressed in receiver-first call order.
+    CallableArgument(SymbolOrdinal),
     /// A compiler-known target property.
     TargetProperty(InterfaceSymbolReference),
     /// A selected unary operation.

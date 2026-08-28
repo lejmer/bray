@@ -171,11 +171,9 @@ fn validate_native_callback_entries(
     validate_canonical_strings(
         entries,
         |index| CompilationProfileValidationError::InvalidNativeCallbackEntry { index },
-        |first, second| {
-            CompilationProfileValidationError::NonCanonicalNativeCallbackEntries {
-                first,
-                second,
-            }
+        |first, second| CompilationProfileValidationError::NonCanonicalNativeCallbackEntries {
+            first,
+            second,
         },
     )
 }

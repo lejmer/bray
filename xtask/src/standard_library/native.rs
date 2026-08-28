@@ -16,9 +16,9 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 86;
+const API_TEST_COUNT: usize = 100;
 const API_FILTERED_TEST_COUNT: usize = 3;
-const OUTCOME_CASES: [OutcomeCase; 6] = [
+const OUTCOME_CASES: [OutcomeCase; 7] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -29,7 +29,22 @@ const OUTCOME_CASES: [OutcomeCase; 6] = [
         "explicit_failure",
         OutcomeExpectation::Explicit,
     ),
-    OutcomeCase::new("panic-failure", "panic_failure", OutcomeExpectation::Panic),
+    OutcomeCase::new(
+        "panic-failure",
+        "panic_failure",
+        OutcomeExpectation::Panic {
+            message: "expected panic",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "once-indirect-reentry",
+        "once_indirect_reentry_panics",
+        OutcomeExpectation::Panic {
+            message: "Once initialization reentered",
+            source_available: false,
+        },
+    ),
     OutcomeCase::new(
         "recoverable-error",
         "recoverable_error",
@@ -128,7 +143,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         }
 
         if selected(parts, TestPart::Outcomes) {
-            crate::progress::run("Checking native test outcomes (6 cases)", || {
+            crate::progress::run("Checking native test outcomes (7 cases)", || {
                 audit_outcomes(&root, &workspace, &toolchain, target, profile_output)
             })?;
         }
@@ -316,7 +331,7 @@ fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
 
 fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
-    require_selection(report, 6, 1, 5)?;
+    require_selection(report, 7, 1, 6)?;
 
     if report.summary.passed != 0 || report.summary.failed != 1 {
         return Err(BuildError::conformance(
@@ -850,7 +865,10 @@ impl OutcomeCase {
 enum OutcomeExpectation {
     Assertion,
     Explicit,
-    Panic,
+    Panic {
+        message: &'static str,
+        source_available: bool,
+    },
     ReturnedError,
     TimedOut,
     ForcedTermination,
@@ -866,7 +884,10 @@ impl OutcomeExpectation {
                 source.is_valid() && message == "expected explicit failure"
             }
             (
-                Self::Panic,
+                Self::Panic {
+                    message: expected_message,
+                    source_available,
+                },
                 NativeOutcome::Panicked {
                     cause,
                     source,
@@ -874,8 +895,12 @@ impl OutcomeExpectation {
                 },
             ) => {
                 cause == "message"
-                    && source.is_some_and(NativeSourceAnchor::is_valid)
-                    && message == "expected panic"
+                    && match (source_available, source) {
+                        (true, Some(source)) => source.is_valid(),
+                        (false, None) => true,
+                        _ => false,
+                    }
+                    && message == expected_message
             }
             (
                 Self::ReturnedError,

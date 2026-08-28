@@ -322,12 +322,27 @@ impl<'a> SemanticExporter<'a> {
         expression: CheckedConstantExpression,
         dependency_contract: bray_symbols::DependencyContractTemplateId,
     ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
+        self.checked_constant_template_with_usage(
+            kind,
+            expression,
+            dependency_contract,
+            CheckedTemplateConstantUsage::default(),
+        )
+    }
+
+    pub(super) fn checked_constant_template_with_usage(
+        &mut self,
+        kind: CheckedTemplateKind,
+        expression: CheckedConstantExpression,
+        dependency_contract: bray_symbols::DependencyContractTemplateId,
+        usage: CheckedTemplateConstantUsage,
+    ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
         let result = CheckedTemplateNodeId::new(0);
 
         let node = InterfaceCheckedTemplateNode::new(
             InterfaceCheckedTemplateOperation::Constant {
                 term: self.constant_term_id(expression.term)?,
-                usage: CheckedTemplateConstantUsage::default(),
+                usage,
             },
             self.type_id(expression.ty)?,
         );
@@ -366,69 +381,73 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::Type,
             {
-            let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
+                let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
 
-            let ty = match data.as_ref() {
-            TypeData::Error => return Err(incomplete_type()),
-            TypeData::Named {
-                definition,
-                substitution,
-            } => InterfaceType::Named {
-                definition: self.symbol_reference(definition.into_any())?,
-                substitution: self.substitution_id(*substitution)?,
-            },
-            TypeData::TypeParameter(parameter) => {
-                InterfaceType::TypeParameter(self.symbol_reference((*parameter).into())?)
-            }
-            TypeData::ContextualSelf(context) => {
-                InterfaceType::ContextualSelf(self.symbol_reference(context.symbol())?)
-            }
-            TypeData::TypeValuedMemberProjection {
-                subject,
-                application,
-                member,
-            } => InterfaceType::TypeValuedMemberProjection {
-                subject: self.type_id(*subject)?,
-                application: self.trait_application_id(*application)?,
-                member: self.symbol_reference((*member).into())?,
-            },
-            TypeData::Tuple(elements) => InterfaceType::Tuple(
-                elements
-                    .iter()
-                    .copied()
-                    .map(|element| self.type_id(element))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            ),
-            TypeData::Array { element, length } => InterfaceType::Array {
-                element: self.type_id(*element)?,
-                length: self.constant_term_id(*length)?,
-            },
-            TypeData::FlexibleArray(element) => {
-                InterfaceType::FlexibleArray(self.type_id(*element)?)
-            }
-            TypeData::Slice(element) => InterfaceType::Slice(self.type_id(*element)?),
-            TypeData::Generator(element) => InterfaceType::Generator(self.type_id(*element)?),
-            TypeData::Nullable(target) => InterfaceType::Nullable(self.type_id(*target)?),
-            TypeData::Borrow { kind, target } => InterfaceType::Borrow {
-                kind: *kind,
-                target: self.type_id(*target)?,
-            },
-            TypeData::TraitView(application) => {
-                InterfaceType::TraitView(self.trait_application_id(*application)?)
-            }
-            TypeData::OwnedIndirection { storage, target } => InterfaceType::OwnedIndirection {
-                storage: self.type_id(*storage)?,
-                target: self.type_id(*target)?,
-            },
-            TypeData::Callable(callable) => self.callable_type(callable)?,
-            };
+                let ty = match data.as_ref() {
+                    TypeData::Error => return Err(incomplete_type()),
+                    TypeData::Named {
+                        definition,
+                        substitution,
+                    } => InterfaceType::Named {
+                        definition: self.symbol_reference(definition.into_any())?,
+                        substitution: self.substitution_id(*substitution)?,
+                    },
+                    TypeData::TypeParameter(parameter) => {
+                        InterfaceType::TypeParameter(self.symbol_reference((*parameter).into())?)
+                    }
+                    TypeData::ContextualSelf(context) => {
+                        InterfaceType::ContextualSelf(self.symbol_reference(context.symbol())?)
+                    }
+                    TypeData::TypeValuedMemberProjection {
+                        subject,
+                        application,
+                        member,
+                    } => InterfaceType::TypeValuedMemberProjection {
+                        subject: self.type_id(*subject)?,
+                        application: self.trait_application_id(*application)?,
+                        member: self.symbol_reference((*member).into())?,
+                    },
+                    TypeData::Tuple(elements) => InterfaceType::Tuple(
+                        elements
+                            .iter()
+                            .copied()
+                            .map(|element| self.type_id(element))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
+                    ),
+                    TypeData::Array { element, length } => InterfaceType::Array {
+                        element: self.type_id(*element)?,
+                        length: self.constant_term_id(*length)?,
+                    },
+                    TypeData::FlexibleArray(element) => {
+                        InterfaceType::FlexibleArray(self.type_id(*element)?)
+                    }
+                    TypeData::Slice(element) => InterfaceType::Slice(self.type_id(*element)?),
+                    TypeData::Generator(element) => {
+                        InterfaceType::Generator(self.type_id(*element)?)
+                    }
+                    TypeData::Nullable(target) => InterfaceType::Nullable(self.type_id(*target)?),
+                    TypeData::Borrow { kind, target } => InterfaceType::Borrow {
+                        kind: *kind,
+                        target: self.type_id(*target)?,
+                    },
+                    TypeData::TraitView(application) => {
+                        InterfaceType::TraitView(self.trait_application_id(*application)?)
+                    }
+                    TypeData::OwnedIndirection { storage, target } => {
+                        InterfaceType::OwnedIndirection {
+                            storage: self.type_id(*storage)?,
+                            target: self.type_id(*target)?,
+                        }
+                    }
+                    TypeData::Callable(callable) => self.callable_type(callable)?,
+                };
 
-            let exported = InterfaceTypeId::new(index(self.types.len())?);
-            self.types.push(ty);
-            self.type_ids.insert(id, exported);
+                let exported = InterfaceTypeId::new(index(self.types.len())?);
+                self.types.push(ty);
+                self.type_ids.insert(id, exported);
 
-            Ok(exported)
+                Ok(exported)
             }
         )
     }

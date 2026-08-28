@@ -6,6 +6,7 @@ mod index;
 mod memory;
 mod numeric;
 mod operand;
+mod projection;
 mod run;
 mod static_access;
 mod testing;

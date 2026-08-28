@@ -139,13 +139,9 @@ fn load_profile(path: &Path) -> Result<CompilationProfileReport, DiagnosticBag> 
                 CompilationProfileValidationError::InvalidRuntimeRole { index } => {
                     DiagnosticProfileValidationProblem::InvalidRuntimeRole { index }
                 }
-                CompilationProfileValidationError::NonCanonicalRuntimeRoles {
-                    first,
-                    second,
-                } => DiagnosticProfileValidationProblem::NonCanonicalRuntimeRoles {
-                    first,
-                    second,
-                },
+                CompilationProfileValidationError::NonCanonicalRuntimeRoles { first, second } => {
+                    DiagnosticProfileValidationProblem::NonCanonicalRuntimeRoles { first, second }
+                }
                 CompilationProfileValidationError::InvalidNativeCallbackEntry { index } => {
                     DiagnosticProfileValidationProblem::InvalidNativeCallbackEntry { index }
                 }

@@ -335,12 +335,13 @@ See [atomic operation contracts](https://github.com/lejmer/bray/blob/develop/doc
 
 ## Standard-library concurrency
 
-The concurrency library exposes ordinary declarations for one-time initialization, bounded channels, task combinators, threads, child processes, and typed parallelism budgets.
+The concurrency library exposes ordinary declarations for synchronization owners, one-time initialization, bounded channels, task combinators, threads, child processes, and typed parallelism budgets.
 
 ```bray
 static CONFIGURATION: std.sync.Once<Configuration> = std.sync.Once<Configuration>.empty();
 
 func configuration() -> &Configuration
+    requires(blocking_execution())
 {
     return CONFIGURATION.get_or_init(load_configuration);
 }
@@ -408,7 +409,9 @@ async func budgeted(pos budget: &Budget<TaskDomain>) -> RunResult<Report>
 }
 ```
 
-`Once<T>` publishes one initialized value and retries after initializer failure. Bounded channels make backpressure explicit. `first` cancels and resolves losers before returning, while `all` returns every run result in input order. Threads and processes remain structured owners. Child processes communicate through codecs and expose both transport failure and child `RunResult`. Budgets provide domain-specific admission rather than global execution authority, and they do not automatically charge `.start()`.
+`SpinLock<T>` and `Mutex<T>` use ticket ordering, while `RwLock<T>` gives waiting writers priority over new readers. Guards carry access authority and release it through `unlock()` or lifecycle resolution. Condition waits return with their mutex reacquired and may wake spuriously. Events, semaphores, and barriers follow target waiter scheduling. Their blocking operations, plus `Once<T>` accessors, require `blocking_execution()` and defer pending cancellation to the next checkpoint.
+
+`Once<T>` publishes one initialized value, detects direct and indirect reentry, and retries after initializer failure. Bounded channels make backpressure explicit, preserve send-commit order, and return unsent values when the receiver closes. Their async waits withdraw uncommitted operations during cancellation. `first` cancels and resolves losers before returning, while `all` returns every run result in input order. Threads and processes remain structured owners. Child processes communicate through codecs and expose both transport failure and child `RunResult`. Budgets provide domain-specific admission rather than global execution authority, and they do not automatically charge `.start()`.
 
 See [standard-library concurrency](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/standard-library-concurrency.md) and [low-level runtime](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/low-level-runtime.md).
 

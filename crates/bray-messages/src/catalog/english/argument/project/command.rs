@@ -307,7 +307,9 @@ fn format_english_profile_validation_problem(
 
     match problem {
         Problem::SchemaRevision { expected, actual } => {
-            format!("uses schema revision {actual}, but this toolchain requires revision {expected}")
+            format!(
+                "uses schema revision {actual}, but this toolchain requires revision {expected}"
+            )
         }
         Problem::DuplicateDescriptor { kind, id } => format!(
             "contains duplicate {} descriptor {id}",

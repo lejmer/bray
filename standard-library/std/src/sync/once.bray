@@ -1,0 +1,203 @@
+trusted module std.sync;
+
+internal const ONCE_EMPTY: u32 = 0;
+
+internal const ONCE_INITIALIZING: u32 = 1;
+
+internal const ONCE_REENTERED: u32 = 2;
+
+internal const ONCE_INITIALIZED: u32 = 3;
+
+@thread_local internal static ONCE_THREAD_MARKER: core.atomic.Atomic<u8> = core.atomic.initialize<u8>(0);
+
+struct Once<T>
+{
+    internal state: core.atomic.Atomic<u32>;
+    internal owner: core.atomic.Atomic<usize>;
+    internal mut storage: Uninit<T>;
+
+    static const func empty() -> Self
+    {
+        return internal empty_once<T>();
+    }
+
+    trusted destruct()
+    {
+        if core.atomic.load<u32, 1>(&self.state) == ONCE_INITIALIZED
+        {
+            trusted std.memory.destroy_initialized<T>(&mut self.storage);
+        }
+    }
+
+    func get_or_init(pos initializer: func() -> T) -> &T
+        requires(blocking_execution())
+    {
+        if !internal claim_initialization<T>(&self)
+        {
+            return trusted internal initialized_once_value<T>(&self);
+        }
+
+        let mut attempt: OnceAttempt<T> =
+        {
+            once = &self,
+            active = true,
+        };
+
+        let value: T = initializer();
+
+        return trusted attempt.publish(value);
+    }
+
+    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result< &T, E>
+        requires(blocking_execution())
+    {
+        if !internal claim_initialization<T>(&self)
+        {
+            return Ok(trusted internal initialized_once_value<T>(&self));
+        }
+
+        let mut attempt: OnceAttempt<T> =
+        {
+            once = &self,
+            active = true,
+        };
+
+        match consume initializer()
+        {
+            case Ok(value) { return Ok(trusted attempt.publish(value)); }
+            case Error(error) { return Error(error); }
+        }
+    }
+}
+
+struct OnceAttempt<T>
+{
+    internal once: &Once<T>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            core.atomic.store<usize, 0>(&self.once.owner, 0);
+            core.atomic.store<u32, 2>(&self.once.state, ONCE_EMPTY);
+            trusted internal std.atomic.platform_wake_all_words(&self.once.state);
+        }
+    }
+
+    trusted consume mut func publish(pos value: T) -> &T
+    {
+        if core.atomic.load<u32, 1>(&self.once.state) == ONCE_REENTERED
+        {
+            panic("Once initialization reentered");
+        }
+
+        let storage_pointer: RawPointer<Uninit<T>> = std.memory.address_of<Uninit<T>>(&self.once.storage);
+
+        let storage: &mut Uninit<T> = trusted std.memory.borrow_mut_from<Uninit<T>, OnceAttempt<T>>(
+            &mut self,
+            storage_pointer,
+        );
+
+        let _: &mut T = std.memory.uninit_write<T>(storage, value);
+
+        core.atomic.store<usize, 0>(&self.once.owner, 0);
+        core.atomic.store<u32, 2>(&self.once.state, ONCE_INITIALIZED);
+        trusted internal std.atomic.platform_wake_all_words(&self.once.state);
+
+        self.active = false;
+
+        return trusted internal initialized_once_value<T>(self.once);
+    }
+}
+
+struct Lazy<T>
+{
+    internal once: Once<T>;
+    internal initializer: func() -> T;
+
+    construct(pos initializer: func() -> T) -> Self
+    {
+        return
+        {
+            once = internal empty_once<T>(),
+            initializer = initializer,
+        };
+    }
+
+    func get() -> &T
+        requires(blocking_execution())
+    {
+        return trusted self.once.get_or_init(self.initializer);
+    }
+}
+
+trusted internal func claim_initialization<T>(pos once: &Once<T>) -> bool
+    requires(blocking_execution())
+{
+    let owner: usize = internal once_thread_identity();
+
+    while true
+    {
+        let state: u32 = core.atomic.load<u32, 1>(&once.state);
+
+        if state == ONCE_INITIALIZED
+        {
+            return false;
+        }
+
+        if state == ONCE_INITIALIZING || state == ONCE_REENTERED
+        {
+            if core.atomic.load<usize, 0>(&once.owner) == owner
+            {
+                core.atomic.store<u32, 0>(&once.state, ONCE_REENTERED);
+
+                panic("Once initialization reentered");
+            }
+
+            trusted internal std.atomic.platform_wait_word(&once.state, expected = state);
+
+            continue;
+        }
+
+        let(_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(
+            &once.state,
+            expected = ONCE_EMPTY,
+            desired = ONCE_INITIALIZING,
+        );
+
+        if acquired
+        {
+            core.atomic.store<usize, 0>(&once.owner, owner);
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+internal func once_thread_identity() -> usize
+{
+    let marker: RawPointer<core.atomic.Atomic<u8>> = std.memory.address_of<core.atomic.Atomic<u8>>(&ONCE_THREAD_MARKER);
+    let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, core.atomic.Atomic<u8>>(marker);
+
+    return trusted internal std.platform.pointer_handle(bytes) as usize;
+}
+
+trusted internal func initialized_once_value<T>(pos once: &Once<T>) -> &T
+{
+    let pointer: RawPointer<T> = std.memory.uninit_pointer<T>(&once.storage);
+
+    return trusted std.memory.borrow_from<T, Once<T>>(once, pointer);
+}
+
+internal const func empty_once<T>() -> Once<T>
+{
+    return
+    {
+        state = core.atomic.initialize<u32>(ONCE_EMPTY),
+        owner = core.atomic.initialize<usize>(0),
+        storage = std.memory.uninit<T>(),
+    };
+}

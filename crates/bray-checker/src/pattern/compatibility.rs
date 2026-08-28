@@ -228,40 +228,11 @@ where
     ) -> Result<Option<usize>, CheckerInfrastructureError> {
         let values = self.request.semantic_values();
 
-        let term = values
-            .constant_term_data(length)
+        let integer = values
+            .constant_term_integer(length)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-        let integer = match term.as_ref() {
-            ConstantTermData::IntegerLiteral { value, .. } => value,
-            ConstantTermData::Value(value) => {
-                let value = values
-                    .constant_value_data(*value)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-                let ConstantValueKind::Integer(integer) = value.kind() else {
-                    return Ok(None);
-                };
-
-                return Ok(integer_to_usize(integer));
-            }
-            ConstantTermData::Parameter(_)
-            | ConstantTermData::TargetProperty(_)
-            | ConstantTermData::Unary { .. }
-            | ConstantTermData::Binary { .. }
-            | ConstantTermData::Conversion { .. }
-            | ConstantTermData::NullablePresent(_)
-            | ConstantTermData::Tuple(_)
-            | ConstantTermData::Array(_)
-            | ConstantTermData::Product(_)
-            | ConstantTermData::Union { .. }
-            | ConstantTermData::DefinitionApplication { .. }
-            | ConstantTermData::Call { .. }
-            | ConstantTermData::PredicateCall { .. }
-            | ConstantTermData::Projection(_) => return Ok(None),
-        };
-
-        Ok(integer_to_usize(integer))
+        Ok(integer.as_ref().and_then(integer_to_usize))
     }
 
     fn type_accepts_literal(

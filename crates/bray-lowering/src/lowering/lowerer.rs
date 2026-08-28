@@ -146,7 +146,13 @@ impl<'unit> Lowerer<'unit> {
         };
 
         if let Some(block) = completion.block {
-            if self.input.unit_kind().protected_frame().is_some() {
+            if !self.builder.is_reachable(entry, block)? {
+                self.builder.set_terminator(
+                    block,
+                    completion.source,
+                    MirTerminatorKind::Unreachable,
+                )?;
+            } else if self.input.unit_kind().protected_frame().is_some() {
                 let result_type = self
                     .input
                     .expression_types()
@@ -262,18 +268,18 @@ mod tests {
         BoundArgument, BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallExpression,
         BoundCallResult, BoundCallableBody, BoundCallableTarget, BoundControlTransferExpression,
         BoundControlTransferKind, BoundDependencyContract, BoundErrorExpression, BoundExpression,
-        BoundExpressionId, BoundLiteralExpression, BoundLiteralKind, BoundOperator,
-        BoundResolvedCall, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior,
-        CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
-        CheckedLiteralValueEntry, CheckedLiteralValues, CheckedMemoryOperation,
-        CheckedMemoryOperationKind, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
-        CheckedSemanticSelections, ControlCompletion, ControlCompletionKind, ExpressionTypeEntry,
-        ExpressionTypeResult, ExpressionTypeStatus, InlineAssemblyContract, Liveness,
-        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
-        MemoryOperationDecision, MemoryOperationStatus, MemoryOrder, MemoryReadKind,
-        OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion, SelectedOperation,
-        SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+        BoundExpressionId, BoundLiteralExpression, BoundLiteralKind, BoundNameExpression,
+        BoundOperator, BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot,
+        CheckedAsync, CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
+        CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
+        CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
+        CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, ControlCompletion,
+        ControlCompletionKind, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
+        InlineAssemblyContract, Liveness, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
+        MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryOrder,
+        MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion,
+        SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
         SemanticSelectionEntry, StorageFlow, StoragePlanBuilder, VolatileAddressSpace,
     };
     use bray_ir::{
@@ -281,11 +287,11 @@ mod tests {
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{
-        CallableAbi, CallableDefinitionId, CallableDependencyContracts, CallableInstanceData,
-        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-        CallablePhaseBehaviors, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
-        FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, IntegerConstant,
-        SemanticValueStore, SymbolId, TypeData,
+        CallableAbi, CallableConstness, CallableDefinitionId, CallableDependencyContracts,
+        CallableInstanceData, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+        CallablePhaseBehaviors, CallableTrust, CallableTypeData, ConstantValueData,
+        ConstantValueKind, CurrentRunCancellation, FunctionSymbolId, GenericOwnerId,
+        GenericSubstitutionData, IntegerConstant, SemanticValueStore, SymbolId, TypeData,
     };
     use bray_testing::{test_bound_unit, test_mir_target};
 
@@ -352,6 +358,106 @@ mod tests {
             mir.blocks()[0].terminator().kind(),
             MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
         ));
+    }
+
+    #[test]
+    fn lowering_omits_the_false_edge_of_a_constant_true_while_loop() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+        let ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test expression type must intern: {error:?}"));
+
+        let template = test_bound_unit(87);
+        let origin = bray_bound_tree::BoundNodeOrigin::source(template.key().source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(87));
+
+        let condition = push_expression(
+            &mut tree,
+            BoundExpression::Literal(BoundLiteralExpression::new(
+                origin,
+                template.key().source().syntax().full_range(),
+                BoundLiteralKind::Boolean,
+                Some(ty),
+                false,
+            )),
+        );
+
+        let body = tree
+            .push_block(BoundBlock::new(origin, [], false))
+            .unwrap_or_else(|error| panic!("loop body must fit: {error:?}"));
+
+        let while_expression = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::While,
+                [condition],
+                [body],
+                [],
+                Some(ty),
+                false,
+            )),
+        );
+
+        let block = tree
+            .push_block(BoundBlock::new(
+                origin,
+                [BoundBlockItem::Expression(while_expression)],
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
+
+        let unit = synchronous_callable_unit(&template, tree, origin, block);
+
+        let types = uniform_expression_types(
+            &unit,
+            [condition, while_expression],
+            ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid),
+        )
+        .with_callable_result_type(ty);
+
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+            .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
+
+        let condition_value = values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
+            .unwrap_or_else(|error| panic!("true value must intern: {error:?}"));
+
+        let literals = CheckedLiteralValues::try_new(
+            &unit,
+            &types,
+            &values,
+            test_mir_target().machine().pointer_width_bits(),
+            [CheckedLiteralValueEntry::new(condition, condition_value)],
+        )
+        .unwrap_or_else(|error| panic!("true literal must validate: {error:?}"));
+
+        let fixture = lowering_fixture_from_parts(
+            unit,
+            types,
+            selections,
+            literals,
+            values,
+            &[condition, while_expression],
+            [ControlCompletionKind::Divergence],
+        );
+
+        let mir = lower_unit(fixture.input())
+            .unwrap_or_else(|error| panic!("constant loop must lower: {error:?}"));
+
+        assert!(
+            !mir.blocks()
+                .iter()
+                .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. }))
+        );
+
+        assert!(
+            mir.blocks()
+                .iter()
+                .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Unreachable))
+        );
     }
 
     #[test]
@@ -436,6 +542,104 @@ mod tests {
                 MirCallArgument::Explicit { ordinal: 0, .. },
                 MirCallArgument::Default { ordinal: 1, .. }
             ]
+        ));
+    }
+
+    #[test]
+    fn lowering_materializes_declared_bray_callable_values() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+        let unit_type = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test unit type must intern: {error:?}"));
+
+        let dependency = values
+            .empty_dependency_contract_template()
+            .unwrap_or_else(|error| panic!("empty dependency template must exist: {error:?}"));
+
+        let callable_type = values
+            .intern_type(TypeData::Callable(CallableTypeData::new(
+                [],
+                unit_type,
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                CallableDependencyContracts::synchronous(dependency),
+            )))
+            .unwrap_or_else(|error| panic!("test callable type must intern: {error:?}"));
+
+        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
+        let template = test_bound_unit(88);
+        let origin = bray_bound_tree::BoundNodeOrigin::source(template.key().source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(88));
+
+        let reference = push_expression(
+            &mut tree,
+            BoundExpression::Name(BoundNameExpression::new(
+                origin,
+                BoundReferenceTarget::Surface(function.into()),
+                Some(callable_type),
+                false,
+            )),
+        );
+
+        let return_expression = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Return,
+                Some(reference),
+                None,
+                Some(callable_type),
+                false,
+            )),
+        );
+
+        let block = tree
+            .push_block(BoundBlock::new(
+                origin,
+                [BoundBlockItem::Expression(return_expression)],
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
+
+        let unit = synchronous_callable_unit(&template, tree, origin, block);
+        let result = ExpressionTypeResult::new(callable_type, ExpressionTypeStatus::Valid);
+
+        let types = uniform_expression_types(&unit, [reference, return_expression], result)
+            .with_callable_result_type(callable_type);
+
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+            .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
+
+        let literals = CheckedLiteralValues::try_new(
+            &unit,
+            &types,
+            &values,
+            test_mir_target().machine().pointer_width_bits(),
+            [],
+        )
+        .unwrap_or_else(|error| panic!("empty literal values must validate: {error:?}"));
+
+        let fixture = lowering_fixture_from_parts(
+            unit,
+            types,
+            selections,
+            literals,
+            values,
+            &[reference, return_expression],
+            [ControlCompletionKind::Return],
+        );
+
+        let mir = lower_unit(fixture.input())
+            .unwrap_or_else(|error| panic!("declared callable value must lower: {error:?}"));
+
+        assert!(matches!(
+            mir.operations()[0].kind(),
+            MirOperationKind::DeclaredCallable(reference)
+                if reference.instance().definition().symbol() == function.into()
+                    && reference.abi() == CallableAbi::Bray
         ));
     }
 

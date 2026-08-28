@@ -434,6 +434,13 @@ pub(super) fn decode_constant_term(
             substitution: InterfaceGenericSubstitutionId::new(read_u32(reader)?),
             arguments: read_ids(reader, context, InterfaceConstantTermId::new)?,
         }),
+        17 => Ok(InterfaceConstantTerm::Typed {
+            term: InterfaceConstantTermId::new(read_u32(reader)?),
+            ty: InterfaceTypeId::new(read_u32(reader)?),
+        }),
+        18 => Ok(InterfaceConstantTerm::CallableArgument(
+            bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
+        )),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }

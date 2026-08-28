@@ -1,10 +1,13 @@
 use bray_binder::{BindingQueryError, BindingQueryResult};
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
-    StoragePlan,
+    SemanticSelection, StoragePlan,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{DependencyContractTemplateId, TypeId};
+use bray_symbols::{
+    CallableExecutionRequirement, DependencyContractTemplateId, TypeId,
+};
 
 use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
@@ -20,6 +23,8 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
     pub(in crate::compilation::binder::symbol) dependency_contracts:
         Vec<DependencyContractTemplateId>,
+    pub(in crate::compilation::binder::symbol) execution_requirements:
+        Vec<CallableExecutionRequirement>,
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
 }
 
@@ -120,6 +125,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     };
 
     let mut dependency_contracts = Vec::new();
+    let mut execution_requirements = Vec::new();
 
     for expression in block.items().iter().filter_map(|item| item.expression()) {
         let contract = dependencies
@@ -135,14 +141,46 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             storage.result().value(),
             contract,
         )?);
+
+        if let Some(requirement) = execution_requirement(
+            semantics.result().value().selections().expression(expression),
+        ) {
+            execution_requirements.push(requirement);
+        }
     }
 
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
     Ok(CheckedSourcePredicateSequence {
         dependency_contracts,
+        execution_requirements,
         diagnostics,
     })
+}
+
+fn execution_requirement(
+    selection: Option<&SemanticSelection>,
+) -> Option<CallableExecutionRequirement> {
+    let SemanticSelection::Call(call) = selection? else {
+        return None;
+    };
+
+    if !matches!(
+        call.implementation_hook()?,
+        ImplementationHook::BlockingExecution
+            | ImplementationHook::ComputeExecution
+            | ImplementationHook::MainThreadExecution
+    ) {
+        return None;
+    }
+
+    let bray_bound_tree::BoundCallableTarget::Predicate(instance) = call.target() else {
+        return None;
+    };
+
+    Some(CallableExecutionRequirement::new(
+        instance.definition().into_any(),
+    ))
 }
 
 fn checked_source_diagnostics(

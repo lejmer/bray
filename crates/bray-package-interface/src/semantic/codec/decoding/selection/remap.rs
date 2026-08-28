@@ -320,6 +320,10 @@ fn remap_constant_term(
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
     match term {
+        InterfaceConstantTerm::Typed { term, ty } => {
+            *term = maps.constant_term_id(*term)?;
+            *ty = maps.type_id(*ty)?;
+        }
         InterfaceConstantTerm::Value(value) => {
             *value = maps.constant_value_id(*value)?;
         }
@@ -386,6 +390,7 @@ fn remap_constant_term(
             }
         }
         InterfaceConstantTerm::IntegerLiteral { .. }
+        | InterfaceConstantTerm::CallableArgument(_)
         | InterfaceConstantTerm::Parameter(_)
         | InterfaceConstantTerm::TargetProperty(_) => {}
     }

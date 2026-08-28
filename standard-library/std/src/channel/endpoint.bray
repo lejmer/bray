@@ -1,0 +1,256 @@
+trusted module std.channel;
+
+struct Sender<T>
+{
+    internal core: RawPointer<ChannelCore<T>>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_sender<T, Sender<T>>(&self, self.core);
+        }
+    }
+
+    func duplicate() -> Sender<T>
+    {
+        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+
+        trusted internal retain_counter(&shared.owners);
+        trusted internal retain_counter(&shared.senders);
+
+        return
+        {
+            core = self.core,
+            active = true,
+        };
+    }
+
+    async func send(pos value: T) -> Result<unit, SendError<T>>
+    {
+        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let mut pending: PendingValue<T> = trusted PendingValue<T>(value);
+        let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Sender);
+
+        while true
+        {
+            let generation: u32 =
+            {
+                let mut state = shared.state.lock();
+                let channel: &mut ChannelState<T> = state.get();
+
+                if !channel.receiver_open
+                {
+                    let closed_message: T = if channel.rendezvous_belongs_to(registration.ticket)
+                    {
+                        yield trusted channel.take_committed_rendezvous(registration.ticket);
+                    }
+                    else
+                    {
+                        let _: bool = channel.send_waiters.remove(registration.ticket);
+
+                        yield trusted pending.take();
+                    };
+
+                    trusted registration.complete();
+
+                    let closed_failure: SendError<T> = .Closed(closed_message);
+
+                    trusted internal notify_channel<T>(shared);
+
+                    return Error(closed_failure);
+                }
+
+                if channel.capacity == 0 && channel.send_waiters.is_head_completed(registration.ticket)
+                {
+                    channel.send_waiters.pop_head();
+                    trusted registration.complete();
+
+                    trusted internal notify_channel<T>(shared);
+
+                    return Ok(unit);
+                }
+
+                if channel.send_waiters.is_head(registration.ticket) && channel.send_can_commit()
+                {
+                    let message: T = trusted pending.take();
+
+                    trusted channel.store_message(message);
+
+                    if channel.capacity == 0
+                    {
+                        channel.rendezvous_ticket = registration.ticket;
+                    }
+                    else
+                    {
+                        channel.send_waiters.pop_head();
+                        trusted registration.complete();
+
+                        trusted internal notify_channel<T>(shared);
+
+                        return Ok(unit);
+                    }
+
+                    trusted internal notify_channel<T>(shared);
+                }
+
+                yield core.atomic.load<u32, 0>(&shared.generation);
+            };
+
+            trusted internal retain_counter(&shared.owners);
+
+            let owner: WaitOwner<T> =
+            {
+                core = self.core,
+            };
+
+            let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
+
+            await internal wait_for_channel_change<T>(owner, generation);
+            std.run.checkpoint();
+
+            trusted wake.disarm();
+        }
+
+        let unreachable_message: T = trusted pending.take();
+        let unreachable_failure: SendError<T> = .Closed(unreachable_message);
+
+        return Error(unreachable_failure);
+    }
+
+    func try_send(pos value: T) -> Result<unit, TrySendError<T>>
+    {
+        let shared: &ChannelCore<T> = trusted internal channel_core<T, Sender<T>>(&self, self.core);
+        let mut state = shared.state.lock();
+        let channel: &mut ChannelState<T> = state.get();
+
+        if !channel.receiver_open
+        {
+            let closed_failure: TrySendError<T> = .Closed(value);
+
+            return Error(closed_failure);
+        }
+
+        if !channel.send_waiters.is_empty() || !channel.send_can_commit()
+        {
+            let full_failure: TrySendError<T> = .Full(value);
+
+            return Error(full_failure);
+        }
+
+        trusted channel.store_message(value);
+        trusted internal notify_channel<T>(shared);
+
+        return Ok(unit);
+    }
+
+    consume mut func close()
+    {
+        trusted internal release_sender<T, Sender<T>>(&self, self.core);
+        self.active = false;
+    }
+}
+
+struct Receiver<T>
+{
+    internal core: RawPointer<ChannelCore<T>>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
+        }
+    }
+
+    async func receive() -> ReceiveResult<T>
+    {
+        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let mut registration: WaitRegistration<T> = trusted internal register_waiter<T>(shared, WaiterKind.Receiver);
+
+        while true
+        {
+            let generation: u32 =
+            {
+                let mut state = shared.state.lock();
+                let channel: &mut ChannelState<T> = state.get();
+
+                if channel.receive_waiters.is_head(registration.ticket) && channel.length > 0
+                {
+                    channel.receive_waiters.pop_head();
+                    let message: T = trusted channel.take_received_message();
+
+                    trusted registration.complete();
+
+                    let result: ReceiveResult<T> = .Received(message);
+
+                    trusted internal notify_channel<T>(shared);
+
+                    return result;
+                }
+
+                if channel.receive_waiters.is_head(registration.ticket) && trusted internal all_senders_closed<T>(
+                    shared
+                )
+                {
+                    channel.receive_waiters.pop_head();
+                    trusted registration.complete();
+
+                    trusted internal notify_channel<T>(shared);
+
+                    return ReceiveResult.Closed;
+                }
+
+                yield core.atomic.load<u32, 0>(&shared.generation);
+            };
+
+            trusted internal retain_counter(&shared.owners);
+
+            let owner: WaitOwner<T> =
+            {
+                core = self.core,
+            };
+
+            let mut wake: ChannelWaitWake<T> = trusted internal ChannelWaitWake<T>(shared);
+
+            await internal wait_for_channel_change<T>(owner, generation);
+            std.run.checkpoint();
+
+            trusted wake.disarm();
+        }
+
+        return ReceiveResult.Closed;
+    }
+
+    func try_receive() -> TryReceiveResult<T>
+    {
+        let shared: &ChannelCore<T> = trusted internal channel_core<T, Receiver<T>>(&self, self.core);
+        let mut state = shared.state.lock();
+        let channel: &mut ChannelState<T> = state.get();
+
+        if channel.receive_waiters.is_empty() && channel.length > 0
+        {
+            let message: T = trusted channel.take_received_message();
+            let result: TryReceiveResult<T> = .Received(message);
+
+            trusted internal notify_channel<T>(shared);
+
+            return result;
+        }
+
+        if trusted internal all_senders_closed<T>(shared)
+        {
+            return TryReceiveResult.Closed;
+        }
+
+        return TryReceiveResult.Empty;
+    }
+
+    consume mut func close()
+    {
+        trusted internal release_receiver<T, Receiver<T>>(&self, self.core);
+        self.active = false;
+    }
+}

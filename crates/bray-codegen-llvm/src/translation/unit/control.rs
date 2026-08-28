@@ -650,8 +650,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         match self.signature.result() {
             CodegenResultMapping::Void => {
-                if value.is_some() {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                if let Some(value) = value {
+                    let ty = self.operand_type(value)?;
+
+                    if self.mapped_type_size(ty)? != 0 {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
                 }
 
                 self.clear_moved_places()?;

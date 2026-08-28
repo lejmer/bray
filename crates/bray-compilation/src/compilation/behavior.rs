@@ -18,7 +18,10 @@ use bray_symbols::{
     UnionPayloadFieldDefaultTemplateQuery,
 };
 
-use super::binder::{CompilationBindingContext, bind_declared_trusted_capabilities};
+use super::binder::{
+    CompilationBindingContext, bind_declared_execution_requirements,
+    bind_declared_trusted_capabilities,
+};
 use super::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
@@ -266,6 +269,22 @@ impl Compilation {
 
             if !visited.insert(key.clone()) {
                 continue;
+            }
+
+            if key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+                && let Some(callable) = self
+                    .symbol_graph()?
+                    .symbol_for_key(key.declared_owner())
+                    .and_then(CallableSymbolId::try_from_any)
+            {
+                let declared = bind_declared_execution_requirements(&binding_context, callable)
+                    .map_err(binding_query_error)?;
+
+                diagnostics = diagnostics.merged(declared.diagnostics());
+
+                builder
+                    .execution_requirements
+                    .extend(declared.value().iter().copied());
             }
 
             let contributions = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
@@ -590,6 +609,7 @@ const fn binding_query_error(error: bray_binder::BindingQueryError) -> FactQuery
 mod tests {
     use std::sync::Arc;
 
+    use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticKind;
 
     use super::Compilation;
@@ -666,6 +686,42 @@ mod tests {
                 .by_kind(DiagnosticKind::CheckingAwaitOutsideAsyncCallable)
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn body_behavior_retains_declared_execution_requirements() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "async func wait()\n",
+            "    requires(blocking_execution())\n",
+            "{\n",
+            "}\n",
+        ));
+
+        assert_body_execution_requirement(
+            &compilation,
+            ImplementationHook::BlockingExecution,
+        );
+    }
+
+    #[test]
+    fn source_callers_inherit_declared_execution_requirements() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func caller()\n",
+            "{\n",
+            "    wait();\n",
+            "}\n",
+            "func wait()\n",
+            "    requires(blocking_execution())\n",
+            "{\n",
+            "}\n",
+        ));
+
+        assert_body_execution_requirement(
+            &compilation,
+            ImplementationHook::BlockingExecution,
         );
     }
 
@@ -850,5 +906,25 @@ mod tests {
             ),
             expression = expression,
         ))
+    }
+
+    fn assert_body_execution_requirement(
+        compilation: &Compilation,
+        expected: ImplementationHook,
+    ) {
+        let behavior = compilation
+            .body_behavior(source_callable_body_key(compilation))
+            .unwrap_or_else(|error| panic!("body behavior must publish: {error:?}"));
+
+        let [requirement] = behavior.value().execution_requirements() else {
+            panic!("body must retain one execution requirement");
+        };
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .symbol_implementation(requirement.declaration()),
+            Some(expected)
+        );
     }
 }

@@ -1,9 +1,9 @@
+use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use super::super::DiagnosticOutputSinkJson;
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     digest_field, field, text_field,
 };
-use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use crate::output::path_to_output_string;
 
 pub(super) fn planning_failure_context(
@@ -119,6 +119,10 @@ pub(super) fn package_interface_failure_context(
         Failure::MissingDeclarationData(declaration) => {
             vec![interface_symbol_identity_field("declaration", declaration)]
         }
+        Failure::ConstantCallableEvaluation { declaration, cause } => vec![
+            interface_symbol_identity_field("declaration", declaration),
+            text_field("cause", cause.as_str()),
+        ],
         Failure::LostDeclarationReference {
             declaration,
             table,
@@ -179,6 +183,7 @@ pub(super) fn package_interface_failure_context(
         | Failure::InvalidExportOwner(record)
         | Failure::ExportTargetOutOfBounds(record)
         | Failure::InvalidDirectExportTarget(record)
+        | Failure::DuplicateConstantCallableBody(record)
         | Failure::DuplicateExecutableTemplate(record)
         | Failure::InvalidExecutableTemplateFamily(record)
         | Failure::DuplicateNativeBoundary(record)
@@ -486,9 +491,7 @@ pub(super) fn link_plan_failure_context(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{
-        DiagnosticInterfaceSymbolIdentity, DiagnosticPackageInterfaceFailure,
-    };
+    use bray_diagnostics::{DiagnosticInterfaceSymbolIdentity, DiagnosticPackageInterfaceFailure};
 
     use super::package_interface_failure_context;
 

@@ -507,31 +507,54 @@ impl Compilation {
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
     ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
+        self.symbolic_references_with_arguments(bound, selections, &BTreeMap::new())
+    }
+
+    pub(in crate::compilation) fn symbolic_references_with_arguments(
+        &self,
+        bound: &BoundUnit,
+        selections: &CheckedSemanticSelections,
+        arguments: &BTreeMap<AnySymbolId, bray_symbols::SymbolOrdinal>,
+    ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        collect_constant_references(bound, selections, |_, target| match target {
-            BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => values
-                .intern_constant_term(ConstantTermData::Parameter(parameter))
-                .map(ConstantReferenceResolution::Term)
-                .map_err(|_| FactQueryError::InfrastructureFailure),
-            BoundReferenceTarget::Surface(symbol) => {
-                let Some(definition) = constant_definition_id(symbol) else {
-                    return Ok(ConstantReferenceResolution::Invalid);
-                };
-
-                let substitution = empty_substitution(values, definition.into_any())?;
-
-                let term = values
-                    .intern_constant_term(ConstantTermData::DefinitionApplication {
-                        definition,
-                        substitution,
-                        selected_implementation: None,
-                    })
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                Ok(ConstantReferenceResolution::Term(term))
+        collect_constant_references(bound, selections, |_, target| {
+            if let Some(ordinal) = match target {
+                BoundReferenceTarget::Surface(symbol) => arguments.get(&symbol),
+                BoundReferenceTarget::Local(_) => None,
+            } {
+                return values
+                    .intern_constant_term(ConstantTermData::CallableArgument(*ordinal))
+                    .map(ConstantReferenceResolution::Term)
+                    .map_err(|_| FactQueryError::InfrastructureFailure);
             }
-            BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
+
+            match target {
+                BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
+                    values
+                        .intern_constant_term(ConstantTermData::Parameter(parameter))
+                        .map(ConstantReferenceResolution::Term)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)
+                }
+                BoundReferenceTarget::Surface(symbol) => {
+                    let Some(definition) = constant_definition_id(symbol) else {
+                        return Ok(ConstantReferenceResolution::Invalid);
+                    };
+
+                    let substitution = empty_substitution(values, definition.into_any())?;
+
+                    let term = values
+                        .intern_constant_term(ConstantTermData::DefinitionApplication {
+                            definition,
+                            substitution,
+                            selected_implementation: None,
+                        })
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    Ok(ConstantReferenceResolution::Term(term))
+                }
+                BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
+            }
         })
     }
 

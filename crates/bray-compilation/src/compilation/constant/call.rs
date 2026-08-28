@@ -3,16 +3,18 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluationUsage, ConstantEvaluator, ConstantReferenceResolution,
-    ConstantTemplateResolver, DefaultConstantEvaluator, EvaluatedConstantCall,
-    evaluate_constant_callable_template, resolve_callable_signature_template,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
+    ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
+    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantChecker,
+    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
+    resolve_callable_signature_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureQuery, ConstantValueData, ConstantValueKind,
-    ImportedSymbolSkeleton, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
+    CallableConstness, CallableSignatureQuery, ConstantTermId, ConstantValueData,
+    ConstantValueKind, ImportedSymbolSkeleton, SymbolKey, SymbolKeyData, SymbolQueryRequest,
+    TypeData,
 };
 
 use super::super::Compilation;
@@ -192,6 +194,75 @@ fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
 }
 
 impl Compilation {
+    pub(in crate::compilation) fn symbolic_constant_callable_body(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        result_type: bray_symbols::TypeId,
+        arguments: &std::collections::BTreeMap<
+            bray_symbols::AnySymbolId,
+            bray_symbols::SymbolOrdinal,
+        >,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ConstantTermId>, FactQueryError> {
+        let Some(body_key) = self.callable_body_key(callable.definition())? else {
+            return Err(FactQueryError::ConstantCallableBodyUnavailable);
+        };
+
+        let bound = self.bound_unit_with_cancellation(body_key.clone(), cancellation)?;
+
+        let Some(root) = constant_callable_root(bound.result().value()) else {
+            return Err(FactQueryError::ConstantCallableRootUnavailable);
+        };
+
+        let semantics =
+            self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
+
+        let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
+        let context = self.checker_context_for(&body_key, cancellation)?;
+
+        let semantic_context =
+            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+        let types = substitute_expression_types(
+            self.semantic_value_store()?,
+            semantics.result().value().types(),
+            callable.substitution(),
+        )?;
+
+        let references = self.symbolic_references_with_arguments(
+            bound.result().value(),
+            semantics.result().value().selections(),
+            arguments,
+        )?;
+
+        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+
+        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
+            .with_block_root(root, result_type)
+            .with_patterns(patterns.result().value())
+            .with_references(references)
+            .with_call_resolver(&resolver)
+            .with_nested_term_types();
+
+        let unit = crate::compilation::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
+
+        let checked = checker_result(DefaultConstantChecker.check_constant_term(unit, &input))?;
+
+        Ok(DiagnosticResult::new(
+            *checked.value(),
+            DiagnosticBag::merged_all([
+                bound.result().diagnostics(),
+                semantics.result().diagnostics(),
+                patterns.result().diagnostics(),
+                checked.diagnostics(),
+            ]),
+        ))
+    }
+
     pub(in crate::compilation) fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
@@ -213,7 +284,7 @@ impl Compilation {
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
-    pub(super) fn constant_call_with_cancellation(
+    pub(in crate::compilation) fn constant_call_with_cancellation(
         &self,
         request: &ConstantCallRequest,
         cancellation: &CancellationToken,
@@ -474,29 +545,39 @@ impl Compilation {
             return Ok(None);
         };
 
-        let (ImplementationHook::AtomicInitialize, [argument]) = (hook.hook(), arguments) else {
-            return Ok(None);
-        };
-
         let values = self.semantic_value_store()?;
 
-        let argument = values
-            .constant_value_data(*argument)
-            .map_err(|_| FactQueryError::AtomicInitializerArgumentUnavailable)?;
+        let value = match (hook.hook(), arguments) {
+            (ImplementationHook::AtomicInitialize, [argument]) => {
+                let argument = values
+                    .constant_value_data(*argument)
+                    .map_err(|_| FactQueryError::AtomicInitializerArgumentUnavailable)?;
 
-        if !matches!(
-            argument.kind(),
-            ConstantValueKind::Boolean(_)
-                | ConstantValueKind::Integer(_)
-                | ConstantValueKind::StaticAddress(_)
-        ) {
-            return Ok(None);
-        }
+                if !matches!(
+                    argument.kind(),
+                    ConstantValueKind::Boolean(_)
+                        | ConstantValueKind::Integer(_)
+                        | ConstantValueKind::StaticAddress(_)
+                ) {
+                    return Ok(None);
+                }
 
-        // The accepted variants contain only scalar values or one interned static address.
-        let value = values
-            .intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))
-            .map_err(|_| FactQueryError::AtomicInitializerResultUnavailable)?;
+                // The accepted variants contain only scalar values or one interned static address.
+                values
+                    .intern_constant_value(ConstantValueData::new(
+                        result_type,
+                        argument.kind().clone(),
+                    ))
+                    .map_err(|_| FactQueryError::AtomicInitializerResultUnavailable)?
+            }
+            (ImplementationHook::UninitNew, []) => values
+                .intern_constant_value(ConstantValueData::new(
+                    result_type,
+                    ConstantValueKind::product([]),
+                ))
+                .map_err(|_| FactQueryError::UninitInitializerResultUnavailable)?,
+            _ => return Ok(None),
+        };
 
         Ok(Some(EvaluatedConstantCall::new(
             value,

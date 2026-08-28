@@ -94,14 +94,15 @@ pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
 };
 pub use selection::{
-    CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
-    SelectedArgument, SelectedCall, SelectedCompoundAssignment, SelectedConstruction,
-    SelectedConstructionInput, SelectedConversion, SelectedImplementationWitness,
-    SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
-    SelectedOperation, SelectedPredicateApplication, SelectedPredicateArgument,
-    SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver, SelectionKind,
-    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
+    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
+    IndexTarget, MemberTarget, OperatorTarget, SelectedArgument, SelectedCall,
+    SelectedCompoundAssignment, SelectedConstruction, SelectedConstructionInput,
+    SelectedConversion, SelectedImplementationWitness, SelectedIterationProtocolOperation,
+    SelectedIterationSource, SelectedIterationTypes, SelectedOperation,
+    SelectedPredicateApplication, SelectedPredicateArgument, SelectedPropagation,
+    SelectedPropagationBoundary, SelectedReceiver, SelectionKind, SemanticSelection,
+    SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
 pub use storage::{

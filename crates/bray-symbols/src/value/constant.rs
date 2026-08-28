@@ -384,6 +384,13 @@ impl ConstantProjection {
 /// The restricted canonical representation of a checked open constant expression.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ConstantTermData {
+    /// A term retained with its exact checked result type.
+    Typed {
+        /// Retained term.
+        term: ConstantTermId,
+        /// Exact checked result type.
+        ty: TypeId,
+    },
     /// A fully evaluated closed value.
     Value(ConstantValueId),
     /// A typed integer literal awaiting selected-target representability checking.
@@ -395,6 +402,8 @@ pub enum ConstantTermData {
     },
     /// A generic constant parameter.
     Parameter(GenericConstParameterSymbolId),
+    /// A const-callable argument addressed in receiver-first call order.
+    CallableArgument(SymbolOrdinal),
     /// A compiler-known target property represented by its exact constant declaration.
     TargetProperty(ConstantSymbolId),
     /// A selected unary operation.
@@ -465,6 +474,11 @@ pub enum ConstantTermData {
 }
 
 impl ConstantTermData {
+    /// Retains a term with its exact checked result type.
+    pub const fn typed(term: ConstantTermId, ty: TypeId) -> Self {
+        Self::Typed { term, ty }
+    }
+
     /// Creates an ordered tuple constant term.
     pub fn tuple(values: impl IntoIterator<Item = ConstantTermId>) -> Self {
         Self::Tuple(shared_slice(values))

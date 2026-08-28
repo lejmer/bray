@@ -11,10 +11,7 @@ pub(super) struct OptimizationCatalog {
 }
 
 impl OptimizationCatalog {
-    pub(super) fn load(
-        root: &Path,
-        target: bray_target::NativeTarget,
-    ) -> Result<Self, String> {
+    pub(super) fn load(root: &Path, target: bray_target::NativeTarget) -> Result<Self, String> {
         let manifest_path = root.join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
         let bytes = std::fs::read(&manifest_path)
@@ -114,10 +111,7 @@ impl OptimizationCatalog {
         provenance.into_iter().collect()
     }
 
-    pub(super) fn reports(
-        &self,
-        workloads: &[WorkloadReport],
-    ) -> Vec<OptimizationArtifactReport> {
+    pub(super) fn reports(&self, workloads: &[WorkloadReport]) -> Vec<OptimizationArtifactReport> {
         self.entries
             .iter()
             .map(|entry| {

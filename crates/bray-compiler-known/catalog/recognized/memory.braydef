@@ -203,7 +203,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation UninitNew;
 
-        surface { func uninit<T>() -> Uninit<T>; }
+        surface { const func uninit<T>() -> Uninit<T>; }
     }
 
     declaration StandardMemoryUninitPointer {

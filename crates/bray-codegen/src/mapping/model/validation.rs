@@ -89,17 +89,14 @@ pub fn mapped_runtime_references(
         })
     }));
 
-    if symbols
-        .iter()
-        .any(|symbol| {
-            symbol.native_entry().is_some()
-                && matches!(
-                    symbol.key(),
-                    CodegenSymbolKey::Instance(instance)
-                        if unit.instances().iter().any(|member| member.key() == instance)
-                )
-        })
-    {
+    if symbols.iter().any(|symbol| {
+        symbol.native_entry().is_some()
+            && matches!(
+                symbol.key(),
+                CodegenSymbolKey::Instance(instance)
+                    if unit.instances().iter().any(|member| member.key() == instance)
+            )
+    }) {
         references.extend(
             FOREIGN_CALLBACK_RUNTIME_ROLES
                 .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
@@ -390,8 +387,7 @@ mod tests {
 
     use crate::test_support::codegen_request;
     use crate::{
-        CodegenLinkage, CodegenNativeEntryMapping, CodegenSymbolMapping,
-        mapped_runtime_references,
+        CodegenLinkage, CodegenNativeEntryMapping, CodegenSymbolMapping, mapped_runtime_references,
     };
 
     #[test]
@@ -429,11 +425,7 @@ mod tests {
         let references = mapped_runtime_references(request.unit(), &[], &[callback]);
 
         for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
-            assert!(
-                references
-                    .iter()
-                    .any(|reference| reference.role() == role)
-            );
+            assert!(references.iter().any(|reference| reference.role() == role));
         }
     }
 }

@@ -1,5 +1,6 @@
 use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
 use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirOperand, MirTerminatorKind};
+use bray_symbols::ConstantValueKind;
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -52,15 +53,18 @@ impl Lowerer<'_> {
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
-        self.builder.set_terminator(
-            condition_block,
-            Self::retained_source(&source),
+        let terminator = if self.condition_is_always_true(&condition)? {
+            MirTerminatorKind::Goto(MirEdge::new(body_entry, []))
+        } else {
             MirTerminatorKind::Branch {
                 condition,
                 then_edge: MirEdge::new(body_entry, []),
                 else_edge: MirEdge::new(exhausted, []),
-            },
-        )?;
+            }
+        };
+
+        self.builder
+            .set_terminator(condition_block, Self::retained_source(&source), terminator)?;
 
         self.loop_targets.push(LoopTarget {
             syntax: expression.origin().source_anchor().syntax(),
@@ -91,6 +95,20 @@ impl Lowerer<'_> {
             Some(MirOperand::Value(result)),
             source,
         ))
+    }
+
+    fn condition_is_always_true(&self, condition: &MirOperand) -> Result<bool, LoweringError> {
+        let MirOperand::Constant { value, .. } = condition else {
+            return Ok(false);
+        };
+
+        let data = self
+            .input
+            .semantic_values()
+            .constant_value_data(*value)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        Ok(matches!(data.kind(), ConstantValueKind::Boolean(true)))
     }
 
     pub(super) fn lower_loop(

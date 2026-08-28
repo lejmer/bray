@@ -61,7 +61,8 @@ pub(super) fn is_callable_declaration_header(nodes: &[SyntaxKind]) -> bool {
             is_callable_declaration(*kind)
                 || matches!(
                     kind,
-                    SyntaxKind::CallableBodyBlockExpression
+                    SyntaxKind::ParameterList
+                        | SyntaxKind::CallableBodyBlockExpression
                         | SyntaxKind::BlockExpression
                         | SyntaxKind::LambdaExpression
                 )

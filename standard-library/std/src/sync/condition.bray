@@ -1,0 +1,41 @@
+trusted module std.sync;
+
+struct ConditionVariable
+{
+    internal generation: core.atomic.Atomic<u32>;
+
+    construct() -> Self
+    {
+        return
+        {
+            generation = core.atomic.initialize<u32>(0),
+        };
+    }
+
+    func wait<T>(pos mut guard: MutexGuard<T>) -> MutexGuard<T>
+        requires(blocking_execution())
+    {
+        let generation: u32 = core.atomic.load<u32, 0>(&self.generation);
+
+        trusted internal release_mutex<T>(guard.mutex);
+        guard.active = false;
+
+        trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
+
+        return guard.mutex.lock();
+    }
+
+    func notify_one()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
+
+        trusted internal std.atomic.platform_wake_word(&self.generation);
+    }
+
+    func notify_all()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
+
+        trusted internal std.atomic.platform_wake_all_words(&self.generation);
+    }
+}

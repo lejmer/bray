@@ -6,7 +6,7 @@ use bray_diagnostics::{
     DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticType,
     DiagnosticYieldCardinality,
 };
-use bray_symbols::{ConstantTermData, ConstantTermId, ConstantValueKind, TypeData};
+use bray_symbols::{ConstantTermId, TypeData};
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
@@ -172,28 +172,12 @@ fn diagnostic_array_length<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let term = request
+    let exact = request
         .semantic_values()
-        .constant_term_data(term)
+        .constant_term_integer(term)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let exact = match term.as_ref() {
-        ConstantTermData::IntegerLiteral { value, .. } => value.to_u64(),
-        ConstantTermData::Value(value) => {
-            let value = request
-                .semantic_values()
-                .constant_value_data(*value)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-            match value.kind() {
-                ConstantValueKind::Integer(value) => value.to_u64(),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-
-    Ok(exact.map_or(
+    Ok(exact.and_then(|value| value.to_u64()).map_or(
         DiagnosticArrayLength::Symbolic,
         DiagnosticArrayLength::Exact,
     ))
