@@ -181,7 +181,10 @@ impl fmt::Display for BuildError {
                 )
             }
             Self::UnicodeData(error) => {
-                write!(formatter, "standard library Unicode data is invalid: {error}")
+                write!(
+                    formatter,
+                    "standard library Unicode data is invalid: {error}"
+                )
             }
             Self::NativeArchive(error) => {
                 write!(

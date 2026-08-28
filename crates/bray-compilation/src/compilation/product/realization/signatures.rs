@@ -557,12 +557,69 @@ impl Compilation {
             ));
         }
 
+        if role == RuntimeAbiRole::NativeThreadExecution {
+            let pointer = self.codegen_opaque_pointer_type()?;
+            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [
+                    CodegenParameterMapping::direct(pointer, None, []),
+                    CodegenParameterMapping::direct(address, None, []),
+                    CodegenParameterMapping::direct(pointer, None, []),
+                    CodegenParameterMapping::direct(address, None, []),
+                    CodegenParameterMapping::direct(pointer, None, []),
+                ],
+                CodegenResultMapping::direct(status, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
+        if matches!(
+            role,
+            RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity
+        ) {
+            let identity = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(identity, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
+        if role == RuntimeAbiRole::NativeThreadPanicReportRecovery {
+            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(address, None, [])],
+                CodegenResultMapping::direct(report, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
         if role == RuntimeAbiRole::PanicPropagation {
             let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
 
             return Ok(CodegenCallableSignature::new(
                 [CodegenParameterMapping::direct(report, None, [])],
                 CodegenResultMapping::Void,
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
+        if role == RuntimeAbiRole::PanicReporting {
+            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
+            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(report, None, [])],
+                CodegenResultMapping::direct(status, None, []),
                 CallableAbi::Bray,
                 false,
             ));
@@ -583,15 +640,88 @@ impl Compilation {
             ));
         }
 
-        if !matches!(
+        if role == RuntimeAbiRole::TaskEventCreation {
+            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(event, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
+        if matches!(
             role,
-            RuntimeAbiRole::GeneratorBegin
-                | RuntimeAbiRole::GeneratorPush
-                | RuntimeAbiRole::GeneratorFinish
-                | RuntimeAbiRole::GeneratorCleanupBroadcast
-                | RuntimeAbiRole::GeneratorDestruction
+            RuntimeAbiRole::TaskEventSignal | RuntimeAbiRole::TaskEventDestruction
         ) {
-            return Ok(void_signature(CallableAbi::Bray));
+            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+            return Ok(CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(event, None, [])],
+                CodegenResultMapping::direct(status, None, []),
+                CallableAbi::Bray,
+                false,
+            ));
+        }
+
+        match role {
+            RuntimeAbiRole::GeneratorBegin
+            | RuntimeAbiRole::GeneratorPush
+            | RuntimeAbiRole::GeneratorFinish
+            | RuntimeAbiRole::GeneratorCleanupBroadcast
+            | RuntimeAbiRole::GeneratorDestruction => {}
+            RuntimeAbiRole::RootExecution
+            | RuntimeAbiRole::SynchronousRootExecution
+            | RuntimeAbiRole::ForeignCallbackExecution
+            | RuntimeAbiRole::NativeThreadExecution
+            | RuntimeAbiRole::CurrentNativeThreadIdentity
+            | RuntimeAbiRole::MainNativeThreadIdentity
+            | RuntimeAbiRole::NativeThreadPanicReportRecovery
+            | RuntimeAbiRole::TaskEventCreation
+            | RuntimeAbiRole::TaskEventSignal
+            | RuntimeAbiRole::TaskEventDestruction
+            | RuntimeAbiRole::ThreadAttachmentIdentity
+            | RuntimeAbiRole::ThreadStaticCleanupRegistration
+            | RuntimeAbiRole::ProductHostControl
+            | RuntimeAbiRole::RootCancellationRequest
+            | RuntimeAbiRole::TaskAllocation
+            | RuntimeAbiRole::TaskStart
+            | RuntimeAbiRole::FrameResume
+            | RuntimeAbiRole::SuspensionRegistration
+            | RuntimeAbiRole::Wake
+            | RuntimeAbiRole::TaskCancellationRequest
+            | RuntimeAbiRole::CurrentRunCancellationObservation
+            | RuntimeAbiRole::CurrentRunCancellationPropagation
+            | RuntimeAbiRole::JoinRegistration
+            | RuntimeAbiRole::TaskObservationCreation
+            | RuntimeAbiRole::TaskResolution
+            | RuntimeAbiRole::TerminalPublication
+            | RuntimeAbiRole::RuntimeEvent
+            | RuntimeAbiRole::CompatibleLaneSelection
+            | RuntimeAbiRole::CleanupIncidentTransfer
+            | RuntimeAbiRole::CleanupIncidentReporting
+            | RuntimeAbiRole::MainThreadLaneStartup
+            | RuntimeAbiRole::MainThreadLaneDrive
+            | RuntimeAbiRole::RootTerminalObservation
+            | RuntimeAbiRole::RootCompletionResolution
+            | RuntimeAbiRole::PanicReporting
+            | RuntimeAbiRole::EntryFailureReporting
+            | RuntimeAbiRole::TestEntrySelection
+            | RuntimeAbiRole::StructuredShutdown
+            | RuntimeAbiRole::FrameTaskBroadcast
+            | RuntimeAbiRole::FrameLifecycleResolution
+            | RuntimeAbiRole::FrameCompletionMove
+            | RuntimeAbiRole::FrameDestruction
+            | RuntimeAbiRole::PanicReportConstruction
+            | RuntimeAbiRole::PanicPropagation
+            | RuntimeAbiRole::FrameCreation
+            | RuntimeAbiRole::InactiveFrameMove
+            | RuntimeAbiRole::AwaitedFrameComposition
+            | RuntimeAbiRole::TaskDestruction => {
+                return Ok(void_signature(CallableAbi::Bray));
+            }
         }
 
         let pointer = self.codegen_opaque_pointer_type()?;

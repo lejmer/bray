@@ -213,3 +213,8 @@ internal func successful_status(pos status: PlatformStatus) -> bool
 {
     return status.category == 0 && status.reserved == 0;
 }
+
+internal func is_exhausted_status(pos status: PlatformStatus) -> bool
+{
+    return status.category == 7 && status.reserved == 0;
+}

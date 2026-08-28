@@ -12,6 +12,9 @@ const REQUIREMENT_ORIGIN: &[MessageTemplatePart] =
 const BORROW_ORIGIN: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "conflicting borrow established here",
 )];
+const DEPENDENCY_STORAGE_ORIGIN: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "referenced storage borrowed here",
+)];
 const MOVE_ORIGIN: &[MessageTemplatePart] = &[MessageTemplatePart::Text("storage moved here")];
 const ALLOCATION_ORIGIN: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("allocation created here")];
@@ -44,6 +47,7 @@ pub(crate) const fn template(kind: DiagnosticRelatedLocationKind) -> MessageTemp
         DiagnosticRelatedLocationKind::ConflictingDeclaration => CONFLICTING_DECLARATION,
         DiagnosticRelatedLocationKind::RequirementOrigin => REQUIREMENT_ORIGIN,
         DiagnosticRelatedLocationKind::BorrowOrigin => BORROW_ORIGIN,
+        DiagnosticRelatedLocationKind::DependencyStorageOrigin => DEPENDENCY_STORAGE_ORIGIN,
         DiagnosticRelatedLocationKind::MoveOrigin => MOVE_ORIGIN,
         DiagnosticRelatedLocationKind::AllocationOrigin => ALLOCATION_ORIGIN,
         DiagnosticRelatedLocationKind::InitializationOrigin => INITIALIZATION_ORIGIN,

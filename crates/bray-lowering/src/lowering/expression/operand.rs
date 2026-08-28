@@ -39,8 +39,10 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let expression_type = self.expression_type(expression)?;
+
         let decision = self
-            .storage_decision(expression, |purpose| {
+            .storage_decision_reaching(expression, expression_type, |purpose| {
                 matches!(
                     purpose,
                     StorageAccessPurpose::Read
@@ -51,7 +53,7 @@ impl Lowerer<'_> {
             })
             .or_else(|error| match error {
                 LoweringError::MissingStorageAccess(_) => {
-                    self.storage_decision(expression, |purpose| {
+                    self.storage_decision_reaching(expression, expression_type, |purpose| {
                         matches!(
                             purpose,
                             StorageAccessPurpose::Member

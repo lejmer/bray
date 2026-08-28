@@ -531,8 +531,12 @@ mod tests {
         assert_eq!(catalog.compiler_known_scopes().len(), 14);
         assert_eq!(catalog.compiler_known_declarations().len(), 350);
         assert_eq!(catalog.compiler_known_values().len(), 4);
-        assert_eq!(catalog.recognized_standard_library_scopes().len(), 8);
-        assert_eq!(catalog.recognized_standard_library_declarations().len(), 95);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 12);
+
+        assert_eq!(
+            catalog.recognized_standard_library_declarations().len(),
+            127
+        );
 
         let raw_pointer = declaration(&catalog, "RawPointer");
         let element = declaration(&catalog, "RawPointerElement");

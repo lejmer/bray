@@ -98,6 +98,8 @@ fn with_retained_runtime<T>(
         cleanup_workloads: Cell::new(true),
         worker: None,
         core: Arc::clone(&retained.core),
+        #[cfg(test)]
+        _test_isolation: None,
     });
 
     let previous = NATIVE_RUNTIME.with(|active| active.replace(Some(Rc::clone(&runtime))));

@@ -326,9 +326,7 @@ fn collect_text_helpers(
         crate::MirTextOperationKind::CharacterIsWhitespace => {
             Some(MirStandardLibraryHelper::CharacterIsWhitespace)
         }
-        crate::MirTextOperationKind::Release => {
-            Some(MirStandardLibraryHelper::MemoryDeallocate)
-        }
+        crate::MirTextOperationKind::Release => Some(MirStandardLibraryHelper::MemoryDeallocate),
         crate::MirTextOperationKind::IsEmpty | crate::MirTextOperationKind::Utf8 => None,
     };
 

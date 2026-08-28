@@ -699,10 +699,7 @@ mod tests {
             "}\n",
         ));
 
-        assert_body_execution_requirement(
-            &compilation,
-            ImplementationHook::BlockingExecution,
-        );
+        assert_body_execution_requirement(&compilation, ImplementationHook::BlockingExecution);
     }
 
     #[test]
@@ -719,10 +716,7 @@ mod tests {
             "}\n",
         ));
 
-        assert_body_execution_requirement(
-            &compilation,
-            ImplementationHook::BlockingExecution,
-        );
+        assert_body_execution_requirement(&compilation, ImplementationHook::BlockingExecution);
     }
 
     #[test]
@@ -908,10 +902,7 @@ mod tests {
         ))
     }
 
-    fn assert_body_execution_requirement(
-        compilation: &Compilation,
-        expected: ImplementationHook,
-    ) {
+    fn assert_body_execution_requirement(compilation: &Compilation, expected: ImplementationHook) {
         let behavior = compilation
             .body_behavior(source_callable_body_key(compilation))
             .unwrap_or_else(|error| panic!("body behavior must publish: {error:?}"));

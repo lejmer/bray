@@ -169,10 +169,7 @@ pub struct CodegenStaticIncidentMemory {
 
 impl CodegenStaticIncidentMemory {
     /// Creates one paired allocation and deallocation contract.
-    pub const fn new(
-        allocation: CodegenInstanceKey,
-        deallocation: CodegenInstanceKey,
-    ) -> Self {
+    pub const fn new(allocation: CodegenInstanceKey, deallocation: CodegenInstanceKey) -> Self {
         Self {
             allocation,
             deallocation,

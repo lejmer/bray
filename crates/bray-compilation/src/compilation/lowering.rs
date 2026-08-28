@@ -168,7 +168,7 @@ impl Compilation {
             target,
         )
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .unwrap_or_else(|error| panic!("checked lowering input is inconsistent: {error:?}"));
 
         let input = input.with_native_static_templates(&native_static_templates);
 
@@ -189,7 +189,7 @@ impl Compilation {
             span.finish(crate::profile::result_outcome(&result));
         }
 
-        let mir = result.map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let mir = result.unwrap_or_else(|error| panic!("checked MIR lowering failed: {error:?}"));
 
         if let Some(profile) = self.state.fact_runtime.profile() {
             profile.record_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
@@ -894,7 +894,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("discard-pattern MIR must be available: {error:?}"));
 
         assert!(lowered.value().is_some(), "{lowered:#?}");
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
     }
 
     #[test]
@@ -1366,9 +1371,12 @@ mod tests {
             .frame_descriptor()
             .unwrap_or_else(|| panic!("async callable must publish a frame descriptor"));
 
-        assert!(frame.states().iter().all(|state| {
-            state.lane_requirements() == [ExecutionLaneRequirement::Blocking]
-        }));
+        assert!(
+            frame
+                .states()
+                .iter()
+                .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
+        );
     }
 
     #[test]
@@ -2601,6 +2609,50 @@ func both_bounds(pos values: Values) -> i32
         }));
     }
 
+    #[test]
+    fn standard_task_events_lower_creation_and_waiting() {
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../standard-library/std/src/run.bray"),
+            include_str!("../../../../standard-library/std/src/task.bray"),
+        ]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let creation_key = source_function_body_key(&compilation, "event");
+
+        let creation = compilation
+            .lowered_unit(creation_key)
+            .unwrap_or_else(|error| panic!("task event creation must lower: {error:?}"));
+
+        assert!(creation.diagnostics().is_empty());
+
+        let wait = compilation
+            .lowered_unit(source_function_body_key(&compilation, "wait"))
+            .unwrap_or_else(|error| panic!("task event wait must lower: {error:?}"));
+
+        assert!(wait.diagnostics().is_empty());
+
+        assert!(matches!(
+            lowered_mir(&wait).kind(),
+            bray_ir::MirUnitKind::ProtectedAsyncFrame(_)
+        ));
+
+        assert!(lowered_mir(&wait).blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend {
+                    kind: bray_ir::MirSuspensionKind::TaskEvent,
+                    payload: Some(_),
+                    ..
+                }
+            )
+        }));
+    }
+
     fn standard_text_compilation(additional_sources: &[&str]) -> Compilation {
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library identity must be valid"));
@@ -2797,10 +2849,11 @@ impl I32Read = i32(Read)
 
         let mir = lowered_mir(&result);
 
-        assert!(mir.blocks().iter().all(|block| !matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Return(None)
-        )));
+        assert!(
+            mir.blocks()
+                .iter()
+                .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Return(None)))
+        );
     }
 
     #[test]

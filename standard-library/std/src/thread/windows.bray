@@ -1,0 +1,140 @@
+@target(target.platform.native_threads && target.identity.SYSTEM == "windows")
+trusted module std.thread;
+
+using std.memory;
+using std.os.windows;
+
+trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
+    uses(foreign_call)
+{
+    let native: std.path.NativeText = match consume std.path.NativeText.from_string(name)
+    {
+        case Ok(value) { yield value; }
+        case Error(std.path.PathError.MemoryLayout) { return Error(ThreadNameError.Allocation); }
+        case Error(_) { return Error(ThreadNameError.Invalid); }
+    };
+
+    let bytes: &[u8] = internal std.path.native_bytes(&native);
+
+    let mut terminated: std.memory.RawBuffer<u8> = match trusted internal std.platform.terminated_native_text(
+        internal std.memory.byte_slice_pointer(bytes),
+        length = std.bytes.slice_length(bytes) as u64,
+        terminator_bytes = 2,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(ThreadNameError.Allocation); }
+    };
+
+    let description: RawPointer<u16> = trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(&terminated));
+
+    let status: i32 = trusted std.os.windows.set_thread_description(
+        trusted std.os.windows.get_current_thread(),
+        description = description,
+    );
+
+    if status < 0
+    {
+        return Error(
+            ThreadNameError.Platform(
+                {
+                    code = status as i64,
+                    has_code = true,
+                },
+            )
+        );
+    }
+
+    return Ok(unit);
+}
+
+@abi(system)
+trusted internal func windows_thread_entry(pos context: RawPointer<u8>) -> u32
+    requires(blocking_execution(), compute_execution())
+{
+    trusted internal run_native_thread_start(context);
+
+    return 0;
+}
+
+trusted internal func native_thread_entry() -> RawPointer<u8>
+{
+    let entry: std.os.windows.ThreadStartRoutine = windows_thread_entry;
+    let pointer: RawPointer<std.os.windows.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+
+    return trusted std.memory.reinterpret<u8, std.os.windows.ThreadStartRoutine>(pointer);
+}
+
+@abi(c)
+trusted internal func platform_thread_create(
+    pos entry: RawPointer<u8>,
+    pos context: RawPointer<u8>,
+    pos owner: RawPointer<u64>,
+    pos native_error: RawPointer<i64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let entry_pointer: RawPointer<std.os.windows.ThreadStartRoutine> = trusted std.memory.reinterpret<
+        std.os.windows.ThreadStartRoutine,
+        u8
+    >(entry);
+
+    let callback: std.os.windows.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry_pointer);
+
+    let handle: RawPointer<u8> = trusted std.os.windows.create_thread(
+        std.memory.null<std.os.windows.SecurityAttributes>(),
+        stack_size = 0,
+        entry = callback,
+        context = context,
+        creation_flags = 0,
+        thread_identifier = std.memory.null<u32>(),
+    );
+
+    if std.memory.is_null<u8>(handle)
+    {
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
+        trusted std.memory.write<i64>(native_error, status.native_code);
+
+        return status;
+    }
+
+    trusted std.memory.write<u64>(owner, trusted internal std.platform.pointer_handle(handle));
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_join(pos owner: u64) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(owner);
+    let waited: u32 = trusted std.os.windows.wait_for_single_object(handle, std.os.windows.INFINITE);
+
+    if waited != std.os.windows.WAIT_OBJECT_0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    if trusted std.os.windows.close_handle(handle) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_detach(pos owner: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(owner);
+
+    if trusted std.os.windows.close_handle(handle) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}

@@ -25,9 +25,9 @@ use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationInstanceId,
     ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, NamedTypeSymbolId,
-    PackageIdentity, SemanticValueStore, StructSymbol,
-    StructSymbolId, SymbolName, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
-    TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
+    PackageIdentity, SemanticValueStore, StructSymbol, StructSymbolId, SymbolName,
+    SymbolQueryContract, SymbolQueryRequest, TraitApplicationId, TraitSymbolId,
+    TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
     UnionVariantSymbolId,
 };
 use bray_target::{TargetAtomicRepresentation, TargetProfile};

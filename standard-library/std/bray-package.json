@@ -143,6 +143,18 @@
           "declaration": "std.process.platform_child_dispose"
         },
         {
+          "role": "platform.thread.create",
+          "declaration": "std.thread.platform_thread_create"
+        },
+        {
+          "role": "platform.thread.join",
+          "declaration": "std.thread.platform_thread_join"
+        },
+        {
+          "role": "platform.thread.detach",
+          "declaration": "std.thread.platform_thread_detach"
+        },
+        {
           "role": "platform.clock.monotonic_now",
           "declaration": "std.platform.clock_monotonic_now"
         },

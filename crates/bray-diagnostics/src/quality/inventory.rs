@@ -1045,6 +1045,14 @@ impl DiagnosticKind {
                     DiagnosticRelatedLocationKind::BorrowOrigin
                 ),
             ),
+            Self::CheckingEscapingStorageDependency => Self::quality_source(
+                &[],
+                related_note_components!(
+                    &[],
+                    DiagnosticRelatedLocationKind::DependencyStorageOrigin,
+                    DiagnosticNoteKind::EscapingStorageDependencyResolution
+                ),
+            ),
             Self::CheckingUseOfMovedStorage => Self::quality_source(
                 &[StorageAccess],
                 related_components!(&[StorageAccess], DiagnosticRelatedLocationKind::MoveOrigin),

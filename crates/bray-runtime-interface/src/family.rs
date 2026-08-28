@@ -11,6 +11,8 @@ pub enum PlatformServiceFamily {
     Filesystem,
     /// Child processes and their pipes.
     Process,
+    /// Operating-system thread creation and ownership.
+    Thread,
     /// Calendar, timezone, and temporal representation services.
     Temporal,
     /// Dynamic-library loading and symbol lookup.
@@ -68,6 +70,9 @@ impl PlatformServiceRole {
             | Self::ChildTerminate
             | Self::ChildReap
             | Self::ChildDispose => PlatformServiceFamily::Process,
+            Self::ThreadCreate | Self::ThreadJoin | Self::ThreadDetach => {
+                PlatformServiceFamily::Thread
+            }
             Self::TimeDateValidate
             | Self::TimeDateAdd
             | Self::TimeZoneLoad

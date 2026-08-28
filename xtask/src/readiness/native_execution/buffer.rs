@@ -100,13 +100,7 @@ pub(super) fn audit_standard_format(
 ) -> Result<(), String> {
     let output =
         BuiltFixture::build_standard_library("bray-native-standard-format-", target, |output| {
-            build_standard_library_fixtures(
-                root,
-                target,
-                runtime,
-                output,
-                STANDARD_FORMAT_FIXTURES,
-            )
+            build_standard_library_fixtures(root, target, runtime, output, STANDARD_FORMAT_FIXTURES)
         })?;
 
     execute_product(
@@ -152,9 +146,7 @@ pub(super) fn standard_library_compilation(
         source_paths.push(root.join(STANDARD_ROOT_SOURCE));
     }
 
-    if !fixtures.contains(&STANDARD_MEMORY_SOURCE)
-        && !fixtures.contains(&STANDARD_MEMORY_FIXTURE)
-    {
+    if !fixtures.contains(&STANDARD_MEMORY_SOURCE) && !fixtures.contains(&STANDARD_MEMORY_FIXTURE) {
         source_paths.push(root.join(STANDARD_MEMORY_SOURCE));
     }
 
@@ -228,8 +220,8 @@ mod tests {
 
     use super::{
         STANDARD_BUFFER_FIXTURES, STANDARD_BYTES_ROOT_SOURCE, STANDARD_BYTES_SOURCE,
-        STANDARD_FORMAT_FIXTURES, STANDARD_MEMORY_SOURCE, STANDARD_ROOT_SOURCE,
-        STANDARD_MEMORY_FIXTURE, STANDARD_STRING_SOURCE, standard_library_compilation,
+        STANDARD_FORMAT_FIXTURES, STANDARD_MEMORY_FIXTURE, STANDARD_MEMORY_SOURCE,
+        STANDARD_ROOT_SOURCE, STANDARD_STRING_SOURCE, standard_library_compilation,
     };
 
     #[test]

@@ -69,6 +69,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.invoke_function(function, &signature, &semantic_arguments, "call")
             }
+            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, &semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
                 let callee_type = self.operand_type(callee)?;
 

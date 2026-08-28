@@ -31,6 +31,7 @@ impl FrameContext {
 pub struct FrameSuspension {
     kind: FrameSuspensionKind,
     state: ProtectedFrameStateId,
+    payload: Option<usize>,
 }
 
 /// Runtime action that caused a protected frame to suspend.
@@ -40,6 +41,8 @@ pub enum FrameSuspensionKind {
     Awaited,
     /// The frame yielded so another ready task can run.
     Yield,
+    /// The frame waits for one runtime task event.
+    TaskEvent,
 }
 
 impl FrameSuspension {
@@ -48,6 +51,7 @@ impl FrameSuspension {
         Self {
             kind: FrameSuspensionKind::Awaited,
             state,
+            payload: None,
         }
     }
 
@@ -56,6 +60,16 @@ impl FrameSuspension {
         Self {
             kind: FrameSuspensionKind::Yield,
             state,
+            payload: None,
+        }
+    }
+
+    /// Creates a runtime-task-event suspension.
+    pub const fn task_event(state: ProtectedFrameStateId, event: usize) -> Self {
+        Self {
+            kind: FrameSuspensionKind::TaskEvent,
+            state,
+            payload: Some(event),
         }
     }
 
@@ -67,6 +81,11 @@ impl FrameSuspension {
     /// Returns the descriptor-local suspended state.
     pub const fn state(self) -> ProtectedFrameStateId {
         self.state
+    }
+
+    /// Returns the opaque payload associated with this suspension.
+    pub const fn payload(self) -> Option<usize> {
+        self.payload
     }
 }
 

@@ -1140,6 +1140,48 @@ mod tests {
     }
 
     #[test]
+    fn distinct_const_generic_static_references_select_distinct_instances() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static VALUE<const N: u64>: u64 = N;\n",
+            "func values() -> (u64, u64)\n",
+            "{\n",
+            "    return(VALUE<7>, VALUE<11>);\n",
+            "}\n",
+        ));
+
+        let key = compilation
+            .declared_unit_keys_for_test()
+            .unwrap_or_else(|error| panic!("declared units must publish: {error:?}"))
+            .into_iter()
+            .find(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody)
+            .unwrap_or_else(|| panic!("callable body must exist"));
+
+        let semantics = compilation
+            .expression_semantics_with_cancellation(key, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("callable semantics must publish: {error:?}"));
+
+        let instances = semantics
+            .result()
+            .value()
+            .selections()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::StaticReference(reference) => reference.closed_instance(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let [first, second] = instances.as_slice() else {
+            panic!("two closed static instances must be selected: {instances:?}");
+        };
+
+        assert_ne!(first, second);
+        assert_ne!(first.substitution(), second.substitution());
+    }
+
+    #[test]
     fn static_type_cleanup_retains_its_callable_dependencies() {
         let compilation = compilation(concat!(
             "module app;\n",

@@ -38,6 +38,12 @@
           "value": 2
         },
         {
+          "name": "EAGAIN",
+          "native": "EAGAIN",
+          "type": "i32",
+          "value": 35
+        },
+        {
           "name": "ENOMEM",
           "native": "ENOMEM",
           "type": "i32",

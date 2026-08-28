@@ -614,6 +614,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(callee)?;
                 self.callable_abi(*abi);
             }
+            MirCallTarget::Runtime(reference) => {
+                self.wire.write_u32(2);
+                self.runtime_reference(*reference);
+            }
         }
 
         self.call_result(call.result())?;
@@ -896,6 +900,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirTerminatorKind::Unreachable => self.wire.write_u32(6),
             MirTerminatorKind::Suspend {
                 kind,
+                payload,
                 resume_state,
                 resume,
                 cancellation,
@@ -907,8 +912,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(match kind {
                     bray_ir::MirSuspensionKind::Awaited => 0,
                     bray_ir::MirSuspensionKind::Yield => 1,
+                    bray_ir::MirSuspensionKind::TaskEvent => 2,
                 });
 
+                self.optional_operand(payload.as_ref())?;
                 self.wire.write_u32(resume_state.raw());
                 self.edge(resume)?;
                 self.cleanup_edge(cancellation)?;

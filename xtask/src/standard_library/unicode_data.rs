@@ -179,15 +179,14 @@ fn render_tables(
     Ok(output)
 }
 
-fn render_property(
-    output: &mut String,
-    name: &str,
-    ranges: &[(u32, u32)],
-) -> Result<(), String> {
+fn render_property(output: &mut String, name: &str, ranges: &[(u32, u32)]) -> Result<(), String> {
     let segments = ranges.chunks(RANGES_PER_SEGMENT).collect::<Vec<_>>();
 
-    writeln!(output, "trusted internal func {name}(pos value: u32) -> bool\n{{")
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        output,
+        "trusted internal func {name}(pos value: u32) -> bool\n{{"
+    )
+    .map_err(|error| error.to_string())?;
 
     render_segment_selection(output, &segments, 1)?;
     output.push_str("}\n\n");
@@ -213,14 +212,20 @@ fn render_segment_selection(
     let start = segment.first().map_or(0, |range| range.0);
     let end = segment.last().map_or(0, |range| range.1);
 
-    writeln!(output, "{indentation}if value < 0x{start:x}\n{indentation}{{")
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        output,
+        "{indentation}if value < 0x{start:x}\n{indentation}{{"
+    )
+    .map_err(|error| error.to_string())?;
 
     render_segment_selection(output, &segments[..middle], depth + 1)?;
     writeln!(output, "{indentation}}}").map_err(|error| error.to_string())?;
 
-    writeln!(output, "\n{indentation}if value > 0x{end:x}\n{indentation}{{")
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        output,
+        "\n{indentation}if value > 0x{end:x}\n{indentation}{{"
+    )
+    .map_err(|error| error.to_string())?;
 
     render_segment_selection(output, &segments[middle + 1..], depth + 1)?;
     writeln!(output, "{indentation}}}").map_err(|error| error.to_string())?;
@@ -279,16 +284,13 @@ fn render_range_search(output: &mut String) {
 
 "#,
     );
-
 }
 
 fn encode_ranges(ranges: &[(u32, u32)]) -> String {
     ranges
         .iter()
         .flat_map(|(start, end)| [*start, *end])
-        .flat_map(|value| {
-            [18, 12, 6, 0].map(|shift| encode_range_digit((value >> shift) & 0x3f))
-        })
+        .flat_map(|value| [18, 12, 6, 0].map(|shift| encode_range_digit((value >> shift) & 0x3f)))
         .collect()
 }
 
@@ -342,7 +344,6 @@ internal func decode_range_digit(pos value: u8) -> u32
 
 "#,
     );
-
 }
 
 #[derive(Serialize)]
@@ -391,7 +392,10 @@ fn check_outputs(outputs: &[(PathBuf, Vec<u8>)]) -> Result<(), String> {
     if stale.is_empty() {
         Ok(())
     } else {
-        Err(format!("generated Unicode output is stale: {}", stale.join(", ")))
+        Err(format!(
+            "generated Unicode output is stale: {}",
+            stale.join(", ")
+        ))
     }
 }
 

@@ -617,6 +617,9 @@ fn validate_call(
                 return Err(MirUnitBuildError::InvalidCall(operation));
             }
         }
+        MirCallTarget::Runtime(reference) => {
+            validate_runtime_role(unit, *reference, reference.role())?;
+        }
         MirCallTarget::Indirect { callee, .. } => {
             validate_operand(unit, callee, block, Some(operation))?;
         }

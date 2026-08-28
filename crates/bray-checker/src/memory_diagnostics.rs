@@ -61,7 +61,7 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::RawPointerReinterpret => Operation::PointerReinterpretation,
         Hook::CallableFromPointer => Operation::CallableFromPointer,
         Hook::PointerFromCallable => Operation::PointerFromCallable,
-        Hook::CallbackState => Operation::CallbackState,
+        Hook::CallbackState | Hook::TransferredValueBorrow => Operation::CallbackState,
         Hook::RawPointerRead => Operation::PointerRead,
         Hook::RawPointerWrite => Operation::PointerWrite,
         Hook::MemoryCopy => Operation::MemoryCopy,

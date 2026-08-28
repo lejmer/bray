@@ -296,6 +296,12 @@ func wait<T>(pos storage: &Atomic<T>, pos expected: T, order: LoadOrder)
     }
 }
 
+internal func wait_for(pos storage: &Atomic<u32>, pos expected: u32, pos timeout_milliseconds: u32)
+    requires(blocking_execution())
+{
+    trusted internal platform_wait_word_for(&storage.storage, expected, timeout_milliseconds = timeout_milliseconds);
+}
+
 func notify_one<T>(pos storage: &Atomic<T>)
 {
     core.atomic.notify_one<T>(&storage.storage);

@@ -14,6 +14,8 @@ use bray_symbols::StaticReferenceSelection;
 pub enum SemanticSelection {
     /// The exact value selected for a subject-dependent pattern reference.
     Reference(BoundReferenceTarget),
+    /// The exact generic callable instance selected for a declared callable value.
+    CallableReference(bray_symbols::CallableInstanceData),
     /// The exact closed generic static instance selected for a source reference.
     StaticReference(StaticReferenceSelection),
     /// An exact callable, ABI, witness set, and argument mapping.
@@ -32,7 +34,7 @@ impl SemanticSelection {
     /// Returns the selected expression result type when the selection determines one.
     pub const fn result_type(&self) -> Option<bray_symbols::TypeId> {
         match self {
-            Self::Reference(_) | Self::StaticReference(_) => None,
+            Self::Reference(_) | Self::CallableReference(_) | Self::StaticReference(_) => None,
             Self::Call(call) => Some(call.resolution().result().ty()),
             Self::Predicate(predicate) => Some(predicate.result_type()),
             Self::Operation(operation) => operation.result_type(),
@@ -205,6 +207,13 @@ fn selection_matches_expression(
     match (selection, expression) {
         (SemanticSelection::Reference(target), BoundExpression::PatternReference(source)) => {
             *target == BoundReferenceTarget::Local(source.binding().into())
+        }
+        (SemanticSelection::CallableReference(instance), BoundExpression::Name(source)) => {
+            matches!(
+                source.target(),
+                BoundReferenceTarget::Surface(symbol)
+                    if instance.definition().symbol() == symbol
+            )
         }
         (SemanticSelection::StaticReference(instance), BoundExpression::Name(source)) => {
             matches!(

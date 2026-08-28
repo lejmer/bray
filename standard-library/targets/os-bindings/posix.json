@@ -503,22 +503,6 @@
           ]
         },
         {
-          "name": "pthread_self",
-          "native": "pthread_self",
-          "abi": "c",
-          "parameters": [],
-          "result": "u64",
-          "native_result": "pthread_t",
-          "link": "pthread",
-          "error_state": "returns the calling native thread identity",
-          "ownership": "no resource transfer",
-          "initialization": "no output storage",
-          "dependencies": [
-            "foreign_call",
-            "native_thread"
-          ]
-        },
-        {
           "name": "read",
           "native": "read",
           "abi": "c",

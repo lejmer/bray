@@ -42,7 +42,7 @@
           "kind": "system"
         },
         {
-          "name": "libucrt",
+          "name": "ucrt",
           "kind": "system"
         }
       ],
@@ -477,6 +477,19 @@
           ]
         },
         {
+          "name": "get_current_thread",
+          "native": "GetCurrentThread",
+          "abi": "system",
+          "parameters": [],
+          "result": "RawPointer<u8>",
+          "native_result": "HANDLE",
+          "link": "Kernel32",
+          "error_state": "returns the current thread pseudo-handle",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
           "name": "get_current_thread_id",
           "native": "GetCurrentThreadId",
           "abi": "system",
@@ -485,6 +498,30 @@
           "native_result": "DWORD",
           "link": "Kernel32",
           "error_state": "returns the current thread identifier",
+          "dependencies": [
+            "foreign_call"
+          ]
+        },
+        {
+          "name": "set_thread_description",
+          "native": "SetThreadDescription",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "thread",
+              "type": "RawPointer<u8>",
+              "native_type": "HANDLE"
+            },
+            {
+              "name": "description",
+              "type": "RawPointer<u16>",
+              "native_type": "PCWSTR"
+            }
+          ],
+          "result": "i32",
+          "native_result": "HRESULT",
+          "link": "Kernel32",
+          "error_state": "returns a failing HRESULT on failure",
           "dependencies": [
             "foreign_call"
           ]

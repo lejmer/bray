@@ -550,6 +550,37 @@ fn runtime_function_type<'context>(
                 .i32_type()
                 .fn_type(&[context.i64_type().into()], false),
         ),
+        RuntimeAbiRole::NativeThreadExecution => {
+            let address = pointer_integer_type(context, target);
+            let pointer = context.ptr_type(AddressSpace::default());
+
+            Some(context.i32_type().fn_type(
+                &[
+                    pointer.into(),
+                    address.into(),
+                    pointer.into(),
+                    address.into(),
+                    pointer.into(),
+                ],
+                false,
+            ))
+        }
+        RuntimeAbiRole::TaskEventCreation => {
+            Some(pointer_integer_type(context, target).fn_type(&[], false))
+        }
+        RuntimeAbiRole::TaskEventSignal | RuntimeAbiRole::TaskEventDestruction => Some(
+            context
+                .i32_type()
+                .fn_type(&[pointer_integer_type(context, target).into()], false),
+        ),
+        RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity => {
+            Some(context.i64_type().fn_type(&[], false))
+        }
+        RuntimeAbiRole::NativeThreadPanicReportRecovery => {
+            let address = pointer_integer_type(context, target);
+
+            Some(address.fn_type(&[address.into()], false))
+        }
         RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
             Some(run_outcome_type(context, target).fn_type(
                 &[

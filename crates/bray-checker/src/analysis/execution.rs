@@ -57,7 +57,6 @@ where
         );
 
         let current = self.build_expressions(operands, current)?;
-
         let hook = self.implementation_hook(id, expression);
 
         if hook == Some(ImplementationHook::CurrentRunCancellationPropagation) {
@@ -74,7 +73,10 @@ where
             return Some(None);
         }
 
-        if hook == Some(ImplementationHook::TaskYield) {
+        if matches!(
+            hook,
+            Some(ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)
+        ) {
             self.push_suspension(current, id, AnalysisSuspensionKind::Yield);
 
             let suspended = self.push_block();

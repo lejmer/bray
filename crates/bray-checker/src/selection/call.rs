@@ -277,9 +277,7 @@ where
             let resolution = candidate.resolution().clone();
 
             let implementation_symbol = match resolution.target() {
-                BoundCallableTarget::Declaration(instance) => {
-                    Some(instance.definition().symbol())
-                }
+                BoundCallableTarget::Declaration(instance) => Some(instance.definition().symbol()),
                 BoundCallableTarget::Predicate(instance) => Some(instance.definition().into_any()),
                 BoundCallableTarget::Indirect(_) => {
                     input.callee_member.map(|member| member.member())

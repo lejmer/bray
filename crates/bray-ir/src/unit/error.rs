@@ -56,6 +56,8 @@ pub enum MirUnitBuildError {
     MissingTerminator(MirBlockId),
     /// A branching assembly terminator has inconsistent structural operand types.
     InvalidInlineAssemblyTerminator(MirBlockId),
+    /// A suspension carries an event payload inconsistent with its category.
+    InvalidSuspensionPayload(MirBlockId),
     /// An edge supplies the wrong number of destination arguments.
     EdgeArgumentCountMismatch(MirBlockId),
     /// An edge argument type does not match its destination parameter.

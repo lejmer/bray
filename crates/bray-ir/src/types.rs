@@ -267,10 +267,15 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
         }
         MirTerminatorKind::Unreachable => {}
         MirTerminatorKind::Suspend {
+            payload,
             resume,
             cancellation,
             ..
         } => {
+            if let Some(payload) = payload {
+                collect_operand_types(payload, types);
+            }
+
             collect_edge_types(resume, types);
             collect_cleanup_edge_types(cancellation, types);
         }

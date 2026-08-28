@@ -384,6 +384,19 @@ where
         operands: &[BoundExpressionId],
     ) -> Result<StorageAccessId, PlanError> {
         match kind {
+            BoundStructuredExpressionKind::TrustBoundary => {
+                let Some(operand) = operands.first().copied() else {
+                    return self.recovery_access(id);
+                };
+
+                let access = self.plan_expression(operand, None)?;
+
+                for operand in &operands[1..] {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
+                }
+
+                Ok(access)
+            }
             BoundStructuredExpressionKind::Borrow => {
                 let Some(operand) = operands.first().copied() else {
                     return self.recovery_access(id);

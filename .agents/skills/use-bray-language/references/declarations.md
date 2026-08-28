@@ -181,6 +181,9 @@ impl Header(Equatable<Header>)
 }
 ```
 
+An `@thread_local static` has one demand-initialized instance per exact native-thread attachment. Its borrows carry that
+attachment identity, and its cleanup runs on the same thread when the attachment ends.
+
 ### Type members and lifecycle declarations
 
 Type bodies accept fields or variants plus callable members, constructors, lifecycle declarations, associated constants and predicates, and callable overloads:

@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencyContractId, BoundDependencySubject, BoundExpression,
-    BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor, CheckedDependencyContracts,
-    CheckedRefinements, StorageIdentity, StoragePlan,
+    BoundDependencyContractId, BoundDependencySubject, BoundExpressionId, BoundNodeOrigin,
+    BoundSourceAnchor, CheckedDependencyContracts, CheckedRefinements, StorageIdentity,
+    StoragePlan,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -10,7 +10,7 @@ use bray_diagnostics::{
 };
 
 use super::dependency::{UnsatisfiedDependency, unsatisfied_dependency_subjects};
-use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::diagnostic::{bound_node_origin, diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) enum AwaitDependencyFailure {
@@ -213,34 +213,6 @@ where
         | StorageIdentity::IterationElement(_)
         | StorageIdentity::Allocation(_)
         | StorageIdentity::Alternative { .. } => None,
-    }
-}
-
-fn bound_node_origin<C>(
-    request: CheckerUnitView<'_, C>,
-    node: AnyBoundNodeId,
-) -> Option<BoundNodeOrigin>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match node {
-        AnyBoundNodeId::Expression(expression) => request
-            .view()
-            .expression(expression)
-            .map(BoundExpression::origin),
-        AnyBoundNodeId::Pattern(pattern) => request
-            .view()
-            .pattern(pattern)
-            .map(bray_bound_tree::BoundPattern::origin),
-        AnyBoundNodeId::Block(block) => request
-            .view()
-            .block(block)
-            .map(bray_bound_tree::BoundBlock::origin),
-        AnyBoundNodeId::CallableBody(body) => request
-            .view()
-            .callable_body(body)
-            .copied()
-            .map(bray_bound_tree::BoundCallableBody::origin),
     }
 }
 

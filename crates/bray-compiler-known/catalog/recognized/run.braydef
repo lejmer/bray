@@ -18,10 +18,106 @@ scope StandardRun at std.run {
 }
 
 scope StandardTask at std.task {
+    declaration StandardTaskEventCreation {
+        identity name create_task_event;
+        implementation TaskEventCreation;
+
+        surface { internal func create_task_event() -> usize; }
+    }
+
+    declaration StandardTaskEventSignal {
+        identity name signal_task_event;
+        implementation TaskEventSignal;
+
+        surface { internal func signal_task_event(pos event: usize) -> u32; }
+    }
+
+    declaration StandardTaskEventDestruction {
+        identity name destroy_task_event;
+        implementation TaskEventDestruction;
+
+        surface { internal func destroy_task_event(pos event: usize) -> u32; }
+    }
+
+    declaration StandardTaskEventWait {
+        identity name wait_for_task_event;
+        implementation TaskEventWait;
+
+        surface { internal func wait_for_task_event(pos event: usize); }
+    }
+
     declaration StandardTaskYield {
         identity name yield_current_task;
         implementation TaskYield;
 
         surface { internal func yield_current_task(); }
+    }
+}
+scope StandardThread at std.thread {
+    declaration StandardThreadTransferredValue {
+        identity name transferred_value;
+        implementation TransferredValueBorrow;
+
+        surface {
+            trusted internal func transferred_value<T>(
+                pos pointer: RawPointer<T>,
+            ) -> &mut T
+                uses(raw_memory);
+        }
+    }
+
+    declaration StandardNativeThreadExecution {
+        identity name execute_native_thread;
+        implementation NativeThreadExecution;
+
+        surface {
+            trusted internal func execute_native_thread(
+                pos operation: RawPointer<u8>,
+                pos context: usize,
+                pos cancellation: RawPointer<u8>,
+                pos cancellation_context: usize,
+                pos panic_payload: RawPointer<usize>,
+            ) -> u32;
+        }
+    }
+
+    declaration StandardNativeThreadStart {
+        identity name start;
+        implementation NativeThreadStart;
+
+        surface {
+            func start<State, T>(
+                pos entry: Entry<State, T>,
+                pos state: State,
+            ) -> Result<Thread<T>, ThreadError>;
+        }
+    }
+
+    declaration StandardCurrentNativeThreadIdentity {
+        identity name current_native_thread_identity;
+        implementation CurrentNativeThreadIdentity;
+
+        surface { internal func current_native_thread_identity() -> u64; }
+    }
+
+    declaration StandardMainNativeThreadIdentity {
+        identity name main_native_thread_identity;
+        implementation MainNativeThreadIdentity;
+
+        surface { internal func main_native_thread_identity() -> u64; }
+    }
+
+    declaration StandardNativeThreadPanicReportRecovery {
+        identity name recover_native_thread_panic_report;
+        implementation NativeThreadPanicReportRecovery;
+
+        surface { trusted internal func recover_native_thread_panic_report(pos payload: usize) -> PanicReport; }
+    }
+
+    declaration StandardNativeThreadPanicReporting {
+        identity name report_native_thread_panic;
+        implementation NativeThreadPanicReporting;
+
+        surface { trusted internal func report_native_thread_panic(pos report: PanicReport) -> u32; }
     }
 }

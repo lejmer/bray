@@ -56,6 +56,8 @@ pub enum DiagnosticRelatedLocationKind {
     RequirementOrigin,
     /// The expression that established a still-live conflicting borrow.
     BorrowOrigin,
+    /// The expression that established storage retained by a dependent value.
+    DependencyStorageOrigin,
     /// The expression that moved storage before the reported use.
     MoveOrigin,
     /// The operation that created the allocation involved in the failure.
@@ -87,6 +89,7 @@ impl DiagnosticRelatedLocationKind {
             Self::ConflictingDeclaration => "conflicting_declaration",
             Self::RequirementOrigin => "requirement_origin",
             Self::BorrowOrigin => "borrow_origin",
+            Self::DependencyStorageOrigin => "dependency_storage_origin",
             Self::MoveOrigin => "move_origin",
             Self::AllocationOrigin => "allocation_origin",
             Self::InitializationOrigin => "initialization_origin",

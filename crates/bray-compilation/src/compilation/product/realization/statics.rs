@@ -4,8 +4,7 @@ use bray_codegen::{
     CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticFinalization,
     CodegenStaticIncidentMemory, CodegenStaticInstanceKey, CodegenStaticRelocation,
     CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping,
-    CodegenUnit,
-    demanded_callable_instances_for_mir,
+    CodegenUnit, demanded_callable_instances_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirStorageKind, MirUnit, MirUnitKey};

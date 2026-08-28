@@ -219,7 +219,7 @@ trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
         case std.os.linux.EEXIST { yield 4; }
         case std.os.linux.EINVAL { yield 5; }
         case std.os.linux.EINTR { yield 6; }
-        case std.os.linux.ENOMEM { yield 7; }
+        case std.os.linux.EAGAIN | std.os.linux.ENOMEM { yield 7; }
         case std.os.linux.EPIPE { yield 8; }
         case std.os.linux.ETIMEDOUT { yield 9; }
         case _ { yield 10; }

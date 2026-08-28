@@ -147,9 +147,9 @@ impl ProtectedFrame for NativeFrame {
 
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
         let progress = if context.cancellation_requested() {
-            (self.abi.cancel())(self.abi.context())
+            self.abi.cancel()(self.abi.context())
         } else {
-            (self.abi.resume())(self.abi.context())
+            self.abi.resume()(self.abi.context())
         };
 
         let kind = progress.kind();
@@ -166,6 +166,17 @@ impl ProtectedFrame for NativeFrame {
             ));
         }
 
+        if kind == NativeFrameProgressKind::TASK_EVENT {
+            if progress.payload() == 0 {
+                return FrameProgress::RuntimeFailure;
+            }
+
+            return FrameProgress::Suspended(FrameSuspension::task_event(
+                ProtectedFrameStateId::new(progress.state()),
+                progress.payload(),
+            ));
+        }
+
         if kind == NativeFrameProgressKind::COMPLETED {
             let Some(payload) = NativeTerminalPayload::completion(
                 self.abi.completion_size(),
@@ -175,7 +186,7 @@ impl ProtectedFrame for NativeFrame {
             };
 
             if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
-                (self.abi.move_completion())(self.abi.context(), payload.handle());
+                self.abi.move_completion()(self.abi.context(), payload.handle());
             })) {
                 self.record_cleanup_incident(incident);
 
@@ -203,7 +214,7 @@ impl ProtectedFrame for NativeFrame {
 
     fn broadcast_tasks(self: Pin<&mut Self>) {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            (self.abi.broadcast_tasks())(self.abi.context());
+            self.abi.broadcast_tasks()(self.abi.context());
         })) {
             self.record_cleanup_incident(payload);
         }
@@ -228,7 +239,7 @@ impl ProtectedFrame for NativeFrame {
 impl Drop for NativeFrame {
     fn drop(&mut self) {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            (self.abi.destroy())(self.abi.context());
+            self.abi.destroy()(self.abi.context());
         })) {
             self.record_cleanup_incident(payload);
         }
@@ -238,7 +249,7 @@ impl Drop for NativeFrame {
 fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescriptor>> {
     (0..abi.state_count())
         .map(|state| {
-            let native = (abi.state())(abi.context(), state);
+            let native = abi.state()(abi.context(), state);
             let affinity = affinity(native.affinity())?;
             let requirements = lane_requirements(native.lane_requirements())?;
 
@@ -285,7 +296,7 @@ impl Drop for NativeFrameTransfer {
             return;
         };
 
-        (frame.destroy())(frame.context());
+        frame.destroy()(frame.context());
     }
 }
 

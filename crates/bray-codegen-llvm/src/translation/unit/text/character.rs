@@ -70,10 +70,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let operands = self.text_operands(operation)?;
 
-        let arguments = operands
-            .iter()
-            .map(|(value, _)| *value)
-            .collect::<Vec<_>>();
+        let arguments = operands.iter().map(|(value, _)| *value).collect::<Vec<_>>();
 
         self.invoke_text_helper(operation_id, helper, &arguments)
     }

@@ -33,7 +33,7 @@ pub use model::{
 pub(crate) use operation::representation_supports_operator;
 pub use operation::{
     built_in_conversion_plan, built_in_conversion_plan_for_context, built_in_operation_result_type,
-    built_in_trait_constraint_outcome, compiler_known_operation_role,
+    built_in_operator_supported, built_in_trait_constraint_outcome, compiler_known_operation_role,
     composite_conversion_children,
 };
 pub(crate) use propagation::select_propagations;

@@ -96,6 +96,8 @@ define_catalog_enum! {
         SliceLength => "SliceLength",
         /// Reconstructs a state borrow at a checked foreign-callback entry.
         CallbackState => "CallbackState",
+        /// Reconstructs a mutable borrow to an exclusively transferred value.
+        TransferredValueBorrow => "TransferredValueBorrow",
         /// Reads initialized storage with volatile access semantics.
         VolatileLoad => "VolatileLoad",
         /// Writes storage with volatile access semantics.
@@ -180,6 +182,26 @@ define_catalog_enum! {
         CurrentRunCancellationObservation => "CurrentRunCancellationObservation",
         /// Propagates cancellation to the current run boundary.
         CurrentRunCancellationPropagation => "CurrentRunCancellationPropagation",
+        /// Executes one Bray-owned native thread through its runtime boundary.
+        NativeThreadExecution => "NativeThreadExecution",
+        /// Starts an operating-system thread and transfers its explicit state.
+        NativeThreadStart => "NativeThreadStart",
+        /// Reads the process-wide identity of the current native thread.
+        CurrentNativeThreadIdentity => "CurrentNativeThreadIdentity",
+        /// Reads the process-wide identity of the distinguished initial native thread.
+        MainNativeThreadIdentity => "MainNativeThreadIdentity",
+        /// Recovers one owned panic report published by a native-thread boundary.
+        NativeThreadPanicReportRecovery => "NativeThreadPanicReportRecovery",
+        /// Reports and resolves a native-thread panic suppressed by caller cancellation.
+        NativeThreadPanicReporting => "NativeThreadPanicReporting",
+        /// Creates one runtime-owned task event.
+        TaskEventCreation => "TaskEventCreation",
+        /// Signals one runtime-owned task event.
+        TaskEventSignal => "TaskEventSignal",
+        /// Releases one runtime-owned task event.
+        TaskEventDestruction => "TaskEventDestruction",
+        /// Suspends the current task until a runtime task event is signaled.
+        TaskEventWait => "TaskEventWait",
         /// Cooperatively yields the current task.
         TaskYield => "TaskYield",
         /// Counts Unicode scalar values in valid UTF-8 text.
@@ -271,6 +293,7 @@ impl ImplementationHook {
         Self::ByteBufferRead,
         Self::SliceLength,
         Self::CallbackState,
+        Self::TransferredValueBorrow,
         Self::VolatileLoad,
         Self::VolatileStore,
         Self::DeviceVolatileLoad,
@@ -335,6 +358,16 @@ mod tests {
             ImplementationHook::MainThreadExecution,
             ImplementationHook::CurrentRunCancellationObservation,
             ImplementationHook::CurrentRunCancellationPropagation,
+            ImplementationHook::NativeThreadExecution,
+            ImplementationHook::NativeThreadStart,
+            ImplementationHook::CurrentNativeThreadIdentity,
+            ImplementationHook::MainNativeThreadIdentity,
+            ImplementationHook::NativeThreadPanicReportRecovery,
+            ImplementationHook::NativeThreadPanicReporting,
+            ImplementationHook::TaskEventCreation,
+            ImplementationHook::TaskEventSignal,
+            ImplementationHook::TaskEventDestruction,
+            ImplementationHook::TaskEventWait,
             ImplementationHook::TaskYield,
             ImplementationHook::StringScalarCount,
             ImplementationHook::StringIsEmpty,

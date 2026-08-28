@@ -186,7 +186,13 @@ where
         outcome = outcome.merge(candidate);
     }
 
-    Ok(outcome.absence())
+    Ok(match outcome {
+        DeclarationCandidateOutcome::Added => CandidateAbsence::UnresolvedReference,
+        DeclarationCandidateOutcome::Ignored => CandidateAbsence::EmptyOverload,
+        DeclarationCandidateOutcome::UnavailableSemantics => {
+            CandidateAbsence::UnavailableDeclarationSemantics
+        }
+    })
 }
 
 fn bind_member_candidates<C>(

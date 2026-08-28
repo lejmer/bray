@@ -21,9 +21,9 @@ bray-test-protocol = { path = "../bray-test-protocol", features = ["serializatio
 bray-tooling = { path = "../bray-tooling", default-features = false }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI
-# shape colocated with the Tack boundary, and help/color features render the
-# user-facing command surface.
-clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }
+# shape colocated with the Tack boundary, `error-context` identifies invalid
+# arguments, and help/color features render the user-facing command surface.
+clap = { version = "4", default-features = false, features = ["color", "derive", "error-context", "help", "std", "usage"] }
 
 # Coordinated progress bars keep package work stable while compiler processes run.
 indicatif = "0.18.6"

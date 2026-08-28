@@ -138,6 +138,8 @@ pub(super) fn validate_terminator(
         }
         MirTerminatorKind::Unreachable => {}
         MirTerminatorKind::Suspend {
+            kind,
+            payload,
             resume_state,
             resume,
             cancellation,
@@ -145,6 +147,14 @@ pub(super) fn validate_terminator(
             wake,
             ..
         } => {
+            match (kind, payload) {
+                (crate::MirSuspensionKind::TaskEvent, Some(payload)) => {
+                    validate_operand(unit, payload, block_id, None)?;
+                }
+                (crate::MirSuspensionKind::Awaited | crate::MirSuspensionKind::Yield, None) => {}
+                _ => return Err(MirUnitBuildError::InvalidSuspensionPayload(block_id)),
+            }
+
             validate_frame_state(unit, *resume_state)?;
             validate_ordinary_edge(unit, block_id, resume)?;
 

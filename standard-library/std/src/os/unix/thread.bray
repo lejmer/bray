@@ -1,0 +1,7 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.os.unix;
+
+struct PThreadAttribute;
+
+callable ThreadStartRoutine = @abi(c)
+func(pos context: RawPointer<u8>) -> RawPointer<u8>;

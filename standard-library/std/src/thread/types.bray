@@ -1,0 +1,208 @@
+@target(target.platform.native_threads)
+trusted module std.thread;
+
+using std.atomic;
+using std.memory;
+using std.run;
+
+internal const THREAD_RUNNING: u32 = 0;
+
+internal const THREAD_COMPLETED: u32 = 1;
+
+internal const THREAD_PANICKED: u32 = 2;
+
+internal const THREAD_CANCELLED: u32 = 3;
+
+internal const THREAD_FAILED: u32 = 4;
+
+internal const THREAD_CANCELLATION_POLL_MILLISECONDS: u32 = 10;
+
+@thread_local internal static CURRENT_THREAD_CONTROL: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+callable Entry<State, T> = func(pos state: State) -> T
+    requires(blocking_execution(), compute_execution());
+
+internal callable ThreadOperation = trusted func(pos context: usize)
+    requires(blocking_execution(), compute_execution());
+
+internal callable NativeThreadOperation = @abi(c)
+trusted func(pos context: usize)
+    requires(blocking_execution(), compute_execution());
+
+internal callable ThreadCancellationObservation = @abi(c)
+trusted func(pos context: usize) -> u32;
+
+@copy
+struct Id
+{
+    internal value: u64;
+}
+
+impl IdEquatable = Id(Equatable<Id>)
+{
+    func equals(pos rhs: &Id) -> bool
+    {
+        return self.value == rhs.value;
+    }
+}
+
+struct ThreadFailure
+{
+    internal code: i64;
+    internal has_code: bool;
+
+    func native_code() -> i64?
+    {
+        if !self.has_code
+        {
+            return none;
+        }
+
+        let mut result: i64? = none;
+
+        result = self.code;
+
+        return result;
+    }
+}
+
+union ThreadError
+{
+    Capacity;
+    Creation(pos failure: ThreadFailure);
+}
+
+union ThreadNameError
+{
+    Invalid;
+    Allocation;
+    Platform(pos failure: ThreadFailure);
+}
+
+internal struct ThreadControl
+{
+    state: std.atomic.Atomic<u32>;
+    panic_payload: std.atomic.Atomic<usize>;
+    cancellation: std.atomic.Atomic<u32>;
+    identity: std.atomic.Atomic<u64>;
+    park_token: std.atomic.Atomic<u32>;
+    completion_event: usize;
+}
+
+internal struct ThreadStorage<T>
+{
+    control: ThreadControl;
+    mut result: Uninit<T>;
+}
+
+internal struct ThreadStart<State, T>
+{
+    entry: Entry<State, T>;
+    state: State;
+    storage: RawPointer<ThreadStorage<T>>;
+}
+
+internal struct NativeThreadStart
+{
+    operation: ThreadOperation;
+    context: usize;
+    control: RawPointer<ThreadControl>;
+}
+
+internal struct ThreadConstruction<State, T>
+{
+    mut storage: RawPointer<ThreadStorage<T>>;
+    mut work: RawPointer<ThreadStart<State, T>>;
+    mut native: RawPointer<NativeThreadStart>;
+
+    trusted destruct()
+    {
+        if !std.memory.is_null<NativeThreadStart>(self.native)
+        {
+            let _: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(self.native);
+        }
+
+        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
+        {
+            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+        }
+
+        if !std.memory.is_null<ThreadStorage<T>>(self.storage)
+        {
+            let _: ThreadStorage<T> = trusted internal take_transferred_value<ThreadStorage<T>>(self.storage);
+        }
+    }
+}
+
+struct Thread<T>
+{
+    internal owner: u64;
+    internal storage: RawPointer<ThreadStorage<T>>;
+    internal identity: Id;
+    internal mut active: bool;
+
+    func id() -> Id
+    {
+        return self.identity;
+    }
+
+    func wake()
+    {
+        let control: &ThreadControl = trusted internal thread_control<Thread<T>, T>(&self, self.storage);
+
+        std.atomic.store<u32>(&control.park_token, 1, order = std.atomic.StoreOrder.Release);
+        std.atomic.notify_one<u32>(&control.park_token);
+    }
+
+    consume mut func join() -> RunResult<T>
+        requires(blocking_execution())
+    {
+        return trusted internal observe_thread<T>(
+            &mut self,
+            request_cancellation = false,
+            propagate_caller_cancellation = true,
+        );
+    }
+
+    consume mut func cancel() -> RunResult<T>
+        requires(blocking_execution())
+    {
+        return trusted internal observe_thread<T>(
+            &mut self,
+            request_cancellation = true,
+            propagate_caller_cancellation = true,
+        );
+    }
+
+    finalize()
+        requires(blocking_execution())
+    {
+        if self.active
+        {
+            let outcome: RunResult<T> = trusted internal observe_thread<T>(
+                &mut self,
+                request_cancellation = true,
+                propagate_caller_cancellation = false,
+            );
+
+            match consume outcome
+            {
+                case RunResult.Completed(value)
+                {
+                    let _: T = value;
+                }
+                case RunResult.Cancelled {}
+                case RunResult.Panicked(report)
+                {
+                    let panicked: RunResult<T> = .Panicked(report);
+                    let _: T = try panicked;
+                }
+            }
+        }
+    }
+
+    trusted destruct()
+    {
+        assert(!self.active, "native thread ownership reached destruction before terminal observation");
+    }
+}

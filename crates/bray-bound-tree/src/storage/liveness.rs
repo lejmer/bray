@@ -99,6 +99,7 @@ pub struct Liveness {
     last_uses: Arc<[LastUse]>,
     live_across_scopes: Arc<[LiveAcrossScope]>,
     live_across_suspensions: Arc<[LiveAcrossSuspension]>,
+    owner_retained_subjects: Arc<[BoundDependencySubject]>,
     is_recovered: bool,
 }
 
@@ -110,11 +111,13 @@ impl Liveness {
         last_uses: impl IntoIterator<Item = LastUse>,
         live_across_scopes: impl IntoIterator<Item = LiveAcrossScope>,
         live_across_suspensions: impl IntoIterator<Item = LiveAcrossSuspension>,
+        owner_retained_subjects: impl IntoIterator<Item = BoundDependencySubject>,
         is_recovered: bool,
     ) -> Result<Self, LivenessBuildError> {
         let last_uses = sorted_unique_shared_slice(last_uses);
         let live_across_scopes = sorted_unique_shared_slice(live_across_scopes);
         let live_across_suspensions = sorted_unique_shared_slice(live_across_suspensions);
+        let owner_retained_subjects = sorted_unique_shared_slice(owner_retained_subjects);
 
         if last_uses
             .iter()
@@ -125,6 +128,9 @@ impl Liveness {
             || live_across_suspensions.iter().any(|entry| {
                 entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
             })
+            || owner_retained_subjects
+                .iter()
+                .any(|subject| !subject.is_valid_for(unit))
         {
             return Err(LivenessBuildError::ForeignUnit);
         }
@@ -134,6 +140,7 @@ impl Liveness {
             .map(|entry| entry.subject())
             .chain(live_across_scopes.iter().map(|entry| entry.subject()))
             .chain(live_across_suspensions.iter().map(|entry| entry.subject()))
+            .chain(owner_retained_subjects.iter().copied())
             .any(|subject| matches!(subject, BoundDependencySubject::ImplementationWitness(_)))
         {
             return Err(LivenessBuildError::UnsupportedSubject);
@@ -145,6 +152,7 @@ impl Liveness {
             last_uses,
             live_across_scopes,
             live_across_suspensions,
+            owner_retained_subjects,
             is_recovered,
         })
     }
@@ -172,6 +180,11 @@ impl Liveness {
     /// Returns normalized subjects retained across direct-await suspension points.
     pub fn live_across_suspensions(&self) -> &[LiveAcrossSuspension] {
         &self.live_across_suspensions
+    }
+
+    /// Returns normalized subjects whose lifetime is retained by an owning value.
+    pub fn owner_retained_subjects(&self) -> &[BoundDependencySubject] {
+        &self.owner_retained_subjects
     }
 
     /// Returns whether recovery prevented complete lifetime decisions.
@@ -207,6 +220,11 @@ impl Liveness {
             .binary_search(&LiveAcrossSuspension::new(await_expression, subject))
             .is_ok()
     }
+
+    /// Returns whether an owning value retains the subject's lifetime.
+    pub fn is_owner_retained(&self, subject: BoundDependencySubject) -> bool {
+        self.owner_retained_subjects.binary_search(&subject).is_ok()
+    }
 }
 
 #[cfg(test)]
@@ -237,6 +255,7 @@ mod tests {
             [last_use, last_use],
             [live_across_scope, live_across_scope],
             [live_across_suspension, live_across_suspension],
+            [subject, subject],
             false,
         ) else {
             panic!("unit-local liveness decisions must be valid");
@@ -253,6 +272,8 @@ mod tests {
         assert!(liveness.is_last_use(expression.into(), subject));
         assert!(liveness.is_live_across_scope(scope, subject));
         assert!(liveness.is_live_across_suspension(expression, subject));
+        assert_eq!(liveness.owner_retained_subjects(), &[subject]);
+        assert!(liveness.is_owner_retained(subject));
         assert!(!liveness.is_recovered());
     }
 
@@ -271,6 +292,7 @@ mod tests {
                 [LastUse::new(foreign, expression.into())],
                 [],
                 [],
+                [],
                 false,
             ),
             Err(LivenessBuildError::ForeignUnit)
@@ -285,6 +307,7 @@ mod tests {
                 unit,
                 BoundUnitKind::CallableBody,
                 [LastUse::new(witness, expression.into())],
+                [],
                 [],
                 [],
                 false,
@@ -310,9 +333,15 @@ mod tests {
             .into_iter()
             .map(|subject| LastUse::new(subject, expression.into()));
 
-        let Ok(liveness) =
-            Liveness::try_new(unit, BoundUnitKind::CallableBody, last_uses, [], [], false)
-        else {
+        let Ok(liveness) = Liveness::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            last_uses,
+            [],
+            [],
+            [],
+            false,
+        ) else {
             panic!("every flow-sensitive subject must support liveness decisions");
         };
 

@@ -118,7 +118,9 @@ pub(super) fn validate_type_structure(
             (mapping.layout(), mapping.kind()),
             (
                 Some(_),
-                CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
+                CodegenTypeKind::Opaque
+                    | CodegenTypeKind::UnsizedSlice { .. }
+                    | CodegenTypeKind::UnsizedTraitView
             ) | (
                 None,
                 CodegenTypeKind::Unit
@@ -282,6 +284,12 @@ fn signature_passes_unsized_by_value(
 
 fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 3] {
     match operation {
+        MirOperationKind::Call(call) => match call.target() {
+            bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None],
+            bray_ir::MirCallTarget::Direct(_) | bray_ir::MirCallTarget::Indirect { .. } => {
+                [None, None, None]
+            }
+        },
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
@@ -332,7 +340,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirGeneratorOperation::Push { .. }
             | MirGeneratorOperation::Finish { .. },
         )
-        | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)

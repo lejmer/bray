@@ -11,7 +11,7 @@ use bray_bound_tree::{
     StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
     DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
     DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
     DiagnosticStorageRoot, SeverityKind,
@@ -20,6 +20,7 @@ use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::storage::StorageScopeOwners;
 use crate::unit::semantic_inputs_match;
+use crate::diagnostic::diagnostic_id;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -358,6 +359,15 @@ where
         self.apply_memory_operation(state, operation.kind().node(), refinements);
         self.transfer_memory_result_state(state, operation.kind().node());
 
+        if let AnalysisOperationKind::ScopeExit {
+            block,
+            exit,
+            phase: AnalysisScopeExitPhase::LifecycleResolution,
+        } = operation.kind()
+        {
+            self.report_escaping_storage_dependencies(state, block, exit);
+        }
+
         self.end_last_use_borrows(state, operation.kind().node());
 
         if let AnalysisOperationKind::ScopeExit {
@@ -670,6 +680,7 @@ where
 
                 capability.entry_binding().is_none()
                     && ((moved_borrows.contains(borrow)
+                        && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
                         || self.liveness.is_last_use(operation, subject)
                         || capability.expression().is_some_and(|expression| {
@@ -807,9 +818,11 @@ where
             return;
         }
 
-        let id = u32::try_from(self.diagnostics.len()).unwrap_or(u32::MAX);
-
-        let mut diagnostic = Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
+        let mut diagnostic = Diagnostic::new(
+            diagnostic_id(self.diagnostics.len()),
+            kind,
+            SeverityKind::Error,
+        )
             .with_primary_span(source.span())
             .with_label(DiagnosticLabel::primary(
                 storage_diagnostic_label(kind),

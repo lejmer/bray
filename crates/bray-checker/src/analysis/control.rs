@@ -429,7 +429,7 @@ where
                 None => arm_entry,
             };
 
-            if let Some(completion) = self.build_block(arm.body(), body_entry)? {
+            if let Some(completion) = self.build_result_branch(arm.body(), body_entry, join)? {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
             }
 
@@ -468,17 +468,7 @@ where
                 }),
             );
 
-            let target = self.view().block(branch)?.origin().source_anchor().syntax();
-
-            self.result_yields.push(ResultYieldContext {
-                target,
-                completion: join,
-                scope_depth: self.scope_depth(),
-            });
-
-            let completion = self.build_block(branch, entry)?;
-
-            self.result_yields.pop();
+            let completion = self.build_result_branch(branch, entry, join)?;
 
             if let Some(completion) = completion {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
@@ -498,6 +488,27 @@ where
         }
 
         Some(Some(join))
+    }
+
+    fn build_result_branch(
+        &mut self,
+        branch: BoundBlockId,
+        entry: AnalysisBlockId,
+        completion: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        let target = self.view().block(branch)?.origin().source_anchor().syntax();
+
+        self.result_yields.push(ResultYieldContext {
+            target,
+            completion,
+            scope_depth: self.scope_depth(),
+        });
+
+        let result = self.build_block(branch, entry);
+
+        self.result_yields.pop();
+
+        result
     }
 
     fn build_while(

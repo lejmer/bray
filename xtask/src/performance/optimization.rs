@@ -145,6 +145,7 @@ const fn platform_provider_identity(
         Family::StandardStreams => "bray_platform_standard_streams",
         Family::Filesystem => "bray_platform_filesystem",
         Family::Process => "bray_platform_process",
+        Family::Thread => "bray_platform_thread",
         Family::Temporal => "bray_platform_temporal",
         Family::DynamicLibrary => "bray_platform_dynamic",
     }
@@ -239,6 +240,7 @@ mod tests {
             (Family::StandardStreams, "bray_platform_standard_streams"),
             (Family::Filesystem, "bray_platform_filesystem"),
             (Family::Process, "bray_platform_process"),
+            (Family::Thread, "bray_platform_thread"),
             (Family::Temporal, "bray_platform_temporal"),
             (Family::DynamicLibrary, "bray_platform_dynamic"),
         ];

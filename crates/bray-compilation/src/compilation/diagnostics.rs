@@ -912,8 +912,7 @@ impl SemanticSyntaxIndex {
 
     fn has_bound_constraint_expression(&self, anchor: SyntaxAnchor) -> bool {
         self.entries.get(&anchor).is_some_and(|entry| {
-            entry.surface_expression.is_some()
-                && !entry.surface_expression_is_trait_satisfaction
+            entry.surface_expression.is_some() && !entry.surface_expression_is_trait_satisfaction
         })
     }
 

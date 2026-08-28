@@ -1,7 +1,5 @@
 use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenTypeKind};
-use bray_ir::{
-    MirHelperReference, MirOperationId, MirStandardLibraryHelper, MirTextOperation,
-};
+use bray_ir::{MirHelperReference, MirOperationId, MirStandardLibraryHelper, MirTextOperation};
 use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
@@ -107,12 +105,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let (text, text_type) = self.invoke_text_helper_result(
             operation_id,
             MirStandardLibraryHelper::StringScalarSlice,
-            &[
-                data.into(),
-                length.into(),
-                start.into(),
-                end.into(),
-            ],
+            &[data.into(), length.into(), start.into(), end.into()],
         )?;
 
         self.owned_text(operation, text, text_type)
@@ -174,26 +167,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         };
 
-        let data = extract_value(
-            &self.builder,
-            text,
-            self.aggregate_element(&fields, 0)?,
-        )
-            .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        let data = extract_value(&self.builder, text, self.aggregate_element(&fields, 0)?)
+            .and_then(|value| {
+                pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
+            })?;
 
-        let length = extract_value(
-            &self.builder,
-            text,
-            self.aggregate_element(&fields, 1)?,
-        )?
-        .into_int_value();
+        let length = extract_value(&self.builder, text, self.aggregate_element(&fields, 1)?)?
+            .into_int_value();
 
-        let owner = extract_value(
-            &self.builder,
-            text,
-            self.aggregate_element(&fields, 2)?,
-        )
-            .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        let owner = extract_value(&self.builder, text, self.aggregate_element(&fields, 2)?)
+            .and_then(|value| {
+                pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
+            })?;
 
         let result = operation
             .result_type()

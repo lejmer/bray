@@ -6,7 +6,7 @@ use bray_codegen::{
     CodegenCallSite, CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
 };
 use bray_ir::{MirBlockId, MirEdge, MirOperand, MirPatternPredicate, MirPlace, MirTerminatorKind};
-use inkwell::values::{BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValueEnum, IntValue, PointerValue, StructValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -46,15 +46,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let condition = int_value(self.operand(condition)?)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                self.add_edge_arguments(then_edge)?;
-                self.add_edge_arguments(else_edge)?;
-                self.clear_moved_places()?;
+                let (source, pending_moves) = self.take_control_source()?;
 
-                llvm(self.builder.build_conditional_branch(
-                    condition,
-                    self.block(then_edge.target())?,
-                    self.block(else_edge.target())?,
-                ))?;
+                let then_route = self.route_edge(then_edge, "branch.then", &pending_moves)?;
+                let else_route = self.route_edge(else_edge, "branch.else", &pending_moves)?;
+
+                self.builder.position_at_end(source);
+
+                llvm(
+                    self.builder
+                        .build_conditional_branch(condition, then_route, else_route),
+                )?;
             }
             MirTerminatorKind::Switch {
                 discriminant,
@@ -64,27 +66,38 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let discriminant = int_value(self.operand(discriminant)?)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                self.add_edge_arguments(otherwise)?;
+                let case_values = cases
+                    .iter()
+                    .map(|case| {
+                        int_value(self.constant(case.value())?)
+                            .filter(|value| value.get_type() == discriminant.get_type())
+                            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let (source, pending_moves) = self.take_control_source()?;
+
+                let otherwise_route =
+                    self.route_edge(otherwise, "switch.otherwise", &pending_moves)?;
 
                 let mut llvm_cases = Vec::with_capacity(cases.len());
 
-                for case in cases.iter() {
-                    self.add_edge_arguments(case.edge())?;
+                for (index, (case, value)) in cases.iter().zip(case_values).enumerate() {
+                    let route = self.route_edge(
+                        case.edge(),
+                        &format!("switch.case.{index}"),
+                        &pending_moves,
+                    )?;
 
-                    let value = int_value(self.constant(case.value())?)
-                        .filter(|value| value.get_type() == discriminant.get_type())
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                    llvm_cases.push((value, self.block(case.edge().target())?));
+                    llvm_cases.push((value, route));
                 }
 
-                self.clear_moved_places()?;
+                self.builder.position_at_end(source);
 
-                llvm(self.builder.build_switch(
-                    discriminant,
-                    self.block(otherwise.target())?,
-                    &llvm_cases,
-                ))?;
+                llvm(
+                    self.builder
+                        .build_switch(discriminant, otherwise_route, &llvm_cases),
+                )?;
             }
             MirTerminatorKind::Return(value) => {
                 if self.frame_context.is_some() {
@@ -139,14 +152,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let condition =
                     self.translate_pattern_predicate(block, subject, subject_type, *predicate)?;
 
-                self.add_edge_arguments(matched)?;
-                self.add_edge_arguments(unmatched)?;
-                self.clear_moved_places()?;
+                let (source, pending_moves) = self.take_control_source()?;
+
+                let matched_route = self.route_edge(matched, "pattern.matched", &pending_moves)?;
+
+                let unmatched_route =
+                    self.route_edge(unmatched, "pattern.unmatched", &pending_moves)?;
+
+                self.builder.position_at_end(source);
 
                 llvm(self.builder.build_conditional_branch(
                     condition,
-                    self.block(matched.target())?,
-                    self.block(unmatched.target())?,
+                    matched_route,
+                    unmatched_route,
                 ))?;
             }
             MirTerminatorKind::Iterate {
@@ -169,22 +187,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirTerminatorKind::Suspend {
                 kind,
+                payload,
                 resume_state,
                 registration,
                 wake,
                 ..
             } => {
-                self.translate_suspension(*kind, *resume_state, *registration, *wake)?;
+                self.translate_suspension(
+                    *kind,
+                    payload.as_ref(),
+                    *resume_state,
+                    *registration,
+                    *wake,
+                )?;
             }
             MirTerminatorKind::ForwardRunResult { result, edges } => {
                 let result_type = self.operand_type(result)?;
                 let result = self.operand(result)?;
                 let tag = self.union_tag(result, result_type)?;
-
-                self.add_edge_arguments(edges.completed())?;
-                self.add_edge_arguments(edges.panicked().edge())?;
-                self.add_edge_arguments(edges.cancelled().edge())?;
-                self.clear_moved_places()?;
 
                 let completed =
                     self.union_variant_tag(result_type, edges.completed_variant(), tag.get_type())?;
@@ -195,17 +215,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let cancelled =
                     self.union_variant_tag(result_type, edges.cancelled_variant(), tag.get_type())?;
 
+                let (source, pending_moves) = self.take_control_source()?;
+
+                let completed_route =
+                    self.route_edge(edges.completed(), "run.completed", &pending_moves)?;
+
+                let panicked_route =
+                    self.route_edge(edges.panicked().edge(), "run.panicked", &pending_moves)?;
+
+                let cancelled_route =
+                    self.route_edge(edges.cancelled().edge(), "run.cancelled", &pending_moves)?;
+
                 let cases = [
-                    (completed, self.block(edges.completed().target())?),
-                    (panicked, self.block(edges.panicked().edge().target())?),
-                    (cancelled, self.block(edges.cancelled().edge().target())?),
+                    (completed, completed_route),
+                    (panicked, panicked_route),
+                    (cancelled, cancelled_route),
                 ];
 
-                llvm(self.builder.build_switch(
-                    tag,
-                    self.block(edges.cancelled().edge().target())?,
-                    &cases,
-                ))?;
+                self.builder.position_at_end(source);
+
+                llvm(self.builder.build_switch(tag, cancelled_route, &cases))?;
             }
         }
 
@@ -215,6 +244,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn translate_suspension(
         &mut self,
         kind: bray_ir::MirSuspensionKind,
+        payload: Option<&bray_ir::MirOperand>,
         resume_state: bray_ir::MirFrameStateId,
         registration: bray_ir::MirRuntimeReference,
         wake: bray_ir::MirRuntimeReference,
@@ -254,18 +284,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 bray_ir::MirSuspensionKind::Yield => {
                     bray_runtime_abi::NativeFrameProgressKind::YIELDED
                 }
+                bray_ir::MirSuspensionKind::TaskEvent => {
+                    bray_runtime_abi::NativeFrameProgressKind::TASK_EVENT
+                }
             };
 
-            let progress = crate::native::frame_progress_type(self.types.context())
-                .const_named_struct(&[
-                    self.types
-                        .context()
-                        .i32_type()
-                        .const_int(u64::from(progress_kind.code()), false)
-                        .into(),
-                    state.into(),
-                    self.types.context().i64_type().const_zero().into(),
-                ]);
+            let payload = match payload.map(|payload| self.operand(payload)).transpose()? {
+                Some(BasicValueEnum::IntValue(payload)) => payload,
+                Some(_) => return Err(CodegenFailure::GeneratedModuleInvariant),
+                None => self.types.context().i64_type().const_zero(),
+            };
+
+            let payload = if payload.get_type().get_bit_width() == 64 {
+                payload
+            } else {
+                llvm(self.builder.build_int_z_extend(
+                    payload,
+                    self.types.context().i64_type(),
+                    "suspension.payload",
+                ))?
+            };
+
+            let progress = self.build_frame_progress(progress_kind.code(), state, payload)?;
 
             self.return_frame_progress(progress.into())?;
 
@@ -282,6 +322,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.return_machine_value(outcome)
+    }
+
+    pub(super) fn build_frame_progress(
+        &self,
+        kind: u32,
+        state: IntValue<'context>,
+        payload: IntValue<'context>,
+    ) -> Result<StructValue<'context>, CodegenFailure> {
+        let mut progress = crate::native::frame_progress_type(self.types.context()).get_undef();
+
+        let fields: [BasicValueEnum<'context>; 3] = [
+            self.types
+                .context()
+                .i32_type()
+                .const_int(u64::from(kind), false)
+                .into(),
+            state.into(),
+            payload.into(),
+        ];
+
+        for (index, field) in fields.into_iter().enumerate() {
+            progress = llvm(self.builder.build_insert_value(
+                progress,
+                field,
+                u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                "frame.progress.field",
+            ))?
+            .into_struct_value();
+        }
+
+        Ok(progress)
     }
 
     fn translate_panic_propagation(
@@ -361,19 +432,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .copied()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let source = self
-            .builder
-            .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let (source, pending_moves) = self.take_control_source()?;
 
-        phi.add_incoming(&[(&element, source)]);
-        self.add_edge_arguments(exhausted)?;
+        let item_route = self.route_target(item, "iterate.item", &pending_moves)?;
+        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &pending_moves)?;
 
-        llvm(self.builder.build_conditional_branch(
-            present,
-            self.block(item)?,
-            self.block(exhausted.target())?,
-        ))?;
+        phi.add_incoming(&[(&element, item_route)]);
+        self.builder.position_at_end(source);
+
+        llvm(
+            self.builder
+                .build_conditional_branch(present, item_route, exhausted_route),
+        )?;
 
         Ok(())
     }
@@ -712,41 +782,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CodegenResultMapping::Void => {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
-        }
-
-        Ok(())
-    }
-
-    pub(super) fn add_edge_arguments(&mut self, edge: &MirEdge) -> Result<(), CodegenFailure> {
-        let target = self
-            .unit
-            .block(edge.target())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        if target.parameters().len() != edge.arguments().len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        let mut incoming = Vec::with_capacity(target.parameters().len());
-
-        for (parameter, argument) in target.parameters().iter().zip(edge.arguments()) {
-            let phi = self
-                .phis
-                .get(parameter)
-                .copied()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            let value = self.operand(argument)?;
-
-            incoming.push((phi, value));
-        }
-
-        let Some(source) = self.builder.get_insert_block() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        for (phi, value) in incoming {
-            phi.add_incoming(&[(&value, source)]);
         }
 
         Ok(())

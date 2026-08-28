@@ -15,13 +15,13 @@ trusted internal func deallocate(pos allocation: RawPointer<u8>) -> bool
     return true;
 }
 
-@link(name = "libucrt", kind = system)
+@link(name = "ucrt", kind = system)
 @symbol(name = "_aligned_malloc")
 @abi(c)
 extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> RawPointer<u8>
     uses(foreign_call);
 
-@link(name = "libucrt", kind = system)
+@link(name = "ucrt", kind = system)
 @symbol(name = "_aligned_free")
 @abi(c)
 extern trusted func aligned_free(pos allocation: RawPointer<u8>) -> unit

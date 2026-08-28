@@ -400,7 +400,7 @@ impl Compilation {
 
         let ((types, selections, literals), diagnostics) = result.into_parts();
 
-        let (static_selections, static_diagnostics) = self.static_instance_selections(
+        let (reference_selections, reference_diagnostics) = self.named_reference_selections(
             key,
             cancellation,
             bound.result().value(),
@@ -415,7 +415,7 @@ impl Compilation {
                 .entries()
                 .iter()
                 .cloned()
-                .chain(static_selections),
+                .chain(reference_selections),
         )
         .map_err(|_| {
             FactQueryError::CheckerInfrastructure(
@@ -433,7 +433,7 @@ impl Compilation {
         let diagnostics = DiagnosticBag::merged_all([
             candidates.diagnostics(),
             &diagnostics,
-            &static_diagnostics,
+            &reference_diagnostics,
         ]);
 
         let result = DiagnosticResult::new(value, diagnostics);
@@ -657,8 +657,8 @@ mod tests {
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError, QueryPriority};
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget,
-        compilation_with_target_operations, source_callable_body_key, source_function_body_key,
-        source_input, source_trait_callable_fulfillment_body_key,
+        compilation_with_target_operations, only_call_selection, source_callable_body_key,
+        source_function_body_key, source_input, source_trait_callable_fulfillment_body_key,
         source_type_callable_member_body_key,
     };
 
@@ -2505,9 +2505,7 @@ mod tests {
             selections.diagnostics()
         );
 
-        let [selection] = selections.value().entries() else {
-            panic!("direct call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("direct call must publish a callable selection");
@@ -2614,12 +2612,7 @@ mod tests {
             Err(error) => panic!("semantic selections must publish: {error:?}"),
         };
 
-        let [selection] = selections.value().entries() else {
-            panic!(
-                "null pointer call must select one callable: {:?}",
-                selections.value().entries()
-            );
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("null pointer call must select a call");
@@ -3602,7 +3595,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         let key = source_type_callable_member_body_key(&compilation, "forward");
 
         let selections = compilation
-            .semantic_selections(key)
+            .semantic_selections(key.clone())
             .unwrap_or_else(|error| panic!("method selection must publish: {error:?}"));
 
         assert!(
@@ -3734,6 +3727,60 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
                 .any(|exit| { !exit.lifecycle_resolution().is_empty() }),
             "plans={:#?}",
             analysis.value().scope_exits()
+        );
+    }
+
+    #[test]
+    fn trust_boundaries_preserve_value_transfer_ownership() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Guard\n",
+            "{\n",
+            "    value: bool;\n",
+            "    destruct() {}\n",
+            "}\n",
+            "trusted internal func make() -> Guard\n",
+            "{\n",
+            "    return Guard { value = true };\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let guard: Guard = trusted internal make();\n",
+            "    guard;\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let storage = compilation
+            .storage_plan(key.clone())
+            .unwrap_or_else(|error| panic!("storage plan must publish: {error:?}"));
+
+        let analysis = compilation
+            .async_analysis(key)
+            .unwrap_or_else(|error| panic!("lifecycle analysis must publish: {error:?}"));
+
+        let lifecycle_identities = analysis
+            .value()
+            .scope_exits()
+            .iter()
+            .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
+            .filter_map(|access| storage.value().root_identity(*access))
+            .filter_map(|identity| storage.value().identity(identity))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            lifecycle_identities
+                .iter()
+                .filter(|identity| matches!(identity, StorageIdentity::LocalOwned(_)))
+                .count(),
+            1
+        );
+
+        assert!(
+            lifecycle_identities
+                .iter()
+                .all(|identity| !matches!(identity, StorageIdentity::Temporary(_)))
         );
     }
 
@@ -4097,6 +4144,101 @@ func select(pos value: i32) -> i32
     }
 
     #[test]
+    fn unavailable_custom_operators_report_diagnostics_before_lowering() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value {}
+
+func compare(pos left: Value, pos right: Value) -> bool
+{
+    return left != right;
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
+            panic!("invalid custom operator must remain checkable: {error:?}")
+        });
+
+        assert!(lowered.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            lowered.diagnostics(),
+            DiagnosticKind::CheckingNoApplicableCandidate,
+        );
+    }
+
+    #[test]
+    fn structures_without_primary_constructors_are_not_callable() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+    number: i32;
+}
+
+func create() -> Value
+{
+    return Value(1);
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("invalid structure call must be selectable: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            selections.diagnostics(),
+            DiagnosticKind::CheckingNoApplicableCandidate,
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| {
+                panic!("invalid structure call must remain checkable: {error:?}")
+            });
+
+        assert!(lowered.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            lowered.diagnostics(),
+            DiagnosticKind::CheckingNoApplicableCandidate,
+        );
+    }
+
+    #[test]
+    fn built_in_operators_remain_available_without_trait_candidates() {
+        let compilation = compilation(
+            r#"module app;
+
+func compare(pos left: i32, pos right: i32) -> bool
+{
+    return left != right;
+}
+"#,
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("built-in operator must lower: {error:?}"));
+
+        assert!(lowered.value().is_some());
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+    }
+
+    #[test]
     fn mutable_custom_indexing_requires_the_mutable_protocol() {
         let source = r#"module app;
 
@@ -4128,7 +4270,7 @@ func mutate(pos input: Value)
 
         let kinds = diagnostics
             .iter()
-            .map(bray_diagnostics::Diagnostic::kind)
+            .map(Diagnostic::kind)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -4283,9 +4425,7 @@ func convert(pos value: Value) -> i32
             selections.diagnostics()
         );
 
-        let [selection] = selections.value().entries() else {
-            panic!("overload call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("overload call must publish a callable selection");
@@ -4412,9 +4552,7 @@ func convert(pos value: Value) -> i32
             Err(error) => panic!("named-argument selection must publish: {error:?}"),
         };
 
-        let [selection] = selections.value().entries() else {
-            panic!("named call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("named call must publish a callable selection");
@@ -4503,9 +4641,7 @@ func convert(pos value: Value) -> i32
         assert!(!types.value().is_recovered());
         assert!(selections.diagnostics().is_empty());
 
-        let [selection] = selections.value().entries() else {
-            panic!("generic call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         assert!(matches!(selection.selection(), SemanticSelection::Call(_)));
 
@@ -4651,9 +4787,7 @@ func convert(pos value: Value) -> i32
             Err(error) => panic!("asynchronous call selection must publish: {error:?}"),
         };
 
-        let [selection] = selections.value().entries() else {
-            panic!("asynchronous call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("asynchronous invocation must publish a call selection");
@@ -4704,9 +4838,7 @@ func convert(pos value: Value) -> i32
             Err(error) => panic!("callable-value selection must publish: {error:?}"),
         };
 
-        let [selection] = selections.value().entries() else {
-            panic!("callable-value invocation must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("callable value must publish a call selection");
@@ -4744,9 +4876,7 @@ func convert(pos value: Value) -> i32
 
         assert!(!types.value().is_recovered());
 
-        let [selection] = selections.value().entries() else {
-            panic!("direct lambda call must publish one semantic selection");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("direct lambda invocation must publish a call selection");

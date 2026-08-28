@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundPatternId,
+    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundPatternId,
     BoundStructuredExpressionKind,
 };
 use bray_compiler_known::RepresentationRole;
@@ -154,6 +154,34 @@ where
     };
 
     source_span(request, expression.origin())
+}
+
+pub(crate) fn bound_node_origin<C>(
+    request: CheckerUnitView<'_, C>,
+    node: AnyBoundNodeId,
+) -> Option<BoundNodeOrigin>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match node {
+        AnyBoundNodeId::Expression(expression) => request
+            .view()
+            .expression(expression)
+            .map(BoundExpression::origin),
+        AnyBoundNodeId::Pattern(pattern) => request
+            .view()
+            .pattern(pattern)
+            .map(bray_bound_tree::BoundPattern::origin),
+        AnyBoundNodeId::Block(block) => request
+            .view()
+            .block(block)
+            .map(bray_bound_tree::BoundBlock::origin),
+        AnyBoundNodeId::CallableBody(body) => request
+            .view()
+            .callable_body(body)
+            .copied()
+            .map(bray_bound_tree::BoundCallableBody::origin),
+    }
 }
 
 pub(crate) fn pattern_span<C>(

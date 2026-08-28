@@ -15,6 +15,7 @@ use bray_runtime_model::RuntimeCapability;
 use crate::{
     CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
     JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
+    RuntimeEventRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -33,6 +34,24 @@ pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) cleanup_workloads: Cell<bool>,
     pub(in crate::native) worker: Option<Arc<super::super::workers::WorkerControl>>,
     pub(in crate::native) core: Arc<NativeRuntimeCore>,
+    #[cfg(test)]
+    pub(in crate::native) _test_isolation: Option<std::sync::MutexGuard<'static, ()>>,
+}
+
+#[cfg(test)]
+static NATIVE_RUNTIME_TEST_ISOLATION: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(in crate::native) fn test_runtime_isolation() -> Option<std::sync::MutexGuard<'static, ()>> {
+    if NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_some()) {
+        None
+    } else {
+        Some(
+            NATIVE_RUNTIME_TEST_ISOLATION
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
 }
 
 pub(crate) struct NativeRuntimeCore {
@@ -111,6 +130,8 @@ impl NativeRuntimeCore {
 
         self.workers.stop(&self.scheduler, current.as_ref());
         self.clear_tasks();
+
+        super::super::event::clear(self);
     }
 }
 
@@ -159,6 +180,7 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
+    pub(in crate::native) event_wait: Mutex<Option<RuntimeEventRegistration>>,
     pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
 }
@@ -200,9 +222,18 @@ fn initialize_with_capabilities(
             return NativeRuntimeStatus::ALREADY_INITIALIZED;
         }
 
+        #[cfg(test)]
+        let test_isolation = NATIVE_RUNTIME_TEST_ISOLATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
+
+        if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
 
         let scheduler = Scheduler::new(
             capabilities,
@@ -232,6 +263,8 @@ fn initialize_with_capabilities(
             cleanup_workloads: Cell::new(cleanup_workloads),
             worker: None,
             core,
+            #[cfg(test)]
+            _test_isolation: Some(test_isolation),
         })));
 
         NativeRuntimeStatus::SUCCESS
@@ -320,6 +353,8 @@ pub(in crate::native) fn run_worker(
         cleanup_workloads: Cell::new(false),
         worker: Some(Arc::clone(&control)),
         core,
+        #[cfg(test)]
+        _test_isolation: None,
     });
 
     NATIVE_RUNTIME.with(|current| {

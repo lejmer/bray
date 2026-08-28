@@ -1153,6 +1153,7 @@ mod tests {
             )],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("same-unit liveness must build: {error:?}"));
@@ -1642,7 +1643,7 @@ mod tests {
 
         let (storage, storage_flow) = empty_storage_analysis(unit);
 
-        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness analysis must validate: {error:?}"));
 
         let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)

@@ -104,6 +104,12 @@ define_platform_service_roles! {
     ChildReap,
     /// Forcefully resolves and consumes one child-process owner.
     ChildDispose,
+    /// Creates one operating-system thread and transfers its callback context.
+    ThreadCreate,
+    /// Waits for one operating-system thread and consumes its owner.
+    ThreadJoin,
+    /// Releases the join authority for one operating-system thread.
+    ThreadDetach,
     /// Observes the process-local monotonic clock.
     ClockMonotonicNow,
     /// Observes the host wall clock.
@@ -191,6 +197,9 @@ impl PlatformServiceRole {
             Self::ChildTerminate => 0x0313,
             Self::ChildReap => 0x0314,
             Self::ChildDispose => 0x0315,
+            Self::ThreadCreate => 0x0321,
+            Self::ThreadJoin => 0x0322,
+            Self::ThreadDetach => 0x0323,
             Self::ClockMonotonicNow => 0x0401,
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
@@ -259,6 +268,9 @@ impl PlatformServiceRole {
             0x0313 => Some(Self::ChildTerminate),
             0x0314 => Some(Self::ChildReap),
             0x0315 => Some(Self::ChildDispose),
+            0x0321 => Some(Self::ThreadCreate),
+            0x0322 => Some(Self::ThreadJoin),
+            0x0323 => Some(Self::ThreadDetach),
             0x0401 => Some(Self::ClockMonotonicNow),
             0x0402 => Some(Self::ClockWallNow),
             0x0403 => Some(Self::ClockSleep),
@@ -328,6 +340,9 @@ impl PlatformServiceRole {
             Self::ChildTerminate => "platform.child.terminate",
             Self::ChildReap => "platform.child.reap",
             Self::ChildDispose => "platform.child.dispose",
+            Self::ThreadCreate => "platform.thread.create",
+            Self::ThreadJoin => "platform.thread.join",
+            Self::ThreadDetach => "platform.thread.detach",
             Self::ClockMonotonicNow => "platform.clock.monotonic_now",
             Self::ClockWallNow => "platform.clock.wall_now",
             Self::ClockSleep => "platform.clock.sleep",
@@ -396,6 +411,9 @@ impl PlatformServiceRole {
             "platform.child.terminate" => Some(Self::ChildTerminate),
             "platform.child.reap" => Some(Self::ChildReap),
             "platform.child.dispose" => Some(Self::ChildDispose),
+            "platform.thread.create" => Some(Self::ThreadCreate),
+            "platform.thread.join" => Some(Self::ThreadJoin),
+            "platform.thread.detach" => Some(Self::ThreadDetach),
             "platform.clock.monotonic_now" => Some(Self::ClockMonotonicNow),
             "platform.clock.wall_now" => Some(Self::ClockWallNow),
             "platform.clock.sleep" => Some(Self::ClockSleep),
@@ -529,6 +547,10 @@ impl PlatformServiceRole {
         const CHILD_TERMINATE: &[PlatformAbiType] = &[U64, U32];
         const CHILD_REAP: &[PlatformAbiType] = &[U64, ExitStatusPointer];
 
+        const THREAD_CREATE: &[PlatformAbiType] = &[PointerU8, PointerU8, PointerU64, PointerI64];
+
+        const THREAD_OWNER: &[PlatformAbiType] = &[U64];
+
         let parameters = match self {
             Self::ContextIdentity | Self::ContextNativeTextWidth => NO_PARAMETERS,
             Self::ContextWorkingDirectory => CONTEXT_TEXT,
@@ -568,6 +590,8 @@ impl PlatformServiceRole {
             Self::ChildTerminate => CHILD_TERMINATE,
             Self::ChildReap => CHILD_REAP,
             Self::ChildDispose => STREAM_HANDLE,
+            Self::ThreadCreate => THREAD_CREATE,
+            Self::ThreadJoin | Self::ThreadDetach => THREAD_OWNER,
             Self::ClockMonotonicNow => CLOCK_MONOTONIC_NOW,
             Self::ClockWallNow => CLOCK_WALL_NOW,
             Self::ClockSleep => CLOCK_SLEEP,

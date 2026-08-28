@@ -82,7 +82,8 @@ pub(super) fn atomic_storage_is_padding_free(
                     .checked_mul(*length)
                     .is_some_and(|size| size == layout.size())
         }
-        CodegenTypeKind::Union { .. }
+        CodegenTypeKind::Opaque
+        | CodegenTypeKind::Union { .. }
         | CodegenTypeKind::UnsizedSlice { .. }
         | CodegenTypeKind::UnsizedTraitView => false,
         CodegenTypeKind::Unit
@@ -1670,6 +1671,77 @@ mod tests {
             signature.result(),
             &CodegenResultMapping::direct(boolean, None, [])
         );
+    }
+
+    #[test]
+    fn panic_reporting_runtime_helper_transfers_a_report_and_returns_status() {
+        let compilation = compilation("module app; func main() {}");
+
+        let signature = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::PanicReporting)
+            .expect("panic reporting signature must realize");
+
+        let report = compilation
+            .codegen_representation_type(RepresentationRole::PanicReport)
+            .expect("panic report representation must realize");
+
+        let status = compilation
+            .codegen_representation_type(RepresentationRole::ScalarU32)
+            .expect("status representation must realize");
+
+        assert_eq!(
+            signature.parameters(),
+            [CodegenParameterMapping::direct(report, None, [])]
+        );
+
+        assert_eq!(
+            signature.result(),
+            &CodegenResultMapping::direct(status, None, [])
+        );
+    }
+
+    #[test]
+    fn task_event_runtime_helpers_use_event_and_status_scalars() {
+        let compilation = compilation("module app; func main() {}");
+
+        let event = compilation
+            .codegen_representation_type(RepresentationRole::ScalarUsize)
+            .expect("task event representation must realize");
+
+        let status = compilation
+            .codegen_representation_type(RepresentationRole::ScalarU32)
+            .expect("status representation must realize");
+
+        let creation = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::TaskEventCreation)
+            .expect("task event creation signature must realize");
+
+        let signal = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::TaskEventSignal)
+            .expect("task event signal signature must realize");
+
+        let destruction = compilation
+            .codegen_runtime_signature(RuntimeAbiRole::TaskEventDestruction)
+            .expect("task event destruction signature must realize");
+
+        assert!(creation.parameters().is_empty());
+
+        assert_eq!(
+            creation.result(),
+            &CodegenResultMapping::direct(event, None, [])
+        );
+
+        for signature in [signal, destruction] {
+            assert_eq!(
+                signature.parameters(),
+                [CodegenParameterMapping::direct(event, None, [])]
+            );
+
+            assert_eq!(
+                signature.result(),
+                &CodegenResultMapping::direct(status, None, [])
+            );
+        }
     }
 
     #[test]

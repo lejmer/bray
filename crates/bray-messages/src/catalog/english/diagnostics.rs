@@ -983,6 +983,10 @@ const CHECKING_MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" does not own the reached storage"),
 ];
 
+const CHECKING_ESCAPING_STORAGE_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "a value leaving this scope depends on storage owned by the scope",
+)];
+
 const CHECKING_MISSING_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trait implementation does not fulfill "),
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
@@ -1825,6 +1829,11 @@ const NOTE_AWAIT_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" must "),
     MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
 ];
+const NOTE_ESCAPING_STORAGE_DEPENDENCY_RESOLUTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "resolve the dependent value before leaving the scope, or move the referenced storage to an enclosing scope",
+    ),
+];
 
 const NOTE_ASYNCHRONOUS_CALLABLE_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "make the enclosing callable asynchronous or perform this operation from an asynchronous callable",
@@ -1973,6 +1982,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::ArrayGeneratorMustYieldOncePerElement
         | DiagnosticNoteKind::CallbackStateRequirements
         | DiagnosticNoteKind::RefutablePatternRequiresConditionalContext
+        | DiagnosticNoteKind::EscapingStorageDependencyResolution
         | DiagnosticNoteKind::AsynchronousCallableRequired
         | DiagnosticNoteKind::ExecutableEntrypointRequired
         | DiagnosticNoteKind::EntrypointDirectiveRequiresExecutableProduct
@@ -2354,6 +2364,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingMissingStorageOwnership => {
             MessageTemplate::new(CHECKING_MISSING_STORAGE_OWNERSHIP)
+        }
+        DiagnosticKind::CheckingEscapingStorageDependency => {
+            MessageTemplate::new(CHECKING_ESCAPING_STORAGE_DEPENDENCY)
         }
         DiagnosticKind::CheckingMissingTraitFulfillment => {
             MessageTemplate::new(CHECKING_MISSING_TRAIT_FULFILLMENT)
@@ -2909,6 +2922,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::AwaitDependencyUnavailable => {
             MessageTemplate::new(NOTE_AWAIT_DEPENDENCY_UNAVAILABLE)
+        }
+        DiagnosticNoteKind::EscapingStorageDependencyResolution => {
+            MessageTemplate::new(NOTE_ESCAPING_STORAGE_DEPENDENCY_RESOLUTION)
         }
         DiagnosticNoteKind::AsynchronousCallableRequired => {
             MessageTemplate::new(NOTE_ASYNCHRONOUS_CALLABLE_REQUIRED)

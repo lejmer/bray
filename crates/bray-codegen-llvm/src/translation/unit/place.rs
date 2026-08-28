@@ -689,6 +689,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::Float(_)
             | CodegenTypeKind::Pointer { .. }
             | CodegenTypeKind::Aggregate(_)
+            | CodegenTypeKind::Opaque
             | CodegenTypeKind::Array { .. }
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView

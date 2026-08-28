@@ -26,6 +26,10 @@ dependency it can carry must remain valid if ownership or access moves to a dist
 synchronized shared owner. It identifies the destination run class and rejects creating-run borrows, incompatible thread
 affinity, unsynchronized shared mutation, and lifecycle obligations that the destination cannot drive.
 
+A structured thread owner can instead retain a creating-run borrow until the child terminates. The retained dependency
+prevents conflicting source access and prevents the owner from outliving the reached storage. A detached or otherwise
+unscoped independent run has no such owner and therefore cannot carry that borrow.
+
 A dependency contract is not part of surface syntax.
 
 It is part of the declared semantic contract of the value or declaration that carries it.
