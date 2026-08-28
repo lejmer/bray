@@ -183,7 +183,12 @@ func concurrency_model_atomic_wait_observes_notification()
     >(publish_atomic_change, (&value, &ready))
     {
         case Ok(created) { yield created; }
-        case Error(_) { panic("native atomic notifier creation failed"); }
+        case Error(_)
+        {
+            std.atomic.store<u32>(&value, 1, order = std.atomic.StoreOrder.Release);
+            std.atomic.notify_one<u32>(&value);
+            panic("native atomic notifier creation failed");
+        }
     };
 
     match consume waiting.join()
