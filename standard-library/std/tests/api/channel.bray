@@ -3,6 +3,20 @@ module bray.standard_library_tests.channel;
 using std.channel;
 using std.task;
 
+static CHANNEL_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal struct ChannelCleanupProbe
+{
+    value: u32;
+
+    finalize()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&CHANNEL_CLEANUP_COUNT, 1);
+    }
+
+    destruct() {}
+}
+
 internal async func completed_value() -> i32
 {
     return 13;
@@ -224,7 +238,7 @@ async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_val
 }
 
 @test
-async func contended_producers_preserve_each_senders_commit_order()
+async func concurrency_stress_contended_producers_preserve_each_senders_commit_order()
 {
     let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 4)
     {
@@ -301,4 +315,69 @@ func endpoint_closure_preserves_unsent_values_and_terminal_receives()
     }
 
     duplicate.close();
+}
+
+@test
+func concurrency_model_receiver_close_resolves_buffered_messages()
+{
+    core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
+
+    let(mut sender, mut receiver) = match std.channel.bounded<ChannelCleanupProbe>(capacity = 2)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    match sender.try_send(
+        ChannelCleanupProbe
+        {
+            value = 1,
+        }
+    )
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    match sender.try_send(
+        ChannelCleanupProbe
+        {
+            value = 2,
+        }
+    )
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    receiver.close();
+
+    assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == 2);
+
+    sender.close();
+}
+
+@test
+func concurrency_model_channel_capacity_overflow_is_recoverable()
+{
+    let impossible_capacity: usize = ~0;
+
+    match std.channel.bounded<u64>(capacity = impossible_capacity)
+    {
+        case Ok(endpoints)
+        {
+            let(mut sender, mut receiver) = endpoints;
+
+            sender.close();
+            receiver.close();
+            assert(false);
+        }
+        case Error(error)
+        {
+            match error
+            {
+                case CapacityOverflow {}
+            }
+        }
+    }
 }

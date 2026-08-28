@@ -16,8 +16,10 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 112;
+const API_TEST_COUNT: usize = 118;
 const API_FILTERED_TEST_COUNT: usize = 3;
+const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
+const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
 const OUTCOME_CASES: [OutcomeCase; 9] = [
     OutcomeCase::new(
         "assertion-failure",
@@ -156,7 +158,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         if selected(parts, TestPart::Api) {
             crate::progress::run(
                 &format!(
-                    "Running native standard library API tests ({API_TEST_COUNT} tests, 5 plans)"
+                    "Running native standard library API tests ({API_TEST_COUNT} tests, 7 plans)"
                 ),
                 || audit_api(&root, &workspace, &toolchain, target, profile_output),
             )?;
@@ -203,6 +205,8 @@ fn audit_api(
         test_batch_plan("api-sequential", std::iter::empty::<&str>(), 1, Some(1000))?,
         test_batch_plan("api-parallel", std::iter::empty::<&str>(), 2, Some(1000))?,
         test_batch_plan("api-filtered", ["standard_output"], 2, Some(1000))?,
+        test_batch_plan("concurrency-model", ["concurrency_model_"], 2, Some(5000))?,
+        test_batch_plan("concurrency-stress", ["concurrency_stress_"], 2, Some(5000))?,
     ])?;
 
     let output = run_test_batch(
@@ -222,6 +226,8 @@ fn audit_api(
     let sequential = batch.report("api-sequential")?;
     let parallel = batch.report("api-parallel")?;
     let filtered = batch.report("api-filtered")?;
+    let concurrency_model = batch.report("concurrency-model")?;
+    let concurrency_stress = batch.report("concurrency-stress")?;
 
     let catalog = product_catalog(workspace, target, API_PRODUCT)?;
     let catalog = read_artifact(&catalog)?;
@@ -265,7 +271,45 @@ fn audit_api(
         ));
     }
 
+    require_concurrency_selection(
+        concurrency_model,
+        "concurrency_model_",
+        CONCURRENCY_MODEL_TEST_COUNT,
+    )?;
+
+    require_concurrency_selection(
+        concurrency_stress,
+        "concurrency_stress_",
+        CONCURRENCY_STRESS_TEST_COUNT,
+    )?;
+
     require_success("native API batch", &output)?;
+
+    Ok(())
+}
+
+fn require_concurrency_selection(
+    report: &NativeTestReport,
+    identity_fragment: &str,
+    expected: usize,
+) -> Result<(), BuildError> {
+    require_product(report, API_PRODUCT)?;
+    require_selection(report, API_TEST_COUNT, expected, API_TEST_COUNT - expected)?;
+
+    let tests = tests(report);
+
+    if tests.len() != expected
+        || tests
+            .iter()
+            .any(|test| !test.identity.contains(identity_fragment))
+    {
+        return Err(BuildError::conformance(
+            "native concurrency",
+            format!(
+                "the {identity_fragment} filter did not select exactly {expected} fixtures"
+            ),
+        ));
+    }
 
     Ok(())
 }

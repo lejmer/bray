@@ -132,7 +132,7 @@ func synchronization_owners_guard_and_publish_values()
 }
 
 @test
-func failed_once_initialization_can_be_retried()
+func concurrency_model_failed_once_initialization_can_be_retried()
 {
     let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
@@ -189,7 +189,7 @@ func synchronization_signals_cover_immediate_progress()
 }
 
 @test
-async func mutex_contention_and_panic_cleanup_preserve_progress()
+async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progress()
 {
     let counter: std.sync.Mutex<u32> = std.sync.Mutex<u32>(0);
     let first: Task<unit> = increment_mutex(&counter, iterations = 128).start();
@@ -232,7 +232,7 @@ async func mutex_contention_and_panic_cleanup_preserve_progress()
 }
 
 @test
-async func reader_writer_lock_admits_a_pending_writer_before_later_readers()
+async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_later_readers()
 {
     let lock: std.sync.RwLock<u32> = std.sync.RwLock<u32>(0);
     let order = std.atomic.atomic<u32>(0);
@@ -267,7 +267,7 @@ async func reader_writer_lock_admits_a_pending_writer_before_later_readers()
 }
 
 @test
-async func barrier_reuses_its_generation_across_contended_rounds()
+async func concurrency_stress_barrier_reuses_its_generation_across_contended_rounds()
 {
     let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 3)
     {

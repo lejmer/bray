@@ -141,7 +141,7 @@ func native_thread_owner_scopes_a_transferred_borrow()
 }
 
 @test
-func native_thread_identity_and_exact_thread_cleanup_are_observable()
+func concurrency_model_native_thread_identity_and_exact_thread_cleanup_are_observable()
 {
     core.atomic.store<u32, 2>(&TERMINAL_OBSERVATION, 0);
 
@@ -186,7 +186,7 @@ func native_thread_panic_is_reported_to_the_owner()
 }
 
 @test
-func native_thread_cancellation_reaches_a_checkpoint()
+func concurrency_stress_native_thread_cancellation_reaches_a_checkpoint()
 {
     let mut thread: std.thread.Thread<unit> = match std.thread.start<unit, unit>(wait_for_cancellation, unit)
     {
