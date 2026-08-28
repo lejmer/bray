@@ -3,6 +3,7 @@ module bray.standard_library_tests.sync;
 using std.atomic;
 using std.sync;
 using std.task;
+using std.testing;
 
 internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos iterations: u32)
     requires(blocking_execution())
@@ -132,15 +133,11 @@ func synchronization_owners_guard_and_publish_values()
 }
 
 @test
-func failed_once_initialization_can_be_retried()
+func concurrency_model_failed_once_initialization_can_be_retried()
 {
     let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
-    match once.get_or_try_init<i32>(failed_initialization)
-    {
-        case Ok(_) { assert(false); }
-        case Error(_) {}
-    }
+    let _: i32 = std.testing.assert_error< &i32, i32>(once.get_or_try_init<i32>(failed_initialization));
 
     assert(once.get_or_init(initialized_value) == 37);
 }
@@ -169,11 +166,7 @@ func synchronization_signals_cover_immediate_progress()
     assert(semaphore.try_acquire());
     assert(!semaphore.try_acquire());
 
-    match semaphore.release()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.sync.SemaphoreError>(semaphore.release());
 
     let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 1)
     {
@@ -189,7 +182,7 @@ func synchronization_signals_cover_immediate_progress()
 }
 
 @test
-async func mutex_contention_and_panic_cleanup_preserve_progress()
+async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progress()
 {
     let counter: std.sync.Mutex<u32> = std.sync.Mutex<u32>(0);
     let first: Task<unit> = increment_mutex(&counter, iterations = 128).start();
@@ -206,12 +199,7 @@ async func mutex_contention_and_panic_cleanup_preserve_progress()
 
     let panicked: Task<unit> = panic_while_holding_mutex(&counter).start();
 
-    match await panicked.join()
-    {
-        case Panicked(_) {}
-        case Completed(_) { assert(false); }
-        case Cancelled { assert(false); }
-    }
+    let _: PanicReport = std.testing.assert_panicked<unit>(await panicked.join());
 
     match consume counter.try_lock()
     {
@@ -232,7 +220,7 @@ async func mutex_contention_and_panic_cleanup_preserve_progress()
 }
 
 @test
-async func reader_writer_lock_admits_a_pending_writer_before_later_readers()
+async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_later_readers()
 {
     let lock: std.sync.RwLock<u32> = std.sync.RwLock<u32>(0);
     let order = std.atomic.atomic<u32>(0);
@@ -267,7 +255,7 @@ async func reader_writer_lock_admits_a_pending_writer_before_later_readers()
 }
 
 @test
-async func barrier_reuses_its_generation_across_contended_rounds()
+async func concurrency_stress_barrier_reuses_its_generation_across_contended_rounds()
 {
     let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 3)
     {

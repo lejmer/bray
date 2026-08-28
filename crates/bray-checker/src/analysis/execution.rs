@@ -119,7 +119,7 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
-        if hook.is_some() {
+        if !implementation_hook_preserves_synchronous_call(hook) {
             return false;
         }
 
@@ -153,5 +153,29 @@ where
         self.request()
             .available_compiler_known_symbols()
             .symbol_implementation(target.symbol())
+    }
+}
+
+const fn implementation_hook_preserves_synchronous_call(
+    hook: Option<ImplementationHook>,
+) -> bool {
+    matches!(hook, None | Some(ImplementationHook::NativeThreadStart))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::ImplementationHook;
+
+    use super::implementation_hook_preserves_synchronous_call;
+
+    #[test]
+    fn native_thread_start_preserves_the_synchronous_call() {
+        assert!(implementation_hook_preserves_synchronous_call(Some(
+            ImplementationHook::NativeThreadStart,
+        )));
+
+        assert!(!implementation_hook_preserves_synchronous_call(Some(
+            ImplementationHook::FutureStart,
+        )));
     }
 }

@@ -211,10 +211,30 @@ The complete public `std.testing` declaration surface is:
 ```bray
 module std.testing;
 
-func fail(pos message: string) -> never;
+func assert_ok<T, E>(pos result: Result<T, E>) -> T;
+
+func assert_error<T, E>(pos result: Result<T, E>) -> E;
+
+func assert_completed<T>(pos result: RunResult<T>) -> T;
+
+func assert_panicked<T>(pos result: RunResult<T>) -> PanicReport;
+
+func assert_cancelled<T>(pos result: RunResult<T>);
+
+func assert_not_completed<T>(pos result: RunResult<T>);
+
+extern func fail(pos message: &string) -> never;
 ```
 
-`fail` evaluates and consumes its message once, constructs an explicit structured test failure at the call source, and
+`assert_ok` consumes a result and returns its `Ok` payload. An `Error` fails the current test with an
+`expected Result.Ok` message. `assert_error` performs the inverse operation and returns the `Error` payload.
+
+`assert_completed` and `assert_panicked` consume a run result and return the payload for their expected state.
+`assert_cancelled` accepts the payload-free cancelled state. `assert_not_completed` accepts either a panicked or
+cancelled run. A mismatched state fails the current test with a message that names the expected variant or variants.
+These helpers keep tests from repeating union matches solely to reject other states.
+
+`fail` evaluates its borrowed message once, constructs an explicit structured test failure at the call source, and
 terminates the current test root without a normal continuation. A generated test host reports it as `explicit_failure`,
 not as an unclassified panic. Calling it outside a test root panics with the same owned failure payload so it can never
 return. The operation requires no I/O capability and does not write the message to a stream.

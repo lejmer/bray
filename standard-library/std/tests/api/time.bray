@@ -1,6 +1,7 @@
 module bray.standard_library_tests.time;
 
 using std.string;
+using std.testing;
 using std.time;
 
 @test
@@ -31,11 +32,10 @@ func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std
     assert(negative.seconds() == -1);
     assert(negative.nanoseconds() == 500000000);
 
-    match std.time.sleep(negative)
+    match std.testing.assert_error<unit, std.time.ClockError>(std.time.sleep(negative))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.ClockError.OutOfRange) {}
-        case Error(_) { assert(false); }
+        case std.time.ClockError.OutOfRange {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);
@@ -44,11 +44,10 @@ func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std
 @test
 func unavailable_monotonic_clocks_preserve_the_typed_failure()
 {
-    match internal std.time.checked_clock_status(1, 0, 0)
+    match std.testing.assert_error<unit, std.time.ClockError>(internal std.time.checked_clock_status(1, 0, 0))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.ClockError.Unavailable) {}
-        case Error(_) { assert(false); }
+        case std.time.ClockError.Unavailable {}
+        case _ { assert(false); }
     }
 }
 
@@ -67,36 +66,32 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
     assert(clamped.month() == 2);
     assert(clamped.day() == 29);
 
-    match std.time.Date(year = 1900, month = 2, day = 29)
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(std.time.Date(year = 1900, month = 2, day = 29))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.TimeError.InvalidValue) {}
-        case Error(_) { assert(false); }
+        case std.time.TimeError.InvalidValue {}
+        case _ { assert(false); }
     }
 
     let rejected: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
 
-    match rejected.add(std.time.CalendarPeriod(months = 1))
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(rejected.add(std.time.CalendarPeriod(months = 1)))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.TimeError.InvalidValue) {}
-        case Error(_) { assert(false); }
+        case std.time.TimeError.InvalidValue {}
+        case _ { assert(false); }
     }
 
-    match std.time.Date(year = 65536, month = 1, day = 1)
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(std.time.Date(year = 65536, month = 1, day = 1))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.TimeError.OutOfRange) {}
-        case Error(_) { assert(false); }
+        case std.time.TimeError.OutOfRange {}
+        case _ { assert(false); }
     }
 
     let maximum: std.time.Date = try std.time.Date(year = 32767, month = 12, day = 31);
 
-    match maximum.add(std.time.CalendarPeriod(years = 1))
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(maximum.add(std.time.CalendarPeriod(years = 1)))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.TimeError.OutOfRange) {}
-        case Error(_) { assert(false); }
+        case std.time.TimeError.OutOfRange {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);
@@ -145,18 +140,14 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
 
     assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
 
-    match std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    let extreme: std.time.Timestamp = std.testing.assert_ok<std.time.Timestamp, std.time.ClockError>(
+        std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    );
+
+    match std.testing.assert_error<string, std.time.TimeError>(extreme.rfc3339())
     {
-        case Ok(extreme)
-        {
-            match extreme.rfc3339()
-            {
-                case Ok(_) { assert(false); }
-                case Error(std.time.TimeError.OutOfRange) {}
-                case Error(_) { assert(false); }
-            }
-        }
-        case Error(_) { assert(false); }
+        case std.time.TimeError.OutOfRange {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);
@@ -225,11 +216,10 @@ func named_time_zones_expose_repeated_and_skipped_local_times() -> Result<unit, 
 @test
 func unknown_named_time_zones_are_reported() -> Result<unit, std.time.TimeError>
 {
-    match std.time.TimeZone.load(&"Bray/Unknown")
+    match std.testing.assert_error<std.time.TimeZone, std.time.TimeError>(std.time.TimeZone.load(&"Bray/Unknown"))
     {
-        case Ok(_) { assert(false); }
-        case Error(std.time.TimeError.UnknownTimeZone) {}
-        case Error(_) { assert(false); }
+        case std.time.TimeError.UnknownTimeZone {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);

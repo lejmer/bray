@@ -4,6 +4,7 @@ using std.string;
 using std.string.ScalarCursorIterator;
 using std.bytes;
 using std.iteration;
+using std.testing;
 
 @test(serial)
 func string_operations()
@@ -62,25 +63,18 @@ func utf8_conversion_and_scalar_iteration()
     assert(bytes[1] == 195);
     assert(bytes[2] == 169);
 
-    match consume decoded
-    {
-        case Ok(text) { assert(std.string.equals(&text, &value)); }
-        case Error(_) { assert(false); }
-    }
+    let text: string = std.testing.assert_ok<string, std.string.Utf8Error>(decoded);
+    let empty_text: string = std.testing.assert_ok<string, std.string.Utf8Error>(empty);
 
-    match consume empty
-    {
-        case Ok(text) { assert(std.string.is_empty(&text)); }
-        case Error(_) { assert(false); }
-    }
+    assert(std.string.equals(&text, &value));
+    assert(std.string.is_empty(&empty_text));
 
     let invalid: [u8; 1] = [255];
     let rejected: Result<string, std.string.Utf8Error> = std.string.from_utf8(&invalid[..]);
 
-    match consume rejected
+    match std.testing.assert_error<string, std.string.Utf8Error>(rejected)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.string.Utf8Error.InvalidEncoding) {}
+        case std.string.Utf8Error.InvalidEncoding {}
     }
 
     let mut cursor: std.string.ScalarCursor = std.string.scalars(&value);

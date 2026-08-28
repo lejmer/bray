@@ -2,6 +2,21 @@ module bray.standard_library_tests.channel;
 
 using std.channel;
 using std.task;
+using std.testing;
+
+static CHANNEL_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal struct ChannelCleanupProbe
+{
+    value: u32;
+
+    finalize()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&CHANNEL_CLEANUP_COUNT, 1);
+    }
+
+    destruct() {}
+}
 
 internal async func completed_value() -> i32
 {
@@ -14,11 +29,7 @@ internal async func send_sequence(pos mut sender: std.channel.Sender<i32>, pos f
 
     while offset < count
     {
-        match await sender.send(first + offset)
-        {
-            case Ok(_) {}
-            case Error(_) { assert(false); }
-        }
+        std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(first + offset));
 
         offset += 1;
         await std.task.yield_now();
@@ -47,11 +58,7 @@ async func buffered_send_completes_before_receiving()
 
     let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(13).start();
 
-    match try await send.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
 
     match receiver.try_receive()
     {
@@ -73,17 +80,8 @@ async func buffered_channel_transfers_messages_in_commit_order()
         case Error(_) { panic("bounded channel construction failed"); }
     };
 
-    match await sender.send(11)
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
-
-    match await sender.send(29)
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(11));
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(29));
 
     match await receiver.receive()
     {
@@ -118,11 +116,7 @@ async func rendezvous_send_suspends_until_a_receiver_is_registered()
         case Closed { assert(false); }
     }
 
-    match try await send.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
 
     sender.close();
     receiver.close();
@@ -139,12 +133,7 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 
     let blocked: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(17).start();
 
-    match await blocked.cancel()
-    {
-        case Cancelled {}
-        case Completed(_) { assert(false); }
-        case Panicked(_) { assert(false); }
-    }
+    std.testing.assert_cancelled<Result<unit, std.channel.SendError<i32>>>(await blocked.cancel());
 
     let next: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(23).start();
 
@@ -154,11 +143,7 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
         case Closed { assert(false); }
     }
 
-    match try await next.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await next.join());
 
     sender.close();
     receiver.close();
@@ -224,7 +209,7 @@ async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_val
 }
 
 @test
-async func contended_producers_preserve_each_senders_commit_order()
+async func concurrency_stress_contended_producers_preserve_each_senders_commit_order()
 {
     let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 4)
     {
@@ -287,18 +272,60 @@ func endpoint_closure_preserves_unsent_values_and_terminal_receives()
     sender.close();
     receiver.close();
 
-    match duplicate.try_send(73)
+    match consume std.testing.assert_error<unit, std.channel.TrySendError<i32>>(duplicate.try_send(73))
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match consume error
-            {
-                case Closed(value) { assert(value == 73); }
-                case Full(_) { assert(false); }
-            }
-        }
+        case Closed(value) { assert(value == 73); }
+        case Full(_) { assert(false); }
     }
 
     duplicate.close();
+}
+
+@test
+func concurrency_model_receiver_close_resolves_buffered_messages()
+{
+    core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
+
+    let(mut sender, mut receiver) = match std.channel.bounded<ChannelCleanupProbe>(capacity = 2)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+        sender.try_send(
+            ChannelCleanupProbe
+            {
+                value = 1,
+            }
+        )
+    );
+
+    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+        sender.try_send(
+            ChannelCleanupProbe
+            {
+                value = 2,
+            }
+        )
+    );
+
+    receiver.close();
+
+    assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == 2);
+
+    sender.close();
+}
+
+@test
+func concurrency_model_channel_capacity_overflow_is_recoverable()
+{
+    let impossible_capacity: usize = ~0;
+
+    match std.testing.assert_error<(std.channel.Sender<u64>, std.channel.Receiver<u64>), std.channel.ChannelError>(
+        std.channel.bounded<u64>(capacity = impossible_capacity)
+    )
+    {
+        case CapacityOverflow {}
+    }
 }

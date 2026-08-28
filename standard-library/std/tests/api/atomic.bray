@@ -1,6 +1,65 @@
 module bray.standard_library_tests.atomic;
 
 using std.atomic;
+using std.task;
+using std.testing;
+using std.thread;
+
+internal async func increment_with_compare_exchange(pos counter: &std.atomic.Atomic<u32>, pos iterations: u32)
+{
+    let mut remaining: u32 = iterations;
+
+    while remaining > 0
+    {
+        let mut committed: bool = false;
+
+        while !committed
+        {
+            let observed: u32 = std.atomic.load<u32>(counter, order = std.atomic.LoadOrder.Acquire);
+
+            let exchange = std.atomic.compare_exchange_weak<u32>(
+                counter,
+                observed,
+                observed + 1,
+                order = std.atomic.CompareExchangeOrder.AcquireReleaseAcquire,
+            );
+
+            committed = exchange.1;
+
+            if !committed
+            {
+                await std.task.yield_now();
+            }
+        }
+
+        remaining -= 1;
+        await std.task.yield_now();
+    }
+}
+
+internal func wait_for_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>))
+{
+    let(value, ready) = state;
+
+    std.atomic.store<u32>(ready, 1, order = std.atomic.StoreOrder.Release);
+    std.atomic.notify_all<u32>(ready);
+    std.atomic.wait<u32>(value, 0, order = std.atomic.LoadOrder.Acquire);
+
+    assert(std.atomic.load<u32>(value, order = std.atomic.LoadOrder.Acquire) == 1);
+}
+
+internal func publish_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>))
+{
+    let(value, ready) = state;
+
+    while std.atomic.load<u32>(ready, order = std.atomic.LoadOrder.Acquire) == 0
+    {
+        std.atomic.wait<u32>(ready, 0, order = std.atomic.LoadOrder.Acquire);
+    }
+
+    std.atomic.store<u32>(value, 1, order = std.atomic.StoreOrder.Release);
+    std.atomic.notify_one<u32>(value);
+}
 
 @test
 func generic_atomic_wrapper_covers_the_complete_operation_surface()
@@ -46,4 +105,110 @@ func generic_atomic_wrapper_covers_the_complete_operation_surface()
 
     std.atomic.store<bool>(&flag, true, order = std.atomic.StoreOrder.SequentiallyConsistent);
     assert(std.atomic.load<bool>(&flag, order = std.atomic.LoadOrder.SequentiallyConsistent));
+}
+
+@test
+func native_atomic_target_facts_are_explicit()
+{
+    assert(target.atomic.U8);
+    assert(target.atomic.U16);
+    assert(target.atomic.U32);
+    assert(target.atomic.U64);
+    assert(!target.atomic.U128);
+    assert(target.atomic.POINTER);
+
+    assert(target.atomic.U8_ALIGNMENT == 1);
+    assert(target.atomic.U16_ALIGNMENT == 2);
+    assert(target.atomic.U32_ALIGNMENT == 4);
+    assert(target.atomic.U64_ALIGNMENT == 8);
+    assert(target.atomic.U128_ALIGNMENT == 16);
+    assert(target.atomic.POINTER_ALIGNMENT == 8);
+
+    assert(target.atomic.U8_ALWAYS_LOCK_FREE);
+    assert(target.atomic.U16_ALWAYS_LOCK_FREE);
+    assert(target.atomic.U32_ALWAYS_LOCK_FREE);
+    assert(target.atomic.U64_ALWAYS_LOCK_FREE);
+    assert(!target.atomic.U128_ALWAYS_LOCK_FREE);
+    assert(target.atomic.POINTER_ALWAYS_LOCK_FREE);
+
+    assert(target.atomic.U8_WAIT_NOTIFY);
+    assert(target.atomic.U16_WAIT_NOTIFY);
+    assert(target.atomic.U32_WAIT_NOTIFY);
+    assert(target.atomic.U64_WAIT_NOTIFY);
+    assert(!target.atomic.U128_WAIT_NOTIFY);
+    assert(target.atomic.POINTER_WAIT_NOTIFY);
+}
+
+@test
+func concurrency_model_atomic_operations_preserve_observed_values()
+{
+    let value: std.atomic.Atomic<u16> = std.atomic.atomic<u16>(10);
+
+    let failed = std.atomic.compare_exchange<u16>(
+        &value,
+        11,
+        20,
+        order = std.atomic.CompareExchangeOrder.SequentiallyConsistentSequentiallyConsistent,
+    );
+
+    assert(failed.0 == 10);
+    assert(!failed.1);
+    assert(std.atomic.load<u16>(&value, order = std.atomic.LoadOrder.Acquire) == 10);
+
+    assert(std.atomic.fetch_add<u16>(&value, 5, order = std.atomic.ReadModifyWriteOrder.Relaxed) == 10);
+    assert(std.atomic.fetch_sub<u16>(&value, 3, order = std.atomic.ReadModifyWriteOrder.Acquire) == 15);
+    assert(std.atomic.fetch_and<u16>(&value, 14, order = std.atomic.ReadModifyWriteOrder.Release) == 12);
+    assert(std.atomic.fetch_or<u16>(&value, 16, order = std.atomic.ReadModifyWriteOrder.AcquireRelease) == 12);
+    assert(std.atomic.fetch_xor<u16>(&value, 3, order = std.atomic.ReadModifyWriteOrder.SequentiallyConsistent) == 28);
+    assert(std.atomic.load<u16>(&value, order = std.atomic.LoadOrder.SequentiallyConsistent) == 31);
+}
+
+@test
+func concurrency_model_atomic_wait_observes_notification()
+{
+    let value: std.atomic.Atomic<u32> = std.atomic.atomic<u32>(0);
+    let ready: std.atomic.Atomic<u32> = std.atomic.atomic<u32>(0);
+
+    let mut waiting: std.thread.Thread<unit> = match std.thread.start<
+        (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>),
+        unit
+    >(wait_for_atomic_change, (&value, &ready))
+    {
+        case Ok(created) { yield created; }
+        case Error(_) { panic("native atomic waiter creation failed"); }
+    };
+
+    let mut publishing: std.thread.Thread<unit> = match std.thread.start<
+        (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>),
+        unit
+    >(publish_atomic_change, (&value, &ready))
+    {
+        case Ok(created) { yield created; }
+        case Error(_)
+        {
+            std.atomic.store<u32>(&value, 1, order = std.atomic.StoreOrder.Release);
+            std.atomic.notify_one<u32>(&value);
+            panic("native atomic notifier creation failed");
+        }
+    };
+
+    std.testing.assert_completed<unit>(waiting.join());
+    std.testing.assert_completed<unit>(publishing.join());
+}
+
+@test
+async func concurrency_stress_atomic_compare_exchange_serializes_contended_updates()
+{
+    let counter: std.atomic.Atomic<u32> = std.atomic.atomic<u32>(0);
+    let first: Task<unit> = increment_with_compare_exchange(&counter, iterations = 64).start();
+    let second: Task<unit> = increment_with_compare_exchange(&counter, iterations = 64).start();
+    let third: Task<unit> = increment_with_compare_exchange(&counter, iterations = 64).start();
+    let fourth: Task<unit> = increment_with_compare_exchange(&counter, iterations = 64).start();
+
+    try await first.join();
+    try await second.join();
+    try await third.join();
+    try await fourth.join();
+
+    assert(std.atomic.load<u32>(&counter, order = std.atomic.LoadOrder.Acquire) == 256);
 }
