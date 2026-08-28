@@ -229,7 +229,7 @@ impl Lowerer<'_> {
             *error_type,
         )?;
 
-        let error_value = self.convert_operand(
+        let (error, error_value) = self.convert_operand(
             id,
             error,
             Self::retained_source(&source),

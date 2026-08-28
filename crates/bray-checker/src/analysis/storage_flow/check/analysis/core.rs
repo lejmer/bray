@@ -3,7 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression,
+    BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
     StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow, StorageIdentity,
@@ -29,7 +30,9 @@ use crate::{
 use super::super::availability::storage_is_recovered;
 use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use crate::analysis::fixed_point::{FixedPointOutcome, solve_fixed_point};
-use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
+use crate::analysis::model::{
+    AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
+};
 use crate::analysis::reachability::analyze_reachability;
 use crate::analysis::storage_flow::authority::mutable_storage;
 use crate::analysis::storage_flow::copyability::CopyabilityResolver;
@@ -345,6 +348,16 @@ where
         if matches!(operation.kind(), AnalysisOperationKind::Recovery(_)) {
             state.recovered = true;
             self.is_recovered = true;
+        }
+
+        if matches!(
+            operation.kind(),
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Attempt,
+                ..
+            }
+        ) {
+            return;
         }
 
         self.initialize_operation_storage(state, operation.kind().node());
@@ -676,6 +689,18 @@ where
                         .iter()
                         .any(|entry| entry.subject() == subject);
 
+                let resolves_owner_retention = match operation {
+                    AnyBoundNodeId::Expression(expression) => {
+                        matches!(
+                            self.request.view().expression(expression),
+                            Some(BoundExpression::Call(_))
+                        ) && !self.liveness.is_owner_retained_by(expression, subject)
+                    }
+                    AnyBoundNodeId::Pattern(_)
+                    | AnyBoundNodeId::Block(_)
+                    | AnyBoundNodeId::CallableBody(_) => false,
+                };
+
                 let completed_retaining_suspension = match operation {
                     AnyBoundNodeId::Expression(expression) => {
                         self.liveness.is_live_across_suspension(expression, subject)
@@ -695,7 +720,8 @@ where
                     && ((moved_borrows.contains(borrow)
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
-                        || (reaches_last_use && !retained_by_owner_across_scope))
+                        || (reaches_last_use
+                            && (!retained_by_owner_across_scope || resolves_owner_retention)))
             })
             .collect::<BTreeSet<_>>();
 

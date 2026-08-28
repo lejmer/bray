@@ -109,17 +109,16 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(*expression));
             };
 
-            let operand = if assembly_inputs {
-                operand
-            } else {
-                self.convert_operand(
-                    id,
-                    current,
-                    Self::retained_source(&source),
-                    operand,
-                    conversion,
-                )?
-            };
+            let (continuation, operand) = self.convert_memory_operand(
+                id,
+                current,
+                &source,
+                operand,
+                conversion,
+                assembly_inputs,
+            )?;
+
+            current = continuation;
 
             let operand_type = if assembly_inputs {
                 let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
@@ -268,6 +267,28 @@ impl Lowerer<'_> {
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn convert_memory_operand(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        operand: MirOperand,
+        conversion: &bray_bound_tree::SelectedConversion,
+        assembly_inputs: bool,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        if assembly_inputs {
+            return Ok((current, operand));
+        }
+
+        self.convert_operand(
+            expression,
+            current,
+            Self::retained_source(source),
+            operand,
+            conversion,
+        )
     }
 
     fn materialize_memory_argument(

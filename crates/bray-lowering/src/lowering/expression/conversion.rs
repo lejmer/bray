@@ -16,31 +16,33 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         operand: MirOperand,
         conversion: &SelectedConversion,
-    ) -> Result<MirOperand, LoweringError> {
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         match conversion.target() {
-            ConversionTarget::Identity => Ok(operand),
+            ConversionTarget::Identity => Ok((current, operand)),
             ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion
-            | ConversionTarget::Composite(_) => self.push_converted_value(
-                expression,
-                current,
-                source,
-                MirOperationKind::Convert {
-                    operand,
-                    conversion: conversion.clone(),
-                },
-                conversion.target_type(),
-            ),
+            | ConversionTarget::Composite(_) => self
+                .push_converted_value(
+                    expression,
+                    current,
+                    source,
+                    MirOperationKind::Convert {
+                        operand,
+                        conversion: conversion.clone(),
+                    },
+                    conversion.target_type(),
+                )
+                .map(|value| (current, value)),
             ConversionTarget::Trait {
                 fulfillment,
                 requirement,
                 witness,
                 ..
-            } => self.push_converted_value(
+            } => self.push_checked_call(
                 expression,
                 current,
                 source,
-                MirOperationKind::Call(MirCall::protocol(
+                MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         *fulfillment,
                         CallableAbi::Bray,
@@ -51,28 +53,23 @@ impl Lowerer<'_> {
                         *requirement,
                         *witness,
                     )],
-                )),
+                ),
                 conversion.target_type(),
             ),
             ConversionTarget::TraitConstraint {
                 member, dispatch, ..
-            } => self.push_converted_value(
+            } => self.push_checked_call(
                 expression,
                 current,
                 source,
-                MirOperationKind::Call(
-                    MirCall::protocol(
-                        MirCallTarget::Direct(MirCallableReference::new(
-                            *member,
-                            CallableAbi::Bray,
-                        )),
-                        BoundCallResult::Immediate(conversion.target_type()),
-                        [operand],
-                        [],
-                    )
-                    .with_trait_dispatch(*dispatch)
-                    .with_intrinsic(MirCallIntrinsic::Conversion(conversion.target_type())),
-                ),
+                MirCall::protocol(
+                    MirCallTarget::Direct(MirCallableReference::new(*member, CallableAbi::Bray)),
+                    BoundCallResult::Immediate(conversion.target_type()),
+                    [operand],
+                    [],
+                )
+                .with_trait_dispatch(*dispatch)
+                .with_intrinsic(MirCallIntrinsic::Conversion(conversion.target_type())),
                 conversion.target_type(),
             ),
         }

@@ -3,8 +3,8 @@ use bray_bound_tree::{AnyBoundNodeId, BoundUnitId};
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 use super::model::{
     AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
-    AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, AnalysisScopeExitPhase,
-    AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
+    AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
+    AnalysisScopeExitPhase, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
 
 pub(super) struct ControlFlowGraphAssembler {
@@ -38,6 +38,15 @@ impl ControlFlowGraphAssembler {
 
     pub(super) fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
         self.push_operation(block, AnalysisOperationKind::Bound(node));
+    }
+
+    pub(super) fn push_call(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: bray_bound_tree::BoundExpressionId,
+        phase: AnalysisCallPhase,
+    ) {
+        self.push_operation(block, AnalysisOperationKind::Call { expression, phase });
     }
 
     pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {

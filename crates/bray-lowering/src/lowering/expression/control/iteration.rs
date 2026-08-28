@@ -352,7 +352,7 @@ impl Lowerer<'_> {
             )?
         };
 
-        let Some(current) = source_value.block else {
+        let Some(mut current) = source_value.block else {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
@@ -363,10 +363,11 @@ impl Lowerer<'_> {
         let cursor_value = if direct_range_source {
             source_operand
         } else {
-            let cursor_value = self.builder.push_operation(
+            let (continuation, cursor_value) = self.push_checked_call(
+                id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::protocol(
+                MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         selection.iterate(),
                         CallableAbi::Bray,
@@ -377,14 +378,13 @@ impl Lowerer<'_> {
                         selection.iterable_requirement(),
                         selection.iterable_witness(),
                     )],
-                )),
-                Some(selection.cursor_type()),
+                ),
+                selection.cursor_type(),
             )?;
 
+            current = continuation;
+
             cursor_value
-                .result()
-                .map(MirOperand::Value)
-                .ok_or(LoweringError::MissingOperationResult(id))?
         };
 
         let cursor = self.iteration_place(

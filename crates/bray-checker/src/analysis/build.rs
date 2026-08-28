@@ -1,7 +1,9 @@
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression,
-    BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView, StoragePlan,
+    BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView, SemanticSelection,
+    StoragePlan,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_declarations::SyntaxAnchor;
 
 use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
@@ -9,8 +11,8 @@ use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
 use super::model::{
-    AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement, AnalysisSuspensionKind,
-    ControlFlowGraph,
+    AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement,
+    AnalysisSuspensionKind, ControlFlowGraph,
 };
 
 pub(crate) enum ControlFlowGraphBuildOutcome {
@@ -255,8 +257,7 @@ where
             BoundExpression::Generator(expression) => {
                 let current = self.build_expression(expression.source(), current)?;
                 let current = current.unwrap_or_else(|| self.push_block());
-
-                self.push_bound(current, id.into());
+                let current = self.push_source_operation(id, current);
 
                 self.build_iteration(
                     expression.pattern(),
@@ -334,9 +335,69 @@ where
                 .unwrap_or_else(|| self.push_block());
         }
 
-        self.push_bound(current, id.into());
+        let current = self.push_source_operation(id, current);
 
         Some(Some(current))
+    }
+
+    pub(super) fn push_source_operation(
+        &mut self,
+        expression: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> AnalysisBlockId {
+        if !self.source_operation_may_propagate_panic(expression) {
+            self.push_bound(current, expression.into());
+
+            return current;
+        }
+
+        self.push_propagating_call(expression, current)
+    }
+
+    pub(super) fn push_propagating_call(
+        &mut self,
+        expression: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> AnalysisBlockId {
+        let continuation = self.push_block();
+
+        self.push_call(current, expression, AnalysisCallPhase::Attempt);
+        self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
+        self.push_exit(current, AnalysisExitKind::Panic, expression.into());
+        self.push_call(continuation, expression, AnalysisCallPhase::Completion);
+
+        continuation
+    }
+
+    fn source_operation_may_propagate_panic(&self, expression: BoundExpressionId) -> bool {
+        match self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+        {
+            Some(SemanticSelection::Operation(operation)) => {
+                operation.may_propagate_synchronous_panic()
+            }
+            Some(SemanticSelection::Iteration(selection)) => {
+                !matches!(
+                    self.request
+                        .available_compiler_known_symbols()
+                        .symbol_implementation(selection.iterate().definition().symbol()),
+                    Some(
+                        ImplementationHook::RangeSharedIterate
+                            | ImplementationHook::RangeMoveIterate
+                    )
+                )
+            }
+            Some(
+                SemanticSelection::Reference(_)
+                | SemanticSelection::CallableReference(_)
+                | SemanticSelection::StaticReference(_)
+                | SemanticSelection::Call(_)
+                | SemanticSelection::Predicate(_)
+                | SemanticSelection::Propagation(_),
+            )
+            | None => false,
+        }
     }
 
     pub(super) fn build_expressions(
@@ -496,6 +557,18 @@ where
         match self.view.node_is_recovered(node) {
             Some(false) => self.storage.push_bound(block, node),
             Some(true) | None => self.storage.push_recovery(block, node),
+        }
+    }
+
+    pub(super) fn push_call(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: BoundExpressionId,
+        phase: AnalysisCallPhase,
+    ) {
+        match self.view.node_is_recovered(expression.into()) {
+            Some(false) => self.storage.push_call(block, expression, phase),
+            Some(true) | None => self.storage.push_recovery(block, expression.into()),
         }
     }
 

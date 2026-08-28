@@ -1,12 +1,10 @@
-use std::collections::BTreeMap;
-
 use super::core::UnitTranslator;
-use super::support::{llvm, next_helper, parameter_type, pointer_value};
+use super::support::{llvm, parameter_type, pointer_value};
 use bray_codegen::{
     CodegenCallSite, CodegenCallableSignature, CodegenFailure, CodegenHelperMapping,
     CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
 };
-use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirHelperReference, MirTaskTerminalState};
+use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirTaskTerminalState};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue,
@@ -18,10 +16,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: bray_ir::MirOperationId,
         call: &MirCall,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let checks_call_panic = self.checked_call_operations.contains(&operation);
+
+        let checked_default_context = if checks_call_panic
+            && call
+                .arguments()
+                .iter()
+                .any(|argument| matches!(argument, MirCallArgument::Default { .. }))
+        {
+            Some(self.checked_call_panic_report_context()?)
+        } else {
+            None
+        };
+
         let helpers = self.operation_helpers(operation)?;
         let mut helpers = helpers.iter();
-        let semantic_arguments = self.evaluate_call_arguments(call, &mut helpers)?;
-        let checks_call_panic = self.checked_call_operations.contains(&operation);
+
+        let evaluated =
+            self.evaluate_call_arguments(call, &mut helpers, checked_default_context)?;
+
+        let (semantic_arguments, checked_defaults) = evaluated.into_parts();
+
+        let semantic_arguments = semantic_arguments.as_slice();
 
         if helpers.next().is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -45,7 +61,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     return self
-                        .translate_intrinsic_call(intrinsic, operand_type, &semantic_arguments)
+                        .translate_intrinsic_call(intrinsic, operand_type, semantic_arguments)
                         .map(Some);
                 }
 
@@ -69,17 +85,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let signature = symbol.signature().clone();
 
                 if call.may_propagate_panic() && checks_call_panic {
-                    self.invoke_checked_function(
-                        function,
-                        &signature,
-                        &semantic_arguments,
-                        "call",
-                    )
+                    if let Some(context) = checked_default_context {
+                        self.invoke_function_with_panic_report_context(
+                            function,
+                            &signature,
+                            semantic_arguments,
+                            "call",
+                            Some(context),
+                        )
+                    } else {
+                        self.invoke_checked_function(
+                            function,
+                            &signature,
+                            semantic_arguments,
+                            "call",
+                        )
+                    }
                 } else {
-                    self.invoke_function(function, &signature, &semantic_arguments, "call")
+                    self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
             }
-            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, &semantic_arguments),
+            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
                 let callee_type = self.operand_type(callee)?;
 
@@ -100,24 +126,41 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let function_type = self.types.function_type(&signature)?;
 
                 if call.may_propagate_panic() && checks_call_panic {
-                    self.invoke_checked_indirect(
-                        function_type,
-                        pointer,
-                        &signature,
-                        &semantic_arguments,
-                        "call.indirect",
-                    )
+                    if let Some(context) = checked_default_context {
+                        self.invoke_indirect_with_panic_report_context(
+                            function_type,
+                            pointer,
+                            &signature,
+                            semantic_arguments,
+                            "call.indirect",
+                            Some(context),
+                        )
+                    } else {
+                        self.invoke_checked_indirect(
+                            function_type,
+                            pointer,
+                            &signature,
+                            semantic_arguments,
+                            "call.indirect",
+                        )
+                    }
                 } else {
                     self.invoke_indirect(
                         function_type,
                         pointer,
                         &signature,
-                        &semantic_arguments,
+                        semantic_arguments,
                         "call.indirect",
                     )
                 }
             }
         }?;
+
+        let result = if let Some(defaults) = checked_defaults {
+            self.finish_checked_default_evaluation(defaults, result)?
+        } else {
+            result
+        };
 
         if result.is_some() {
             return Ok(result);
@@ -148,75 +191,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = self.types.map(ty)?;
 
         Ok(Some(ty.const_zero()))
-    }
-
-    pub(super) fn evaluate_call_arguments<'mapping>(
-        &mut self,
-        call: &MirCall,
-        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
-    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
-        let mut receiver = None;
-        let mut parameters = BTreeMap::new();
-        let mut defaults = Vec::new();
-
-        for argument in call.arguments() {
-            match argument {
-                MirCallArgument::Receiver { value, .. } => {
-                    let value = self.operand(value)?;
-
-                    if receiver.replace(value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    }
-                }
-                MirCallArgument::Explicit { ordinal, value, .. } => {
-                    let value = self.operand(value)?;
-
-                    if parameters.insert(*ordinal, value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    }
-                }
-                MirCallArgument::Default {
-                    ordinal, provider, ..
-                } => defaults.push((*ordinal, *provider)),
-            }
-        }
-
-        for (ordinal, provider) in defaults {
-            let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
-
-            let mut preceding =
-                Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
-            preceding.extend(receiver);
-
-            preceding.extend(parameters.range(..ordinal).map(|(_, value)| *value));
-
-            let value = self
-                .invoke_helper(helper, &preceding)?
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            if parameters.insert(ordinal, value).is_some() {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-        }
-
-        let mut arguments = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
-        arguments.extend(receiver);
-
-        for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
-            if ordinal != expected {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-
-            arguments.push(value);
-        }
-
-        if arguments.len() != call.arguments().len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        Ok(arguments)
     }
 
     pub(super) fn invoke_runtime(
@@ -444,7 +418,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(result)
     }
 
-    fn invoke_function_with_panic_report_context(
+    pub(super) fn invoke_function_with_panic_report_context(
         &mut self,
         function: FunctionValue<'context>,
         signature: &CodegenCallableSignature,
@@ -651,7 +625,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
-    fn allocate_panic_report_context(
+    pub(super) fn allocate_panic_report_context(
         &mut self,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());

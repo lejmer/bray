@@ -564,6 +564,21 @@ impl SelectedOperation {
         }
     }
 
+    /// Returns whether realizing this operation invokes a synchronous Bray implementation.
+    pub const fn may_propagate_synchronous_panic(&self) -> bool {
+        match self {
+            Self::Operator { target, .. } => matches!(target, OperatorTarget::Trait { .. }),
+            Self::CompoundAssignment(selection) => {
+                matches!(selection.target(), OperatorTarget::Trait { .. })
+            }
+            Self::Index { target, .. } => matches!(target, IndexTarget::Custom { .. }),
+            Self::Conversion(conversion) => {
+                matches!(conversion.target(), ConversionTarget::Trait { .. })
+            }
+            Self::Member(_) | Self::Construction(_) | Self::Implementation(_) => false,
+        }
+    }
+
     /// Returns the selected operation's result type when it produces a value.
     pub const fn result_type(&self) -> Option<TypeId> {
         match self {

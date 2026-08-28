@@ -133,7 +133,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(expression));
         };
 
-        let operand = self.convert_operand(
+        let (current, operand) = self.convert_operand(
             call,
             current,
             Self::retained_source(source),

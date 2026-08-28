@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{CallableSignatureQuery, TypeData};
 
-use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind};
+use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_index::index_storage_roots;
 use crate::dependency::selected_call_contracts;
 use crate::storage::{local_initialization_bindings, value_transfer_bindings};
@@ -26,6 +26,7 @@ pub(super) struct OperationEffect {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct OperationEffects {
     by_node: BTreeMap<AnyBoundNodeId, OperationEffect>,
+    operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(super) universe: BTreeSet<BoundDependencySubject>,
     pub(super) owner_dependencies: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(super) recovered_nodes: BTreeSet<AnyBoundNodeId>,
@@ -74,6 +75,14 @@ impl OperationEffects {
                 .or_default()
                 .definitions
                 .insert(subject);
+
+            if let AnyBoundNodeId::Expression(expression) = node {
+                effects
+                    .operation_result_definitions
+                    .entry(expression)
+                    .or_default()
+                    .insert(subject);
+            }
         }
 
         for plan in storage.access_plans() {
@@ -432,6 +441,27 @@ impl OperationEffects {
         self.by_node.get(&node)
     }
 
+    pub(super) fn operation_effect(
+        &self,
+        operation: &AnalysisOperation,
+    ) -> Option<OperationEffectView<'_>> {
+        let effect = self.effect(operation.kind().node())?;
+
+        let (phase, result_definitions) = match operation.kind() {
+            AnalysisOperationKind::Call { expression, phase } => (
+                Some(phase),
+                self.operation_result_definitions.get(&expression),
+            ),
+            _ => (None, None),
+        };
+
+        Some(OperationEffectView {
+            effect,
+            phase,
+            result_definitions,
+        })
+    }
+
     pub(super) fn operation_requires_conservative_liveness(operation: &AnalysisOperation) -> bool {
         matches!(operation.kind(), AnalysisOperationKind::Recovery(_))
     }
@@ -440,6 +470,44 @@ impl OperationEffects {
         self.owner_dependencies
             .values()
             .any(|subjects| subjects.contains(&subject))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct OperationEffectView<'a> {
+    effect: &'a OperationEffect,
+    phase: Option<AnalysisCallPhase>,
+    result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
+}
+
+impl<'a> OperationEffectView<'a> {
+    pub(super) fn uses(
+        self,
+    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+        self.effect
+            .uses
+            .iter()
+            .filter(move |_| self.phase != Some(AnalysisCallPhase::Completion))
+    }
+
+    pub(super) fn definitions(
+        self,
+    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+        self.effect.definitions.iter().filter(move |subject| {
+            let is_result = self
+                .result_definitions
+                .is_some_and(|definitions| definitions.contains(subject));
+
+            match self.phase {
+                Some(AnalysisCallPhase::Attempt) => !is_result,
+                Some(AnalysisCallPhase::Completion) => is_result,
+                None => true,
+            }
+        })
+    }
+
+    pub(super) fn defines(self, subject: &BoundDependencySubject) -> bool {
+        self.definitions().any(|definition| definition == subject)
     }
 }
 

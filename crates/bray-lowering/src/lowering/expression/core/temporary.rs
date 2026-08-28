@@ -1,6 +1,7 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, SemanticSelection, StorageIdentity,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_ir::{MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind};
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -23,13 +24,37 @@ impl Lowerer<'_> {
                 .expression(expression)
                 .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
 
-            if matches!(
-                self.input.semantic_selections().expression(expression),
-                Some(SemanticSelection::Call(selection))
-                    if selection.abi() == CallableAbi::Bray
+            let may_check = match self.input.semantic_selections().expression(expression) {
+                Some(SemanticSelection::Call(selection)) => {
+                    selection.abi() == CallableAbi::Bray
                         && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
                         && selection.implementation_hook().is_none()
-            ) {
+                }
+                Some(SemanticSelection::Operation(operation)) => {
+                    operation.may_propagate_synchronous_panic()
+                }
+                Some(SemanticSelection::Iteration(selection)) => {
+                    !matches!(
+                        self.input
+                        .available_compiler_known_symbols()
+                        .symbol_implementation(selection.iterate().definition().symbol()),
+                        Some(
+                            ImplementationHook::RangeSharedIterate
+                                | ImplementationHook::RangeMoveIterate
+                        )
+                    )
+                }
+                Some(
+                    SemanticSelection::Reference(_)
+                    | SemanticSelection::CallableReference(_)
+                    | SemanticSelection::StaticReference(_)
+                    | SemanticSelection::Predicate(_)
+                    | SemanticSelection::Propagation(_),
+                )
+                | None => false,
+            };
+
+            if may_check {
                 return Ok(true);
             }
 

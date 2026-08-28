@@ -314,15 +314,15 @@ impl Lowerer<'_> {
         )
     }
 
-    pub(in crate::lowering::expression) fn finish_call_panic_check(
+    pub(in crate::lowering) fn finish_typed_call_panic_check(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
         value: &MirOperand,
+        result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let report_type = self.panic_report_type()?;
-        let result_type = self.expression_type(expression)?;
 
         let completed = self
             .builder

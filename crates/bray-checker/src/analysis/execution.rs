@@ -103,19 +103,7 @@ where
         }
 
         if self.call_may_propagate_panic(id, hook) {
-            let continuation = self.push_block();
-
-            self.push_edge(
-                current,
-                continuation,
-                AnalysisEdgeKind::Sequential,
-                None,
-            );
-
-            self.push_exit(current, AnalysisExitKind::Panic, id.into());
-            self.push_bound(continuation, id.into());
-
-            return Some(Some(continuation));
+            return Some(Some(self.push_propagating_call(id, current)));
         }
 
         match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
