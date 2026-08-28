@@ -18,6 +18,7 @@ impl DiagnosticPlatformServiceRole {
             | 0x0230..=0x0233
             | 0x0301..=0x0304
             | 0x0311..=0x0315
+            | 0x0321..=0x0323
             | 0x0401..=0x0403
             | 0x0501
             | 0x0701..=0x0702

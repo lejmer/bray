@@ -4,6 +4,7 @@ mod callback;
 mod construction;
 mod control;
 mod core;
+mod edge;
 mod effect;
 mod generator;
 mod memory;

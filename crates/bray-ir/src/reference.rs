@@ -96,6 +96,8 @@ impl MirRuntimeReference {
 pub enum MirCallTarget {
     /// A concrete Bray callable instance.
     Direct(MirCallableReference),
+    /// One private runtime ABI operation.
+    Runtime(MirRuntimeReference),
     /// A checked callable value.
     Indirect {
         /// Evaluated callable value.
@@ -110,6 +112,7 @@ impl MirCallTarget {
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
+            Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }
     }

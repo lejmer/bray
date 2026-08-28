@@ -1,0 +1,111 @@
+@target(target.platform.native_threads && (target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin"))
+trusted module std.thread;
+
+using std.memory;
+
+trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
+    uses(foreign_call)
+{
+    let native: std.ffi.c.OwnedNarrowString = match trusted std.ffi.c.OwnedNarrowString.from_utf8(name)
+    {
+        case Ok(value) { yield value; }
+        case Error(std.ffi.c.StringError.Allocation) { return Error(ThreadNameError.Allocation); }
+        case Error(_) { return Error(ThreadNameError.Invalid); }
+    };
+
+    let borrowed: std.ffi.c.BorrowedNarrowString = native.borrow();
+    let status: i32 = trusted internal platform_set_native_thread_name(borrowed.pointer());
+
+    if status != 0
+    {
+        return Error(
+            ThreadNameError.Platform(
+                {
+                    code = status as i64,
+                    has_code = true,
+                },
+            )
+        );
+    }
+
+    return Ok(unit);
+}
+
+@abi(c)
+trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPointer<u8>
+    requires(blocking_execution(), compute_execution())
+{
+    trusted internal run_native_thread_start(context);
+
+    return std.memory.null<u8>();
+}
+
+trusted internal func native_thread_entry() -> RawPointer<u8>
+{
+    let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
+    let pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+
+    return trusted std.memory.reinterpret<u8, std.os.unix.ThreadStartRoutine>(pointer);
+}
+
+@abi(c)
+trusted internal func platform_thread_create(
+    pos entry: RawPointer<u8>,
+    pos context: RawPointer<u8>,
+    pos owner: RawPointer<u64>,
+    pos native_error: RawPointer<i64>,
+) -> std.platform.PlatformStatus
+{
+    let entry_pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.reinterpret<
+        std.os.unix.ThreadStartRoutine,
+        u8
+    >(entry);
+
+    let callback: std.os.unix.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry_pointer);
+    let mut thread: u64 = 0;
+
+    let status: i32 = trusted std.os.unix.pthread_create(
+        std.memory.address_of_mut<u64>(&mut thread),
+        attributes = std.memory.null<std.os.unix.PThreadAttribute>(),
+        entry = callback,
+        context = context,
+    );
+
+    if status != 0
+    {
+        trusted std.memory.write<i64>(native_error, status as i64);
+
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    trusted std.memory.write<u64>(owner, thread);
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_join(pos owner: u64) -> std.platform.PlatformStatus
+    requires(blocking_execution())
+{
+    let status: i32 = trusted std.os.unix.pthread_join(owner, std.memory.null<RawPointer<u8>>());
+
+    if status != 0
+    {
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_detach(pos owner: u64) -> std.platform.PlatformStatus
+{
+    let status: i32 = trusted std.os.unix.pthread_detach(owner);
+
+    if status != 0
+    {
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    return internal std.platform.success_status();
+}

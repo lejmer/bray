@@ -118,6 +118,7 @@ impl NativeRuntime {
             task,
             registration,
             waits: Mutex::new(Vec::new()),
+            event_wait: Mutex::new(None),
             observation_claimed: AtomicBool::new(false),
             terminal,
         });
@@ -185,6 +186,12 @@ impl NativeRuntime {
         let task = &started.task;
         let wake = started.registration.wake_handle();
 
+        started
+            .event_wait
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+
         // The resume context retains one wake handle while yield publication uses the other.
         let context = TaskExecutionContext::new(
             task.id(),
@@ -210,6 +217,10 @@ impl NativeRuntime {
                 let state = suspension.state();
                 let kind = suspension.kind();
 
+                if kind == FrameSuspensionKind::TaskEvent {
+                    return self.suspend_on_task_event(ready, &started, suspension, wake);
+                }
+
                 if ready.suspend(suspension).is_err() {
                     return NativeRuntimeStatus::RUNTIME_FAILURE;
                 }
@@ -221,10 +232,69 @@ impl NativeRuntime {
                         .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
                             NativeRuntimeStatus::SUCCESS
                         }),
+                    FrameSuspensionKind::TaskEvent => {
+                        unreachable!("task-event suspension must publish its registration first")
+                    }
                 }
             }
             TaskResumeStatus::Terminal(_) => NativeRuntimeStatus::SUCCESS,
         }
+    }
+
+    fn suspend_on_task_event(
+        &self,
+        ready: crate::ReadyTask,
+        started: &StartedTask,
+        suspension: crate::FrameSuspension,
+        wake: crate::TaskWakeHandle,
+    ) -> NativeRuntimeStatus {
+        let state = suspension.state();
+
+        let Some(identity) = suspension.payload() else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
+
+        let Some(event) = super::super::event::event(&self.core, identity) else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
+
+        let Ok((generation, _)) = event.observation() else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
+
+        // Keep the dispatch running until registration ownership is published. An immediate
+        // event wake then becomes a pending scheduler wake that suspension releases.
+        let Ok(registration) = event.register(
+            generation,
+            Arc::new(move || {
+                let _ = wake.wake(state);
+            }),
+        ) else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
+
+        let previous = started
+            .event_wait
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(registration);
+
+        assert!(
+            previous.is_none(),
+            "task event wait registration must be consumed before resumption"
+        );
+
+        if ready.suspend(suspension).is_err() {
+            started
+                .event_wait
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
+
+        NativeRuntimeStatus::SUCCESS
     }
 
     pub(in crate::native) fn compose_awaited(

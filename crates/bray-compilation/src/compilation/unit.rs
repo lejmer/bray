@@ -1,5 +1,6 @@
 mod memory;
 mod query;
+mod reference;
 mod static_reference;
 mod storage;
 mod support;

@@ -389,6 +389,13 @@ union ThreadError
     Creation(pos failure: ThreadFailure);
 }
 
+union ThreadNameError
+{
+    Invalid;
+    Allocation;
+    Platform(pos failure: ThreadFailure);
+}
+
 impl ThreadFailure
 {
     func native_code() -> i64?;
@@ -397,6 +404,7 @@ impl ThreadFailure
 impl Thread<T>
 {
     func id() -> Id;
+    func wake();
 
     consume func join() -> RunResult<T>
         requires(blocking_execution());
@@ -415,6 +423,10 @@ func start<State, T>(
 
 func cancellation_requested() -> bool;
 func checkpoint();
+func park()
+    requires(blocking_execution());
+
+func set_current_name(pos name: &string) -> Result<unit, ThreadNameError>;
 
 async func run<State, T>(
     pos entry: Entry<State, T>,
@@ -442,6 +454,12 @@ The identity does not grant cancellation, joining, affinity, or execution author
 the thread terminates. `ThreadFailure.native_code()` returns a target error code when the operating system supplied one
 and `none` otherwise. The numeric code is inspection data and does not change the stable `ThreadError` category.
 
+`Thread.wake()` publishes one wake token. `park()` consumes a pending token immediately or blocks the current
+Bray-created native thread until one is published. Repeated wake calls before the next park coalesce into one token.
+The token publication and consumption establish release and acquire visibility. Spurious platform wakeups remain inside
+the implementation. `set_current_name` names the current operating-system thread using target-native text conversion.
+An invalid name, conversion allocation failure, or target failure remains distinguishable through `ThreadNameError`.
+
 After waiting, automatic thread-owner finalization treats an unobserved `Completed(T)` by the payload rules below,
 accepts `Cancelled`, propagates an unobserved thread panic on ordinary exit, and records it as a suppressed child-run
 panic when another panic is already active. During cancellation through the async bridge, that suppressed report is
@@ -454,6 +472,11 @@ non-capturing so its callable identity has no hidden local capture, but its expl
 dependency still undergo the same check. Its callable contract records both execution requirements because the
 native-thread root establishes both before invoking it. An entry implementation that needs either condition therefore
 remains assignable without charging the creating run.
+
+The `Thread<T>` owner is also the structured scope for dependencies transferred into its child. A borrow passed as
+explicit state remains active through that owner, which prevents conflicting source access and prevents the owner from
+outliving the borrowed storage. Joining, cancelling, or lifecycle-resolving the owner releases those dependencies only
+after the native thread has terminated.
 
 Implicit `Thread<T>` finalization on normal scope exit is valid only when the current context establishes
 `blocking_execution()` and an unobserved `Completed(T)` can be resolved synchronously and infallibly. If `T` has

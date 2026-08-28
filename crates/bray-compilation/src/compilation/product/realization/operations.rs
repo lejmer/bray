@@ -292,8 +292,9 @@ impl Compilation {
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
             }
-            MirHelperReference::StandardLibrary(helper) => self
-                .concrete_standard_library_helper(*helper, target, cancellation)?,
+            MirHelperReference::StandardLibrary(helper) => {
+                self.concrete_standard_library_helper(*helper, target, cancellation)?
+            }
             MirHelperReference::Finalize(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
@@ -501,6 +502,9 @@ impl Compilation {
                 MirCallTarget::Indirect { .. } => {
                     Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
                 }
+                MirCallTarget::Runtime(_) => Err(CodegenPreparationError::MissingHelperInstance(
+                    reference.clone(),
+                )),
             },
             MirFrameInitializer::TaskObservation { .. } => Ok(helper_runtime_symbol(
                 owner,

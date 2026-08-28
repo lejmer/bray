@@ -119,11 +119,7 @@ pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result
         .map_err(|error| error.to_string())
 }
 
-fn build(
-    target: NativeTarget,
-    output: &Path,
-    profile: &str,
-) -> Result<Package, CommandError> {
+fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     let sources = crate::input_identity::WorkspaceSources::load(&root)
@@ -186,11 +182,7 @@ fn package(output: &Path, target: NativeTarget) -> Package {
     }
 }
 
-fn build_contents(
-    target: NativeTarget,
-    output: &Path,
-    profile: &str,
-) -> Result<(), CommandError> {
+fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     crate::progress::run("Auditing runtime dependency boundaries", || {
@@ -544,8 +536,15 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
         | RuntimeAbiRole::StructuredShutdown
         | RuntimeAbiRole::PanicReportConstruction
         | RuntimeAbiRole::PanicPropagation => RuntimeArchiveKind::Host,
-        RuntimeAbiRole::ForeignCallbackExecution => RuntimeArchiveKind::Callback,
+        RuntimeAbiRole::ForeignCallbackExecution
+        | RuntimeAbiRole::NativeThreadExecution
+        | RuntimeAbiRole::CurrentNativeThreadIdentity
+        | RuntimeAbiRole::MainNativeThreadIdentity
+        | RuntimeAbiRole::NativeThreadPanicReportRecovery => RuntimeArchiveKind::Callback,
         RuntimeAbiRole::RootExecution
+        | RuntimeAbiRole::TaskEventCreation
+        | RuntimeAbiRole::TaskEventSignal
+        | RuntimeAbiRole::TaskEventDestruction
         | RuntimeAbiRole::TaskAllocation
         | RuntimeAbiRole::TaskStart
         | RuntimeAbiRole::SuspensionRegistration
@@ -921,7 +920,7 @@ mod tests {
 
     use super::{
         BuildOptions, BuiltComponent, CommandError, RuntimeArchiveKind, archive_file_name,
-        metadata, runtime_role_bindings,
+        metadata, runtime_role_archive, runtime_role_bindings,
     };
 
     #[test]
@@ -1021,7 +1020,12 @@ mod tests {
             let observation = first
                 .components()
                 .iter()
-                .find(|component| component.identity().as_str().ends_with("product.observation"))
+                .find(|component| {
+                    component
+                        .identity()
+                        .as_str()
+                        .ends_with("product.observation")
+                })
                 .unwrap_or_else(|| panic!("runtime metadata must contain observation support"));
 
             assert_eq!(observation.dependencies(), [common.identity().clone()]);
@@ -1032,7 +1036,12 @@ mod tests {
                 .find(|component| component.identity().as_str().ends_with("product.callback"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain callback support"));
 
-            assert_eq!(callback.roles(), [RuntimeAbiRole::ForeignCallbackExecution]);
+            let callback_roles = RuntimeAbiRole::ALL
+                .into_iter()
+                .filter(|role| runtime_role_archive(*role) == Some(RuntimeArchiveKind::Callback))
+                .collect::<Vec<_>>();
+
+            assert_eq!(callback.roles(), callback_roles);
 
             assert_eq!(callback.dependencies(), [common.identity().clone()]);
 
@@ -1101,6 +1110,13 @@ mod tests {
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::ForeignCallbackExecution,
+                RuntimeAbiRole::NativeThreadExecution,
+                RuntimeAbiRole::CurrentNativeThreadIdentity,
+                RuntimeAbiRole::MainNativeThreadIdentity,
+                RuntimeAbiRole::NativeThreadPanicReportRecovery,
+                RuntimeAbiRole::TaskEventCreation,
+                RuntimeAbiRole::TaskEventSignal,
+                RuntimeAbiRole::TaskEventDestruction,
                 RuntimeAbiRole::ThreadAttachmentIdentity,
                 RuntimeAbiRole::ThreadStaticCleanupRegistration,
                 RuntimeAbiRole::ProductHostControl,

@@ -70,16 +70,6 @@ fn classify_core_operation<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let one = || {
-        let [ty] = types else {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
-        };
-
-        Ok(*ty)
-    };
-
     if matches!(
         hook,
         ImplementationHook::CallableFromPointer | ImplementationHook::PointerFromCallable
@@ -100,123 +90,13 @@ where
         return Ok(None);
     }
 
-    let kind = match hook {
-        ImplementationHook::UninitNew => CheckedMemoryOperationKind::UninitNew { element: one()? },
-        ImplementationHook::UninitPointer => CheckedMemoryOperationKind::UninitPointer {
-            kind: MemoryAddressKind::Shared,
-            element: one()?,
-        },
-        ImplementationHook::UninitPointerMut => CheckedMemoryOperationKind::UninitPointer {
-            kind: MemoryAddressKind::Mutable,
-            element: one()?,
-        },
-        ImplementationHook::UninitWrite => {
-            CheckedMemoryOperationKind::UninitWrite { element: one()? }
-        }
-        ImplementationHook::UninitAssumeInitialized => {
-            CheckedMemoryOperationKind::UninitAssumeInitialized { element: one()? }
-        }
-        ImplementationHook::UninitMove => {
-            CheckedMemoryOperationKind::UninitMove { element: one()? }
-        }
-        ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
-            let [pointee, _authority] = types else {
-                return Err(CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
-            };
+    if let Some(kind) =
+        classify_direct_memory_operation(request, hook, types, read_kinds, diagnostics)?
+    {
+        return Ok(Some(kind));
+    }
 
-            CheckedMemoryOperationKind::BorrowFrom {
-                kind: if hook == ImplementationHook::BorrowFrom {
-                    MemoryAddressKind::Shared
-                } else {
-                    MemoryAddressKind::Mutable
-                },
-                pointee: *pointee,
-            }
-        }
-        ImplementationHook::AddressOf => CheckedMemoryOperationKind::Address {
-            kind: MemoryAddressKind::Shared,
-            pointee: one()?,
-        },
-        ImplementationHook::AddressOfMut => CheckedMemoryOperationKind::Address {
-            kind: MemoryAddressKind::Mutable,
-            pointee: one()?,
-        },
-        ImplementationHook::RawPointerNull => CheckedMemoryOperationKind::Null { pointee: one()? },
-        ImplementationHook::RawPointerIsNull => {
-            CheckedMemoryOperationKind::IsNull { pointee: one()? }
-        }
-        ImplementationHook::RawPointerOffset => CheckedMemoryOperationKind::Offset {
-            unit: MemoryOffsetUnit::Element,
-            pointee: one()?,
-        },
-        ImplementationHook::RawPointerByteOffset => CheckedMemoryOperationKind::Offset {
-            unit: MemoryOffsetUnit::Byte,
-            pointee: one()?,
-        },
-        ImplementationHook::RawPointerReinterpret => {
-            let [target, source] = types else {
-                return Err(CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
-            };
-
-            CheckedMemoryOperationKind::Reinterpret {
-                source: *source,
-                target: *target,
-            }
-        }
-        ImplementationHook::CallableFromPointer => {
-            CheckedMemoryOperationKind::CallableFromPointer { callable: one()? }
-        }
-        ImplementationHook::PointerFromCallable => {
-            CheckedMemoryOperationKind::PointerFromCallable { callable: one()? }
-        }
-        ImplementationHook::CallbackState => {
-            CheckedMemoryOperationKind::CallbackState { state: one()? }
-        }
-        ImplementationHook::RawPointerRead => {
-            let pointee = one()?;
-
-            let read_kind = memory_read_kind(request, pointee, read_kinds, diagnostics)?;
-
-            CheckedMemoryOperationKind::Read {
-                pointee,
-                kind: read_kind,
-            }
-        }
-        ImplementationHook::RawPointerWrite => {
-            CheckedMemoryOperationKind::Write { pointee: one()? }
-        }
-        ImplementationHook::MemoryCopy => CheckedMemoryOperationKind::Copy {
-            pointee: one()?,
-            kind: MemoryCopyKind::NonOverlapping,
-        },
-        ImplementationHook::MemoryCopyOverlapping => CheckedMemoryOperationKind::Copy {
-            pointee: one()?,
-            kind: MemoryCopyKind::Overlapping,
-        },
-        ImplementationHook::MemorySizeOf => CheckedMemoryOperationKind::LayoutQuery {
-            ty: one()?,
-            kind: MemoryLayoutQueryKind::Size,
-        },
-        ImplementationHook::MemoryAlignOf => CheckedMemoryOperationKind::LayoutQuery {
-            ty: one()?,
-            kind: MemoryLayoutQueryKind::Alignment,
-        },
-        ImplementationHook::MemoryStrideOf => CheckedMemoryOperationKind::LayoutQuery {
-            ty: one()?,
-            kind: MemoryLayoutQueryKind::Stride,
-        },
-        ImplementationHook::MemoryLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
-            ty: one()?,
-            kind: MemoryLayoutQueryKind::Layout,
-        },
-        ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
-            ty: one()?,
-            kind: MemoryLayoutQueryKind::Trailing,
-        },
+    match hook {
         ImplementationHook::RawAllocate
         | ImplementationHook::RawDeallocate
         | ImplementationHook::Allocate
@@ -235,7 +115,7 @@ where
         | ImplementationHook::ByteBufferCopy
         | ImplementationHook::ByteBufferRead
         | ImplementationHook::SliceLength => {
-            return classify_allocation_and_buffer_operation(hook, types);
+            classify_allocation_and_buffer_operation(hook, types)
         }
         ImplementationHook::VolatileLoad
         | ImplementationHook::VolatileStore
@@ -271,9 +151,9 @@ where
         | ImplementationHook::AtomicWait
         | ImplementationHook::AtomicNotifyOne
         | ImplementationHook::AtomicNotifyAll => {
-            return Err(CheckerOutcome::InfrastructureFailure(
+            Err(CheckerOutcome::InfrastructureFailure(
                 CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
+            ))
         }
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin
@@ -283,6 +163,16 @@ where
         | ImplementationHook::MainThreadExecution
         | ImplementationHook::CurrentRunCancellationObservation
         | ImplementationHook::CurrentRunCancellationPropagation
+        | ImplementationHook::NativeThreadExecution
+        | ImplementationHook::NativeThreadStart
+        | ImplementationHook::CurrentNativeThreadIdentity
+        | ImplementationHook::MainNativeThreadIdentity
+        | ImplementationHook::NativeThreadPanicReportRecovery
+        | ImplementationHook::NativeThreadPanicReporting
+        | ImplementationHook::TaskEventCreation
+        | ImplementationHook::TaskEventSignal
+        | ImplementationHook::TaskEventDestruction
+        | ImplementationHook::TaskEventWait
         | ImplementationHook::TaskYield
         | ImplementationHook::StringScalarCount
         | ImplementationHook::StringIsEmpty
@@ -302,10 +192,162 @@ where
         | ImplementationHook::RangeSharedIterate
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
-        | ImplementationHook::TestingFail => return Ok(None),
+        | ImplementationHook::TestingFail => Ok(None),
+        _ => {
+            Err(CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            ))
+        }
+    }
+}
+
+fn classify_direct_memory_operation<C>(
+    request: CheckerUnitView<'_, C>,
+    hook: ImplementationHook,
+    types: &[TypeId],
+    read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let kind = match hook {
+        ImplementationHook::UninitNew => CheckedMemoryOperationKind::UninitNew {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::UninitPointer => CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Shared,
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::UninitPointerMut => CheckedMemoryOperationKind::UninitPointer {
+            kind: MemoryAddressKind::Mutable,
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::UninitWrite => CheckedMemoryOperationKind::UninitWrite {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::UninitAssumeInitialized => {
+            CheckedMemoryOperationKind::UninitAssumeInitialized {
+                element: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::UninitMove => CheckedMemoryOperationKind::UninitMove {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
+            let [pointee, _authority] = types else {
+                return Err(CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ));
+            };
+
+            CheckedMemoryOperationKind::BorrowFrom {
+                kind: if hook == ImplementationHook::BorrowFrom {
+                    MemoryAddressKind::Shared
+                } else {
+                    MemoryAddressKind::Mutable
+                },
+                pointee: *pointee,
+            }
+        }
+        ImplementationHook::AddressOf | ImplementationHook::AddressOfMut => {
+            CheckedMemoryOperationKind::Address {
+                kind: if hook == ImplementationHook::AddressOf {
+                    MemoryAddressKind::Shared
+                } else {
+                    MemoryAddressKind::Mutable
+                },
+                pointee: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::RawPointerNull => CheckedMemoryOperationKind::Null {
+            pointee: one_type_argument(types)?,
+        },
+        ImplementationHook::RawPointerIsNull => CheckedMemoryOperationKind::IsNull {
+            pointee: one_type_argument(types)?,
+        },
+        ImplementationHook::RawPointerOffset | ImplementationHook::RawPointerByteOffset => {
+            CheckedMemoryOperationKind::Offset {
+                unit: if hook == ImplementationHook::RawPointerOffset {
+                    MemoryOffsetUnit::Element
+                } else {
+                    MemoryOffsetUnit::Byte
+                },
+                pointee: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::RawPointerReinterpret => {
+            let [target, source] = types else {
+                return Err(CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ));
+            };
+
+            CheckedMemoryOperationKind::Reinterpret {
+                source: *source,
+                target: *target,
+            }
+        }
+        ImplementationHook::CallableFromPointer => {
+            CheckedMemoryOperationKind::CallableFromPointer {
+                callable: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::PointerFromCallable => {
+            CheckedMemoryOperationKind::PointerFromCallable {
+                callable: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::CallbackState | ImplementationHook::TransferredValueBorrow => {
+            CheckedMemoryOperationKind::CallbackState {
+                state: one_type_argument(types)?,
+            }
+        }
+        ImplementationHook::RawPointerRead => {
+            let pointee = one_type_argument(types)?;
+            let kind = memory_read_kind(request, pointee, read_kinds, diagnostics)?;
+
+            CheckedMemoryOperationKind::Read { pointee, kind }
+        }
+        ImplementationHook::RawPointerWrite => CheckedMemoryOperationKind::Write {
+            pointee: one_type_argument(types)?,
+        },
+        ImplementationHook::MemoryCopy | ImplementationHook::MemoryCopyOverlapping => {
+            CheckedMemoryOperationKind::Copy {
+                pointee: one_type_argument(types)?,
+                kind: if hook == ImplementationHook::MemoryCopy {
+                    MemoryCopyKind::NonOverlapping
+                } else {
+                    MemoryCopyKind::Overlapping
+                },
+            }
+        }
+        ImplementationHook::MemorySizeOf
+        | ImplementationHook::MemoryAlignOf
+        | ImplementationHook::MemoryStrideOf
+        | ImplementationHook::MemoryLayoutOf
+        | ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
+            ty: one_type_argument(types)?,
+            kind: layout_query_kind(hook).ok_or_else(|| {
+                CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                )
+            })?,
+        },
+        _ => return Ok(None),
     };
 
     Ok(Some(kind))
+}
+
+fn one_type_argument(types: &[TypeId]) -> Result<TypeId, CheckerOutcome<CheckedMemoryOperations>> {
+    let [ty] = types else {
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
+    };
+
+    Ok(*ty)
 }
 
 const fn layout_query_kind(hook: ImplementationHook) -> Option<MemoryLayoutQueryKind> {
@@ -541,16 +583,6 @@ fn classify_allocation_and_buffer_operation(
     hook: ImplementationHook,
     types: &[TypeId],
 ) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>> {
-    let one = || {
-        let [ty] = types else {
-            return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
-        };
-
-        Ok(*ty)
-    };
-
     let kind = match hook {
         ImplementationHook::RawAllocate => {
             ensure_no_type_arguments(types)?;
@@ -573,47 +605,49 @@ fn classify_allocation_and_buffer_operation(
             CheckedMemoryOperationKind::Deallocate
         }
         ImplementationHook::RawBufferCapacity => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferCapacity
         }
         ImplementationHook::RawBufferInitializedCount => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferInitializedCount
         }
         ImplementationHook::RawBufferPointer => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferPointer
         }
         ImplementationHook::RawBufferInitializedSlice => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferInitializedSlice
         }
         ImplementationHook::RawBufferInitializedSliceMut => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferInitializedSliceMut
         }
         ImplementationHook::RawBufferSparePointer => {
-            CheckedMemoryOperationKind::RawBufferSparePointer { element: one()? }
+            CheckedMemoryOperationKind::RawBufferSparePointer {
+                element: one_type_argument(types)?,
+            }
         }
         ImplementationHook::RawBufferSetInitializedCount => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::RawBufferSetInitializedCount
         }
-        ImplementationHook::RawBufferRelease => {
-            CheckedMemoryOperationKind::RawBufferRelease { element: one()? }
-        }
-        ImplementationHook::RawBufferReplace => {
-            CheckedMemoryOperationKind::RawBufferReplace { element: one()? }
-        }
-        ImplementationHook::RawBufferRelocate => {
-            CheckedMemoryOperationKind::RawBufferRelocate { element: one()? }
-        }
+        ImplementationHook::RawBufferRelease => CheckedMemoryOperationKind::RawBufferRelease {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::RawBufferReplace => CheckedMemoryOperationKind::RawBufferReplace {
+            element: one_type_argument(types)?,
+        },
+        ImplementationHook::RawBufferRelocate => CheckedMemoryOperationKind::RawBufferRelocate {
+            element: one_type_argument(types)?,
+        },
         ImplementationHook::ByteBufferFill => {
             ensure_no_type_arguments(types)?;
 
@@ -630,7 +664,7 @@ fn classify_allocation_and_buffer_operation(
             CheckedMemoryOperationKind::ByteBufferRead
         }
         ImplementationHook::SliceLength => {
-            one()?;
+            one_type_argument(types)?;
 
             CheckedMemoryOperationKind::SliceLength
         }

@@ -21,6 +21,8 @@ For text output, pass string directly to print or print_line and handle their Io
 
 For shared mutable state, use `std.sync` guards or `std.atomic` operations. Synchronous waits require `blocking_execution()` and defer pending cancellation to the next checkpoint. Use `std.channel.bounded<T>` for cancellation-safe async transfer with explicit backpressure, including capacity-zero rendezvous.
 
+Use `std.thread.start` and consume the returned owner with `join` or `cancel` for synchronous native-thread work. The owner retains transferred borrows until termination. `wake` publishes one coalescing token for the child to consume with `park`, and `set_current_name` reports invalid names, allocation failure, and platform failure separately. Use `std.thread.run` as the async bridge.
+
 `std.platform` is an internal implementation module, not part of the public standard-library surface. The compiler-provided `core` namespace is also separate from `std`. Consult [compiler-known declarations](compiler-known.md) when a task concerns protected representations or compiler-provided operations rather than ordinary library APIs.
 
 Internal allocation, owned-text, and character helpers are Bray declarations under `std.runtime`. Public code uses their owning `std.memory`, `std.string`, and `std.character` surfaces.

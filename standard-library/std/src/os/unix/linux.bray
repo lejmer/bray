@@ -324,3 +324,46 @@ trusted func signal(pos process: i32, force: bool) -> i32
 
     return trusted std.os.linux.kill(process, signal = requested);
 }
+
+trusted func pthread_create(
+    pos thread: RawPointer<u64>,
+    pos attributes: RawPointer<PThreadAttribute>,
+    pos entry: ThreadStartRoutine,
+    pos context: RawPointer<u8>,
+) -> i32
+    uses(foreign_call)
+{
+    let entry_pointer: RawPointer<ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+
+    let native_pointer: RawPointer<std.os.linux.ThreadStartRoutine> = trusted std.memory.reinterpret<
+        std.os.linux.ThreadStartRoutine,
+        ThreadStartRoutine
+    >(entry_pointer);
+
+    let native_entry: std.os.linux.ThreadStartRoutine = trusted std.memory.callable_from_pointer(native_pointer);
+
+    return trusted std.os.linux.pthread_create(
+        thread,
+        attributes = trusted std.memory.reinterpret<std.os.linux.PThreadAttribute, PThreadAttribute>(attributes),
+        entry = native_entry,
+        context = context,
+    );
+}
+
+trusted func pthread_detach(pos thread: u64) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.linux.pthread_detach(thread);
+}
+
+trusted func pthread_join(pos thread: u64, pos result: RawPointer<RawPointer<u8>>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.linux.pthread_join(thread, result);
+}
+
+trusted func pthread_self() -> u64
+    uses(foreign_call)
+{
+    return trusted std.os.linux.pthread_self();
+}

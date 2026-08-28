@@ -121,6 +121,8 @@ pub enum DiagnosticNoteKind {
     RuntimeArtifactMustBeUsable,
     /// One exact unavailable state required across an await.
     AwaitDependencyUnavailable,
+    /// Recovery guidance for a value whose dependency cannot leave its storage scope.
+    EscapingStorageDependencyResolution,
     /// Recovery guidance for operations that require an asynchronous callable body.
     AsynchronousCallableRequired,
     /// Recovery guidance for executable product entrypoint selection.
@@ -195,6 +197,7 @@ impl DiagnosticNoteKind {
             Self::NativeProductPreparationRecovery => "native_product_preparation_recovery",
             Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
             Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
+            Self::EscapingStorageDependencyResolution => "escaping_storage_dependency_resolution",
             Self::AsynchronousCallableRequired => "asynchronous_callable_required",
             Self::ExecutableEntrypointRequired => "executable_entrypoint_required",
             Self::EntrypointDirectiveRequiresExecutableProduct => {

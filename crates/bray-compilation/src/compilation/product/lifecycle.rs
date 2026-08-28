@@ -543,4 +543,53 @@ mod tests {
                 .unwrap_or_else(|error| panic!("container cleanup must resolve: {error:?}"))
         );
     }
+
+    #[test]
+    fn destructor_only_storage_has_no_finalization_helper() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: usize;\n",
+            "    destruct() {}\n",
+            "}\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let resource = symbols
+            .structures()
+            .iter()
+            .find(|structure| structure.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("test source must declare Resource"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let resource = named_type(values, NamedTypeSymbolId::Struct(resource.id()))
+            .unwrap_or_else(|error| panic!("resource type must resolve: {error:?}"));
+
+        let cancellation = CancellationToken::new();
+
+        assert!(
+            compilation
+                .codegen_lifecycle_is_trivial(
+                    &MirHelperReference::Finalize(resource),
+                    &cancellation,
+                )
+                .unwrap_or_else(|error| panic!("resource finalization must resolve: {error:?}"))
+        );
+
+        assert!(
+            !compilation
+                .codegen_lifecycle_is_trivial(
+                    &MirHelperReference::Destroy(resource),
+                    &cancellation,
+                )
+                .unwrap_or_else(|error| panic!("resource destruction must resolve: {error:?}"))
+        );
+    }
 }

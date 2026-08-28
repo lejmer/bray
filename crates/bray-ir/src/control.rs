@@ -256,6 +256,8 @@ pub enum MirSuspensionKind {
     Awaited,
     /// The frame yielded so another ready task can run.
     Yield,
+    /// The frame is waiting for one runtime task event.
+    TaskEvent,
 }
 
 impl MirSuspensionKind {
@@ -264,6 +266,7 @@ impl MirSuspensionKind {
         match self {
             Self::Awaited => "awaited",
             Self::Yield => "yield",
+            Self::TaskEvent => "task_event",
         }
     }
 }
@@ -384,6 +387,8 @@ pub enum MirTerminatorKind {
     Suspend {
         /// Reason this frame suspended.
         kind: MirSuspensionKind,
+        /// Opaque event identity used by event-driven suspensions.
+        payload: Option<MirOperand>,
         /// State entered when execution resumes.
         resume_state: MirFrameStateId,
         /// Destination used after the frame is resumed.

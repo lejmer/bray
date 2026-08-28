@@ -9,7 +9,7 @@ use super::buffer::{
     standard_library_compilation,
 };
 use super::hello::audit_standard_hello_world;
-use super::memory_rejection::audit_memory_rejection;
+use super::rejection::audit_rejections;
 use super::repeatable::audit_repeatable_fixture;
 use super::static_storage::audit_static_storage;
 
@@ -130,8 +130,8 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         .map(|_| ())
     })?;
 
-    crate::progress::run("Checking native memory rejection", || {
-        audit_memory_rejection(root, target)
+    crate::progress::run("Checking native semantic rejections", || {
+        audit_rejections(root, target, &standard_library_root(root))
     })?;
 
     let runtime = native_output("bray-native-runtime-")?;

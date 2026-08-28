@@ -37,9 +37,8 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
 }
 
 trusted internal func current_thread_identity() -> u64
-    uses(foreign_call)
 {
-    return trusted internal std.os.darwin.pthread_self();
+    return trusted std.os.unix.pthread_self();
 }
 
 trusted internal func unix_error_status() -> PlatformStatus
@@ -204,7 +203,7 @@ trusted internal func unix_error_status_from(pos code: i32) -> PlatformStatus
         case std.os.darwin.EEXIST { yield 4; }
         case std.os.darwin.EINVAL { yield 5; }
         case std.os.darwin.EINTR { yield 6; }
-        case std.os.darwin.ENOMEM { yield 7; }
+        case std.os.darwin.EAGAIN | std.os.darwin.ENOMEM { yield 7; }
         case std.os.darwin.EPIPE { yield 8; }
         case std.os.darwin.ETIMEDOUT { yield 9; }
         case _ { yield 10; }

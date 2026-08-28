@@ -203,10 +203,15 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
         }
         MirTerminatorKind::Unreachable => {}
         MirTerminatorKind::Suspend {
+            payload,
             resume,
             cancellation,
             ..
         } => {
+            if let Some(payload) = payload {
+                collect_operand_value(payload, demands);
+            }
+
             collect_edge_values(resume, demands);
             collect_cleanup_edge_values(cancellation, demands);
         }

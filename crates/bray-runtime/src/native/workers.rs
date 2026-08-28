@@ -297,8 +297,8 @@ impl WorkerRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
     use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
     use std::time::Duration;
 
     use super::{WorkerControl, WorkerPool};

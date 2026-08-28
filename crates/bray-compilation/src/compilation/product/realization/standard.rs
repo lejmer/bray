@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
+use bray_codegen::CodegenTarget;
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationKey,
     RecognizedStandardLibraryDeclarationOwner,
 };
+use bray_ir::{MirHelperReference, MirStandardLibraryHelper};
 use bray_symbols::{
     CallableDefinitionId, CallableInstanceData, ExactSymbolId, FunctionSymbolId,
     MemberLookupResult, PackageIdentity,
 };
-use bray_codegen::CodegenTarget;
-use bray_ir::{MirHelperReference, MirStandardLibraryHelper};
 
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::ConcreteCodegenInstance;
-use crate::compilation::substitution::empty_substitution;
 use crate::compilation::standard_library::source_standard_library_scope_owner;
+use crate::compilation::substitution::empty_substitution;
 use crate::fact::CancellationToken;
 
 impl Compilation {
@@ -30,8 +30,7 @@ impl Compilation {
         let key = RecognizedStandardLibraryDeclarationKey::try_new(key)
             .ok_or_else(|| missing_helper(&reference))?;
 
-        let callable =
-            self.recognized_standard_library_callable(&key, &reference, cancellation)?;
+        let callable = self.recognized_standard_library_callable(&key, &reference, cancellation)?;
 
         self.concrete_codegen_callable(callable, [], target, cancellation)
     }
@@ -53,8 +52,7 @@ impl Compilation {
         let definition = CallableDefinitionId::try_new(function.into())
             .ok_or_else(|| missing_helper(reference))?;
 
-        let substitution =
-            empty_substitution(self.semantic_value_store()?, definition.symbol())?;
+        let substitution = empty_substitution(self.semantic_value_store()?, definition.symbol())?;
 
         Ok(CallableInstanceData::new(definition, substitution))
     }
@@ -91,8 +89,7 @@ impl Compilation {
             return Err(missing_helper(reference));
         };
 
-        FunctionSymbolId::try_from_any(symbol)
-            .ok_or_else(|| missing_helper(reference))
+        FunctionSymbolId::try_from_any(symbol).ok_or_else(|| missing_helper(reference))
     }
 
     fn imported_standard_library_function(
@@ -135,33 +132,21 @@ fn standard_library_helper_key(helper: MirStandardLibraryHelper) -> &'static str
         MirStandardLibraryHelper::StringScalarAt => "StandardRuntimeStringScalarAt",
         MirStandardLibraryHelper::StringScalarSlice => "StandardRuntimeStringScalarSlice",
         MirStandardLibraryHelper::StringFromUtf8 => "StandardRuntimeStringFromUtf8",
-        MirStandardLibraryHelper::CharacterScalarValue => {
-            "StandardRuntimeCharacterScalarValue"
-        }
+        MirStandardLibraryHelper::CharacterScalarValue => "StandardRuntimeCharacterScalarValue",
         MirStandardLibraryHelper::CharacterFromScalarValue => {
             "StandardRuntimeCharacterFromScalarValue"
         }
-        MirStandardLibraryHelper::CharacterUtf8Length => {
-            "StandardRuntimeCharacterUtf8Length"
-        }
+        MirStandardLibraryHelper::CharacterUtf8Length => "StandardRuntimeCharacterUtf8Length",
         MirStandardLibraryHelper::CharacterUtf8Byte => "StandardRuntimeCharacterUtf8Byte",
-        MirStandardLibraryHelper::CharacterIsAlphabetic => {
-            "StandardRuntimeCharacterIsAlphabetic"
-        }
-        MirStandardLibraryHelper::CharacterIsNumeric => {
-            "StandardRuntimeCharacterIsNumeric"
-        }
-        MirStandardLibraryHelper::CharacterIsWhitespace => {
-            "StandardRuntimeCharacterIsWhitespace"
-        }
+        MirStandardLibraryHelper::CharacterIsAlphabetic => "StandardRuntimeCharacterIsAlphabetic",
+        MirStandardLibraryHelper::CharacterIsNumeric => "StandardRuntimeCharacterIsNumeric",
+        MirStandardLibraryHelper::CharacterIsWhitespace => "StandardRuntimeCharacterIsWhitespace",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_compiler_known::{
-        COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationKey,
-    };
+    use bray_compiler_known::{COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationKey};
     use bray_ir::MirStandardLibraryHelper;
     use bray_symbols::PackageIdentity;
 
@@ -212,8 +197,8 @@ trusted func deallocate(
             0,
         );
 
-        let request = CompilationRequest::new(package, vec![source])
-            .with_standard_library_source_authority();
+        let request =
+            CompilationRequest::new(package, vec![source]).with_standard_library_source_authority();
 
         let compilation = Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
@@ -235,14 +220,8 @@ trusted func deallocate(
             MirStandardLibraryHelper::MemoryDeallocate,
         ] {
             compilation
-                .concrete_standard_library_helper(
-                    helper,
-                    &target,
-                    &CancellationToken::new(),
-                )
-                .unwrap_or_else(|error| {
-                    panic!("runtime memory helper must realize: {error:?}")
-                });
+                .concrete_standard_library_helper(helper, &target, &CancellationToken::new())
+                .unwrap_or_else(|error| panic!("runtime memory helper must realize: {error:?}"));
         }
     }
 }

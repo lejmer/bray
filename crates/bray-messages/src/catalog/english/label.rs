@@ -179,6 +179,9 @@ const MISSING_MUTATION_AUTHORITY: &[MessageTemplatePart] = &[MessageTemplatePart
 const MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "this operation requires storage ownership",
 )];
+const ESCAPING_STORAGE_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "this value carries a dependency beyond the referenced storage's scope",
+)];
 const DEPENDENCY_SELECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "this dependency selected the failing artifact",
 )];
@@ -305,6 +308,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::MissingStorageOwnership => {
             MessageTemplate::new(MISSING_STORAGE_OWNERSHIP)
+        }
+        DiagnosticLabelKind::EscapingStorageDependency => {
+            MessageTemplate::new(ESCAPING_STORAGE_DEPENDENCY)
         }
         DiagnosticLabelKind::DependencySelection => MessageTemplate::new(DEPENDENCY_SELECTION),
         DiagnosticLabelKind::UnavailableAwaitDependency => {

@@ -18,15 +18,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirTextOperation,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let result = match operation.kind() {
-            MirTextOperationKind::ScalarCount => {
-                self.text_scalar_count(operation_id, operation)?
-            }
+            MirTextOperationKind::ScalarCount => self.text_scalar_count(operation_id, operation)?,
             MirTextOperationKind::IsEmpty => self.text_is_empty(operation)?,
             MirTextOperationKind::Equals => self.text_equals(operation_id, operation)?,
             MirTextOperationKind::ScalarAt => self.text_scalar_at(operation_id, operation)?,
-            MirTextOperationKind::ScalarSlice => {
-                self.text_scalar_slice(operation_id, operation)?
-            }
+            MirTextOperationKind::ScalarSlice => self.text_scalar_slice(operation_id, operation)?,
             MirTextOperationKind::Utf8 => self.text_utf8(operation)?,
             MirTextOperationKind::FromUtf8 => self.text_from_utf8(operation_id, operation)?,
             MirTextOperationKind::CharacterScalarValue => {
@@ -556,5 +552,4 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
-
 }

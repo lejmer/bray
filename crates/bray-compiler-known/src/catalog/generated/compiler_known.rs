@@ -15,7 +15,7 @@ use super::super::*;
 pub const CATALOG_GRAMMAR_REVISION: CatalogGrammarRevision = CatalogGrammarRevision::new(1);
 
 /// Digest of the revisioned canonical catalog source identity.
-pub const CATALOG_SOURCE_DIGEST: &str = "e7a29435c1ff3c0dc169635db90e6d3c142a7533f80f69d8a32b6603de7eea76";
+pub const CATALOG_SOURCE_DIGEST: &str = "604e8c4ab7ee706515ef5e7a7c31178a61c17b93aebc21746a7494d65d5cfc88";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {
@@ -3824,55 +3824,61 @@ static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
         id: RecognizedStandardLibraryScopeId::new(2),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardMemory"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("memory")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(11), RecognizedStandardLibraryDeclarationId::new(12), RecognizedStandardLibraryDeclarationId::new(13), RecognizedStandardLibraryDeclarationId::new(14), RecognizedStandardLibraryDeclarationId::new(15), RecognizedStandardLibraryDeclarationId::new(16), RecognizedStandardLibraryDeclarationId::new(17), RecognizedStandardLibraryDeclarationId::new(18), RecognizedStandardLibraryDeclarationId::new(19), RecognizedStandardLibraryDeclarationId::new(20), RecognizedStandardLibraryDeclarationId::new(21), RecognizedStandardLibraryDeclarationId::new(22), RecognizedStandardLibraryDeclarationId::new(23), RecognizedStandardLibraryDeclarationId::new(24), RecognizedStandardLibraryDeclarationId::new(25), RecognizedStandardLibraryDeclarationId::new(26), RecognizedStandardLibraryDeclarationId::new(27), RecognizedStandardLibraryDeclarationId::new(28), RecognizedStandardLibraryDeclarationId::new(29), RecognizedStandardLibraryDeclarationId::new(30), RecognizedStandardLibraryDeclarationId::new(31), RecognizedStandardLibraryDeclarationId::new(34), RecognizedStandardLibraryDeclarationId::new(37), RecognizedStandardLibraryDeclarationId::new(38), RecognizedStandardLibraryDeclarationId::new(39), RecognizedStandardLibraryDeclarationId::new(40), RecognizedStandardLibraryDeclarationId::new(41), RecognizedStandardLibraryDeclarationId::new(42), RecognizedStandardLibraryDeclarationId::new(43), RecognizedStandardLibraryDeclarationId::new(44), RecognizedStandardLibraryDeclarationId::new(45), RecognizedStandardLibraryDeclarationId::new(46), RecognizedStandardLibraryDeclarationId::new(47), RecognizedStandardLibraryDeclarationId::new(48), RecognizedStandardLibraryDeclarationId::new(49), RecognizedStandardLibraryDeclarationId::new(50), RecognizedStandardLibraryDeclarationId::new(51), RecognizedStandardLibraryDeclarationId::new(52), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(55), RecognizedStandardLibraryDeclarationId::new(56), RecognizedStandardLibraryDeclarationId::new(57), RecognizedStandardLibraryDeclarationId::new(58), RecognizedStandardLibraryDeclarationId::new(59), RecognizedStandardLibraryDeclarationId::new(63)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(13), RecognizedStandardLibraryDeclarationId::new(14), RecognizedStandardLibraryDeclarationId::new(15), RecognizedStandardLibraryDeclarationId::new(16), RecognizedStandardLibraryDeclarationId::new(17), RecognizedStandardLibraryDeclarationId::new(18), RecognizedStandardLibraryDeclarationId::new(19), RecognizedStandardLibraryDeclarationId::new(20), RecognizedStandardLibraryDeclarationId::new(21), RecognizedStandardLibraryDeclarationId::new(22), RecognizedStandardLibraryDeclarationId::new(23), RecognizedStandardLibraryDeclarationId::new(24), RecognizedStandardLibraryDeclarationId::new(25), RecognizedStandardLibraryDeclarationId::new(26), RecognizedStandardLibraryDeclarationId::new(27), RecognizedStandardLibraryDeclarationId::new(28), RecognizedStandardLibraryDeclarationId::new(29), RecognizedStandardLibraryDeclarationId::new(30), RecognizedStandardLibraryDeclarationId::new(31), RecognizedStandardLibraryDeclarationId::new(32), RecognizedStandardLibraryDeclarationId::new(33), RecognizedStandardLibraryDeclarationId::new(36), RecognizedStandardLibraryDeclarationId::new(39), RecognizedStandardLibraryDeclarationId::new(40), RecognizedStandardLibraryDeclarationId::new(41), RecognizedStandardLibraryDeclarationId::new(42), RecognizedStandardLibraryDeclarationId::new(43), RecognizedStandardLibraryDeclarationId::new(44), RecognizedStandardLibraryDeclarationId::new(45), RecognizedStandardLibraryDeclarationId::new(46), RecognizedStandardLibraryDeclarationId::new(47), RecognizedStandardLibraryDeclarationId::new(48), RecognizedStandardLibraryDeclarationId::new(49), RecognizedStandardLibraryDeclarationId::new(50), RecognizedStandardLibraryDeclarationId::new(51), RecognizedStandardLibraryDeclarationId::new(52), RecognizedStandardLibraryDeclarationId::new(53), RecognizedStandardLibraryDeclarationId::new(54), RecognizedStandardLibraryDeclarationId::new(55), RecognizedStandardLibraryDeclarationId::new(56), RecognizedStandardLibraryDeclarationId::new(57), RecognizedStandardLibraryDeclarationId::new(58), RecognizedStandardLibraryDeclarationId::new(59), RecognizedStandardLibraryDeclarationId::new(60), RecognizedStandardLibraryDeclarationId::new(65), RecognizedStandardLibraryDeclarationId::new(69)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(3),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRoot"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(10), RecognizedStandardLibraryDeclarationId::new(68), RecognizedStandardLibraryDeclarationId::new(69), RecognizedStandardLibraryDeclarationId::new(98), RecognizedStandardLibraryDeclarationId::new(112), RecognizedStandardLibraryDeclarationId::new(115)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(10), RecognizedStandardLibraryDeclarationId::new(74), RecognizedStandardLibraryDeclarationId::new(75), RecognizedStandardLibraryDeclarationId::new(104), RecognizedStandardLibraryDeclarationId::new(123), RecognizedStandardLibraryDeclarationId::new(126)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(4),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRun"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("run")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(75), RecognizedStandardLibraryDeclarationId::new(76)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(81), RecognizedStandardLibraryDeclarationId::new(82)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(5),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRuntimeCharacter"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("runtime"), Cow::Borrowed("character")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(77), RecognizedStandardLibraryDeclarationId::new(78), RecognizedStandardLibraryDeclarationId::new(79), RecognizedStandardLibraryDeclarationId::new(80), RecognizedStandardLibraryDeclarationId::new(81), RecognizedStandardLibraryDeclarationId::new(82), RecognizedStandardLibraryDeclarationId::new(83)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(83), RecognizedStandardLibraryDeclarationId::new(84), RecognizedStandardLibraryDeclarationId::new(85), RecognizedStandardLibraryDeclarationId::new(86), RecognizedStandardLibraryDeclarationId::new(87), RecognizedStandardLibraryDeclarationId::new(88), RecognizedStandardLibraryDeclarationId::new(89)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(6),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRuntimeMemory"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("runtime"), Cow::Borrowed("memory")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(84), RecognizedStandardLibraryDeclarationId::new(85)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(90), RecognizedStandardLibraryDeclarationId::new(91)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(7),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardRuntimeText"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("runtime"), Cow::Borrowed("text")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(86), RecognizedStandardLibraryDeclarationId::new(90), RecognizedStandardLibraryDeclarationId::new(91), RecognizedStandardLibraryDeclarationId::new(92), RecognizedStandardLibraryDeclarationId::new(93), RecognizedStandardLibraryDeclarationId::new(94), RecognizedStandardLibraryDeclarationId::new(95)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(92), RecognizedStandardLibraryDeclarationId::new(96), RecognizedStandardLibraryDeclarationId::new(97), RecognizedStandardLibraryDeclarationId::new(98), RecognizedStandardLibraryDeclarationId::new(99), RecognizedStandardLibraryDeclarationId::new(100), RecognizedStandardLibraryDeclarationId::new(101)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(8),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardString"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("string")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(99), RecognizedStandardLibraryDeclarationId::new(100), RecognizedStandardLibraryDeclarationId::new(102), RecognizedStandardLibraryDeclarationId::new(103), RecognizedStandardLibraryDeclarationId::new(104), RecognizedStandardLibraryDeclarationId::new(105), RecognizedStandardLibraryDeclarationId::new(106), RecognizedStandardLibraryDeclarationId::new(107), RecognizedStandardLibraryDeclarationId::new(108), RecognizedStandardLibraryDeclarationId::new(109), RecognizedStandardLibraryDeclarationId::new(113)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(105), RecognizedStandardLibraryDeclarationId::new(106), RecognizedStandardLibraryDeclarationId::new(108), RecognizedStandardLibraryDeclarationId::new(109), RecognizedStandardLibraryDeclarationId::new(110), RecognizedStandardLibraryDeclarationId::new(111), RecognizedStandardLibraryDeclarationId::new(112), RecognizedStandardLibraryDeclarationId::new(113), RecognizedStandardLibraryDeclarationId::new(114), RecognizedStandardLibraryDeclarationId::new(115), RecognizedStandardLibraryDeclarationId::new(124)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(9),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardTask"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("task")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(110)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(116), RecognizedStandardLibraryDeclarationId::new(117), RecognizedStandardLibraryDeclarationId::new(118), RecognizedStandardLibraryDeclarationId::new(119), RecognizedStandardLibraryDeclarationId::new(120)]),
     },
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(10),
         key: RecognizedStandardLibraryScopeKey::from_static("StandardTesting"),
         path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("testing")]),
-        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(111)]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(121)]),
+    },
+    RecognizedStandardLibraryScopeDescriptor {
+        id: RecognizedStandardLibraryScopeId::new(11),
+        key: RecognizedStandardLibraryScopeKey::from_static("StandardThread"),
+        path: CatalogPath::from_static(&[Cow::Borrowed("std"), Cow::Borrowed("thread")]),
+        declaration_ids: Cow::Borrowed(&[RecognizedStandardLibraryDeclarationId::new(11), RecognizedStandardLibraryDeclarationId::new(12), RecognizedStandardLibraryDeclarationId::new(61), RecognizedStandardLibraryDeclarationId::new(62), RecognizedStandardLibraryDeclarationId::new(63), RecognizedStandardLibraryDeclarationId::new(64), RecognizedStandardLibraryDeclarationId::new(122)]),
     },
 ];
 
@@ -3989,6 +3995,26 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
     },
     RecognizedStandardLibraryDeclarationDescriptor {
         id: RecognizedStandardLibraryDeclarationId::new(11),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardCurrentNativeThreadIdentity"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("current_native_thread_identity"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2926), TextSize::new(2982)) }),
+        implementation_hook: Some(ImplementationHook::CurrentNativeThreadIdentity),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(12),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMainNativeThreadIdentity"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("main_native_thread_identity"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3160), TextSize::new(3213)) }),
+        implementation_hook: Some(ImplementationHook::MainNativeThreadIdentity),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(13),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryAddressOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("address_of"),
@@ -3998,7 +4024,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(12),
+        id: RecognizedStandardLibraryDeclarationId::new(14),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryAddressOfMut"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("address_of_mut"),
@@ -4008,7 +4034,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(13),
+        id: RecognizedStandardLibraryDeclarationId::new(15),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryAlignOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("align_of"),
@@ -4018,7 +4044,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(14),
+        id: RecognizedStandardLibraryDeclarationId::new(16),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryAllocate"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("allocate"),
@@ -4028,7 +4054,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(15),
+        id: RecognizedStandardLibraryDeclarationId::new(17),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryAssumeInitialized"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("assume_initialized"),
@@ -4038,7 +4064,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(16),
+        id: RecognizedStandardLibraryDeclarationId::new(18),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryBorrowFrom"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("borrow_from"),
@@ -4048,7 +4074,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(17),
+        id: RecognizedStandardLibraryDeclarationId::new(19),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryBorrowMutFrom"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("borrow_mut_from"),
@@ -4058,7 +4084,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(18),
+        id: RecognizedStandardLibraryDeclarationId::new(20),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryByteBufferCopy"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("byte_buffer_copy"),
@@ -4068,7 +4094,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(19),
+        id: RecognizedStandardLibraryDeclarationId::new(21),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryByteBufferFill"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("byte_buffer_fill"),
@@ -4078,7 +4104,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(20),
+        id: RecognizedStandardLibraryDeclarationId::new(22),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryByteBufferRead"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("byte_buffer_read"),
@@ -4088,7 +4114,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(21),
+        id: RecognizedStandardLibraryDeclarationId::new(23),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryByteOffset"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("byte_offset"),
@@ -4098,7 +4124,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(22),
+        id: RecognizedStandardLibraryDeclarationId::new(24),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryCallableFromPointer"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("callable_from_pointer"),
@@ -4108,7 +4134,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(23),
+        id: RecognizedStandardLibraryDeclarationId::new(25),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryCapacity"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("capacity"),
@@ -4118,7 +4144,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(24),
+        id: RecognizedStandardLibraryDeclarationId::new(26),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryCopy"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("copy"),
@@ -4128,7 +4154,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(25),
+        id: RecognizedStandardLibraryDeclarationId::new(27),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryCopyOverlapping"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("copy_overlapping"),
@@ -4138,7 +4164,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(26),
+        id: RecognizedStandardLibraryDeclarationId::new(28),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryDeallocate"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("deallocate"),
@@ -4148,7 +4174,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(27),
+        id: RecognizedStandardLibraryDeclarationId::new(29),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryInitializedCount"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("initialized_count"),
@@ -4158,7 +4184,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(28),
+        id: RecognizedStandardLibraryDeclarationId::new(30),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryInitializedSlice"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("initialized_slice"),
@@ -4168,7 +4194,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(29),
+        id: RecognizedStandardLibraryDeclarationId::new(31),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryInitializedSliceMut"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("initialized_slice_mut"),
@@ -4178,7 +4204,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(30),
+        id: RecognizedStandardLibraryDeclarationId::new(32),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryIsNull"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("is_null"),
@@ -4188,7 +4214,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(31),
+        id: RecognizedStandardLibraryDeclarationId::new(33),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayout"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("MemoryLayout"),
@@ -4198,9 +4224,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(32),
+        id: RecognizedStandardLibraryDeclarationId::new(34),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutAlign"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(31)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(33)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("align"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(10790), TextSize::new(10805)) }),
@@ -4208,9 +4234,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(33),
+        id: RecognizedStandardLibraryDeclarationId::new(35),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutBytes"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(31)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(33)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("bytes"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(10639), TextSize::new(10654)) }),
@@ -4218,7 +4244,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(34),
+        id: RecognizedStandardLibraryDeclarationId::new(36),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutError"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("MemoryLayoutError"),
@@ -4228,9 +4254,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(35),
+        id: RecognizedStandardLibraryDeclarationId::new(37),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutErrorVariant0SizeOverflow"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(34)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(36)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(11105), TextSize::new(11120)) }),
@@ -4238,9 +4264,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(36),
+        id: RecognizedStandardLibraryDeclarationId::new(38),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutErrorVariant1UnsupportedAlignment"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(34)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(36)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(1),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(11288), TextSize::new(11311)) }),
@@ -4248,7 +4274,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(37),
+        id: RecognizedStandardLibraryDeclarationId::new(39),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryLayoutOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("layout_of"),
@@ -4258,7 +4284,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(38),
+        id: RecognizedStandardLibraryDeclarationId::new(40),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryMoveInitialized"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("move_initialized"),
@@ -4268,7 +4294,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(39),
+        id: RecognizedStandardLibraryDeclarationId::new(41),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryNull"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("null"),
@@ -4278,7 +4304,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(40),
+        id: RecognizedStandardLibraryDeclarationId::new(42),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryOffset"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("offset"),
@@ -4288,7 +4314,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(41),
+        id: RecognizedStandardLibraryDeclarationId::new(43),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryPointer"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("pointer"),
@@ -4298,7 +4324,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(42),
+        id: RecognizedStandardLibraryDeclarationId::new(44),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryPointerFromCallable"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("pointer_from_callable"),
@@ -4308,7 +4334,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(43),
+        id: RecognizedStandardLibraryDeclarationId::new(45),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryRawBufferRelease"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("raw_buffer_release"),
@@ -4318,7 +4344,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(44),
+        id: RecognizedStandardLibraryDeclarationId::new(46),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryRawBufferRelocate"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("raw_buffer_relocate"),
@@ -4328,7 +4354,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(45),
+        id: RecognizedStandardLibraryDeclarationId::new(47),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryRawBufferReplace"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("raw_buffer_replace"),
@@ -4338,7 +4364,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(46),
+        id: RecognizedStandardLibraryDeclarationId::new(48),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryRead"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("read"),
@@ -4348,7 +4374,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(47),
+        id: RecognizedStandardLibraryDeclarationId::new(49),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryReinterpret"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("reinterpret"),
@@ -4358,7 +4384,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(48),
+        id: RecognizedStandardLibraryDeclarationId::new(50),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemorySetInitializedCount"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("set_initialized_count"),
@@ -4368,7 +4394,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(49),
+        id: RecognizedStandardLibraryDeclarationId::new(51),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemorySizeOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("size_of"),
@@ -4378,7 +4404,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(50),
+        id: RecognizedStandardLibraryDeclarationId::new(52),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemorySliceLength"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("slice_length"),
@@ -4388,7 +4414,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(51),
+        id: RecognizedStandardLibraryDeclarationId::new(53),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemorySparePointer"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("spare_pointer"),
@@ -4398,7 +4424,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(52),
+        id: RecognizedStandardLibraryDeclarationId::new(54),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryStrideOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("stride_of"),
@@ -4408,7 +4434,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(53),
+        id: RecognizedStandardLibraryDeclarationId::new(55),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryTrailingLayoutOf"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("trailing_layout_of"),
@@ -4418,7 +4444,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(54),
+        id: RecognizedStandardLibraryDeclarationId::new(56),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryUninitNew"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("uninit"),
@@ -4428,7 +4454,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(55),
+        id: RecognizedStandardLibraryDeclarationId::new(57),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryUninitPointer"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("uninit_pointer"),
@@ -4438,7 +4464,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(56),
+        id: RecognizedStandardLibraryDeclarationId::new(58),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryUninitPointerMut"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("uninit_pointer_mut"),
@@ -4448,7 +4474,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(57),
+        id: RecognizedStandardLibraryDeclarationId::new(59),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryUninitWrite"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("uninit_write"),
@@ -4458,7 +4484,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(58),
+        id: RecognizedStandardLibraryDeclarationId::new(60),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardMemoryWrite"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("write"),
@@ -4468,7 +4494,47 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::RawMemory,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(59),
+        id: RecognizedStandardLibraryDeclarationId::new(61),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardNativeThreadExecution"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("execute_native_thread"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2103), TextSize::new(2427)) }),
+        implementation_hook: Some(ImplementationHook::NativeThreadExecution),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(62),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardNativeThreadPanicReportRecovery"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("recover_native_thread_panic_report"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3412), TextSize::new(3506)) }),
+        implementation_hook: Some(ImplementationHook::NativeThreadPanicReportRecovery),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(63),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardNativeThreadPanicReporting"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("report_native_thread_panic"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3687), TextSize::new(3770)) }),
+        implementation_hook: Some(ImplementationHook::NativeThreadPanicReporting),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(64),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardNativeThreadStart"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("start"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2569), TextSize::new(2739)) }),
+        implementation_hook: Some(ImplementationHook::NativeThreadStart),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(65),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawAllocation"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("RawAllocation"),
@@ -4478,9 +4544,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(60),
+        id: RecognizedStandardLibraryDeclarationId::new(66),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawAllocationAlign"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(59)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(65)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("align"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(13033), TextSize::new(13048)) }),
@@ -4488,9 +4554,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(61),
+        id: RecognizedStandardLibraryDeclarationId::new(67),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawAllocationBytes"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(59)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(65)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("bytes"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(12880), TextSize::new(12895)) }),
@@ -4498,9 +4564,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(62),
+        id: RecognizedStandardLibraryDeclarationId::new(68),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawAllocationPointer"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(59)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(65)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("pointer"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(12716), TextSize::new(12742)) }),
@@ -4508,7 +4574,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(63),
+        id: RecognizedStandardLibraryDeclarationId::new(69),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawBuffer"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(2)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("RawBuffer"),
@@ -4518,9 +4584,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(64),
+        id: RecognizedStandardLibraryDeclarationId::new(70),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawBufferCapacity"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(63)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("capacity"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(14514), TextSize::new(14532)) }),
@@ -4528,9 +4594,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(65),
+        id: RecognizedStandardLibraryDeclarationId::new(71),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawBufferConstructor"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(63)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::TypeConstructorMember,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(14863), TextSize::new(15055)) }),
@@ -4538,9 +4604,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(66),
+        id: RecognizedStandardLibraryDeclarationId::new(72),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawBufferInitialized"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(63)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("initialized"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(14674), TextSize::new(14695)) }),
@@ -4548,9 +4614,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(67),
+        id: RecognizedStandardLibraryDeclarationId::new(73),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRawBufferPointer"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(63)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("pointer"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(11), range: TextRange::new(TextSize::new(14353), TextSize::new(14378)) }),
@@ -4558,7 +4624,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(68),
+        id: RecognizedStandardLibraryDeclarationId::new(74),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(3)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("round_to"),
@@ -4568,7 +4634,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(69),
+        id: RecognizedStandardLibraryDeclarationId::new(75),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRule"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(3)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("RoundingRule"),
@@ -4578,9 +4644,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(70),
+        id: RecognizedStandardLibraryDeclarationId::new(76),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRuleVariant0NearestEven"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(594), TextSize::new(608)) }),
@@ -4588,9 +4654,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(71),
+        id: RecognizedStandardLibraryDeclarationId::new(77),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRuleVariant1TowardZero"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(1),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(756), TextSize::new(769)) }),
@@ -4598,9 +4664,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(72),
+        id: RecognizedStandardLibraryDeclarationId::new(78),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRuleVariant2TowardNegativeInfinity"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(2),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(929), TextSize::new(954)) }),
@@ -4608,9 +4674,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(73),
+        id: RecognizedStandardLibraryDeclarationId::new(79),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRuleVariant3TowardPositiveInfinity"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(3),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(1114), TextSize::new(1139)) }),
@@ -4618,9 +4684,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(74),
+        id: RecognizedStandardLibraryDeclarationId::new(80),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRoundingRuleVariant4AwayFromZero"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(69)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(75)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(4),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(10), range: TextRange::new(TextSize::new(1289), TextSize::new(1304)) }),
@@ -4628,7 +4694,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(75),
+        id: RecognizedStandardLibraryDeclarationId::new(81),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRunCancellationObservation"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(4)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("observe_cancellation"),
@@ -4638,7 +4704,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(76),
+        id: RecognizedStandardLibraryDeclarationId::new(82),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRunCancellationPropagation"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(4)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("propagate_cancellation"),
@@ -4648,7 +4714,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(77),
+        id: RecognizedStandardLibraryDeclarationId::new(83),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterFromScalarValue"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("from_scalar_value"),
@@ -4658,7 +4724,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(78),
+        id: RecognizedStandardLibraryDeclarationId::new(84),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterIsAlphabetic"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("is_alphabetic"),
@@ -4668,7 +4734,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(79),
+        id: RecognizedStandardLibraryDeclarationId::new(85),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterIsNumeric"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("is_numeric"),
@@ -4678,7 +4744,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(80),
+        id: RecognizedStandardLibraryDeclarationId::new(86),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterIsWhitespace"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("is_whitespace"),
@@ -4688,7 +4754,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(81),
+        id: RecognizedStandardLibraryDeclarationId::new(87),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterScalarValue"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_value"),
@@ -4698,7 +4764,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(82),
+        id: RecognizedStandardLibraryDeclarationId::new(88),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterUtf8Byte"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("utf8_byte"),
@@ -4708,7 +4774,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(83),
+        id: RecognizedStandardLibraryDeclarationId::new(89),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeCharacterUtf8Length"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(5)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("utf8_length"),
@@ -4718,7 +4784,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(84),
+        id: RecognizedStandardLibraryDeclarationId::new(90),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeMemoryAllocate"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(6)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("allocate"),
@@ -4728,7 +4794,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(85),
+        id: RecognizedStandardLibraryDeclarationId::new(91),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeMemoryDeallocate"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(6)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("deallocate"),
@@ -4738,7 +4804,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Allocation,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(86),
+        id: RecognizedStandardLibraryDeclarationId::new(92),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeOwnedText"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("OwnedText"),
@@ -4748,9 +4814,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(87),
+        id: RecognizedStandardLibraryDeclarationId::new(93),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeOwnedTextData"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(86)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(92)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("data"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(2872), TextSize::new(2904)) }),
@@ -4758,9 +4824,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(88),
+        id: RecognizedStandardLibraryDeclarationId::new(94),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeOwnedTextLength"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(86)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(92)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("length"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(3050), TextSize::new(3075)) }),
@@ -4768,9 +4834,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(89),
+        id: RecognizedStandardLibraryDeclarationId::new(95),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeOwnedTextOwner"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(86)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(92)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("owner"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(3219), TextSize::new(3252)) }),
@@ -4778,7 +4844,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(90),
+        id: RecognizedStandardLibraryDeclarationId::new(96),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeStringEquals"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("equals"),
@@ -4788,7 +4854,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(91),
+        id: RecognizedStandardLibraryDeclarationId::new(97),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeStringFromUtf8"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("from_utf8"),
@@ -4798,7 +4864,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(92),
+        id: RecognizedStandardLibraryDeclarationId::new(98),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeStringScalarAt"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_at"),
@@ -4808,7 +4874,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(93),
+        id: RecognizedStandardLibraryDeclarationId::new(99),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeStringScalarCount"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_count"),
@@ -4818,7 +4884,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(94),
+        id: RecognizedStandardLibraryDeclarationId::new(100),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeStringScalarSlice"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_slice"),
@@ -4828,7 +4894,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(95),
+        id: RecognizedStandardLibraryDeclarationId::new(101),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeValidatedText"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(7)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("ValidatedText"),
@@ -4838,9 +4904,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(96),
+        id: RecognizedStandardLibraryDeclarationId::new(102),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeValidatedTextText"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(95)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(101)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("text"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(3722), TextSize::new(3749)) }),
@@ -4848,9 +4914,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(97),
+        id: RecognizedStandardLibraryDeclarationId::new(103),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardRuntimeValidatedTextValid"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(95)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(101)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("valid"),
         kind: CatalogDeclarationKind::StructField,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(3549), TextSize::new(3572)) }),
@@ -4858,7 +4924,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(98),
+        id: RecognizedStandardLibraryDeclarationId::new(104),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardSaturateTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(3)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("saturate_to"),
@@ -4868,7 +4934,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(99),
+        id: RecognizedStandardLibraryDeclarationId::new(105),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardScalarCursor"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("ScalarCursor"),
@@ -4878,7 +4944,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(100),
+        id: RecognizedStandardLibraryDeclarationId::new(106),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardScalarCursorIterator"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("ScalarCursorIterator"),
@@ -4888,9 +4954,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(101),
+        id: RecognizedStandardLibraryDeclarationId::new(107),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardScalarCursorIteratorNext"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(100)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(106)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("next"),
         kind: CatalogDeclarationKind::TypeCallableMember,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(2518), TextSize::new(2547)) }),
@@ -4898,7 +4964,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(102),
+        id: RecognizedStandardLibraryDeclarationId::new(108),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringEquals"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("equals"),
@@ -4908,7 +4974,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(103),
+        id: RecognizedStandardLibraryDeclarationId::new(109),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringFromUtf8"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("from_utf8"),
@@ -4918,7 +4984,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(104),
+        id: RecognizedStandardLibraryDeclarationId::new(110),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringIsEmpty"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("is_empty"),
@@ -4928,7 +4994,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(105),
+        id: RecognizedStandardLibraryDeclarationId::new(111),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringScalarAt"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_at"),
@@ -4938,7 +5004,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(106),
+        id: RecognizedStandardLibraryDeclarationId::new(112),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringScalarCount"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_count"),
@@ -4948,7 +5014,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(107),
+        id: RecognizedStandardLibraryDeclarationId::new(113),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringScalarSlice"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalar_slice"),
@@ -4958,7 +5024,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(108),
+        id: RecognizedStandardLibraryDeclarationId::new(114),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringScalars"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("scalars"),
@@ -4968,7 +5034,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(109),
+        id: RecognizedStandardLibraryDeclarationId::new(115),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardStringUtf8"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("utf8"),
@@ -4978,17 +5044,57 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(110),
+        id: RecognizedStandardLibraryDeclarationId::new(116),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskEventCreation"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(9)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("create_task_event"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(715), TextSize::new(760)) }),
+        implementation_hook: Some(ImplementationHook::TaskEventCreation),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(117),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskEventDestruction"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(9)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("destroy_task_event"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1130), TextSize::new(1190)) }),
+        implementation_hook: Some(ImplementationHook::TaskEventDestruction),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(118),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskEventSignal"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(9)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("signal_task_event"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(910), TextSize::new(969)) }),
+        implementation_hook: Some(ImplementationHook::TaskEventSignal),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(119),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskEventWait"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(9)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("wait_for_task_event"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1338), TextSize::new(1392)) }),
+        implementation_hook: Some(ImplementationHook::TaskEventWait),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(120),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTaskYield"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(9)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("yield_current_task"),
         kind: CatalogDeclarationKind::Function,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(700), TextSize::new(737)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1531), TextSize::new(1568)) }),
         implementation_hook: Some(ImplementationHook::TaskYield),
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(111),
+        id: RecognizedStandardLibraryDeclarationId::new(121),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTestingFail"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(10)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("fail"),
@@ -4998,7 +5104,17 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(112),
+        id: RecognizedStandardLibraryDeclarationId::new(122),
+        key: RecognizedStandardLibraryDeclarationKey::from_static("StandardThreadTransferredValue"),
+        owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(11)),
+        identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("transferred_value"),
+        kind: CatalogDeclarationKind::Function,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1770), TextSize::new(1937)) }),
+        implementation_hook: Some(ImplementationHook::TransferredValueBorrow),
+        availability_rule: AvailabilityRule::Always,
+    },
+    RecognizedStandardLibraryDeclarationDescriptor {
+        id: RecognizedStandardLibraryDeclarationId::new(123),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardTruncateTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(3)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("truncate_to"),
@@ -5008,7 +5124,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(113),
+        id: RecognizedStandardLibraryDeclarationId::new(124),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8Error"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(8)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("Utf8Error"),
@@ -5018,9 +5134,9 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(114),
+        id: RecognizedStandardLibraryDeclarationId::new(125),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardUtf8ErrorVariant0InvalidEncoding"),
-        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(113)),
+        owner: RecognizedStandardLibraryDeclarationOwner::Declaration(RecognizedStandardLibraryDeclarationId::new(124)),
         identity: RecognizedStandardLibraryDeclarationIdentity::Ordinal(0),
         kind: CatalogDeclarationKind::UnionVariant,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(12), range: TextRange::new(TextSize::new(340), TextSize::new(358)) }),
@@ -5028,7 +5144,7 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
         availability_rule: AvailabilityRule::Always,
     },
     RecognizedStandardLibraryDeclarationDescriptor {
-        id: RecognizedStandardLibraryDeclarationId::new(115),
+        id: RecognizedStandardLibraryDeclarationId::new(126),
         key: RecognizedStandardLibraryDeclarationKey::from_static("StandardWrapTo"),
         owner: RecognizedStandardLibraryDeclarationOwner::Scope(RecognizedStandardLibraryScopeId::new(3)),
         identity: RecognizedStandardLibraryDeclarationIdentity::name_from_static("wrap_to"),
@@ -7311,9 +7427,64 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "propagate_cancellation")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(700), TextSize::new(737)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(715), TextSize::new(760)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "create_task_event")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(910), TextSize::new(969)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "signal_task_event")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "event")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u32")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1130), TextSize::new(1190)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "destroy_task_event")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "event")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u32")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1338), TextSize::new(1392)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "wait_for_task_event")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "event")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1531), TextSize::new(1568)) }),
         kind: CatalogDeclarationKind::Function,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "yield_current_task")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(1770), TextSize::new(1937)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "transferred_value")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "pointer")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::AmpersandToken, "&")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::MutKeyword, "mut")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::EnterNode(SyntaxKind::UsesClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::UsesKeyword, "uses")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "raw_memory")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::UsesClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2103), TextSize::new(2427)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "execute_native_thread")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "operation")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u8")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "context")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "cancellation")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u8")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "cancellation_context")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "panic_payload")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u32")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2569), TextSize::new(2739)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "start")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "State")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "entry")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Entry")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "State")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "state")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "State")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Result")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Thread")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "ThreadError")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgument), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericArgumentList), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(2926), TextSize::new(2982)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "current_native_thread_identity")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u64")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3160), TextSize::new(3213)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "main_native_thread_identity")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u64")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3412), TextSize::new(3506)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "recover_native_thread_panic_report")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "payload")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "PanicReport")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(14), range: TextRange::new(TextSize::new(3687), TextSize::new(3770)) }),
+        kind: CatalogDeclarationKind::Function,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::InternalKeyword, "internal")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "report_native_thread_panic")), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "(")), CatalogSurfaceElement::EnterNode(SyntaxKind::Parameter), CatalogSurfaceElement::EnterNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::PosKeyword, "pos")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "report")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "PanicReport")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::ExitNode(SyntaxKind::Parameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")")), CatalogSurfaceElement::ExitNode(SyntaxKind::ParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u32")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::CallableResultClause), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(15), range: TextRange::new(TextSize::new(208), TextSize::new(251)) }),

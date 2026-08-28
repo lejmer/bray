@@ -1,4 +1,4 @@
-use bray_bound_tree::{AsyncSuspensionKind, BoundExpressionId, SelectedCall};
+use bray_bound_tree::{AsyncSuspensionKind, BoundExpressionId, SelectedArgument, SelectedCall};
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirEdge, MirFrameState, MirOperationKind,
@@ -9,6 +9,34 @@ use bray_runtime_interface::RuntimeAbiRole;
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
+
+pub(super) const fn runtime_call_role(hook: Option<ImplementationHook>) -> Option<RuntimeAbiRole> {
+    match hook {
+        Some(ImplementationHook::NativeThreadExecution) => {
+            Some(RuntimeAbiRole::NativeThreadExecution)
+        }
+        Some(ImplementationHook::CurrentNativeThreadIdentity) => {
+            Some(RuntimeAbiRole::CurrentNativeThreadIdentity)
+        }
+        Some(ImplementationHook::MainNativeThreadIdentity) => {
+            Some(RuntimeAbiRole::MainNativeThreadIdentity)
+        }
+        Some(ImplementationHook::NativeThreadPanicReportRecovery) => {
+            Some(RuntimeAbiRole::NativeThreadPanicReportRecovery)
+        }
+        Some(ImplementationHook::NativeThreadPanicReporting) => {
+            Some(RuntimeAbiRole::PanicReporting)
+        }
+        Some(ImplementationHook::TaskEventCreation) => {
+            Some(RuntimeAbiRole::TaskEventCreation)
+        }
+        Some(ImplementationHook::TaskEventSignal) => Some(RuntimeAbiRole::TaskEventSignal),
+        Some(ImplementationHook::TaskEventDestruction) => {
+            Some(RuntimeAbiRole::TaskEventDestruction)
+        }
+        _ => None,
+    }
+}
 
 impl Lowerer<'_> {
     pub(super) fn lower_run_call(
@@ -41,10 +69,48 @@ impl Lowerer<'_> {
 
                 Ok(Some(LoweredExpression::terminated(source)))
             }
-            Some(ImplementationHook::TaskYield) => {
+            Some(
+                hook @ (ImplementationHook::TaskYield
+                | ImplementationHook::TaskEventWait),
+            ) => {
                 if self.input.unit_kind().protected_frame().is_none() {
                     return Err(LoweringError::AwaitOutsideProtectedFrame(expression));
                 }
+
+                let mut current = current;
+
+                let payload = if hook == ImplementationHook::TaskEventWait {
+                    let [SelectedArgument::Explicit {
+                        expression: event,
+                        conversion,
+                        ..
+                    }] = selection.arguments()
+                    else {
+                        return Err(LoweringError::MissingSemanticSelection(expression));
+                    };
+
+                    let lowered = self.lower_expression(*event, current)?;
+
+                    let Some(continuation) = lowered.block else {
+                        return Ok(Some(lowered));
+                    };
+
+                    current = continuation;
+
+                    let event = lowered
+                        .value
+                        .ok_or(LoweringError::MissingOperationResult(*event))?;
+
+                    Some(self.convert_operand(
+                        expression,
+                        current,
+                        Self::retained_source(&source),
+                        event,
+                        conversion,
+                    )?)
+                } else {
+                    None
+                };
 
                 let resume = self
                     .builder
@@ -68,7 +134,12 @@ impl Lowerer<'_> {
                     current,
                     Self::retained_source(&source),
                     MirTerminatorKind::Suspend {
-                        kind: MirSuspensionKind::Yield,
+                        kind: if hook == ImplementationHook::TaskYield {
+                            MirSuspensionKind::Yield
+                        } else {
+                            MirSuspensionKind::TaskEvent
+                        },
+                        payload,
                         resume_state: state,
                         resume: MirEdge::new(resume, []),
                         cancellation,

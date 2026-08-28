@@ -795,6 +795,57 @@ mod tests {
     }
 
     #[test]
+    fn match_arm_yields_rejoin_before_the_following_expression() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(18);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit);
+        let subject = push_error_expression(&mut builder, origin);
+        let pattern = push_pattern(&mut builder, origin, BoundPatternMode::MatchObserve);
+        let value = push_error_expression(&mut builder, origin);
+
+        let yielded = push_expression(
+            &mut builder,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Yield,
+                Some(value),
+                Some(origin.source_anchor().syntax()),
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let arm = push_block(&mut builder, origin, [yielded]);
+
+        let matched = push_expression(
+            &mut builder,
+            BoundExpression::Match(BoundMatchExpression::new(
+                origin,
+                subject,
+                [BoundMatchArm::new(pattern, None, arm)],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let following = push_error_expression(&mut builder, origin);
+        let root = push_callable_root(&mut builder, origin, [matched, following]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+        let following_block = block_containing(&graph, following.into());
+
+        assert!(!following_block.predecessors().is_empty());
+
+        assert!(
+            graph
+                .exits()
+                .iter()
+                .all(|exit| exit.kind() != AnalysisExitKind::Yield)
+        );
+    }
+
+    #[test]
     fn while_else_and_catch_paths_preserve_spec_evaluation_order() {
         let key = callable_key();
         let unit = BoundUnitId::new(8);

@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use bray_codegen::{CodegenFailure, CodegenFieldLayout, CodegenTypeKind};
 use bray_ir::{
-    MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId,
-    MirStandardLibraryHelper,
+    MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
@@ -43,8 +42,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let pointer = self
             .invoke_helper(helper, &[bytes.into(), alignment.into()])?
-        .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.observe_memory_allocation(bytes)?;
 
@@ -121,8 +120,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let pointer = self
             .invoke_helper(helper, &[bytes.into(), alignment.into()])?
-        .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.observe_memory_allocation(bytes)?;
 

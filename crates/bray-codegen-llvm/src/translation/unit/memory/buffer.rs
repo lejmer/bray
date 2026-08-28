@@ -1,8 +1,7 @@
 use bray_bound_tree::CheckedMemoryOperationKind;
 use bray_codegen::CodegenFailure;
 use bray_ir::{
-    MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId,
-    MirStandardLibraryHelper,
+    MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
@@ -176,7 +175,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         if self
-            .invoke_helper(deallocate, &[pointer.into(), bytes.into(), alignment.into()])?
+            .invoke_helper(
+                deallocate,
+                &[pointer.into(), bytes.into(), alignment.into()],
+            )?
             .is_some()
         {
             return Err(CodegenFailure::GeneratedModuleInvariant);

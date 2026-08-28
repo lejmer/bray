@@ -29,8 +29,7 @@ pub use reference::{
 };
 pub use static_storage::{
     CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,
-    CodegenStaticRelocation,
-    CodegenStaticStorageMapping, CodegenStaticWitness,
+    CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenStaticWitness,
 };
 pub use symbol::{
     CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,

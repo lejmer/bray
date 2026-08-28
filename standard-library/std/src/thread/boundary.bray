@@ -1,0 +1,109 @@
+@target(target.platform.native_threads)
+trusted module std.thread;
+
+using std.atomic;
+using std.memory;
+
+trusted internal func await_thread_identity<T>(pos pointer: RawPointer<ThreadStorage<T>>) -> u64
+{
+    let value: &ThreadControl = trusted internal thread_control<RawPointer<ThreadStorage<T>>, T>(&pointer, pointer);
+    let mut identity: u64 = std.atomic.load<u64>(&value.identity, order = std.atomic.LoadOrder.Acquire);
+
+    while identity == 0
+    {
+        if std.atomic.load<u32>(&value.state, order = std.atomic.LoadOrder.Acquire) != THREAD_RUNNING
+        {
+            return 0;
+        }
+
+        std.atomic.wait<u64>(&value.identity, 0, order = std.atomic.LoadOrder.Acquire);
+        identity = std.atomic.load<u64>(&value.identity, order = std.atomic.LoadOrder.Acquire);
+    }
+
+    return identity;
+}
+
+trusted internal func thread_control<Owner, T>(
+    pos owner: &Owner,
+    pos pointer: RawPointer<ThreadStorage<T>>,
+) -> &ThreadControl
+{
+    let storage: &ThreadStorage<T> = trusted std.memory.borrow_from<ThreadStorage<T>, Owner>(owner, pointer);
+
+    return &storage.control;
+}
+
+trusted internal func control_from_address(pos owner: &usize, address: usize) -> &ThreadControl
+    uses(intrinsic)
+{
+    let pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(address = address);
+
+    return trusted std.memory.borrow_from<ThreadControl, usize>(owner, pointer);
+}
+
+trusted internal func pointer_address<T>(pos pointer: RawPointer<T>) -> usize
+    uses(intrinsic)
+{
+    return trusted core.target.expose_address<T>(pointer);
+}
+
+trusted internal func thread_storage_control_pointer<T>(
+    pos pointer: RawPointer<ThreadStorage<T>>,
+) -> RawPointer<ThreadControl>
+{
+    return trusted std.memory.reinterpret<ThreadControl, ThreadStorage<T>>(pointer);
+}
+
+internal func thread_name_contains_nul(pos name: &string) -> bool
+{
+    let bytes: &[u8] = std.string.utf8(name);
+    let count: usize = std.bytes.slice_length(bytes);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        if bytes[index] == 0
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    return false;
+}
+
+trusted internal func take_transferred_value<T>(pos pointer: RawPointer<T>) -> T
+    uses(manual_alloc)
+{
+    let value: &mut T = trusted internal transferred_value<T>(pointer);
+    let value_pointer: RawPointer<T> = std.memory.address_of_mut<T>(value);
+    let result: T = trusted std.memory.read<T>(value_pointer);
+
+    trusted core.memory.deallocate(
+        trusted std.memory.reinterpret<u8, T>(pointer),
+        bytes = internal std.memory.value_allocation_bytes<T>(),
+        align = std.memory.align_of<T>(),
+    );
+
+    return result;
+}
+
+extern trusted internal func transferred_value<T>(pos pointer: RawPointer<T>) -> &mut T
+    uses(raw_memory);
+
+extern trusted internal func execute_native_thread(
+    pos operation: RawPointer<u8>,
+    pos context: usize,
+    pos cancellation: RawPointer<u8>,
+    pos cancellation_context: usize,
+    pos panic_payload: RawPointer<usize>,
+) -> u32;
+
+extern internal func current_native_thread_identity() -> u64;
+
+extern internal func main_native_thread_identity() -> u64;
+
+extern trusted internal func recover_native_thread_panic_report(pos payload: usize) -> PanicReport;
+
+extern trusted internal func report_native_thread_panic(pos report: PanicReport) -> u32;

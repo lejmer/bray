@@ -906,12 +906,16 @@ impl Compilation {
             None => callable.substitution(),
         };
 
-        self.concrete_codegen_callable(
-            CallableInstanceData::new(callable.definition(), substitution),
-            [],
-            target,
+        let callable = CallableInstanceData::new(callable.definition(), substitution);
+
+        let witnesses = self.concrete_codegen_forwarded_constraint_witnesses(
+            owner,
+            &callable,
+            &[],
             cancellation,
-        )
+        )?;
+
+        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
     }
 
     fn realize_codegen_substitution(

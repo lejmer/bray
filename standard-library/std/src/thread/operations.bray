@@ -1,0 +1,482 @@
+@target(target.platform.native_threads)
+trusted module std.thread;
+
+using std.atomic;
+using std.memory;
+using std.run;
+
+func start<State, T>(pos entry: Entry<State, T>, pos state: State) -> Result<Thread<T>, ThreadError>
+{
+    return trusted internal start_with_completion<State, T>(entry, state, completion_event = 0);
+}
+
+trusted internal func start_with_completion<State, T>(
+    pos entry: Entry<State, T>,
+    pos state: State,
+    pos completion_event: usize,
+) -> Result<Thread<T>, ThreadError>
+{
+    let mut construction: ThreadConstruction<State, T> =
+    {
+        storage = std.memory.null<ThreadStorage<T>>(),
+        work = std.memory.null<ThreadStart<State, T>>(),
+        native = std.memory.null<NativeThreadStart>(),
+    };
+
+    let storage: RawPointer<ThreadStorage<T>> = trusted std.memory.allocate_value<ThreadStorage<T>>(
+        {
+            control =
+            {
+                state = std.atomic.atomic<u32>(THREAD_RUNNING),
+                panic_payload = std.atomic.atomic<usize>(0),
+                cancellation = std.atomic.atomic<u32>(0),
+                identity = std.atomic.atomic<u64>(0),
+                park_token = std.atomic.atomic<u32>(0),
+                completion_event = completion_event,
+            },
+            result = std.memory.uninit<T>(),
+        },
+    );
+
+    construction.storage = storage;
+
+    let work: RawPointer<ThreadStart<State, T>> = trusted std.memory.allocate_value<ThreadStart<State, T>>(
+        {
+            entry = entry,
+            state = state,
+            storage = storage,
+        },
+    );
+
+    construction.work = work;
+
+    let operation: ThreadOperation = execute_thread_entry<State, T>;
+    let work_address: usize = trusted internal pointer_address<ThreadStart<State, T>>(work);
+    let control: RawPointer<ThreadControl> = trusted internal thread_storage_control_pointer<T>(storage);
+
+    let native_context: RawPointer<NativeThreadStart> = trusted std.memory.allocate_value<NativeThreadStart>(
+        {
+            operation = operation,
+            context = work_address,
+            control = control,
+        },
+    );
+
+    construction.native = native_context;
+
+    let callback: RawPointer<u8> = trusted internal native_thread_entry();
+    let context_bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, NativeThreadStart>(native_context);
+    let mut owner: u64 = 0;
+    let mut native_error: i64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal platform_thread_create(
+        callback,
+        context = context_bytes,
+        owner = std.memory.address_of_mut<u64>(&mut owner),
+        native_error = std.memory.address_of_mut<i64>(&mut native_error),
+    );
+
+    if !internal std.platform.successful_status(status)
+    {
+        if internal std.platform.is_exhausted_status(status)
+        {
+            return Error(ThreadError.Capacity);
+        }
+
+        return Error(
+            ThreadError.Creation(
+                {
+                    code = native_error,
+                    has_code = native_error != 0,
+                },
+            )
+        );
+    }
+
+    construction.native = std.memory.null<NativeThreadStart>();
+    construction.work = std.memory.null<ThreadStart<State, T>>();
+    construction.storage = std.memory.null<ThreadStorage<T>>();
+
+    let identity: u64 = trusted internal await_thread_identity<T>(storage);
+
+    return Ok(
+        {
+            owner = owner,
+            storage = storage,
+            identity =
+            {
+                value = identity
+            },
+            active = true,
+        },
+    );
+}
+
+func cancellation_requested() -> bool
+{
+    return std.run.cancellation_requested();
+}
+
+func checkpoint()
+{
+    std.run.checkpoint();
+}
+
+func park()
+    requires(blocking_execution())
+{
+    let address: usize = core.atomic.load<usize, 1>(&CURRENT_THREAD_CONTROL);
+
+    assert(address != 0, "only a Bray-created native thread can park through std.thread");
+
+    let control: &ThreadControl = trusted internal control_from_address(&address, address = address);
+
+    let mut token: u32 = std.atomic.exchange<u32>(
+        &control.park_token,
+        0,
+        order = std.atomic.ReadModifyWriteOrder.Acquire,
+    );
+
+    while token == 0
+    {
+        std.atomic.wait<u32>(&control.park_token, 0, order = std.atomic.LoadOrder.Acquire);
+        token = std.atomic.exchange<u32>(&control.park_token, 0, order = std.atomic.ReadModifyWriteOrder.Acquire);
+    }
+}
+
+async func run<State, T>(pos entry: Entry<State, T>, pos state: State) -> Result<T, ThreadError>
+    requires(blocking_execution())
+{
+    let event: std.task.TaskEvent = trusted internal std.task.event();
+
+    let mut thread: Thread<T> = try trusted internal start_with_completion<State, T>(
+        entry,
+        state,
+        completion_event = event.value,
+    );
+
+    await trusted internal std.task.wait(&event);
+
+    let outcome: RunResult<T> = trusted internal observe_thread<T>(
+        &mut thread,
+        request_cancellation = false,
+        propagate_caller_cancellation = true,
+    );
+
+    return Ok(try outcome);
+}
+
+func current_id() -> Id
+{
+    return
+    {
+        value = internal current_native_thread_identity(),
+    };
+}
+
+func main_id() -> Id
+{
+    return
+    {
+        value = internal main_native_thread_identity(),
+    };
+}
+
+func is_main() -> bool
+{
+    return current_id() == main_id();
+}
+
+func set_current_name(pos name: &string) -> Result<unit, ThreadNameError>
+{
+    if internal thread_name_contains_nul(name)
+    {
+        return Error(ThreadNameError.Invalid);
+    }
+
+    return trusted internal platform_set_current_thread_name(name);
+}
+
+trusted internal func execute_thread_entry<State, T>(pos context: usize)
+    requires(blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+    let work_pointer: RawPointer<ThreadStart<State, T>> = trusted core.target.from_exposed_address<
+        ThreadStart<State, T>
+    >(address = context);
+
+    let work: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(work_pointer);
+
+    let storage_pointer: RawPointer<ThreadStorage<T>> = work.storage;
+
+    {
+        let control: &ThreadControl = trusted internal thread_control<RawPointer<ThreadStorage<T>>, T>(
+            &storage_pointer,
+            storage_pointer,
+        );
+
+        std.atomic.store<u64>(
+            &control.identity,
+            current_native_thread_identity(),
+            order = std.atomic.StoreOrder.Release,
+        );
+
+        std.atomic.notify_all<u64>(&control.identity);
+
+        core.atomic.store<usize, 2>(
+            &CURRENT_THREAD_CONTROL,
+            trusted core.target.expose_address<ThreadControl>(std.memory.address_of<ThreadControl>(control)),
+        );
+    }
+
+    let entry: Entry<State, T> = work.entry;
+    let state: State = work.state;
+    let value: T = entry(state);
+    let storage: &mut ThreadStorage<T> = trusted internal transferred_value<ThreadStorage<T>>(storage_pointer);
+    let _: &mut T = std.memory.uninit_write<T>(&mut storage.result, value);
+}
+
+@abi(c)
+trusted internal func execute_native_thread_operation(pos context: usize)
+    requires(blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+    let pointer: RawPointer<NativeThreadStart> = trusted core.target.from_exposed_address<NativeThreadStart>(
+        address = context
+    );
+
+    let native_start: &NativeThreadStart = trusted std.memory.borrow_from<NativeThreadStart, usize>(&context, pointer);
+    let operation: ThreadOperation = native_start.operation;
+
+    operation(native_start.context);
+}
+
+@abi(c)
+trusted internal func native_thread_cancellation_requested(pos context: usize) -> u32
+    uses(intrinsic)
+{
+    let control_pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
+        address = context
+    );
+
+    let control: &ThreadControl = trusted std.memory.borrow_from<ThreadControl, usize>(&context, control_pointer);
+
+    return std.atomic.load<u32>(&control.cancellation, order = std.atomic.LoadOrder.Acquire);
+}
+
+trusted internal func publish_native_thread_outcome(
+    pos control_pointer: RawPointer<ThreadControl>,
+    pos outcome: u32,
+    pos payload: usize,
+)
+{
+    let control: &ThreadControl = trusted std.memory.borrow_from<ThreadControl, RawPointer<ThreadControl>>(
+        &control_pointer,
+        control_pointer,
+    );
+
+    let state: u32 = match outcome
+    {
+        case 0 { yield THREAD_COMPLETED; }
+        case 1 { yield THREAD_CANCELLED; }
+        case 2 { yield THREAD_PANICKED; }
+        case _ { yield THREAD_FAILED; }
+    };
+
+    if state == THREAD_PANICKED
+    {
+        std.atomic.store<usize>(&control.panic_payload, payload, order = std.atomic.StoreOrder.Release);
+    }
+
+    std.atomic.store<u32>(&control.state, state, order = std.atomic.StoreOrder.Release);
+    std.atomic.notify_all<u32>(&control.state);
+    std.atomic.notify_all<u64>(&control.identity);
+
+    if control.completion_event != 0
+    {
+        trusted internal std.task.signal(control.completion_event);
+    }
+}
+
+trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
+    requires(blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+    let pointer: RawPointer<NativeThreadStart> = trusted std.memory.reinterpret<NativeThreadStart, u8>(context);
+    let native_start: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(pointer);
+
+    let operation_callback: NativeThreadOperation = execute_native_thread_operation;
+
+    let operation_pointer: RawPointer<NativeThreadOperation> = trusted std.memory.pointer_from_callable(
+        operation_callback
+    );
+
+    let operation: RawPointer<u8> = trusted std.memory.reinterpret<u8, NativeThreadOperation>(operation_pointer);
+
+    let operation_context: usize = trusted core.target.expose_address<NativeThreadStart>(
+        std.memory.address_of<NativeThreadStart>(&native_start)
+    );
+
+    let cancellation_callback: ThreadCancellationObservation = native_thread_cancellation_requested;
+
+    let cancellation_pointer: RawPointer<ThreadCancellationObservation> = trusted std.memory.pointer_from_callable(
+        cancellation_callback
+    );
+
+    let cancellation: RawPointer<u8> = trusted std.memory.reinterpret<u8, ThreadCancellationObservation>(
+        cancellation_pointer
+    );
+
+    let cancellation_context: usize = trusted core.target.expose_address<ThreadControl>(native_start.control);
+    let mut panic_payload: usize = 0;
+
+    let outcome: u32 = internal execute_native_thread(
+        operation,
+        context = operation_context,
+        cancellation = cancellation,
+        cancellation_context = cancellation_context,
+        panic_payload = std.memory.address_of_mut<usize>(&mut panic_payload),
+    );
+
+    trusted internal publish_native_thread_outcome(native_start.control, outcome, panic_payload);
+}
+
+trusted internal func observe_thread<T>(
+    pos thread: &mut Thread<T>,
+    pos request_cancellation: bool,
+    pos propagate_caller_cancellation: bool,
+) -> RunResult<T>
+    requires(blocking_execution())
+{
+    assert(thread.active, "native thread ownership has already been observed");
+
+    let caller_cancelled: bool =
+    {
+        let control: &ThreadControl = trusted internal thread_control<Thread<T>, T>(&thread, thread.storage);
+        let mut cancellation_sent: bool = request_cancellation;
+        let mut caller_cancelled: bool = std.run.cancellation_requested();
+
+        if caller_cancelled
+        {
+            cancellation_sent = true;
+        }
+
+        if cancellation_sent
+        {
+            trusted internal request_thread_cancellation(control);
+        }
+
+        let mut state: u32 = std.atomic.load<u32>(&control.state, order = std.atomic.LoadOrder.Acquire);
+
+        while state == THREAD_RUNNING
+        {
+            state = trusted internal wait_for_thread_state(control);
+
+            if !caller_cancelled && std.run.cancellation_requested()
+            {
+                caller_cancelled = true;
+
+                if !cancellation_sent
+                {
+                    trusted internal request_thread_cancellation(control);
+                    cancellation_sent = true;
+                }
+            }
+        }
+
+        yield caller_cancelled;
+    };
+
+    let status: std.platform.PlatformStatus = trusted internal platform_thread_join(thread.owner);
+
+    assert(internal std.platform.successful_status(status), "a created native thread could not be joined");
+
+    let storage_pointer: RawPointer<ThreadStorage<T>> = thread.storage;
+
+    thread.active = false;
+
+    let mut terminal: ThreadStorage<T> = trusted internal take_transferred_value<ThreadStorage<T>>(storage_pointer);
+
+    let outcome: RunResult<T> = match std.atomic.load<u32>(
+        &terminal.control.state,
+        order = std.atomic.LoadOrder.Acquire
+    )
+    {
+        case THREAD_COMPLETED
+        {
+            let completed: RunResult<T> = .Completed(trusted std.memory.move_initialized<T>(&mut terminal.result));
+
+            yield completed;
+        }
+        case THREAD_PANICKED
+        {
+            let payload: usize = std.atomic.load<usize>(
+                &terminal.control.panic_payload,
+                order = std.atomic.LoadOrder.Acquire,
+            );
+
+            assert(payload != 0, "a panicked native thread did not publish its panic report");
+
+            let panicked: RunResult<T> = .Panicked(trusted internal recover_native_thread_panic_report(payload));
+
+            yield panicked;
+        }
+        case THREAD_CANCELLED
+        {
+            let cancelled: RunResult<T> = .Cancelled;
+
+            yield cancelled;
+        }
+        case THREAD_FAILED { panic("native thread runtime initialization or cleanup failed"); }
+        case _ { panic("a joined native thread did not publish a terminal state"); }
+    };
+
+    if caller_cancelled && propagate_caller_cancellation
+    {
+        trusted internal resolve_thread_outcome_during_cancellation<T>(outcome);
+        std.run.checkpoint();
+        panic("requested run cancellation was not propagated");
+    }
+
+    return outcome;
+}
+
+trusted internal func wait_for_thread_state(pos control: &ThreadControl) -> u32
+    requires(blocking_execution())
+{
+    std.atomic.wait_for(&control.state, THREAD_RUNNING, timeout_milliseconds = THREAD_CANCELLATION_POLL_MILLISECONDS);
+
+    return std.atomic.load<u32>(&control.state, order = std.atomic.LoadOrder.Acquire);
+}
+
+trusted internal func wait_for_thread_storage_state<T>(pos storage: RawPointer<ThreadStorage<T>>) -> u32
+    requires(blocking_execution())
+{
+    let control: &ThreadControl = trusted internal thread_control<RawPointer<ThreadStorage<T>>, T>(&storage, storage);
+
+    return trusted internal wait_for_thread_state(control);
+}
+
+trusted internal func request_thread_cancellation(pos control: &ThreadControl)
+{
+    std.atomic.store<u32>(&control.cancellation, 1, order = std.atomic.StoreOrder.Release);
+    std.atomic.notify_all<u32>(&control.cancellation);
+}
+
+trusted internal func resolve_thread_outcome_during_cancellation<T>(pos outcome: RunResult<T>)
+{
+    match consume outcome
+    {
+        case RunResult.Completed(value)
+        {
+            let _: T = value;
+        }
+        case RunResult.Cancelled {}
+        case RunResult.Panicked(report)
+        {
+            let status: u32 = internal report_native_thread_panic(report);
+
+            assert(status == 0, "a suppressed native thread panic could not be reported");
+        }
+    }
+}

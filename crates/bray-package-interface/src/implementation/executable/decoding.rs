@@ -790,6 +790,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 callee: self.operand()?,
                 abi: self.callable_abi()?,
             },
+            2 => MirCallTarget::Runtime(self.runtime_reference()?),
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -1818,11 +1819,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 let kind = match read_u32(&mut self.reader)? {
                     0 => bray_ir::MirSuspensionKind::Awaited,
                     1 => bray_ir::MirSuspensionKind::Yield,
+                    2 => bray_ir::MirSuspensionKind::TaskEvent,
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
                 Ok(MirTerminatorKind::Suspend {
                     kind,
+                    payload: self.optional_operand()?,
                     resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                     resume: self.edge()?,
                     cancellation: self.cleanup_edge()?,

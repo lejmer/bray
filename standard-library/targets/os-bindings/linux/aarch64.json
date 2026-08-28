@@ -808,6 +808,32 @@
           ]
         },
         {
+          "name": "pthread_setname_np",
+          "native": "pthread_setname_np",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "thread",
+              "type": "u64",
+              "native_type": "pthread_t"
+            },
+            {
+              "name": "name",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
           "name": "syscall",
           "native": "syscall",
           "abi": "c",

@@ -373,6 +373,8 @@ pub enum CodegenTypeKind {
     },
     /// An ordered aggregate representation.
     Aggregate(Arc<[CodegenFieldLayout]>),
+    /// An incomplete native type that is representable only behind an indirection.
+    Opaque,
     /// A fixed-size homogeneous array.
     Array {
         /// Element representation.

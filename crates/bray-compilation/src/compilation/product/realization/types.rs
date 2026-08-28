@@ -506,10 +506,7 @@ impl Compilation {
                 };
 
                 if representation.value().is_incomplete() {
-                    return Ok(CodegenTypeMapping::new_unsized(
-                        ty,
-                        CodegenTypeKind::aggregate([]),
-                    ));
+                    return Ok(CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::Opaque));
                 }
 
                 if let Some(size) = representation.value().opaque_size() {

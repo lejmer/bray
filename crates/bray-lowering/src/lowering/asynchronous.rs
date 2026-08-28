@@ -79,6 +79,7 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::Suspend {
                 kind: MirSuspensionKind::Awaited,
+                payload: None,
                 resume_state: state,
                 resume: MirEdge::new(resume, []),
                 cancellation,

@@ -153,6 +153,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsignedInteger(_)
             | CodegenTypeKind::Float(_)
             | CodegenTypeKind::Pointer { .. }
+            | CodegenTypeKind::Opaque
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Callable(_) => {}
@@ -528,6 +529,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsignedInteger(_)
             | CodegenTypeKind::Float(_)
             | CodegenTypeKind::Aggregate(_)
+            | CodegenTypeKind::Opaque
             | CodegenTypeKind::Array { .. }
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView

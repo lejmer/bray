@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 100;
+const API_TEST_COUNT: usize = 112;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const OUTCOME_CASES: [OutcomeCase; 9] = [
     OutcomeCase::new(
@@ -164,7 +164,10 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
 
         if selected(parts, TestPart::Outcomes) {
             crate::progress::run(
-                &format!("Checking native test outcomes ({} cases)", OUTCOME_CASES.len()),
+                &format!(
+                    "Checking native test outcomes ({} cases)",
+                    OUTCOME_CASES.len()
+                ),
                 || audit_outcomes(&root, &workspace, &toolchain, target, profile_output),
             )?;
         }
@@ -212,8 +215,6 @@ fn audit_api(
         profile_output,
         "api",
     )?;
-
-    require_success("native API batch", &output)?;
 
     let batch = parse_batch_report("native API batch", &output, &request)?;
     let byte_buffer = batch.report("startup-byte-buffer")?;
@@ -263,6 +264,8 @@ fn audit_api(
             "the standard_output filter did not select exactly the three I/O fixtures",
         ));
     }
+
+    require_success("native API batch", &output)?;
 
     Ok(())
 }
@@ -401,6 +404,18 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
     require_product(report, API_PRODUCT)?;
     require_selection(report, API_TEST_COUNT, API_TEST_COUNT, 0)?;
 
+    let tests = tests(report);
+
+    if let Some(test) = tests
+        .iter()
+        .find(|test| !matches!(test.outcome, NativeOutcome::Passed))
+    {
+        return Err(BuildError::conformance(
+            "native execution",
+            format!("{} did not pass: {:?}", test.identity, test.outcome),
+        ));
+    }
+
     if report.summary.passed != API_TEST_COUNT || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
@@ -408,7 +423,6 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
         ));
     }
 
-    let tests = tests(report);
     let identities: Vec<_> = tests.iter().map(|test| test.identity.as_str()).collect();
     let mut sorted = identities.clone();
 
@@ -422,13 +436,6 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
     }
 
     for test in tests {
-        if !matches!(test.outcome, NativeOutcome::Passed) {
-            return Err(BuildError::conformance(
-                "native execution",
-                format!("{} did not pass", test.identity),
-            ));
-        }
-
         let (expected_output, expected_error) = if test
             .identity
             .ends_with("asynchronous_standard_output_is_captured")

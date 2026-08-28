@@ -11,6 +11,20 @@ pub enum RuntimeAbiRole {
     SynchronousRootExecution,
     /// Execute one foreign callback behind a thread-entry and panic boundary.
     ForeignCallbackExecution,
+    /// Execute one Bray-owned native-thread root behind its runtime boundary.
+    NativeThreadExecution,
+    /// Read the process-wide identity of the current Bray native thread.
+    CurrentNativeThreadIdentity,
+    /// Read the process-wide identity of the distinguished initial native thread.
+    MainNativeThreadIdentity,
+    /// Recover one owned panic report published by a native-thread boundary.
+    NativeThreadPanicReportRecovery,
+    /// Create one runtime-owned task event.
+    TaskEventCreation,
+    /// Signal one runtime-owned task event.
+    TaskEventSignal,
+    /// Release one runtime-owned task event.
+    TaskEventDestruction,
     /// Read the identity of the current exact Bray thread attachment.
     ThreadAttachmentIdentity,
     /// Register one static cleanup entry with the current exact thread attachment.
@@ -101,10 +115,17 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 46] = [
+    pub const ALL: [Self; 53] = [
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::ForeignCallbackExecution,
+        Self::NativeThreadExecution,
+        Self::CurrentNativeThreadIdentity,
+        Self::MainNativeThreadIdentity,
+        Self::NativeThreadPanicReportRecovery,
+        Self::TaskEventCreation,
+        Self::TaskEventSignal,
+        Self::TaskEventDestruction,
         Self::ThreadAttachmentIdentity,
         Self::ThreadStaticCleanupRegistration,
         Self::ProductHostControl,
@@ -167,6 +188,13 @@ impl RuntimeAbiRole {
             Self::RootExecution => "root_execution",
             Self::SynchronousRootExecution => "synchronous_root_execution",
             Self::ForeignCallbackExecution => "foreign_callback_execution",
+            Self::NativeThreadExecution => "native_thread_execution",
+            Self::CurrentNativeThreadIdentity => "current_native_thread_identity",
+            Self::MainNativeThreadIdentity => "main_native_thread_identity",
+            Self::NativeThreadPanicReportRecovery => "native_thread_panic_report_recovery",
+            Self::TaskEventCreation => "task_event_creation",
+            Self::TaskEventSignal => "task_event_signal",
+            Self::TaskEventDestruction => "task_event_destruction",
             Self::ThreadAttachmentIdentity => "thread_attachment_identity",
             Self::ThreadStaticCleanupRegistration => "thread_static_cleanup_registration",
             Self::ProductHostControl => "product_host_control",
@@ -245,6 +273,12 @@ pub enum RuntimeRoleContractEffect {
     ControlProductHost,
     /// Register a suspended continuation.
     RegisterContinuation,
+    /// Create one runtime-owned task event.
+    CreateTaskEvent,
+    /// Signal one runtime-owned task event.
+    SignalTaskEvent,
+    /// Release one runtime-owned task event.
+    ReleaseTaskEvent,
     /// Establish release-to-acquire visibility.
     EstablishVisibility,
     /// Request cancellation of another run.
@@ -428,6 +462,20 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         RuntimeAbiRole::ForeignCallbackExecution => {
             &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
         }
+        RuntimeAbiRole::NativeThreadExecution => &[
+            Effect::PublishTerminalState,
+            Effect::ObserveCancellation,
+            Effect::EstablishVisibility,
+        ],
+        RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity => {
+            &[Effect::ObserveThreadAttachment]
+        }
+        RuntimeAbiRole::NativeThreadPanicReportRecovery => &[Effect::AcquireTerminalState],
+        RuntimeAbiRole::TaskEventCreation => &[Effect::CreateTaskEvent],
+        RuntimeAbiRole::TaskEventSignal => {
+            &[Effect::SignalTaskEvent, Effect::EstablishVisibility]
+        }
+        RuntimeAbiRole::TaskEventDestruction => &[Effect::ReleaseTaskEvent],
         RuntimeAbiRole::ThreadAttachmentIdentity => &[Effect::ObserveThreadAttachment],
         RuntimeAbiRole::ThreadStaticCleanupRegistration => &[Effect::RegisterThreadCleanup],
         RuntimeAbiRole::ProductHostControl => &[Effect::ControlProductHost],

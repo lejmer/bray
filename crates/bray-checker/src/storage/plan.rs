@@ -177,6 +177,7 @@ where
                         Some((selection.expression(), selection))
                     }
                     SemanticSelection::Reference(_)
+                    | SemanticSelection::CallableReference(_)
                     | SemanticSelection::StaticReference(_)
                     | SemanticSelection::Call(_)
                     | SemanticSelection::Predicate(_)
@@ -609,6 +610,12 @@ where
             match item {
                 BoundBlockItem::LocalBinding(binding) => {
                     let subject = self.plan_expression(binding.initializer(), None)?;
+
+                    self.record_purpose(
+                        binding.initializer(),
+                        Some(StorageAccessPurpose::Projection),
+                        subject,
+                    )?;
 
                     self.plan_pattern(binding.pattern(), binding.initializer(), subject)?;
                 }

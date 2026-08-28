@@ -1,0 +1,298 @@
+@target(target.platform.native_threads)
+module bray.standard_library_tests.thread;
+
+using std.thread;
+using std.thread.IdEquatable;
+using std.task;
+
+static TERMINAL_OBSERVATION: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+static PARK_READY: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+@thread_local static THREAD_LOCAL_IDENTITY: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+@thread_local static GENERIC_THREAD_VALUE<const N: u64>: u64 = N;
+
+internal struct ThreadCleanupProbe
+{
+    finalize()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&TERMINAL_OBSERVATION, 1);
+    }
+
+    destruct() {}
+}
+
+@thread_local static THREAD_CLEANUP: ThreadCleanupProbe = ThreadCleanupProbe
+{
+};
+
+internal func return_value(pos value: i32) -> i32
+{
+    return value;
+}
+
+internal func retain_borrow(pos value: &i32) -> unit
+{
+    let _: &i32 = value;
+}
+
+internal func observe_identity(pos ignored: unit) -> std.thread.Id
+{
+    let identity: std.thread.Id = std.thread.current_id();
+
+    core.atomic.store<u64, 2>(&THREAD_LOCAL_IDENTITY, 1);
+
+    let _: &ThreadCleanupProbe = &THREAD_CLEANUP;
+
+    return identity;
+}
+
+internal func panic_in_thread(pos ignored: unit) -> unit
+{
+    panic("native thread panic fixture");
+}
+
+internal func wait_for_cancellation(pos ignored: unit) -> unit
+{
+    while !std.thread.cancellation_requested()
+    {
+        std.thread.checkpoint();
+    }
+
+    std.thread.checkpoint();
+}
+
+internal func park_until_woken(pos value: i32) -> i32
+{
+    core.atomic.store<u32, 2>(&PARK_READY, 1);
+    core.atomic.notify_all<u32>(&PARK_READY);
+
+    std.thread.park();
+
+    return value;
+}
+
+internal func name_current_thread(pos name: string) -> bool
+{
+    match std.thread.set_current_name(&name)
+    {
+        case Ok(_) { return true; }
+        case Error(_) { return false; }
+    }
+}
+
+internal func generic_thread_values(pos ignored: unit) -> (u64, u64)
+{
+    return(GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
+}
+
+@test
+func native_thread_returns_a_typed_value()
+{
+    let mut thread: std.thread.Thread<i32> = match std.thread.start<i32, i32>(return_value, 37)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.join()
+    {
+        case Completed(value) { assert(value == 37); }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+}
+
+@test
+async func native_thread_run_bridges_to_async_execution()
+{
+    match await std.thread.run<i32, i32>(return_value, 39)
+    {
+        case Ok(value) { assert(value == 39); }
+        case Error(_) { assert(false); }
+    }
+}
+
+@test
+func main_native_thread_identity_is_stable()
+{
+    assert(std.thread.is_main());
+    assert(std.thread.current_id() == std.thread.main_id());
+}
+
+@test
+func native_thread_owner_scopes_a_transferred_borrow()
+{
+    let value: i32 = 41;
+
+    let mut thread: std.thread.Thread<unit> = match std.thread.start< &i32, unit>(retain_borrow, &value)
+    {
+        case Ok(created) { yield created; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.join()
+    {
+        case Completed(_) { assert(value == 41); }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+}
+
+@test
+func native_thread_identity_and_exact_thread_cleanup_are_observable()
+{
+    core.atomic.store<u32, 2>(&TERMINAL_OBSERVATION, 0);
+
+    let mut thread: std.thread.Thread<std.thread.Id> = match std.thread.start<unit, std.thread.Id>(
+        observe_identity,
+        unit
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    let expected: std.thread.Id = thread.id();
+
+    assert(expected != std.thread.current_id());
+
+    match consume thread.join()
+    {
+        case Completed(identity) { assert(identity == expected); }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+
+    assert(core.atomic.load<u32, 1>(&TERMINAL_OBSERVATION) == 1);
+}
+
+@test
+func native_thread_panic_is_reported_to_the_owner()
+{
+    let mut thread: std.thread.Thread<unit> = match std.thread.start<unit, unit>(panic_in_thread, unit)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.join()
+    {
+        case Completed(_) { assert(false); }
+        case Panicked(_) {}
+        case Cancelled { assert(false); }
+    }
+}
+
+@test
+func native_thread_cancellation_reaches_a_checkpoint()
+{
+    let mut thread: std.thread.Thread<unit> = match std.thread.start<unit, unit>(wait_for_cancellation, unit)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.cancel()
+    {
+        case Completed(_) { assert(false); }
+        case Panicked(_) { assert(false); }
+        case Cancelled {}
+    }
+}
+
+@test
+func native_thread_finalization_accepts_cooperative_cancellation()
+{
+    let _: std.thread.Thread<unit> = match std.thread.start<unit, unit>(wait_for_cancellation, unit)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+}
+
+@test
+async func cancelling_native_thread_run_cancels_the_owned_thread()
+{
+    let running: Task<Result<unit, std.thread.ThreadError>> = std.thread.run<unit, unit>(
+        wait_for_cancellation,
+        unit,
+    ).start();
+
+    match await running.cancel()
+    {
+        case Cancelled {}
+        case Completed(_) { assert(false); }
+        case Panicked(_) { assert(false); }
+    }
+}
+
+@test
+func native_thread_wake_publishes_one_park_token()
+{
+    core.atomic.store<u32, 2>(&PARK_READY, 0);
+
+    let mut thread: std.thread.Thread<i32> = match std.thread.start<i32, i32>(park_until_woken, 43)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    while core.atomic.load<u32, 1>(&PARK_READY) == 0
+    {
+        core.atomic.wait<u32, 1>(&PARK_READY, 0);
+    }
+
+    thread.wake();
+
+    match consume thread.join()
+    {
+        case Completed(value) { assert(value == 43); }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+}
+
+@test
+func native_thread_can_set_its_platform_name()
+{
+    let mut thread: std.thread.Thread<bool> = match std.thread.start<string, bool>(name_current_thread, "bray-test")
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.join()
+    {
+        case Completed(named) { assert(named); }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+}
+
+@test
+func native_thread_realizes_distinct_generic_thread_statics()
+{
+    let mut thread: std.thread.Thread<(u64, u64)> = match std.thread.start<unit, (u64, u64)>(
+        generic_thread_values,
+        unit
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    match consume thread.join()
+    {
+        case Completed(values)
+        {
+            let(first, second) = values;
+
+            assert(first == 7);
+            assert(second == 11);
+        }
+        case Panicked(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+}

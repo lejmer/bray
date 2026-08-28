@@ -370,12 +370,16 @@ impl<'project> ProjectCompiler<'project> {
         if consumes_standard_library(product) {
             let root = self.toolchain.standard_library_root().into_os_string();
 
-            if uses_standard_library_source {
-                if action.requires_runtime(product.kind()) {
-                    request.arg("--standard-library-provider-root").arg(root);
-                }
+            let root_argument = if uses_standard_library_source {
+                action
+                    .requires_runtime(product.kind())
+                    .then_some("--standard-library-provider-root")
             } else {
-                request.arg("--standard-library-root").arg(root);
+                Some("--standard-library-root")
+            };
+
+            if let Some(root_argument) = root_argument {
+                request.arg(root_argument).arg(root);
             }
         }
 

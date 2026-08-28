@@ -278,11 +278,35 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
     ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
+        self.storage_decision_matching(expression, |plan| accepts(plan.purpose()))
+    }
+
+    pub(in crate::lowering) fn storage_decision_reaching(
+        &self,
+        expression: BoundExpressionId,
+        reached_type: TypeId,
+        accepts: impl Fn(StorageAccessPurpose) -> bool,
+    ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
+        self.storage_decision_matching(expression, |plan| {
+            accepts(plan.purpose())
+                && self
+                    .input
+                    .storage_plan()
+                    .access(plan.access())
+                    .is_some_and(|access| access.reached_type() == reached_type)
+        })
+    }
+
+    fn storage_decision_matching(
+        &self,
+        expression: BoundExpressionId,
+        accepts: impl Fn(bray_bound_tree::StorageAccessPlan) -> bool,
+    ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
         let plan = self
             .input
             .storage_plan()
             .expression_plans(expression)
-            .find(|plan| accepts(plan.purpose()))
+            .find(|plan| accepts(*plan))
             .ok_or(LoweringError::MissingStorageAccess(expression))?;
 
         let decision = self

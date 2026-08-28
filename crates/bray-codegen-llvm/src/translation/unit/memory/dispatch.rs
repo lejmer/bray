@@ -658,8 +658,7 @@ mod tests {
         let deallocations = ir
             .lines()
             .filter(|line| {
-                line.contains("call void")
-                    && line.contains(MEMORY_DEALLOCATION_HELPER_SYMBOL)
+                line.contains("call void") && line.contains(MEMORY_DEALLOCATION_HELPER_SYMBOL)
             })
             .count();
 
@@ -1174,15 +1173,7 @@ mod tests {
             None,
         );
 
-        push_buffer_and_byte_operations(
-            &mut builder,
-            entry,
-            &source,
-            types,
-            address,
-            null,
-            size,
-        );
+        push_buffer_and_byte_operations(&mut builder, entry, &source, types, address, null, size);
 
         builder
             .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
@@ -2168,39 +2159,44 @@ mod tests {
             ),
         );
 
-        let operation_mappings = instance.mir().operations_with_ids().filter_map(|(id, operation)| {
-            let helpers = operation
-                .kind()
-                .helper_references()
-                .into_iter()
-                .map(|reference| match &reference {
-                    MirHelperReference::StandardLibrary(
-                        MirStandardLibraryHelper::MemoryAllocate,
-                    ) => CodegenHelperMapping::new(
-                        reference,
-                        CodegenSymbolKey::Instance(allocation.clone()),
-                    ),
-                    MirHelperReference::StandardLibrary(
-                        MirStandardLibraryHelper::MemoryDeallocate,
-                    ) => CodegenHelperMapping::new(
-                        reference,
-                        CodegenSymbolKey::Instance(deallocation.clone()),
-                    ),
-                    MirHelperReference::Cleanup {
-                        phase: MirCleanupPhase::LifecycleResolution,
-                        ty,
-                    } if *ty == types.value => CodegenHelperMapping::new(
-                        reference,
-                        CodegenSymbolKey::Instance(cleanup.clone()),
-                    ),
-                    _ => panic!("memory fixture contains an unexpected helper: {reference:?}"),
-                })
-                .collect::<Vec<_>>();
+        let operation_mappings =
+            instance
+                .mir()
+                .operations_with_ids()
+                .filter_map(|(id, operation)| {
+                    let helpers = operation
+                        .kind()
+                        .helper_references()
+                        .into_iter()
+                        .map(|reference| match &reference {
+                            MirHelperReference::StandardLibrary(
+                                MirStandardLibraryHelper::MemoryAllocate,
+                            ) => CodegenHelperMapping::new(
+                                reference,
+                                CodegenSymbolKey::Instance(allocation.clone()),
+                            ),
+                            MirHelperReference::StandardLibrary(
+                                MirStandardLibraryHelper::MemoryDeallocate,
+                            ) => CodegenHelperMapping::new(
+                                reference,
+                                CodegenSymbolKey::Instance(deallocation.clone()),
+                            ),
+                            MirHelperReference::Cleanup {
+                                phase: MirCleanupPhase::LifecycleResolution,
+                                ty,
+                            } if *ty == types.value => CodegenHelperMapping::new(
+                                reference,
+                                CodegenSymbolKey::Instance(cleanup.clone()),
+                            ),
+                            _ => panic!(
+                                "memory fixture contains an unexpected helper: {reference:?}"
+                            ),
+                        })
+                        .collect::<Vec<_>>();
 
-            (!helpers.is_empty()).then(|| {
-                CodegenOperationMapping::new(instance.key().clone(), id, helpers)
-            })
-        });
+                    (!helpers.is_empty())
+                        .then(|| CodegenOperationMapping::new(instance.key().clone(), id, helpers))
+                });
 
         let Some(file) = CodegenSourceFile::try_new("memory-operations.bray") else {
             panic!("memory test source file must be valid");

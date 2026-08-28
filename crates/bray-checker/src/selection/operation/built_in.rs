@@ -81,6 +81,19 @@ where
     ))
 }
 
+/// Returns whether the target representation supplies one source operator directly.
+pub fn built_in_operator_supported<C>(
+    request: &C,
+    subject: TypeId,
+    operator: BoundOperator,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    Ok(type_representation_for_context(request, subject)?
+        .is_some_and(|role| representation_supports_operator(role, operator)))
+}
+
 /// Resolves a compiler-defined type-valued operation result when one applies.
 pub fn built_in_operation_result_type<C>(
     request: &C,

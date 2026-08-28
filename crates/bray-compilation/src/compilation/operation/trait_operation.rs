@@ -69,26 +69,37 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
-        let Some(candidate) = self.trait_operation_candidate_data(
-            binding_context,
-            binding_context
-                .symbols()
-                .symbol_for_key(unit.key().declared_owner())
-                .ok_or(FactQueryError::InfrastructureFailure)?,
-            role,
-            subject,
-            arguments,
-            arguments,
-            arguments,
-            TraitOperation::Operator(operator),
-            cancellation,
-            diagnostics,
-        )?
-        else {
-            return Ok(None);
-        };
+        let candidate = self
+            .trait_operation_candidate_data(
+                binding_context,
+                binding_context
+                    .symbols()
+                    .symbol_for_key(unit.key().declared_owner())
+                    .ok_or(FactQueryError::InfrastructureFailure)?,
+                role,
+                subject,
+                arguments,
+                arguments,
+                arguments,
+                TraitOperation::Operator(operator),
+                cancellation,
+                diagnostics,
+            )?
+            .map(TraitOperationCandidate::into_candidate);
 
-        let candidate = candidate.into_candidate();
+        if candidate.is_none() {
+            let context = self.checker_context_for(key.unit(), cancellation)?;
+            let mut built_in = false;
+
+            for operand in std::iter::once(subject).chain(arguments.iter().copied()) {
+                built_in |= bray_checker::built_in_operator_supported(&context, operand, operator)
+                    .map_err(FactQueryError::CheckerInfrastructure)?;
+            }
+
+            if built_in {
+                return Ok(None);
+            }
+        }
 
         let resolution = self.select_operation(
             key,
@@ -96,7 +107,7 @@ impl Compilation {
             unit,
             types,
             operands.iter().copied(),
-            [candidate],
+            candidate,
             cancellation,
             diagnostics,
         )?;

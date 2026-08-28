@@ -67,12 +67,19 @@ where
         return Ok(contracts);
     };
 
-    let authority = match implementation {
+    let (parameter, authority) = match implementation {
         bray_compiler_known::ImplementationHook::StringUtf8
         | bray_compiler_known::ImplementationHook::CallableFromPointer
-        | bray_compiler_known::ImplementationHook::PointerFromCallable => None,
-        bray_compiler_known::ImplementationHook::BorrowFrom => Some(BorrowKind::Shared),
-        bray_compiler_known::ImplementationHook::BorrowMutFrom => Some(BorrowKind::Mutable),
+        | bray_compiler_known::ImplementationHook::PointerFromCallable => {
+            (SymbolOrdinal::new(0), None)
+        }
+        bray_compiler_known::ImplementationHook::BorrowFrom => {
+            (SymbolOrdinal::new(0), Some(BorrowKind::Shared))
+        }
+        bray_compiler_known::ImplementationHook::BorrowMutFrom => {
+            (SymbolOrdinal::new(0), Some(BorrowKind::Mutable))
+        }
+        bray_compiler_known::ImplementationHook::NativeThreadStart => (SymbolOrdinal::new(1), None),
         _ => return Ok(contracts),
     };
 
@@ -81,8 +88,7 @@ where
         .dependency_contract_template_data(contracts.invocation())
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let source =
-        || DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+    let source = || DependencySubject::root(DependencySubjectRoot::Parameter(parameter));
 
     let mut dependencies = vec![DependencyRequirement::direct(
         source(),
@@ -353,7 +359,8 @@ mod tests {
     };
 
     use super::{
-        InstantiatedCallContracts, instantiate_callable_contracts, selected_call_contracts,
+        InstantiatedCallContracts, callable_dependencies_for_implementation,
+        instantiate_callable_contracts, selected_call_contracts,
     };
     use crate::CheckerUnitView;
     use crate::dependency::call::instantiation::CallInstantiationContext;
@@ -465,6 +472,44 @@ mod tests {
     fn callable_address_conversions_retain_their_source_dependency() {
         assert_result_source_dependency(ImplementationHook::CallableFromPointer);
         assert_result_source_dependency(ImplementationHook::PointerFromCallable);
+    }
+
+    #[test]
+    fn native_thread_start_retains_its_explicit_state() {
+        let unit_id = BoundUnitId::new(33);
+
+        let (unit, _, _) = expression_pair(unit_id);
+
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
+            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+
+        let empty = request
+            .semantic_values()
+            .empty_dependency_contract_template()
+            .unwrap_or_else(|error| panic!("empty dependency template must intern: {error:?}"));
+
+        let contracts = callable_dependencies_for_implementation(
+            request,
+            CallableDependencyContracts::synchronous(empty),
+            Some(ImplementationHook::NativeThreadStart),
+        )
+        .unwrap_or_else(|error| panic!("native thread dependency must build: {error:?}"));
+
+        let contract = request
+            .semantic_values()
+            .dependency_contract_template_data(contracts.invocation())
+            .unwrap_or_else(|error| panic!("native thread dependency must be readable: {error:?}"));
+
+        assert_eq!(
+            contract.requirements(),
+            &[DependencyRequirement::direct(
+                DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(1))),
+                DependencyRequirementKind::StorageAlive,
+            )]
+        );
     }
 
     #[test]

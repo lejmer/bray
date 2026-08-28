@@ -799,6 +799,95 @@
             "native_thread",
             "raw_memory"
           ]
+        },
+        {
+          "name": "pthread_detach",
+          "native": "pthread_detach",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "thread",
+              "type": "RawPointer<u8>",
+              "native_type": "pthread_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "success releases the caller's join authority",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+        {
+          "name": "pthread_join",
+          "native": "pthread_join",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "thread",
+              "type": "RawPointer<u8>",
+              "native_type": "pthread_t"
+            },
+            {
+              "name": "result",
+              "type": "RawPointer<RawPointer<u8>>",
+              "native_type": "void **"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a C runtime error number directly",
+          "ownership": "success consumes the caller's join authority",
+          "initialization": "success initializes the thread result when storage is provided",
+          "dependencies": [
+            "blocking_execution",
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "pthread_self",
+          "native": "pthread_self",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<u8>",
+          "native_result": "pthread_t",
+          "link": "pthread",
+          "error_state": "returns the calling native thread identity",
+          "ownership": "no resource transfer",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+
+        {
+          "name": "pthread_setname_np",
+          "native": "pthread_setname_np",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "name",
+              "type": "RawPointer<u8>",
+              "native_type": "const char *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
         }
       ],
       "statics": [

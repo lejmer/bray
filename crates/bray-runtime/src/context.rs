@@ -1,4 +1,6 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+
+use bray_runtime_abi::NativeThreadCancellationCallback;
 
 #[cfg(feature = "test-output")]
 use bray_platform::{
@@ -18,6 +20,20 @@ thread_local! {
         const { RefCell::new(None) };
     static CURRENT_RUN_CANCELLATION: RefCell<Option<CancellationContext>> =
         const { RefCell::new(None) };
+    static NATIVE_THREAD_CANCELLATION: Cell<Option<NativeThreadCancellation>> =
+        const { Cell::new(None) };
+}
+
+#[derive(Clone, Copy)]
+struct NativeThreadCancellation {
+    callback: NativeThreadCancellationCallback,
+    context: usize,
+}
+
+impl NativeThreadCancellation {
+    fn requested(self) -> bool {
+        (self.callback)(self.context) != 0
+    }
 }
 
 /// Task-local runtime context installed while one task is resumed.
@@ -103,12 +119,35 @@ pub fn current_run_cancellation_observable() -> bool {
 
 /// Returns whether cancellation was requested for the current run, including while shielded.
 pub fn current_run_cancellation_requested() -> bool {
-    CURRENT_RUN_CANCELLATION.with(|context| {
+    let requested = CURRENT_RUN_CANCELLATION.with(|context| {
         context
             .borrow()
             .as_ref()
             .is_some_and(|context| context.observation().requested())
+    });
+
+    requested || native_thread_cancellation_requested()
+}
+
+fn native_thread_cancellation_requested() -> bool {
+    NATIVE_THREAD_CANCELLATION.with(|cancellation| {
+        cancellation
+            .get()
+            .is_some_and(NativeThreadCancellation::requested)
     })
+}
+
+pub(crate) fn with_native_thread_cancellation<T>(
+    callback: NativeThreadCancellationCallback,
+    context: usize,
+    operation: impl FnOnce() -> T,
+) -> T {
+    let previous = NATIVE_THREAD_CANCELLATION
+        .with(|current| current.replace(Some(NativeThreadCancellation { callback, context })));
+
+    let _guard = NativeThreadCancellationGuard(previous);
+
+    operation()
 }
 
 /// Installs one task-local context for the duration of a resume operation.
@@ -181,6 +220,16 @@ impl Drop for ContextGuard {
 }
 
 struct RunCancellationGuard(Option<CancellationContext>);
+
+struct NativeThreadCancellationGuard(Option<NativeThreadCancellation>);
+
+impl Drop for NativeThreadCancellationGuard {
+    fn drop(&mut self) {
+        NATIVE_THREAD_CANCELLATION.with(|current| {
+            current.set(self.0.take());
+        });
+    }
+}
 
 impl Drop for RunCancellationGuard {
     fn drop(&mut self) {

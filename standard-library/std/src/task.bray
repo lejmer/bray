@@ -21,4 +21,50 @@ async func yield_now()
     return unit;
 }
 
+trusted internal struct TaskEvent
+{
+    value: usize;
+
+    trusted destruct()
+    {
+        let status: u32 = destroy_task_event(self.value);
+
+        assert(status == 0, "a task event could not be released");
+    }
+}
+
+trusted internal func event() -> TaskEvent
+{
+    let value: usize = create_task_event();
+
+    assert(value != 0, "a task event could not be created");
+
+    return
+    {
+        value = value
+    };
+}
+
+trusted internal func signal(pos event: usize)
+{
+    let status: u32 = signal_task_event(event);
+
+    assert(status == 0, "a task event could not be signaled");
+}
+
+trusted internal async func wait(pos event: &TaskEvent)
+{
+    wait_for_task_event(event.value);
+
+    return unit;
+}
+
 extern internal func yield_current_task();
+
+extern internal func create_task_event() -> usize;
+
+extern internal func signal_task_event(pos event: usize) -> u32;
+
+extern internal func destroy_task_event(pos event: usize) -> u32;
+
+extern internal func wait_for_task_event(pos event: usize);

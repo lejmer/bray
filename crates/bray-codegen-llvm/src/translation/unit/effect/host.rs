@@ -527,27 +527,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         };
 
-        let mut progress = crate::native::frame_progress_type(self.types.context()).get_undef();
-
-        let fields: [BasicValueEnum<'context>; 3] = [
-            self.types
-                .context()
-                .i32_type()
-                .const_int(kind, false)
-                .into(),
-            self.types.context().i32_type().const_zero().into(),
-            payload.into(),
-        ];
-
-        for (index, field) in fields.into_iter().enumerate() {
-            progress = llvm(self.builder.build_insert_value(
-                progress,
-                field,
-                u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?,
-                "frame.progress.field",
-            ))?
-            .into_struct_value();
-        }
+        let progress = self.build_frame_progress(
+            u32::try_from(kind).map_err(|_| CodegenFailure::ResourceExhausted)?,
+            self.types.context().i32_type().const_zero(),
+            payload,
+        )?;
 
         self.frame_progress = Some(progress.into());
 

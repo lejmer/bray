@@ -1,0 +1,2 @@
+@target(target.platform.native_threads)
+trusted module std.thread;

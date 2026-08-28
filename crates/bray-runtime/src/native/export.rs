@@ -379,6 +379,29 @@ native_export! {
 }
 
 native_export! {
+    pub extern "C" fn bray_runtime_task_event_creation() -> usize {
+        with_runtime(|runtime| super::event::create(&runtime.core)).unwrap_or(0)
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_task_event_signal(event: usize) -> NativeRuntimeStatus {
+        contain_status(|| super::event::signal(event))
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_task_event_destruction(
+        event: usize,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| {
+            with_runtime(|runtime| super::event::destroy(&runtime.core, event))
+                .unwrap_or_else(|status| status)
+        })
+    }
+}
+
+native_export! {
     pub extern "C" fn bray_runtime_suspension_registration(
         state: u32,
     ) -> NativeFrameProgress {
@@ -1139,7 +1162,7 @@ mod tests {
     }
 
     fn start_test_task(
-        task: super::NativeTaskHandle,
+        task: NativeTaskHandle,
         frame: NativeProtectedFrame,
     ) -> NativeRuntimeStatus {
         bray_runtime_task_start(
@@ -1349,7 +1372,7 @@ mod tests {
 
             let raw = u64::try_from(raw).unwrap_or_else(|_| panic!("test root must fit u64"));
 
-            let task = bray_runtime_abi::NativeTaskHandle::new(raw)
+            let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
             assert_eq!(
@@ -1373,7 +1396,7 @@ mod tests {
 
             let raw = u64::try_from(raw).unwrap_or_else(|_| panic!("test root must fit u64"));
 
-            let task = bray_runtime_abi::NativeTaskHandle::new(raw)
+            let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
             assert_eq!(

@@ -5,9 +5,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{
-    CallableExecutionRequirement, DependencyContractTemplateId, TypeId,
-};
+use bray_symbols::{CallableExecutionRequirement, DependencyContractTemplateId, TypeId};
 
 use super::dependency::portable_dependency_contract;
 use crate::compilation::binder::CompilationBindingContext;
@@ -143,7 +141,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         )?);
 
         if let Some(requirement) = execution_requirement(
-            semantics.result().value().selections().expression(expression),
+            semantics
+                .result()
+                .value()
+                .selections()
+                .expression(expression),
         ) {
             execution_requirements.push(requirement);
         }

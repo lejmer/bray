@@ -419,6 +419,8 @@ define_diagnostic_kinds! {
     CheckingMissingMutationAuthority,
     /// An operation requires ownership of storage reached only through a borrow.
     CheckingMissingStorageOwnership,
+    /// A value leaving a scope retains a dependency on storage owned by that scope.
+    CheckingEscapingStorageDependency,
     /// A trait implementation omits a required member fulfillment.
     CheckingMissingTraitFulfillment,
     /// A trait implementation declares a member that does not fulfill its trait.
@@ -833,6 +835,7 @@ impl DiagnosticKind {
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingMissingStorageOwnership => 7039,
+            Self::CheckingEscapingStorageDependency => 7110,
             Self::CheckingMissingTraitFulfillment => 7040,
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,
@@ -1229,6 +1232,7 @@ impl DiagnosticKind {
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
             Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",
+            Self::CheckingEscapingStorageDependency => "checking_escaping_storage_dependency",
             Self::CheckingMissingTraitFulfillment => "checking_missing_trait_fulfillment",
             Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
             Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",

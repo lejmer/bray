@@ -9,6 +9,29 @@ pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_ro
 /// Stable symbol executing one foreign callback behind a runtime boundary.
 pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution";
 
+/// Stable symbol registering one native-thread root's shared boundary storage.
+pub const NATIVE_THREAD_EXECUTION_SYMBOL: &str = "bray_runtime_native_thread_execution";
+
+/// Stable symbol reading the process-wide identity of the current Bray native thread.
+pub const CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL: &str =
+    "bray_runtime_current_native_thread_identity";
+
+/// Stable symbol reading the process-wide identity of the distinguished initial native thread.
+pub const MAIN_NATIVE_THREAD_IDENTITY_SYMBOL: &str = "bray_runtime_main_native_thread_identity";
+
+/// Stable symbol recovering one owned panic report published by a native-thread boundary.
+pub const NATIVE_THREAD_PANIC_REPORT_RECOVERY_SYMBOL: &str =
+    "bray_runtime_native_thread_panic_report_recovery";
+
+/// Stable symbol creating one runtime-owned task event.
+pub const TASK_EVENT_CREATION_SYMBOL: &str = "bray_runtime_task_event_creation";
+
+/// Stable symbol signaling one runtime-owned task event.
+pub const TASK_EVENT_SIGNAL_SYMBOL: &str = "bray_runtime_task_event_signal";
+
+/// Stable symbol releasing one runtime-owned task event.
+pub const TASK_EVENT_DESTRUCTION_SYMBOL: &str = "bray_runtime_task_event_destruction";
+
 /// Stable symbol reading the current exact Bray thread-attachment identity.
 pub const THREAD_ATTACHMENT_IDENTITY_SYMBOL: &str = "bray_runtime_thread_attachment_identity";
 
@@ -220,6 +243,15 @@ pub const PLATFORM_CHILD_REAP_SYMBOL: &str = "bray_platform_child_reap";
 
 /// Stable symbol forcefully resolving and consuming one native child-process owner.
 pub const PLATFORM_CHILD_DISPOSE_SYMBOL: &str = "bray_platform_child_dispose";
+
+/// Stable symbol creating one operating-system thread.
+pub const PLATFORM_THREAD_CREATE_SYMBOL: &str = "bray_platform_thread_create";
+
+/// Stable symbol joining and consuming one operating-system thread owner.
+pub const PLATFORM_THREAD_JOIN_SYMBOL: &str = "bray_platform_thread_join";
+
+/// Stable symbol releasing one operating-system thread's join authority.
+pub const PLATFORM_THREAD_DETACH_SYMBOL: &str = "bray_platform_thread_detach";
 
 /// Stable symbol observing the process-local monotonic clock.
 pub const PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL: &str = "bray_platform_clock_monotonic_now";
@@ -533,6 +565,9 @@ impl NativeStringView {
 /// Callback invoking one synchronous source root and writing its normal result.
 pub type NativeSynchronousRootCallback = extern "C-unwind" fn(destination: usize);
 
+/// Callback observing cancellation for one Bray-owned native thread.
+pub type NativeThreadCancellationCallback = extern "C" fn(context: usize) -> u32;
+
 /// Stable process-local handle for one host-owned executable root.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -752,6 +787,8 @@ impl NativeFrameProgressKind {
     pub const RUNTIME_FAILURE: Self = Self(4);
     /// The frame yielded voluntarily at the returned state.
     pub const YIELDED: Self = Self(5);
+    /// The frame awaits the task event identified by its payload.
+    pub const TASK_EVENT: Self = Self(6);
 
     /// Creates a progress category from its stable ABI code.
     pub const fn from_code(code: u32) -> Self {

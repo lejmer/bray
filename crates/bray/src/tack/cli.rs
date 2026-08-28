@@ -780,6 +780,16 @@ mod tests {
     }
 
     #[test]
+    fn unexpected_argument_error_names_the_argument() {
+        let error = TackInvocation::try_from_arguments(["bray", "--release", "test"])
+            .unwrap_err();
+
+        let (_, _, stderr) = error.into_output();
+
+        assert!(stderr.contains("--release"));
+    }
+
+    #[test]
     fn hidden_test_batch_request_is_retained_and_rejects_individual_plan_options() {
         let invocation = TackInvocation::try_from_arguments([
             "bray",

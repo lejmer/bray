@@ -209,22 +209,27 @@ impl Lowerer<'_> {
             return Ok(None);
         };
 
-        let owner = GenericOwnerId::try_new(definition.symbol())
-            .ok_or(LoweringError::SemanticValueUnavailable)?;
+        let instance = match self.input.semantic_selections().expression(expression) {
+            Some(SemanticSelection::CallableReference(instance)) => *instance,
+            Some(_) => return Err(LoweringError::MissingSemanticSelection(expression)),
+            None => {
+                let owner = GenericOwnerId::try_new(definition.symbol())
+                    .ok_or(LoweringError::SemanticValueUnavailable)?;
 
-        let substitution = GenericSubstitutionData::try_new(owner, [], [])
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                let substitution = GenericSubstitutionData::try_new(owner, [], [])
+                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
-        let substitution = self
-            .input
-            .semantic_values()
-            .intern_generic_substitution(substitution)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                let substitution = self
+                    .input
+                    .semantic_values()
+                    .intern_generic_substitution(substitution)
+                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
-        Ok(Some(MirCallableReference::new(
-            CallableInstanceData::new(definition, substitution),
-            callable.abi(),
-        )))
+                CallableInstanceData::new(definition, substitution)
+            }
+        };
+
+        Ok(Some(MirCallableReference::new(instance, callable.abi())))
     }
 
     fn lower_unary(
@@ -797,30 +802,36 @@ impl Lowerer<'_> {
 
         let mut arguments = Vec::new();
 
-        let target = match selection.target() {
-            BoundCallableTarget::Declaration(instance) => {
-                MirCallTarget::Direct(MirCallableReference::new(instance, selection.abi()))
-            }
-            BoundCallableTarget::Indirect(_) => {
-                let callee = self.lower_expression(expression.callee(), current)?;
-
-                let Some(continuation) = callee.block else {
-                    return Ok(callee);
-                };
-
-                current = continuation;
-
-                let Some(callee) = callee.value else {
-                    return Err(LoweringError::MissingOperationResult(expression.callee()));
-                };
-
-                MirCallTarget::Indirect {
-                    callee,
-                    abi: selection.abi(),
+        let target = if let Some(role) =
+            super::super::run::runtime_call_role(selection.implementation_hook())
+        {
+            MirCallTarget::Runtime(self.runtime_reference(role))
+        } else {
+            match selection.target() {
+                BoundCallableTarget::Declaration(instance) => {
+                    MirCallTarget::Direct(MirCallableReference::new(instance, selection.abi()))
                 }
-            }
-            BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => {
-                return Err(LoweringError::UnsupportedExpression(id));
+                BoundCallableTarget::Indirect(_) => {
+                    let callee = self.lower_expression(expression.callee(), current)?;
+
+                    let Some(continuation) = callee.block else {
+                        return Ok(callee);
+                    };
+
+                    current = continuation;
+
+                    let Some(callee) = callee.value else {
+                        return Err(LoweringError::MissingOperationResult(expression.callee()));
+                    };
+
+                    MirCallTarget::Indirect {
+                        callee,
+                        abi: selection.abi(),
+                    }
+                }
+                BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => {
+                    return Err(LoweringError::UnsupportedExpression(id));
+                }
             }
         };
 

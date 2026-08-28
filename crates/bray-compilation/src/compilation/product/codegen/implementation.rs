@@ -95,7 +95,7 @@ impl Compilation {
             .state
             .native_products
             .cell(key.clone())
-            .map_err(|error| Arc::new(NativeProductPlanningError::Query(error)))?;
+            .map_err(|error| Arc::new(NativeProductPlanningError::from(error)))?;
 
         let result = cell
             .get_or_compute(
@@ -116,7 +116,7 @@ impl Compilation {
                         .map_err(Arc::new))
                 },
             )
-            .map_err(|error| Arc::new(NativeProductPlanningError::Query(error)))?;
+            .map_err(|error| Arc::new(NativeProductPlanningError::from(error)))?;
 
         result.clone()
     }
@@ -489,8 +489,8 @@ mod tests {
     };
     use bray_compiler_known::RepresentationRole;
     use bray_ir::{
-        MirCallTarget, MirHelperReference, MirHostOperation, MirOperationKind, MirTerminatorKind,
-        MirUnitKey, MirUnitKind,
+        MirCallTarget, MirHelperReference, MirHostOperation, MirOperand, MirOperationKind,
+        MirProjectionKind, MirTerminatorKind, MirUnitKey, MirUnitKind,
     };
     use bray_linker::{
         LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
@@ -3193,6 +3193,110 @@ mod tests {
     }
 
     #[test]
+    fn const_generic_static_specializations_emit_distinct_native_instances() {
+        let source = concat!(
+            "module app;\n",
+            "@thread_local static VALUE<const N: u64>: u64 = N;\n",
+            "func values() -> (u64, u64)\n",
+            "{\n",
+            "    return(VALUE<7>, VALUE<11>);\n",
+            "}\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    let _: (u64, u64) = values();\n",
+            "    return 0;\n",
+            "}\n",
+        );
+
+        let (_, plan) = runtime_native_plan_for_target(
+            source,
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let mappings = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            mappings
+                .iter()
+                .map(|mapping| mapping.instance())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
+
+        assert_eq!(
+            mappings
+                .iter()
+                .map(|mapping| mapping.symbol())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
+
+        assert_eq!(
+            mappings
+                .iter()
+                .map(|mapping| mapping.initial_value())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn tuple_destructuring_projects_each_initializer_field_once() {
+        let (_, compilation) = codegen_compilation_for_product(
+            concat!(
+                "module app;\n",
+                "public func sum(pos value: (u64, u64)) -> u64\n",
+                "{\n",
+                "    let(first, second) = value;\n",
+                "    return first + second;\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "sum",
+            ))
+            .unwrap_or_else(|error| panic!("tuple destructuring must lower: {error:?}"));
+
+        let mir = lowered
+            .value()
+            .as_ref()
+            .and_then(bray_lowering::LoweredUnit::mir)
+            .unwrap_or_else(|| panic!("tuple destructuring must produce MIR: {lowered:#?}"));
+
+        let fields = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Store {
+                    value: MirOperand::Move(place),
+                    ..
+                } => match place.projections() {
+                    [projection] => match projection.kind() {
+                        MirProjectionKind::TupleField(field) => Some(*field),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(fields, [0, 1]);
+    }
+
+    #[test]
     fn public_library_static_contributes_a_linked_host_table_entry() {
         let source = concat!(
             "module app;\n",
@@ -3901,8 +4005,7 @@ mod tests {
         let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
             .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
 
-        let runtime_dependency =
-            crate::test_support::runtime_standard_library_dependency(&target);
+        let runtime_dependency = crate::test_support::runtime_standard_library_dependency(&target);
 
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),

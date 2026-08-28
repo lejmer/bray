@@ -1,0 +1,39 @@
+module native_thread_borrow_conflict;
+
+using std.thread;
+
+struct Context
+{
+    value: &mut i32;
+}
+
+func observe(pos state: Context)
+    requires(blocking_execution(), compute_execution())
+{
+    state;
+}
+
+func main()
+{
+    let mut value: i32 = 1;
+
+    let state: Context =
+    {
+        value = &mut value
+    };
+
+    let mut thread: std.thread.Thread<unit> = match std.thread.start<Context, unit>(observe, state)
+    {
+        case Ok(thread) { yield thread; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    value = 2;
+
+    match thread.join()
+    {
+        case Completed(_) {}
+        case Cancelled {}
+        case Panicked(_) {}
+    }
+}

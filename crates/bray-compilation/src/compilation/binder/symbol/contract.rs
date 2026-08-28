@@ -13,12 +13,11 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
-    CallableContractsQuery, CallableExecution, CallableExecutionRequirement,
-    CallablePhaseBehavior, CallableSignatureQuery, CallableSymbolId, CallableTrust,
-    CheckedConstraint, CurrentRunCancellation,
-    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsQuery,
-    GenericDeclarationTemplateQuery, GenericOwnerId, SymbolQueryRequest,
-    SymbolOrigin, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
+    CallableContractsQuery, CallableExecution, CallableExecutionRequirement, CallablePhaseBehavior,
+    CallableSignatureQuery, CallableSymbolId, CallableTrust, CheckedConstraint,
+    CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
+    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, SymbolOrigin,
+    SymbolQueryRequest, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -27,9 +26,7 @@ use bray_syntax::{
 
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
-use super::declaration_body::{
-    CheckedSourcePredicateSequence, checked_source_predicate_sequence,
-};
+use super::declaration_body::{CheckedSourcePredicateSequence, checked_source_predicate_sequence};
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBindingContext;
@@ -436,10 +433,9 @@ fn callable_phase_behaviors(
         .copied();
 
     let execution_requirements = declared_execution_requirements.into_iter().chain(
-        body
-        .into_iter()
-        .flat_map(bray_bound_tree::CheckedBodyBehavior::execution_requirements)
-        .copied(),
+        body.into_iter()
+            .flat_map(bray_bound_tree::CheckedBodyBehavior::execution_requirements)
+            .copied(),
     );
 
     let lifecycle_obligations = body
@@ -941,11 +937,11 @@ mod tests {
     use bray_base::NonEmptySharedStr;
     use bray_binder::SymbolQueryProvider;
     use bray_bound_tree::SemanticSelection;
+    use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
         DiagnosticRelatedLocationKind, SeverityKind,
     };
-    use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
         CallableContractTemplate, CallableContractsQuery, CallablePhaseBehavior, CallableSymbolId,
         DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolQueryRequest,
@@ -954,8 +950,8 @@ mod tests {
 
     use super::publish_catalog_result;
     use crate::test_support::{
-        compilation, compilation_with_options, diagnostic_kinds, source_callable_body_key,
-        source_function,
+        compilation, compilation_with_options, diagnostic_kinds, only_call_selection,
+        source_callable_body_key, source_function,
     };
     use crate::{Compilation, CompilationOptions, WorkerBudget};
 
@@ -1184,12 +1180,7 @@ mod tests {
             ImplementationHook::BlockingExecution,
         );
 
-        assert!(
-            synchronous
-                .value()
-                .deferred_execution_behavior()
-                .is_none()
-        );
+        assert!(synchronous.value().deferred_execution_behavior().is_none());
 
         assert!(
             asynchronous
@@ -1248,9 +1239,7 @@ mod tests {
             .semantic_selections(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("call selection must publish: {error:?}"));
 
-        let [selection] = selections.value().entries() else {
-            panic!("caller must publish one selected call");
-        };
+        let selection = only_call_selection(selections.value());
 
         let SemanticSelection::Call(call) = selection.selection() else {
             panic!("caller selection must be a call");

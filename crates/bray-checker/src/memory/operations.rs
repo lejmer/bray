@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundReferenceTarget, CheckedLiteralValues,
-    CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-    CheckedSemanticSelections, SelectedArgument, SemanticSelection,
+    CheckedMemoryOperation, CheckedMemoryOperations, CheckedSemanticSelections, SelectedArgument,
+    SemanticSelection,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticKind,
@@ -183,7 +183,7 @@ where
             }
         };
 
-        if matches!(kind, CheckedMemoryOperationKind::CallbackState { .. }) {
+        if resolution.hook() == bray_compiler_known::ImplementationHook::CallbackState {
             let problem = match callback_state_problem(request, arguments.as_slice()) {
                 Ok(problem) => problem,
                 Err(outcome) => return outcome,

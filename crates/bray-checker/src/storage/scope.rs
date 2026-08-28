@@ -58,7 +58,12 @@ impl StorageScopeOwners {
             match expression {
                 BoundExpression::Match(expression) => {
                     for arm in expression.arms() {
-                        assign_pattern_scope(request.view(), arm.pattern(), arm.body(), &mut nodes)?;
+                        assign_pattern_scope(
+                            request.view(),
+                            arm.pattern(),
+                            arm.body(),
+                            &mut nodes,
+                        )?;
                     }
                 }
                 BoundExpression::For(expression) => assign_pattern_scope(
@@ -167,6 +172,54 @@ where
     }
 
     result
+}
+
+pub(crate) fn value_transfer_bindings<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> BTreeMap<BoundExpressionId, Vec<StorageBinding>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut result = local_initialization_bindings(request, storage);
+
+    for (_, expression) in request.unit().tree().expressions() {
+        let BoundExpression::Match(expression) = expression else {
+            continue;
+        };
+
+        let bindings = result.entry(expression.subject()).or_default();
+
+        for arm in expression.arms() {
+            extend_pattern_bindings(request.view(), storage, arm.pattern(), bindings);
+        }
+    }
+
+    result
+}
+
+fn extend_pattern_bindings(
+    view: BoundUnitView<'_>,
+    storage: &StoragePlan,
+    root: BoundPatternId,
+    bindings: &mut Vec<StorageBinding>,
+) {
+    let mut pending = vec![root];
+
+    while let Some(pattern) = pending.pop() {
+        let Some(pattern) = view.pattern(pattern) else {
+            continue;
+        };
+
+        bindings.extend(
+            pattern
+                .bindings()
+                .iter()
+                .filter_map(|binding| storage.binding(StorageBindingTarget::Local(*binding))),
+        );
+
+        pending.extend(pattern.children().iter().copied());
+    }
 }
 
 pub(crate) fn local_initialization_destinations<C>(

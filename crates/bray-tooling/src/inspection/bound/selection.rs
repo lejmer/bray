@@ -287,6 +287,7 @@ pub(super) fn selection_entries(
 pub(super) const fn selection_kind(selection: &SemanticSelection) -> &'static str {
     match selection {
         SemanticSelection::Reference(_) => "reference",
+        SemanticSelection::CallableReference(_) => "callable_reference",
         SemanticSelection::StaticReference(_) => "static_reference",
         SemanticSelection::Call(_) => "call",
         SemanticSelection::Predicate(_) => "predicate",
@@ -305,6 +306,14 @@ fn selection_target(
     match selection {
         SemanticSelection::Reference(target) => {
             reference_target(*target, locals, symbols).map(Some)
+        }
+        SemanticSelection::CallableReference(callable) => {
+            Ok(Some(InspectionSelectionTarget::Surface {
+                symbol: InspectionSymbolIdentity::from_symbol(
+                    symbols,
+                    callable.definition().symbol(),
+                ),
+            }))
         }
         SemanticSelection::StaticReference(reference) => {
             Ok(Some(InspectionSelectionTarget::Surface {

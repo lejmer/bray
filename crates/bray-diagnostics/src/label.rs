@@ -169,6 +169,8 @@ pub enum DiagnosticLabelKind {
     MissingMutationAuthority,
     /// Label for an operation that requires storage ownership.
     MissingStorageOwnership,
+    /// Label for a value whose dependency cannot leave its storage scope.
+    EscapingStorageDependency,
     /// Label for the dependency declaration that selected an external artifact.
     DependencySelection,
     /// Label for an await whose required semantic state is unavailable.
@@ -238,6 +240,7 @@ impl DiagnosticLabelKind {
             Self::ConflictingBorrowOperation => "conflicting_borrow_operation",
             Self::MissingMutationAuthority => "missing_mutation_authority",
             Self::MissingStorageOwnership => "missing_storage_ownership",
+            Self::EscapingStorageDependency => "escaping_storage_dependency",
             Self::DependencySelection => "dependency_selection",
             Self::UnavailableAwaitDependency => "unavailable_await_dependency",
             Self::InvalidAsyncOperation => "invalid_async_operation",

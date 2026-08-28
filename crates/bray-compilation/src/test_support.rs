@@ -2,7 +2,10 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
-use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
+use bray_bound_tree::{
+    BoundSourceAnchor, BoundUnitKey, CheckedSemanticSelections, SemanticSelection,
+    SemanticSelectionEntry,
+};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
 use bray_package_interface::{
@@ -320,10 +323,9 @@ pub(crate) fn runtime_standard_library_dependency(
 fn build_runtime_standard_library_dependency(
     target: crate::SelectedTarget,
 ) -> DependencyInterfaceInput {
-    let package = PackageIdentity::try_new(
-        bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-    )
-    .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+    let package =
+        PackageIdentity::try_new(bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+            .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
 
     let product = bray_package_interface::InterfaceProductIdentity::try_new(
         bray_standard_library::PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
@@ -358,7 +360,11 @@ fn build_runtime_standard_library_dependency(
             )
         })
         .collect(),
-        CompilationOptions::new(WorkerBudget::serial(), bray_symbols::ProductKind::Library, target),
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            target,
+        ),
     )
     .with_standard_library_source_authority()
     .with_package_interface_export(export);
@@ -377,16 +383,18 @@ fn build_runtime_standard_library_dependency(
         .and_then(|bundle| bundle.as_ref().ok())
         .unwrap_or_else(|| panic!("runtime standard-library fixture must export"));
 
-    let interface = bray_package_interface::encode_package_interface(bundle)
-        .unwrap_or_else(|error| panic!("runtime standard-library interface must encode: {error:?}"));
+    let interface =
+        bray_package_interface::encode_package_interface(bundle).unwrap_or_else(|error| {
+            panic!("runtime standard-library interface must encode: {error:?}")
+        });
 
     let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
 
-    let validated = bray_package_interface::ValidatedPackageInterface::try_new(
-        interface.bytes(),
-        policy,
-    )
-    .unwrap_or_else(|error| panic!("runtime standard-library interface must validate: {error:?}"));
+    let validated =
+        bray_package_interface::ValidatedPackageInterface::try_new(interface.bytes(), policy)
+            .unwrap_or_else(|error| {
+                panic!("runtime standard-library interface must validate: {error:?}")
+            });
 
     let implementation = bray_package_interface::PackageImplementationArtifact::try_new(
         &validated,
@@ -418,6 +426,26 @@ pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKin
         .iter()
         .map(|diagnostic| diagnostic.kind())
         .collect()
+}
+
+pub(crate) fn only_call_selection(
+    selections: &CheckedSemanticSelections,
+) -> &SemanticSelectionEntry {
+    let mut calls = selections
+        .entries()
+        .iter()
+        .filter(|entry| matches!(entry.selection(), SemanticSelection::Call(_)));
+
+    let Some(call) = calls.next() else {
+        panic!("semantic selections must contain one selected call: {selections:?}");
+    };
+
+    assert!(
+        calls.next().is_none(),
+        "semantic selections must contain only one selected call"
+    );
+
+    call
 }
 
 pub(crate) fn compilation(source: &str) -> Compilation {

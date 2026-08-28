@@ -54,10 +54,7 @@ pub(crate) fn assemble_from_bundles(
 ) -> Result<(), String> {
     let library_root = toolchain.join("lib").join("bray");
 
-    copy_directory(
-        standard_library,
-        &library_root.join("standard-library"),
-    )?;
+    copy_directory(standard_library, &library_root.join("standard-library"))?;
 
     install_runtime(runtime, target, &library_root)
 }

@@ -1,0 +1,8 @@
+@target(target.platform.native_threads && target.identity.SYSTEM == "darwin")
+trusted module std.thread;
+
+trusted internal func platform_set_native_thread_name(pos name: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.pthread_setname_np(name);
+}

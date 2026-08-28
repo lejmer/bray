@@ -1,7 +1,7 @@
 mod buffer;
 mod core;
 mod hello;
-mod memory_rejection;
+mod rejection;
 mod repeatable;
 mod static_storage;
 

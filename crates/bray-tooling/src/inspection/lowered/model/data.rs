@@ -1054,6 +1054,10 @@ fn call_parts(
             parts.attribute("dispatch", "direct");
             callable_reference("callee", *reference, parts, context);
         }
+        MirCallTarget::Runtime(reference) => {
+            parts.attribute("dispatch", "runtime");
+            runtime_reference("callee", *reference, parts);
+        }
         MirCallTarget::Indirect { callee, abi } => {
             parts.attribute("dispatch", "indirect");
             parts.attribute("callable_abi", callable_abi(*abi));
@@ -1703,6 +1707,7 @@ fn inspection_terminator(
         MirTerminatorKind::Unreachable => "unreachable",
         MirTerminatorKind::Suspend {
             kind,
+            payload,
             resume_state,
             resume,
             cancellation,
@@ -1710,6 +1715,11 @@ fn inspection_terminator(
             wake,
         } => {
             parts.attribute("kind", kind.as_str());
+
+            if let Some(payload) = payload {
+                parts.operand("payload", payload, &context)?;
+            }
+
             parts.attribute("resume_state", resume_state.raw());
             parts.attribute("registration_runtime", registration.role().as_str());
 

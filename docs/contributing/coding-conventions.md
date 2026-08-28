@@ -83,6 +83,7 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Avoid hidden behavior, hidden dependencies, and hidden policy decisions.
 - Keep core logic operating on validated, well-typed structures.
 - Validate external inputs at boundaries.
+- `fetch_update` will be deprecated from Rust 1.99.0: use `try_update` instead.
 
 ## Modules and files
 

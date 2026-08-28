@@ -166,6 +166,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             CodegenTypeKind::Callable(_) => {
                 self.map_pointer(bray_codegen::TargetAddressSpaceKind::Function)
             }
+            CodegenTypeKind::Opaque => Ok(self.context.struct_type(&[], false).into()),
             CodegenTypeKind::Aggregate(fields) => self.map_aggregate(mapping, fields),
             CodegenTypeKind::Array { element, length } => {
                 let length =

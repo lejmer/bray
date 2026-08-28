@@ -97,10 +97,11 @@ fn microsoft_compiler_arguments(
     current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
     let raw = arguments_for_with_directory(plan, LldFlavor::Coff, current_directory)?;
-    let mut arguments = Vec::with_capacity(raw.len() * 2 + 2);
+    let mut arguments = Vec::with_capacity(raw.len() * 2 + 3);
 
     arguments.push(format!("--target={}", plan.target().triple()).into());
     arguments.push("-fuse-ld=lld".into());
+    arguments.push("-nostdlib".into());
 
     if matches!(
         plan.policy().optimization(),
@@ -882,6 +883,7 @@ mod tests {
                 vec![
                     OsString::from("--target=test-target-triple"),
                     OsString::from("-fuse-ld=lld"),
+                    OsString::from("-nostdlib"),
                     OsString::from("-Xlinker"),
                     OsString::from("/brepro"),
                     OsString::from("-Xlinker"),

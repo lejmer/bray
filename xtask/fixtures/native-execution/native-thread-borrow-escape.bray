@@ -1,0 +1,44 @@
+module native_thread_borrow_escape;
+
+using std.thread;
+
+struct Context
+{
+    value: &mut i32;
+}
+
+func observe(pos state: Context)
+    requires(blocking_execution(), compute_execution())
+{
+    state;
+}
+
+func escape() -> std.thread.Thread<unit>
+{
+    let mut value: i32 = 1;
+
+    let state: Context =
+    {
+        value = &mut value
+    };
+
+    let mut thread: std.thread.Thread<unit> = match std.thread.start<Context, unit>(observe, state)
+    {
+        case Ok(thread) { yield thread; }
+        case Error(_) { panic("native thread creation failed"); }
+    };
+
+    return thread;
+}
+
+func main()
+{
+    let mut thread: std.thread.Thread<unit> = escape();
+
+    match thread.join()
+    {
+        case Completed(_) {}
+        case Cancelled {}
+        case Panicked(_) {}
+    }
+}

@@ -81,21 +81,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .copied()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let source = self
-            .builder
-            .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
         let element: BasicValueEnum<'context> = start.into();
 
-        phi.add_incoming(&[(&element, source)]);
-        self.add_edge_arguments(exhausted)?;
+        let (source, pending_moves) = self.take_control_source()?;
 
-        llvm(self.builder.build_conditional_branch(
-            present,
-            self.block(item)?,
-            self.block(exhausted.target())?,
-        ))?;
+        let item_route = self.route_target(item, "range.item", &pending_moves)?;
+        let exhausted_route = self.route_edge(exhausted, "range.exhausted", &pending_moves)?;
+
+        phi.add_incoming(&[(&element, item_route)]);
+        self.builder.position_at_end(source);
+
+        llvm(
+            self.builder
+                .build_conditional_branch(present, item_route, exhausted_route),
+        )?;
 
         Ok(())
     }
