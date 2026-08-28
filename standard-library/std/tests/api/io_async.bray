@@ -4,6 +4,7 @@ using std.bytes;
 using std.io;
 using internal std.io.BufferedReaderSourceAsyncReader;
 using internal std.io.BufferedWriterSinkAsyncWriter;
+using std.testing;
 
 struct AsyncCountingWriter
 {
@@ -227,20 +228,20 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     let _: usize = try await recovering(std.io.AsyncWriter).write_async(&full[..]);
 
-    match await recovering(std.io.AsyncWriter).write_async(&trailing[..])
-    {
-        case Ok(_) { assert(false); }
-        case Error(error) { assert(error.transferred == 0); }
-    }
+    let write_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
+        await recovering(std.io.AsyncWriter).write_async(&trailing[..]),
+    );
+
+    assert(write_error.transferred == 0);
 
     let retried: usize = try await recovering(std.io.AsyncWriter).write_async(&trailing[..]);
     assert(retried == 1);
 
-    match await recovering(std.io.AsyncWriter).flush_async()
-    {
-        case Ok(_) { assert(false); }
-        case Error(error) { assert(error.transferred == 1); }
-    }
+    let flush_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
+        await recovering(std.io.AsyncWriter).flush_async(),
+    );
+
+    assert(flush_error.transferred == 1);
 
     try await recovering(std.io.AsyncWriter).flush_async();
 

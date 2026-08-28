@@ -56,9 +56,33 @@ func assert_ok_rejects_an_error()
 }
 
 @test
+func assert_error_rejects_success()
+{
+    let _: unit = std.testing.assert_error<unit, unit>(Ok(unit));
+}
+
+@test
 func assert_completed_rejects_cancellation()
 {
     let _: unit = std.testing.assert_completed<unit>(RunResult.Cancelled);
+}
+
+@test
+func assert_panicked_rejects_completion()
+{
+    let _: PanicReport = std.testing.assert_panicked<unit>(RunResult.Completed(unit));
+}
+
+@test
+func assert_cancelled_rejects_completion()
+{
+    std.testing.assert_cancelled<unit>(RunResult.Completed(unit));
+}
+
+@test
+func assert_not_completed_rejects_completion()
+{
+    std.testing.assert_not_completed<unit>(RunResult.Completed(unit));
 }
 
 @test

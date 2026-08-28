@@ -3,11 +3,41 @@ module bray.standard_library_tests.testing;
 using std.testing;
 
 @test
-func testing_success_assertions_return_the_success_payload()
+func testing_result_assertions_return_the_selected_payload()
 {
     let ok: i32 = std.testing.assert_ok<i32, unit>(Ok(41));
-    let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(42));
+    let error: i32 = std.testing.assert_error<unit, i32>(Error(42));
 
     assert(ok == 41);
-    assert(completed == 42);
+    assert(error == 42);
+}
+
+@test
+func testing_run_result_assertions_accept_the_selected_state()
+{
+    let caught_for_panicked: Result<unit, PanicReport> = catch
+    {
+        panic("expected panic");
+
+        yield unit;
+    };
+
+    let caught_for_not_completed: Result<unit, PanicReport> = catch
+    {
+        panic("expected panic");
+
+        yield unit;
+    };
+
+    let panicked_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_panicked);
+    let not_completed_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_not_completed);
+    let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(43));
+
+    let _: PanicReport = std.testing.assert_panicked<unit>(RunResult.Panicked(panicked_report));
+
+    std.testing.assert_not_completed<unit>(RunResult.Panicked(not_completed_report));
+    std.testing.assert_cancelled<unit>(RunResult.Cancelled);
+    std.testing.assert_not_completed<unit>(RunResult.Cancelled);
+
+    assert(completed == 43);
 }

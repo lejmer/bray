@@ -10,6 +10,16 @@ func assert_ok<T, E>(pos result: Result<T, E>) -> T
     }
 }
 
+/// Returns the error value or fails the current test when the result is successful.
+func assert_error<T, E>(pos result: Result<T, E>) -> E
+{
+    match consume result
+    {
+        case Ok(_) { fail(&"expected Result.Error"); }
+        case Error(error) { return error; }
+    }
+}
+
 /// Returns the completed value or fails the current test when the run panicked or was cancelled.
 func assert_completed<T>(pos result: RunResult<T>) -> T
 {
@@ -17,6 +27,36 @@ func assert_completed<T>(pos result: RunResult<T>) -> T
     {
         case Completed(value) { return value; }
         case Panicked(_) | Cancelled { fail(&"expected RunResult.Completed"); }
+    }
+}
+
+/// Returns the panic report or fails the current test when the run completed or was cancelled.
+func assert_panicked<T>(pos result: RunResult<T>) -> PanicReport
+{
+    match consume result
+    {
+        case Completed(_) | Cancelled { fail(&"expected RunResult.Panicked"); }
+        case Panicked(report) { return report; }
+    }
+}
+
+/// Fails the current test unless the run was cancelled.
+func assert_cancelled<T>(pos result: RunResult<T>)
+{
+    match consume result
+    {
+        case Completed(_) | Panicked(_) { fail(&"expected RunResult.Cancelled"); }
+        case Cancelled {}
+    }
+}
+
+/// Fails the current test when the run completed successfully.
+func assert_not_completed<T>(pos result: RunResult<T>)
+{
+    match consume result
+    {
+        case Completed(_) { fail(&"expected RunResult.Panicked or RunResult.Cancelled"); }
+        case Panicked(_) | Cancelled {}
     }
 }
 

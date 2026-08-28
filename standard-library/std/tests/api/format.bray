@@ -287,10 +287,9 @@ trusted func fixed_formatting_reports_capacity_without_partial_digit_output()
         std.format.FixedSinkError
     >(&mut sink, std.format.Argument<u32>(&value));
 
-    match consume result
+    match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.format.FixedSinkError.CapacityExceeded) {}
+        case std.format.FixedSinkError.CapacityExceeded {}
     }
 
     let length: usize = std.format.finish_fixed(sink);
@@ -324,10 +323,9 @@ trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow(
         std.format.FixedSinkError
     >(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
 
-    match consume result
+    match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.format.FixedSinkError.CapacityExceeded) {}
+        case std.format.FixedSinkError.CapacityExceeded {}
     }
 
     let length: usize = std.format.finish_fixed(sink);
@@ -432,10 +430,9 @@ trusted func fixed_formatting_handles_maximum_precision_and_sign_without_arithme
         std.format.FixedSinkError
     >(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
 
-    match consume result
+    match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.format.FixedSinkError.CapacityExceeded) {}
+        case std.format.FixedSinkError.CapacityExceeded {}
     }
 
     let length: usize = std.format.finish_fixed(sink);

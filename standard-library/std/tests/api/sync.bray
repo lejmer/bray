@@ -137,11 +137,7 @@ func concurrency_model_failed_once_initialization_can_be_retried()
 {
     let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
-    match once.get_or_try_init<i32>(failed_initialization)
-    {
-        case Ok(_) { assert(false); }
-        case Error(_) {}
-    }
+    let _: i32 = std.testing.assert_error< &i32, i32>(once.get_or_try_init<i32>(failed_initialization));
 
     assert(once.get_or_init(initialized_value) == 37);
 }
@@ -203,12 +199,7 @@ async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progre
 
     let panicked: Task<unit> = panic_while_holding_mutex(&counter).start();
 
-    match await panicked.join()
-    {
-        case Panicked(_) {}
-        case Completed(_) { assert(false); }
-        case Cancelled { assert(false); }
-    }
+    let _: PanicReport = std.testing.assert_panicked<unit>(await panicked.join());
 
     match consume counter.try_lock()
     {

@@ -101,46 +101,41 @@ func widest_integer_parsing()
     assert(decimal_value == 42);
     assert(hexadecimal_value == 255);
 
-    match consume invalid
+    match std.testing.assert_error<u128, std.numeric.ParseError>(invalid)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.numeric.ParseError.InvalidDigit) {}
-        case Error(_) { assert(false); }
+        case std.numeric.ParseError.InvalidDigit {}
+        case _ { assert(false); }
     }
 
     let signed_value: i32 = std.testing.assert_ok<i32, std.numeric.ParseError>(signed);
 
     assert(signed_value == -42);
 
-    match consume narrow_overflow
+    match std.testing.assert_error<u8, std.numeric.ParseError>(narrow_overflow)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.numeric.ParseError.Overflow) {}
-        case Error(_) { assert(false); }
+        case std.numeric.ParseError.Overflow {}
+        case _ { assert(false); }
     }
 
-    match consume empty
+    match std.testing.assert_error<u16, std.numeric.ParseError>(empty)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.numeric.ParseError.Empty) {}
-        case Error(_) { assert(false); }
+        case std.numeric.ParseError.Empty {}
+        case _ { assert(false); }
     }
 
-    match consume invalid_radix
+    match std.testing.assert_error<u32, std.numeric.ParseError>(invalid_radix)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.numeric.ParseError.InvalidRadix) {}
-        case Error(_) { assert(false); }
+        case std.numeric.ParseError.InvalidRadix {}
+        case _ { assert(false); }
     }
 
     let minimum_value: i8 = std.testing.assert_ok<i8, std.numeric.ParseError>(signed_minimum);
 
     assert(minimum_value == -128);
 
-    match consume signed_overflow
+    match std.testing.assert_error<i8, std.numeric.ParseError>(signed_overflow)
     {
-        case Ok(_) { assert(false); }
-        case Error(std.numeric.ParseError.Overflow) {}
-        case Error(_) { assert(false); }
+        case std.numeric.ParseError.Overflow {}
+        case _ { assert(false); }
     }
 }

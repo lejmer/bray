@@ -169,12 +169,7 @@ func native_thread_panic_is_reported_to_the_owner()
         case Error(_) { panic("native thread creation failed"); }
     };
 
-    match consume thread.join()
-    {
-        case Completed(_) { assert(false); }
-        case Panicked(_) {}
-        case Cancelled { assert(false); }
-    }
+    let _: PanicReport = std.testing.assert_panicked<unit>(thread.join());
 }
 
 @test
@@ -186,12 +181,7 @@ func concurrency_stress_native_thread_cancellation_reaches_a_checkpoint()
         case Error(_) { panic("native thread creation failed"); }
     };
 
-    match consume thread.cancel()
-    {
-        case Completed(_) { assert(false); }
-        case Panicked(_) { assert(false); }
-        case Cancelled {}
-    }
+    std.testing.assert_cancelled<unit>(thread.cancel());
 }
 
 @test
@@ -212,12 +202,7 @@ async func cancelling_native_thread_run_cancels_the_owned_thread()
         unit,
     ).start();
 
-    match await running.cancel()
-    {
-        case Cancelled {}
-        case Completed(_) { assert(false); }
-        case Panicked(_) { assert(false); }
-    }
+    std.testing.assert_cancelled<Result<unit, std.thread.ThreadError>>(await running.cancel());
 }
 
 @test

@@ -1,6 +1,7 @@
 module async_tasks;
 
 using std.task;
+using std.testing;
 
 async func complete()
 {
@@ -36,23 +37,11 @@ async func main()
     try await first.join();
     try await second.join();
 
-    match try await result_task.join()
-    {
-        case Ok(value) { assert(value == 42); }
-        case Error(_) { assert(false); }
-    }
+    let value: i32 = std.testing.assert_ok<i32, i32>(try await result_task.join());
 
-    match await failed.join()
-    {
-        case Completed(_) { assert(false); }
-        case Panicked(_) {}
-        case Cancelled { assert(false); }
-    }
+    assert(value == 42);
 
-    match await cancelled.cancel()
-    {
-        case Completed(_) { assert(false); }
-        case Panicked(_) { assert(false); }
-        case Cancelled {}
-    }
+    let _: PanicReport = std.testing.assert_panicked<unit>(await failed.join());
+
+    std.testing.assert_cancelled<unit>(await cancelled.cancel());
 }

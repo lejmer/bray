@@ -122,63 +122,41 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
 {
     let invalid: [u8; 3] = [65, 0, 66];
 
-    match trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..])
+    match std.testing.assert_error<std.ffi.c.OwnedNarrowString, std.ffi.c.StringError>(
+        trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..]),
+    )
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case std.ffi.c.StringError.InteriorNul {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.c.StringError.InteriorNul {}
+        case _ { assert(false); }
     }
 
     let invalid_utf8: [u8; 2] = [255, 0];
     let encoded: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_narrow_string(&invalid_utf8[..]);
 
-    match encoded.decode_utf8()
+    match std.testing.assert_error<string, std.ffi.c.StringError>(encoded.decode_utf8())
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case std.ffi.c.StringError.InvalidEncoding {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.c.StringError.InvalidEncoding {}
+        case _ { assert(false); }
     }
 
     let unterminated: [u8; 1] = [65];
 
-    match std.ffi.c.borrow_narrow_string(&unterminated[..])
+    match std.testing.assert_error<std.ffi.c.BorrowedNarrowString, std.ffi.c.StringError>(
+        std.ffi.c.borrow_narrow_string(&unterminated[..]),
+    )
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case std.ffi.c.StringError.MissingTerminator {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.c.StringError.MissingTerminator {}
+        case _ { assert(false); }
     }
 
     let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char(65)];
 
-    match std.ffi.c.borrow_wide_string(&wide_unterminated[..])
+    match std.testing.assert_error<std.ffi.c.BorrowedWideString, std.ffi.c.StringError>(
+        std.ffi.c.borrow_wide_string(&wide_unterminated[..]),
+    )
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case std.ffi.c.StringError.MissingTerminator {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.c.StringError.MissingTerminator {}
+        case _ { assert(false); }
     }
 
     let wide_interior: [std.ffi.c.WideChar; 3] = [
@@ -187,17 +165,12 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
         std.ffi.c.wide_char(66),
     ];
 
-    match trusted std.ffi.c.OwnedWideString.from_units(&wide_interior[..])
+    match std.testing.assert_error<std.ffi.c.OwnedWideString, std.ffi.c.StringError>(
+        trusted std.ffi.c.OwnedWideString.from_units(&wide_interior[..]),
+    )
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case std.ffi.c.StringError.InteriorNul {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.c.StringError.InteriorNul {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);
@@ -237,23 +210,20 @@ trusted func foreign_resources_reject_invalid_handles() -> Result<unit, std.ffi.
 
     native_code = invalid_code;
 
-    match trusted internal std.ffi.owned_foreign_resource(0, valid = false, invalid_native_code = native_code)
-    {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.InvalidResource {}
-                case _ { assert(false); }
-            }
+    let error: std.ffi.ForeignError = std.testing.assert_error<std.ffi.ForeignResourceState, std.ffi.ForeignError>(
+        trusted internal std.ffi.owned_foreign_resource(0, valid = false, invalid_native_code = native_code)
+    );
 
-            match error.native_code()
-            {
-                case ?value { assert(value == 6); }
-                case none { assert(false); }
-            }
-        }
+    match error.kind()
+    {
+        case std.ffi.ForeignErrorKind.InvalidResource {}
+        case _ { assert(false); }
+    }
+
+    match error.native_code()
+    {
+        case ?value { assert(value == 6); }
+        case none { assert(false); }
     }
 
     return Ok(unit);
@@ -280,17 +250,14 @@ trusted func foreign_resources_borrow_transfer_and_reject_repeated_transfer() ->
     assert(transferred == 41);
     assert(!internal std.ffi.foreign_resource_is_owned(&resource));
 
-    match trusted internal std.ffi.transfer_foreign_resource(&mut resource)
+    let error: std.ffi.ForeignError = std.testing.assert_error<u64, std.ffi.ForeignError>(
+        trusted internal std.ffi.transfer_foreign_resource(&mut resource),
+    );
+
+    match error.kind()
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.InvalidResource {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.ForeignErrorKind.InvalidResource {}
+        case _ { assert(false); }
     }
 
     return Ok(unit);
@@ -323,17 +290,14 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             native_code = 0,
         };
 
-        match trusted internal std.ffi.resolve_foreign_resource_release(&mut released, repeated_release)
+        let error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+            trusted internal std.ffi.resolve_foreign_resource_release(&mut released, repeated_release),
+        );
+
+        match error.kind()
         {
-            case Ok(_) { assert(false); }
-            case Error(error)
-            {
-                match error.kind()
-                {
-                    case std.ffi.ForeignErrorKind.InvalidResource {}
-                    case _ { assert(false); }
-                }
-            }
+            case std.ffi.ForeignErrorKind.InvalidResource {}
+            case _ { assert(false); }
         }
     }
 
@@ -350,38 +314,32 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             std.ffi.ForeignError
         >(trusted internal std.ffi.owned_foreign_resource(43, valid = true));
 
-        match trusted internal std.ffi.resolve_foreign_resource_release(&mut failed, denied)
-        {
-            case Ok(_) { assert(false); }
-            case Error(error)
-            {
-                match error.kind()
-                {
-                    case std.ffi.ForeignErrorKind.PermissionDenied {}
-                    case _ { assert(false); }
-                }
+        let release_error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+            trusted internal std.ffi.resolve_foreign_resource_release(&mut failed, denied),
+        );
 
-                match error.native_code()
-                {
-                    case ?value { assert(value == 13); }
-                    case none { assert(false); }
-                }
-            }
+        match release_error.kind()
+        {
+            case std.ffi.ForeignErrorKind.PermissionDenied {}
+            case _ { assert(false); }
+        }
+
+        match release_error.native_code()
+        {
+            case ?value { assert(value == 13); }
+            case none { assert(false); }
         }
 
         assert(!internal std.ffi.foreign_resource_is_owned(&failed));
 
-        match trusted internal std.ffi.transfer_foreign_resource(&mut failed)
+        let transfer_error: std.ffi.ForeignError = std.testing.assert_error<u64, std.ffi.ForeignError>(
+            trusted internal std.ffi.transfer_foreign_resource(&mut failed),
+        );
+
+        match transfer_error.kind()
         {
-            case Ok(_) { assert(false); }
-            case Error(error)
-            {
-                match error.kind()
-                {
-                    case std.ffi.ForeignErrorKind.InvalidResource {}
-                    case _ { assert(false); }
-                }
-            }
+            case std.ffi.ForeignErrorKind.InvalidResource {}
+            case _ { assert(false); }
         }
     }
 
@@ -398,23 +356,20 @@ func foreign_platform_statuses_preserve_stable_failures()
         native_code = 13,
     };
 
-    match internal std.ffi.checked_foreign_status(denied)
-    {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.PermissionDenied {}
-                case _ { assert(false); }
-            }
+    let denied_error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+        internal std.ffi.checked_foreign_status(denied),
+    );
 
-            match error.native_code()
-            {
-                case ?value { assert(value == 13); }
-                case none { assert(false); }
-            }
-        }
+    match denied_error.kind()
+    {
+        case std.ffi.ForeignErrorKind.PermissionDenied {}
+        case _ { assert(false); }
+    }
+
+    match denied_error.native_code()
+    {
+        case ?value { assert(value == 13); }
+        case none { assert(false); }
     }
 
     let malformed: std.platform.PlatformStatus =
@@ -424,17 +379,14 @@ func foreign_platform_statuses_preserve_stable_failures()
         native_code = 0,
     };
 
-    match internal std.ffi.checked_foreign_status(malformed)
+    let malformed_error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+        internal std.ffi.checked_foreign_status(malformed),
+    );
+
+    match malformed_error.kind()
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.IncompatibleAbi {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.ForeignErrorKind.IncompatibleAbi {}
+        case _ { assert(false); }
     }
 
     let missing: std.platform.PlatformStatus =
@@ -444,23 +396,20 @@ func foreign_platform_statuses_preserve_stable_failures()
         native_code = 126,
     };
 
-    match internal std.ffi.checked_foreign_library_status(missing)
-    {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.UnavailableLibrary {}
-                case _ { assert(false); }
-            }
+    let library_error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+        internal std.ffi.checked_foreign_library_status(missing),
+    );
 
-            match error.native_code()
-            {
-                case ?value { assert(value == 126); }
-                case none { assert(false); }
-            }
-        }
+    match library_error.kind()
+    {
+        case std.ffi.ForeignErrorKind.UnavailableLibrary {}
+        case _ { assert(false); }
+    }
+
+    match library_error.native_code()
+    {
+        case ?value { assert(value == 126); }
+        case none { assert(false); }
     }
 
     let missing_symbol: std.platform.PlatformStatus =
@@ -470,16 +419,13 @@ func foreign_platform_statuses_preserve_stable_failures()
         native_code = 127,
     };
 
-    match internal std.ffi.checked_foreign_symbol_status(missing_symbol)
+    let symbol_error: std.ffi.ForeignError = std.testing.assert_error<unit, std.ffi.ForeignError>(
+        internal std.ffi.checked_foreign_symbol_status(missing_symbol),
+    );
+
+    match symbol_error.kind()
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error.kind()
-            {
-                case std.ffi.ForeignErrorKind.UnavailableSymbol {}
-                case _ { assert(false); }
-            }
-        }
+        case std.ffi.ForeignErrorKind.UnavailableSymbol {}
+        case _ { assert(false); }
     }
 }

@@ -133,12 +133,7 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 
     let blocked: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(17).start();
 
-    match await blocked.cancel()
-    {
-        case Cancelled {}
-        case Completed(_) { assert(false); }
-        case Panicked(_) { assert(false); }
-    }
+    std.testing.assert_cancelled<Result<unit, std.channel.SendError<i32>>>(await blocked.cancel());
 
     let next: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(23).start();
 
@@ -277,17 +272,10 @@ func endpoint_closure_preserves_unsent_values_and_terminal_receives()
     sender.close();
     receiver.close();
 
-    match duplicate.try_send(73)
+    match consume std.testing.assert_error<unit, std.channel.TrySendError<i32>>(duplicate.try_send(73))
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match consume error
-            {
-                case Closed(value) { assert(value == 73); }
-                case Full(_) { assert(false); }
-            }
-        }
+        case Closed(value) { assert(value == 73); }
+        case Full(_) { assert(false); }
     }
 
     duplicate.close();
@@ -334,22 +322,10 @@ func concurrency_model_channel_capacity_overflow_is_recoverable()
 {
     let impossible_capacity: usize = ~0;
 
-    match std.channel.bounded<u64>(capacity = impossible_capacity)
+    match std.testing.assert_error<(std.channel.Sender<u64>, std.channel.Receiver<u64>), std.channel.ChannelError>(
+        std.channel.bounded<u64>(capacity = impossible_capacity)
+    )
     {
-        case Ok(endpoints)
-        {
-            let(mut sender, mut receiver) = endpoints;
-
-            sender.close();
-            receiver.close();
-            assert(false);
-        }
-        case Error(error)
-        {
-            match error
-            {
-                case CapacityOverflow {}
-            }
-        }
+        case CapacityOverflow {}
     }
 }

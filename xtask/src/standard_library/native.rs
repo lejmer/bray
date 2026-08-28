@@ -16,11 +16,11 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 119;
+const API_TEST_COUNT: usize = 120;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 11] = [
+const OUTCOME_CASES: [OutcomeCase; 15] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -41,11 +41,47 @@ const OUTCOME_CASES: [OutcomeCase; 11] = [
         },
     ),
     OutcomeCase::new(
+        "assert-error-rejects-success",
+        "assert_error_rejects_success",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected Result.Error",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
         "assert-completed-rejects-cancellation",
         "assert_completed_rejects_cancellation",
         OutcomeExpectation::Panic {
             cause: "explicit_failure",
             message: "expected RunResult.Completed",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-panicked-rejects-completion",
+        "assert_panicked_rejects_completion",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected RunResult.Panicked",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-cancelled-rejects-completion",
+        "assert_cancelled_rejects_completion",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected RunResult.Cancelled",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-not-completed-rejects-completion",
+        "assert_not_completed_rejects_completion",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected RunResult.Panicked or RunResult.Cancelled",
             source_available: false,
         },
     ),

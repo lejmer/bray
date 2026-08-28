@@ -6,6 +6,7 @@ using std.ffi;
 using std.ffi.c;
 using std.memory;
 using std.path;
+using std.testing;
 
 __TARGET_HANDLE_AUDIT__
 
@@ -324,14 +325,12 @@ trusted func audit_strings()
 {
     let narrow_bytes: [u8; 4] = [98, 114, 97, 121];
 
-    match consume trusted std.ffi.c.OwnedNarrowString.from_bytes(&narrow_bytes[..])
-    {
-        case Error(_) { assert(false); }
-        case Ok(narrow)
-        {
-            assert(trusted native_narrow_length(narrow.borrow().pointer()) == 4);
-        }
-    }
+    let narrow: std.ffi.c.OwnedNarrowString = std.testing.assert_ok<
+        std.ffi.c.OwnedNarrowString,
+        std.ffi.c.StringError
+    >(trusted std.ffi.c.OwnedNarrowString.from_bytes(&narrow_bytes[..]));
+
+    assert(trusted native_narrow_length(narrow.borrow().pointer()) == 4);
 
     let wide_units: [std.ffi.c.WideChar; 4] = [
         std.ffi.c.wide_char(98),
@@ -340,14 +339,12 @@ trusted func audit_strings()
         std.ffi.c.wide_char(121),
     ];
 
-    match consume trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..])
-    {
-        case Error(_) { assert(false); }
-        case Ok(wide)
-        {
-            assert(trusted native_wide_length(wide.borrow().pointer()) == 4);
-        }
-    }
+    let wide: std.ffi.c.OwnedWideString = std.testing.assert_ok<
+        std.ffi.c.OwnedWideString,
+        std.ffi.c.StringError
+    >(trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..]));
+
+    assert(trusted native_wide_length(wide.borrow().pointer()) == 4);
 }
 
 trusted func audit_resources()
@@ -355,86 +352,47 @@ trusted func audit_resources()
 {
     assert(trusted native_resource_live_count() == 0);
 
-    match consume trusted NativeResource(succeed = false)
+    match std.testing.assert_error<NativeResource, NativeResourceError>(trusted NativeResource(succeed = false))
     {
-        case Ok(_) { assert(false); }
-        case Error(error)
-        {
-            match error
-            {
-                case NativeResourceError.Invalid {}
-                case _ { assert(false); }
-            }
-        }
+        case NativeResourceError.Invalid {}
+        case _ { assert(false); }
     }
 
-    let mut owner: NativeResource = match consume trusted NativeResource(succeed = true)
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(resource) { yield resource; }
-    };
+    let mut owner: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
+        trusted NativeResource(succeed = true),
+    );
 
     assert(owner.is_owned());
     assert(owner.handle() != 0);
     assert(trusted native_resource_live_count() == 1);
 
-    let mut duplicate: NativeResource = match consume trusted owner.duplicate()
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(resource) { yield resource; }
-    };
+    let mut duplicate: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
+        trusted owner.duplicate(),
+    );
 
     assert(trusted native_resource_live_count() == 2);
 
-    let transferred: u64 = match consume trusted duplicate.transfer()
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(handle) { yield handle; }
-    };
+    let transferred: u64 = std.testing.assert_ok<u64, NativeResourceError>(trusted duplicate.transfer());
 
     assert(trusted native_resource_live_count() == 2);
     assert(trusted native_resource_release(transferred, fail = false) == 0);
     assert(trusted native_resource_live_count() == 1);
 
     {
-        let mut failed: NativeResource = match consume trusted NativeResource(succeed = true)
-        {
-            case Error(_)
-            {
-                assert(false);
-                return;
-            }
-            case Ok(resource) { yield resource; }
-        };
+        let mut failed: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
+            trusted NativeResource(succeed = true),
+        );
 
         assert(trusted native_resource_live_count() == 2);
 
-        match consume trusted failed.close(fail = true)
-        {
-            case Ok(_) { assert(false); }
-            case Error(_) {}
-        }
+        let _: NativeResourceError = std.testing.assert_error<unit, NativeResourceError>(
+            trusted failed.close(fail = true),
+        );
     }
 
     assert(trusted native_resource_live_count() == 1);
 
-    match consume trusted owner.close(fail = false)
-    {
-        case Error(_) { assert(false); }
-        case Ok(_) {}
-    }
+    std.testing.assert_ok<unit, NativeResourceError>(trusted owner.close(fail = false));
 
     assert(trusted native_resource_live_count() == 0);
 }
@@ -447,15 +405,10 @@ trusted func audit_callbacks()
 
     assert(trusted native_invoke_plain(plain, 41) == 42);
 
-    let context: std.ffi.CallbackContext<i32> = match consume trusted std.ffi.CallbackContext<i32>(40)
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(context) { yield context; }
-    };
+    let context: std.ffi.CallbackContext<i32> = std.testing.assert_ok<
+        std.ffi.CallbackContext<i32>,
+        std.memory.MemoryLayoutError
+    >(trusted std.ffi.CallbackContext<i32>(40));
 
     let entry: @abi(c)
     trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
@@ -480,28 +433,16 @@ trusted func audit_dynamic_library()
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let path: std.path.Path = match consume std.path.Path.from_string(&"__SHARED_LIBRARY_PATH__")
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(path) { yield path; }
-    };
+    let path: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(
+        std.path.Path.from_string(&"__SHARED_LIBRARY_PATH__"),
+    );
 
-    let mut library: std.dynamic.DynamicLibrary = match consume std.dynamic.DynamicLibrary.open_path(
-        &path,
-        policy = std.dynamic.LoadPolicy.PlatformDefault,
-    )
-    {
-        case Error(_)
-        {
-            assert(false);
-            return;
-        }
-        case Ok(library) { yield library; }
-    };
+    let mut library: std.dynamic.DynamicLibrary = std.testing.assert_ok<
+        std.dynamic.DynamicLibrary,
+        std.ffi.ForeignError
+    >(
+        std.dynamic.DynamicLibrary.open_path(&path, policy = std.dynamic.LoadPolicy.PlatformDefault),
+    );
 
     {
         let name: [u8; 29] = [
@@ -513,18 +454,18 @@ trusted func audit_dynamic_library()
         let symbol: std.dynamic.DynamicSymbol<
             @abi(c)
             trusted func(pos value: NativeRecord) -> NativeRecord
-        > = match consume trusted std.dynamic.symbol<
-            @abi(c)
-            trusted func(pos value: NativeRecord) -> NativeRecord
-        >(&library, &name[..])
-        {
-            case Error(_)
-            {
-                assert(false);
-                return;
-            }
-            case Ok(symbol) { yield symbol; }
-        };
+        > = std.testing.assert_ok<
+            std.dynamic.DynamicSymbol<
+                @abi(c)
+                trusted func(pos value: NativeRecord) -> NativeRecord
+            >,
+            std.ffi.ForeignError
+        >(
+            trusted std.dynamic.symbol<
+                @abi(c)
+                trusted func(pos value: NativeRecord) -> NativeRecord
+            >(&library, &name[..]),
+        );
 
         let _: &std.dynamic.DynamicLibrary = symbol.library();
     }
@@ -535,25 +476,19 @@ trusted func audit_dynamic_library()
             110, 103, 95, 102, 105, 120, 116, 117, 114, 101,
         ];
 
-        match consume trusted std.dynamic.symbol<u8>(&library, &missing_name[..])
+        let error: std.ffi.ForeignError = std.testing.assert_error<
+            std.dynamic.DynamicSymbol<u8>,
+            std.ffi.ForeignError
+        >(trusted std.dynamic.symbol<u8>(&library, &missing_name[..]));
+
+        match error.kind()
         {
-            case Ok(_) { assert(false); }
-            case Error(error)
-            {
-                match error.kind()
-                {
-                    case std.ffi.ForeignErrorKind.UnavailableSymbol {}
-                    case _ { assert(false); }
-                }
-            }
+            case std.ffi.ForeignErrorKind.UnavailableSymbol {}
+            case _ { assert(false); }
         }
     }
 
-    match consume library.close()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.ffi.ForeignError>(library.close());
 }
 
 trusted func audit_native_data()
