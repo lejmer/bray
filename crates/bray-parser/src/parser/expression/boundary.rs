@@ -89,26 +89,15 @@ impl Parser {
 
         self.consume();
 
-        if !self.at(SyntaxKind::IdentifierToken) {
+        let trait_application = self.parse_trait_application();
+
+        if trait_application.is_recovered() || !self.at(SyntaxKind::CloseParenToken) {
             return false;
         }
 
-        let mut depth = DelimiterDepth::default();
+        self.consume();
 
-        while !self.at(SyntaxKind::EndOfFileToken) {
-            let kind = self.peek().kind();
-
-            if depth.is_at_root() && kind == SyntaxKind::CloseParenToken {
-                self.consume();
-
-                return self.at(SyntaxKind::DotToken);
-            }
-
-            depth.observe_grouping(kind);
-            self.consume();
-        }
-
-        false
+        self.at(SyntaxKind::DotToken)
     }
 
     pub(in crate::parser::expression) fn should_parse_expected_type_struct_construction(

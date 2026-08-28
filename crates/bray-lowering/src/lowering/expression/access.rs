@@ -354,6 +354,9 @@ impl Lowerer<'_> {
         )?;
 
         for (index, projection) in projections.iter().copied().enumerate() {
+            source_type =
+                self.append_projection_dereferences(projection, source_type, &mut lowered)?;
+
             let result_type = self.projection_result_type(identity, &projections[..=index])?;
 
             let (continuation, kind) = self.lower_projection(projection, current)?;
@@ -560,6 +563,9 @@ impl Lowerer<'_> {
         };
 
         for (index, projection) in projections.iter().copied().enumerate() {
+            source_type =
+                self.append_projection_dereferences(projection, source_type, &mut lowered)?;
+
             let Some(kind) = static_projection_kind(projection) else {
                 return Err(LoweringError::UnsupportedStorageAccess(id));
             };

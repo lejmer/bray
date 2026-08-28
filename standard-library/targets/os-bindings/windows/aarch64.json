@@ -801,6 +801,25 @@
           ]
         },
         {
+          "name": "wake_by_address_all",
+          "native": "WakeByAddressAll",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "PVOID"
+            }
+          ],
+          "result": "unit",
+          "native_result": "VOID",
+          "link": "Kernel32",
+          "dependencies": [
+            "foreign_call",
+            "raw_memory"
+          ]
+        },
+        {
           "name": "write_file",
           "native": "WriteFile",
           "abi": "system",

@@ -130,6 +130,9 @@ impl Compilation {
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::UninitInitializerResultUnavailable
+                | FactQueryError::ConstantCallableBodyUnavailable
+                | FactQueryError::ConstantCallableRootUnavailable
                 | FactQueryError::ImportedExecutableTemplateMismatch),
             ) => {
                 panic!("semantic diagnostics failed: {error}")
@@ -171,6 +174,9 @@ impl Compilation {
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::UninitInitializerResultUnavailable
+                | FactQueryError::ConstantCallableBodyUnavailable
+                | FactQueryError::ConstantCallableRootUnavailable
                 | FactQueryError::ImportedExecutableTemplateMismatch),
             ) => {
                 panic!("check diagnostics failed: {error}")

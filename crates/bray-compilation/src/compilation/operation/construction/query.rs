@@ -191,6 +191,33 @@ impl Compilation {
             _ => return Ok(None),
         };
 
+        let named_receiver = match unit.view().expression(member.receiver()) {
+            Some(BoundExpression::Name(receiver)) => Some(receiver),
+            _ => None,
+        };
+
+        if let Some(receiver) = named_receiver
+            && receiver.generic_argument_list().is_none()
+            && let BoundReferenceTarget::Surface(AnySymbolId::Union(union)) = receiver.target()
+            && let Some(result) = types.expression(expression)
+            && !result.is_recovered()
+        {
+            let data = binding_context
+                .semantic_values()
+                .type_data(result.ty())
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            if matches!(
+                data.as_ref(),
+                bray_symbols::TypeData::Named {
+                    definition: NamedTypeSymbolId::Union(definition),
+                    ..
+                } if *definition == union
+            ) {
+                return Ok(Some(result.ty()));
+            }
+        }
+
         if let Some(result) = types.expression(member.receiver())
             && !result.is_recovered()
         {
@@ -210,8 +237,7 @@ impl Compilation {
             }
         }
 
-        let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver())
-        else {
+        let Some(receiver) = named_receiver else {
             return Ok(None);
         };
 

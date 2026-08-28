@@ -1,0 +1,244 @@
+trusted module std.sync;
+
+internal const WRITE_LOCKED: u64 = 9_223_372_036_854_775_808;
+
+internal const WRITER_PENDING_ONE: u64 = 4_294_967_296;
+
+internal const WRITER_PENDING_MASK: u64 = 9_223_372_032_559_808_512;
+
+internal const READER_COUNT_MASK: u64 = 4_294_967_295;
+
+internal const READER_BLOCKED_MASK: u64 = 18_446_744_069_414_584_320;
+
+struct RwLock<T>
+{
+    internal state: core.atomic.Atomic<u64>;
+    internal generation: core.atomic.Atomic<u32>;
+    internal storage: T;
+
+    construct(pos value: T) -> Self
+    {
+        return
+        {
+            state = core.atomic.initialize<u64>(0),
+            generation = core.atomic.initialize<u32>(0),
+            storage = value,
+        };
+    }
+
+    func read() -> RwLockReadGuard<T>
+        requires(blocking_execution())
+    {
+        while true
+        {
+            let generation: u32 = core.atomic.load<u32, 0>(&self.generation);
+            let state: u64 = core.atomic.load<u64, 0>(&self.state);
+
+            if state & READER_BLOCKED_MASK == 0 && state & READER_COUNT_MASK < READER_COUNT_MASK
+            {
+                let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                    &self.state,
+                    expected = state,
+                    desired = state + 1,
+                );
+
+                if acquired
+                {
+                    let guard: RwLockReadGuard<T> =
+                    {
+                        lock = &self,
+                        active = true,
+                    };
+
+                    return guard;
+                }
+            }
+
+            trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
+        }
+    }
+
+    func write() -> RwLockWriteGuard<T>
+        requires(blocking_execution())
+    {
+        trusted internal register_writer<T>(&self);
+
+        while true
+        {
+            let generation: u32 = core.atomic.load<u32, 0>(&self.generation);
+            let state: u64 = core.atomic.load<u64, 0>(&self.state);
+
+            if state & (WRITE_LOCKED | READER_COUNT_MASK) == 0
+            {
+                let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                    &self.state,
+                    expected = state,
+                    desired = (state - WRITER_PENDING_ONE) | WRITE_LOCKED,
+                );
+
+                if acquired
+                {
+                    let guard: RwLockWriteGuard<T> =
+                    {
+                        lock = &self,
+                        active = true,
+                    };
+
+                    return guard;
+                }
+            }
+
+            trusted internal std.atomic.platform_wait_word(&self.generation, expected = generation);
+        }
+    }
+
+    func try_read() -> RwLockReadGuard<T>?
+    {
+        let state: u64 = core.atomic.load<u64, 0>(&self.state);
+
+        if state & READER_BLOCKED_MASK != 0 || state & READER_COUNT_MASK == READER_COUNT_MASK
+        {
+            return none;
+        }
+
+        let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = state, desired = state + 1);
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: RwLockReadGuard<T> =
+        {
+            lock = &self,
+            active = true,
+        };
+
+        let mut result: RwLockReadGuard<T>? = none;
+
+        result = guard;
+
+        return result;
+    }
+
+    func try_write() -> RwLockWriteGuard<T>?
+    {
+        let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = 0, desired = WRITE_LOCKED);
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let guard: RwLockWriteGuard<T> =
+        {
+            lock = &self,
+            active = true,
+        };
+
+        let mut result: RwLockWriteGuard<T>? = none;
+
+        result = guard;
+
+        return result;
+    }
+}
+
+struct RwLockReadGuard<T>
+{
+    internal lock: &RwLock<T>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_read<T>(self.lock);
+        }
+    }
+
+    func get() -> &T
+    {
+        let pointer: RawPointer<T> = std.memory.address_of<T>(&self.lock.storage);
+
+        return trusted std.memory.borrow_from<T, RwLockReadGuard<T>>(&self, pointer);
+    }
+
+    consume mut func unlock()
+    {
+        trusted internal release_read<T>(self.lock);
+        self.active = false;
+    }
+}
+
+struct RwLockWriteGuard<T>
+{
+    internal lock: &RwLock<T>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_write<T>(self.lock);
+        }
+    }
+
+    mut func get() -> &mut T
+    {
+        let pointer: RawPointer<T> = std.memory.address_of<T>(&self.lock.storage);
+
+        return trusted std.memory.borrow_mut_from<T, RwLockWriteGuard<T>>(&mut self, pointer);
+    }
+
+    consume mut func unlock()
+    {
+        trusted internal release_write<T>(self.lock);
+        self.active = false;
+    }
+}
+
+trusted internal func release_read<T>(pos lock: &RwLock<T>)
+{
+    let previous: u64 = core.atomic.fetch_sub<u64, 2>(&lock.state, 1);
+
+    if previous & READER_COUNT_MASK == 1
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 2>(&lock.generation, 1);
+
+        trusted internal std.atomic.platform_wake_all_words(&lock.generation);
+    }
+}
+
+trusted internal func release_write<T>(pos lock: &RwLock<T>)
+{
+    let _: u64 = core.atomic.fetch_and<u64, 2>(&lock.state, ~WRITE_LOCKED);
+
+    let _: u32 = core.atomic.fetch_add<u32, 2>(&lock.generation, 1);
+
+    trusted internal std.atomic.platform_wake_all_words(&lock.generation);
+}
+
+trusted internal func register_writer<T>(pos lock: &RwLock<T>)
+{
+    while true
+    {
+        let state: u64 = core.atomic.load<u64, 0>(&lock.state);
+
+        if state & WRITER_PENDING_MASK == WRITER_PENDING_MASK
+        {
+            panic("reader-writer lock pending writer count exceeded the target range");
+        }
+
+        let(_, registered) = core.atomic.compare_exchange<u64, 1, 0>(
+            &lock.state,
+            expected = state,
+            desired = state + WRITER_PENDING_ONE,
+        );
+
+        if registered
+        {
+            return unit;
+        }
+    }
+}

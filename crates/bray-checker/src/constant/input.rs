@@ -48,6 +48,7 @@ pub struct ConstantEvaluationInput<'input> {
     is_consistent: bool,
     call_resolver: Option<&'input dyn ConstantCallResolver>,
     allow_static_address_borrows: bool,
+    retain_nested_term_types: bool,
     limits: ConstantEvaluationLimits,
 }
 
@@ -81,6 +82,7 @@ impl<'input> ConstantEvaluationInput<'input> {
             is_consistent: true,
             call_resolver: None,
             allow_static_address_borrows: false,
+            retain_nested_term_types: false,
             limits: ConstantEvaluationLimits::default(),
         }
     }
@@ -117,6 +119,13 @@ impl<'input> ConstantEvaluationInput<'input> {
     /// Permits shared address formation for static storage in an initializer template.
     pub const fn with_static_address_borrows(mut self) -> Self {
         self.allow_static_address_borrows = true;
+
+        self
+    }
+
+    /// Retains exact checked types around nested open terms for durable evaluation templates.
+    pub const fn with_nested_term_types(mut self) -> Self {
+        self.retain_nested_term_types = true;
 
         self
     }
@@ -207,6 +216,10 @@ impl<'input> ConstantEvaluationInput<'input> {
 
     pub(crate) const fn allows_static_address_borrows(&self) -> bool {
         self.allow_static_address_borrows
+    }
+
+    pub(crate) const fn retains_nested_term_types(&self) -> bool {
+        self.retain_nested_term_types
     }
 
     /// Returns the deterministic resource limits for this request.

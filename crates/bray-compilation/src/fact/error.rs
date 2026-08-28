@@ -89,10 +89,16 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
+    /// A selected constant callable has no body available for durable evaluation.
+    ConstantCallableBodyUnavailable,
+    /// A selected constant callable body has no evaluable result expression.
+    ConstantCallableRootUnavailable,
     /// The atomic initializer argument has no available compile-time value.
     AtomicInitializerArgumentUnavailable,
     /// The atomic initializer result cannot be retained as a compile-time value.
     AtomicInitializerResultUnavailable,
+    /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
+    UninitInitializerResultUnavailable,
     /// An imported native operation does not match its compiled definition.
     ImportedExecutableTemplateMismatch,
     /// Semantic-context construction found an inconsistent bound unit.
@@ -113,12 +119,20 @@ impl std::fmt::Display for FactQueryError {
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
             }
+            Self::ConstantCallableBodyUnavailable => {
+                formatter.write_str("the constant callable has no available body")
+            }
+            Self::ConstantCallableRootUnavailable => {
+                formatter.write_str("the constant callable body has no result expression")
+            }
             Self::AtomicInitializerArgumentUnavailable => {
                 formatter.write_str("the atomic initializer argument is unavailable")
             }
             Self::AtomicInitializerResultUnavailable => {
                 formatter.write_str("the atomic initializer result cannot be retained")
             }
+            Self::UninitInitializerResultUnavailable => formatter
+                .write_str("the uninitialized-storage initializer result cannot be retained"),
             Self::ImportedExecutableTemplateMismatch => {
                 formatter.write_str("an imported native operation has a mismatched template")
             }

@@ -1,0 +1,291 @@
+module bray.standard_library_tests.sync;
+
+using std.atomic;
+using std.sync;
+using std.task;
+
+internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos iterations: u32)
+    requires(blocking_execution())
+{
+    let mut remaining: u32 = iterations;
+
+    while remaining > 0
+    {
+        {
+            let mut guard: std.sync.MutexGuard<u32> = counter.lock();
+            let value: &mut u32 = guard.get();
+
+            value += 1;
+        }
+
+        remaining -= 1;
+        await std.task.yield_now();
+    }
+}
+
+internal async func panic_while_holding_mutex(pos mutex: &std.sync.Mutex<u32>)
+    requires(blocking_execution())
+{
+    let guard: std.sync.MutexGuard<u32> = mutex.lock();
+
+    panic("synchronization cleanup fixture");
+}
+
+internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
+    requires(blocking_execution())
+{
+    let mut guard: std.sync.RwLockWriteGuard<u32> = lock.write();
+    let position: u32 = std.atomic.fetch_add<u32>(order, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+    let value: &mut u32 = guard.get();
+
+    assert(position == 0);
+    value = 1;
+}
+
+internal async func record_reader_order(pos lock: &std.sync.RwLock<u32>, pos order: &std.atomic.Atomic<u32>)
+    requires(blocking_execution())
+{
+    let guard: std.sync.RwLockReadGuard<u32> = lock.read();
+    let position: u32 = std.atomic.fetch_add<u32>(order, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+
+    assert(position == 1);
+    assert(guard.get() == 1);
+}
+
+internal async func cross_reusable_barrier(
+    pos barrier: &std.sync.Barrier,
+    pos rounds: u32,
+    pos crossings: &std.atomic.Atomic<u32>,
+)
+    requires(blocking_execution())
+{
+    let mut remaining: u32 = rounds;
+
+    while remaining > 0
+    {
+        let _: std.sync.BarrierWait = barrier.wait();
+        let _: u32 = std.atomic.fetch_add<u32>(crossings, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+
+        remaining -= 1;
+        await std.task.yield_now();
+    }
+}
+
+func initialized_value() -> i32
+{
+    return 37;
+}
+
+internal func failed_initialization() -> Result<i32, i32>
+{
+    return Error(19);
+}
+
+@test
+func synchronization_owners_guard_and_publish_values()
+{
+    let spin: std.sync.SpinLock<i32> = std.sync.SpinLock<i32>(1);
+
+    {
+        let mut guard: std.sync.SpinLockGuard<i32> = spin.lock();
+        let value: &mut i32 = guard.get();
+
+        value = 2;
+    }
+
+    let mutex: std.sync.Mutex<i32> = std.sync.Mutex<i32>(3);
+
+    {
+        let mut guard: std.sync.MutexGuard<i32> = mutex.lock();
+        let value: &mut i32 = guard.get();
+
+        value = 5;
+    }
+
+    let lock: std.sync.RwLock<i32> = std.sync.RwLock<i32>(7);
+
+    {
+        let mut guard: std.sync.RwLockWriteGuard<i32> = lock.write();
+        let value: &mut i32 = guard.get();
+
+        value = 11;
+    }
+
+    {
+        let guard: std.sync.RwLockReadGuard<i32> = lock.read();
+
+        assert(guard.get() == 11);
+    }
+
+    let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+
+    assert(once.get_or_init(initialized_value) == 37);
+
+    assert(
+        once.get_or_init(
+            lambda() -> i32
+            {
+                return 99;
+            }
+        ) == 37
+    );
+}
+
+@test
+func failed_once_initialization_can_be_retried()
+{
+    let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+
+    match once.get_or_try_init<i32>(failed_initialization)
+    {
+        case Ok(_) { assert(false); }
+        case Error(_) {}
+    }
+
+    assert(once.get_or_init(initialized_value) == 37);
+}
+
+@test
+func synchronization_signals_cover_immediate_progress()
+{
+    let event: std.sync.ManualResetEvent = std.sync.ManualResetEvent(set = true);
+
+    event.wait();
+    event.reset();
+    assert(!event.is_set());
+    event.set();
+    assert(event.is_set());
+
+    let automatic: std.sync.AutoResetEvent = std.sync.AutoResetEvent(set = true);
+
+    automatic.wait();
+
+    let semaphore: std.sync.Semaphore = match std.sync.Semaphore(initial = 1, maximum = 2)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("semaphore construction failed"); }
+    };
+
+    assert(semaphore.try_acquire());
+    assert(!semaphore.try_acquire());
+
+    match semaphore.release()
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 1)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("barrier construction failed"); }
+    };
+
+    match barrier.wait()
+    {
+        case Leader {}
+        case Follower { assert(false); }
+    }
+}
+
+@test
+async func mutex_contention_and_panic_cleanup_preserve_progress()
+{
+    let counter: std.sync.Mutex<u32> = std.sync.Mutex<u32>(0);
+    let first: Task<unit> = increment_mutex(&counter, iterations = 128).start();
+    let second: Task<unit> = increment_mutex(&counter, iterations = 128).start();
+
+    try await first.join();
+    try await second.join();
+
+    {
+        let mut guard: std.sync.MutexGuard<u32> = counter.lock();
+
+        assert(guard.get() == 256);
+    }
+
+    let panicked: Task<unit> = panic_while_holding_mutex(&counter).start();
+
+    match await panicked.join()
+    {
+        case Panicked(_) {}
+        case Completed(_) { assert(false); }
+        case Cancelled { assert(false); }
+    }
+
+    match consume counter.try_lock()
+    {
+        case ?_ {}
+        case none { assert(false); }
+    }
+
+    match counter.try_lock()
+    {
+        case ?guard
+        {
+            let mut acquired = guard;
+
+            acquired.unlock();
+        }
+        case none { assert(false); }
+    }
+}
+
+@test
+async func reader_writer_lock_admits_a_pending_writer_before_later_readers()
+{
+    let lock: std.sync.RwLock<u32> = std.sync.RwLock<u32>(0);
+    let order = std.atomic.atomic<u32>(0);
+    let mut initial: std.sync.RwLockReadGuard<u32> = lock.read();
+    let writer: Task<unit> = record_writer_order(&lock, order = &order).start();
+    let mut writer_pending: bool = false;
+
+    while !writer_pending
+    {
+        match lock.try_read()
+        {
+            case ?_ {}
+            case none { writer_pending = true; }
+        }
+
+        if !writer_pending
+        {
+            await std.task.yield_now();
+        }
+    }
+
+    assert(writer_pending);
+
+    let reader: Task<unit> = record_reader_order(&lock, order = &order).start();
+
+    initial.unlock();
+
+    try await writer.join();
+    try await reader.join();
+
+    assert(std.atomic.load<u32>(&order, order = std.atomic.LoadOrder.Acquire) == 2);
+}
+
+@test
+async func barrier_reuses_its_generation_across_contended_rounds()
+{
+    let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 3)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("barrier construction failed"); }
+    };
+
+    let crossings: std.atomic.Atomic<u32> = std.atomic.atomic<u32>(0);
+
+    let first: Task<unit> = cross_reusable_barrier(&barrier, rounds = 16, crossings = &crossings).start();
+
+    let second: Task<unit> = cross_reusable_barrier(&barrier, rounds = 16, crossings = &crossings).start();
+
+    let third: Task<unit> = cross_reusable_barrier(&barrier, rounds = 16, crossings = &crossings).start();
+
+    try await first.join();
+    try await second.join();
+    try await third.join();
+
+    assert(std.atomic.load<u32>(&crossings, order = std.atomic.LoadOrder.Acquire) == 48);
+}

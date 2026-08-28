@@ -21,8 +21,12 @@ are:
 impl Once<T>
 {
     static const func empty() -> Self;
-    func get_or_init(pos initializer: func() -> T) -> &T;
-    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<&T, E>;
+
+    func get_or_init(pos initializer: func() -> T) -> &T
+        requires(blocking_execution());
+
+    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<&T, E>
+        requires(blocking_execution());
 }
 ```
 
@@ -33,16 +37,15 @@ The first successful initializer publishes exactly one completely initialized `T
 attempt and observe its synchronization edge before borrowing the value. Normal completion changes the state to
 `initialized` and wakes all waiters.
 
-A returned error from `get_or_try_init`, panic, or cancellation publishes no value, returns the state to `empty`, and
-wakes waiters. The active caller alone receives its returned `E`, propagates its panic, or enters its cancellation
-outcome. Existing waiters do not inherit that outcome. Each awakened waiter rechecks the cell and, unless its own run is
-cancelled, competes to start a new attempt with its own initializer and error type. One eligible caller becomes the next
-initializer while the others wait again. No priority among eligible callers is guaranteed. `Once<Result<T, E>>` caches a
-failure because the `Result` is then the successfully initialized value.
+A returned error from `get_or_try_init` or a panic publishes no value, returns the state to `empty`, and wakes waiters.
+The active caller alone receives its returned `E` or propagates its panic. Existing waiters do not inherit that outcome.
+Each awakened waiter rechecks the cell and competes to start a new attempt with its own initializer and error type. One
+eligible caller becomes the next initializer while the others wait again. No priority among eligible callers is
+guaranteed. `Once<Result<T, E>>` caches a failure because the `Result` is then the successfully initialized value.
 
-Waiting is cancellation-aware. A waiter that observes cancellation of its own run withdraws without invoking its
-initializer or changing the cell state, then continues that run's cancellation. This outcome is independent of the
-active attempt's outcome.
+Waiting is a synchronous native-thread block and is not a cancellation point. A pending cancellation request remains
+observable at the next checkpoint after the accessor returns. Panic and ordinary scope cleanup still roll back an active
+initialization attempt before control leaves it.
 
 Direct or indirect reentry into the same `Once<T>` on its current initialization chain panics before waiting and marks
 that cell's owning attempt as failed. Catching the panic inside the initializer cannot make the attempt publishable. A
@@ -90,6 +93,172 @@ make invalid operation and ordering combinations unrepresentable. Their ordinary
 compiler-provided primitives with closed ordering constants. These declarations are not recognized by module or
 declaration name. Exact ordering, target, wait, and synchronization behavior is defined by
 [Atomic operation contracts](atomic-operation-contracts.md).
+
+## Synchronization owners
+
+`std.sync` provides synchronized owners and guards with ordinary dependency contracts. Its lock declarations are:
+
+```bray
+impl SpinLock<T>
+{
+    construct(pos value: T) -> Self;
+    func lock() -> SpinLockGuard<T>;
+    func try_lock() -> SpinLockGuard<T>?;
+}
+
+impl SpinLockGuard<T>
+{
+    mut func get() -> &mut T;
+    consume mut func unlock();
+}
+
+impl Mutex<T>
+{
+    construct(pos value: T) -> Self;
+
+    func lock() -> MutexGuard<T>
+        requires(blocking_execution());
+
+    func try_lock() -> MutexGuard<T>?;
+}
+
+impl MutexGuard<T>
+{
+    mut func get() -> &mut T;
+    consume mut func unlock();
+}
+
+impl ConditionVariable
+{
+    construct() -> Self;
+
+    func wait<T>(pos mut guard: MutexGuard<T>) -> MutexGuard<T>
+        requires(blocking_execution());
+
+    func notify_one();
+    func notify_all();
+}
+
+impl RwLock<T>
+{
+    construct(pos value: T) -> Self;
+
+    func read() -> RwLockReadGuard<T>
+        requires(blocking_execution());
+
+    func write() -> RwLockWriteGuard<T>
+        requires(blocking_execution());
+
+    func try_read() -> RwLockReadGuard<T>?;
+    func try_write() -> RwLockWriteGuard<T>?;
+}
+
+impl RwLockReadGuard<T>
+{
+    func get() -> &T;
+    consume mut func unlock();
+}
+
+impl RwLockWriteGuard<T>
+{
+    mut func get() -> &mut T;
+    consume mut func unlock();
+}
+```
+
+`SpinLock<T>` and `Mutex<T>` admit contending callers in ticket order. A spin lock keeps the native thread active while
+waiting and is intended for short critical sections. A mutex blocks the native thread and therefore requires
+`blocking_execution()` for its waiting operation. A guard exclusively owns access authority until explicit `unlock()`
+or lifecycle resolution, including scope exit during panic.
+Panic cleanup releases the guard, and the next acquisition proceeds with the value state left by the completed
+mutations.
+
+`ConditionVariable.wait` releases its supplied mutex guard, waits for a notification or a spurious wake, then reacquires
+and returns a guard for the same mutex. Callers recheck their predicate after every return. Notification changes the
+condition generation before waking one or all eligible waiters, which prevents a notification between guard release and
+native waiting from being lost.
+
+`RwLock<T>` admits concurrent readers while no writer owns the value. A waiting writer prevents new readers from
+entering, so existing readers drain and writer progress takes priority. Simultaneous writers have no specified order.
+Read guards provide shared access, write guards provide exclusive mutable access, and guard resolution releases the
+corresponding ownership. Panic cleanup releases either guard and leaves the lock eligible for its next acquisition.
+
+The signal, permit, and rendezvous declarations are:
+
+```bray
+impl ManualResetEvent
+{
+    construct(set: bool = false) -> Self;
+
+    func wait()
+        requires(blocking_execution());
+
+    func set();
+    func reset();
+    func is_set() -> bool;
+}
+
+impl AutoResetEvent
+{
+    construct(set: bool = false) -> Self;
+
+    func wait()
+        requires(blocking_execution());
+
+    func set();
+}
+
+union SemaphoreError
+{
+    ZeroMaximum;
+    InitialExceedsMaximum;
+    CapacityOverflow;
+}
+
+impl Semaphore
+{
+    construct(initial: usize, maximum: usize) -> Result<Self, SemaphoreError>;
+
+    func acquire()
+        requires(blocking_execution());
+
+    func try_acquire() -> bool;
+    func release(count: usize = 1) -> Result<unit, SemaphoreError>;
+    func available() -> usize;
+}
+
+union BarrierWait
+{
+    Leader;
+    Follower;
+}
+
+union BarrierError
+{
+    ZeroParticipants;
+}
+
+impl Barrier
+{
+    construct(participants: usize) -> Result<Self, BarrierError>;
+
+    func wait() -> BarrierWait
+        requires(blocking_execution());
+}
+```
+
+A manual-reset event releases every waiter while set and remains set until `reset`. An auto-reset event releases one
+waiter for an available signal and consumes that signal when the waiter proceeds. Repeated `set` calls coalesce while an
+auto-reset signal is already available. Events do not guarantee waiter order.
+
+A semaphore tracks at most its declared maximum. `acquire` consumes one permit, `try_acquire` reports immediate
+availability, and `release` publishes the requested count or reports overflow without changing the count. Contending
+acquirers have no specified order. `available` is an observation and does not reserve permits.
+
+A barrier accepts a positive fixed participant count and is reusable across generations. The last arrival advances the
+generation and receives `BarrierWait.Leader`, while the other arrivals receive `BarrierWait.Follower`. A synchronous
+wait on a mutex, condition variable, read-write lock, event, semaphore, barrier, or `Once<T>` is not a cancellation
+point. Cancellation remains pending until the run reaches a checkpoint after the wait completes.
 
 ## Channels
 
@@ -176,9 +345,8 @@ is closed or destroyed and every committed message has been received. Consuming 
 side and causes every uncommitted send to recover its value as `Closed`. Closing the receiver lifecycle-resolves every
 queued message before returning. Destroying an endpoint has the same closure effect as consuming `close()`.
 
-The synchronization declarations under `std.sync` are ordinary standard-library APIs. Their safe contracts establish the
-cross-run visibility edges described by [shared state and synchronization](shared-state-and-synchronization.md). Their
-declaration catalog is not part of the language-defined channel contract.
+The safe synchronization and channel contracts establish the cross-run visibility edges described by
+[shared state and synchronization](shared-state-and-synchronization.md).
 
 ## Concurrent combinators
 

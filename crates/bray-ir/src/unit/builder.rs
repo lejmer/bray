@@ -287,6 +287,49 @@ impl MirUnitBuilder {
         }))
     }
 
+    /// Returns whether completed control flow can reach the target from the entry block.
+    pub fn is_reachable(
+        &self,
+        entry: MirBlockId,
+        target: MirBlockId,
+    ) -> Result<bool, MirUnitBuildError> {
+        let entry_index = self.block_index(entry)?;
+        let target_index = self.block_index(target)?;
+        let mut visited = vec![false; self.blocks.len()];
+        let mut pending = vec![entry_index];
+
+        while let Some(index) = pending.pop() {
+            if visited[index] {
+                continue;
+            }
+
+            if index == target_index {
+                return Ok(true);
+            }
+
+            visited[index] = true;
+
+            let Some(terminator) = self.blocks[index].terminator.as_ref() else {
+                continue;
+            };
+
+            let mut invalid_successor = None;
+
+            terminator
+                .kind()
+                .for_each_successor(|successor| match self.block_index(successor) {
+                    Ok(index) => pending.push(index),
+                    Err(error) => invalid_successor = Some(error),
+                });
+
+            if let Some(error) = invalid_successor {
+                return Err(error);
+            }
+        }
+
+        Ok(false)
+    }
+
     /// Completes the MIR unit after validating all identities and control-flow contracts.
     pub fn finish(self, entry: MirBlockId) -> Result<MirUnit, MirUnitBuildError> {
         if entry.unit() != self.unit {
@@ -466,6 +509,36 @@ mod tests {
         );
 
         assert_eq!(builder.has_incoming_edge(join), Ok(true));
+    }
+
+    #[test]
+    fn builders_distinguish_reachable_edges_from_unreachable_predecessors() {
+        let bound = test_bound_unit(29);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let disconnected = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let join = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        set_terminator(
+            &mut builder,
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return(None),
+        );
+
+        set_terminator(
+            &mut builder,
+            disconnected,
+            source,
+            MirTerminatorKind::Goto(MirEdge::new(join, [])),
+        );
+
+        assert_eq!(builder.has_incoming_edge(join), Ok(true));
+        assert_eq!(builder.is_reachable(entry, join), Ok(false));
+        assert_eq!(builder.is_reachable(disconnected, join), Ok(true));
     }
 
     #[test]

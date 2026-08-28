@@ -286,11 +286,20 @@ const fn fact_query_failure_kind(
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::ConstantCallableBodyUnavailable => {
+            Some(Kind::EvaluationConstantCallableBodyUnavailable)
+        }
+        FactQueryError::ConstantCallableRootUnavailable => {
+            Some(Kind::EvaluationConstantCallableRootUnavailable)
+        }
         FactQueryError::AtomicInitializerArgumentUnavailable => {
             Some(Kind::EvaluationAtomicInitializerArgumentUnavailable)
         }
         FactQueryError::AtomicInitializerResultUnavailable => {
             Some(Kind::EvaluationAtomicInitializerResultUnavailable)
+        }
+        FactQueryError::UninitInitializerResultUnavailable => {
+            Some(Kind::EvaluationUninitInitializerResultUnavailable)
         }
         FactQueryError::ImportedExecutableTemplateMismatch => {
             Some(Kind::EvaluationImportedExecutableTemplateMismatch)
@@ -308,6 +317,9 @@ const fn fact_query_failure_kind(
             }
             bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
                 Kind::EvaluationAtomicInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
+                Kind::EvaluationUninitInitializerResultUnavailable
             }
             bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
                 Kind::EvaluationImportedExecutableTemplateMismatch
@@ -350,6 +362,14 @@ mod tests {
 
         let cases = [
             (
+                FactQueryError::ConstantCallableBodyUnavailable,
+                Kind::EvaluationConstantCallableBodyUnavailable,
+            ),
+            (
+                FactQueryError::ConstantCallableRootUnavailable,
+                Kind::EvaluationConstantCallableRootUnavailable,
+            ),
+            (
                 FactQueryError::CheckerInfrastructure(
                     CheckerInfrastructureError::AtomicRepresentationTypeUnavailable,
                 ),
@@ -368,6 +388,10 @@ mod tests {
             (
                 FactQueryError::AtomicInitializerResultUnavailable,
                 Kind::EvaluationAtomicInitializerResultUnavailable,
+            ),
+            (
+                FactQueryError::UninitInitializerResultUnavailable,
+                Kind::EvaluationUninitInitializerResultUnavailable,
             ),
             (
                 FactQueryError::ImportedExecutableTemplateMismatch,

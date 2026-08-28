@@ -216,6 +216,11 @@ impl<T: Send + 'static> NativeThread<T> {
         self.thread.unpark();
     }
 
+    /// Returns whether this thread has finished and can be joined without blocking.
+    pub fn is_finished(&self) -> bool {
+        self.join.is_finished()
+    }
+
     /// Joins the thread and returns its callback outcome.
     pub fn join(self) -> Result<NativeThreadOutcome<T>, PlatformError> {
         self.join.join().map_err(|_| {

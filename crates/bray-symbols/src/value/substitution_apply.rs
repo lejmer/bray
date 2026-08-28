@@ -1,12 +1,18 @@
+use std::collections::BTreeMap;
+
 use super::{
     CallableDependencyContracts, CallableInstanceData, CallableParameterData, CallableTypeData,
     ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
-    DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
-    DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionData,
-    GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError,
-    TraitApplicationData, TypeData, TypeId,
+    ConstantValueData, ConstantValueId, ConstantValueKind, DependencyContractTemplateData,
+    DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject,
+    DependencySubjectRoot, GenericArgument, GenericSubstitutionData, GenericSubstitutionId,
+    ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError, TraitApplicationData,
+    TypeData, TypeId,
 };
-use crate::{GenericOwnerId, GenericParameterSymbolId, SelfTypeContext};
+use crate::{
+    GenericOwnerId, GenericParameterSymbolId, SelfTypeContext, StaticInstanceKey,
+    StaticReferenceSelection,
+};
 
 impl SemanticValueStore {
     /// Applies one generic substitution throughout a canonical semantic type.
@@ -40,6 +46,18 @@ impl SemanticValueStore {
         let substitution = self.generic_substitution_data(substitution)?;
 
         self.substitute_constant_term_data(term, &substitution)
+    }
+
+    /// Applies one generic substitution throughout a materializable constant value.
+    pub fn substitute_constant_value(
+        &self,
+        value: ConstantValueId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<ConstantValueId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+        let mut substituted = BTreeMap::new();
+
+        self.substitute_constant_value_data(value, &substitution, &mut substituted)
     }
 
     /// Applies one generic substitution throughout another generic substitution.
@@ -258,8 +276,15 @@ impl SemanticValueStore {
         }
 
         let substituted = match data.as_ref() {
-            ConstantTermData::Value(_)
-            | ConstantTermData::IntegerLiteral { .. }
+            ConstantTermData::Typed { term, ty } => ConstantTermData::typed(
+                self.substitute_constant_term_data(*term, substitution)?,
+                self.substitute_type_data(*ty, substitution)?,
+            ),
+            ConstantTermData::Value(value) => ConstantTermData::Value(
+                self.substitute_constant_value_data(*value, substitution, &mut BTreeMap::new())?,
+            ),
+            ConstantTermData::IntegerLiteral { .. }
+            | ConstantTermData::CallableArgument(_)
             | ConstantTermData::Parameter(_)
             | ConstantTermData::TargetProperty(_) => return Ok(term),
             ConstantTermData::Unary { operation, operand } => ConstantTermData::Unary {
@@ -389,6 +414,131 @@ impl SemanticValueStore {
         };
 
         self.intern_constant_term(substituted)
+    }
+
+    fn substitute_constant_value_data(
+        &self,
+        value: ConstantValueId,
+        substitution: &GenericSubstitutionData,
+        substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
+    ) -> Result<ConstantValueId, SemanticValueStoreError> {
+        if let Some(value) = substituted.get(&value) {
+            return Ok(*value);
+        }
+
+        let source = value;
+        let data = self.constant_value_data(value)?;
+        let ty = self.substitute_type_data(data.ty(), substitution)?;
+
+        let kind = match data.kind() {
+            ConstantValueKind::Error => ConstantValueKind::Error,
+            ConstantValueKind::Boolean(value) => ConstantValueKind::Boolean(*value),
+            ConstantValueKind::Character(value) => ConstantValueKind::Character(*value),
+            ConstantValueKind::Integer(value) => ConstantValueKind::Integer(value.clone()),
+            ConstantValueKind::Real(value) => ConstantValueKind::Real(*value),
+            ConstantValueKind::Complex { real, imaginary } => ConstantValueKind::Complex {
+                real: *real,
+                imaginary: *imaginary,
+            },
+            ConstantValueKind::String(value) => ConstantValueKind::String(value.clone()),
+            ConstantValueKind::StaticAddress(selection) => ConstantValueKind::StaticAddress(
+                self.substitute_static_reference(selection, substitution)?,
+            ),
+            ConstantValueKind::Unit => ConstantValueKind::Unit,
+            ConstantValueKind::NullableAbsent => ConstantValueKind::NullableAbsent,
+            ConstantValueKind::NullablePresent(value) => ConstantValueKind::NullablePresent(
+                self.substitute_constant_value_data(*value, substitution, substituted)?,
+            ),
+            ConstantValueKind::Tuple(values) => ConstantValueKind::tuple(
+                values
+                    .iter()
+                    .copied()
+                    .map(|value| {
+                        self.substitute_constant_value_data(value, substitution, substituted)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ConstantValueKind::Array(values) => ConstantValueKind::array(
+                values
+                    .iter()
+                    .copied()
+                    .map(|value| {
+                        self.substitute_constant_value_data(value, substitution, substituted)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ConstantValueKind::Product(fields) => ConstantValueKind::product(
+                self.substitute_constant_fields(fields, substitution, substituted)?,
+            ),
+            ConstantValueKind::Union { variant, fields } => ConstantValueKind::union(
+                *variant,
+                self.substitute_constant_fields(fields, substitution, substituted)?,
+            ),
+        };
+
+        let value = self.intern_constant_value(ConstantValueData::new(ty, kind))?;
+        substituted.insert(source, value);
+
+        Ok(value)
+    }
+
+    fn substitute_constant_fields<I>(
+        &self,
+        fields: &[ConstantField<I, ConstantValueId>],
+        substitution: &GenericSubstitutionData,
+        substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
+    ) -> Result<Vec<ConstantField<I, ConstantValueId>>, SemanticValueStoreError>
+    where
+        I: Copy,
+    {
+        fields
+            .iter()
+            .map(|field| {
+                Ok(ConstantField::new(
+                    *field.field(),
+                    self.substitute_constant_value_data(*field.value(), substitution, substituted)?,
+                ))
+            })
+            .collect()
+    }
+
+    fn substitute_static_reference(
+        &self,
+        selection: &StaticReferenceSelection,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<StaticReferenceSelection, SemanticValueStoreError> {
+        let StaticReferenceSelection::Open {
+            template,
+            substitution: nested,
+            selected_witnesses,
+            target,
+        } = selection
+        else {
+            return Ok(selection.clone());
+        };
+
+        let nested = self.substitute_generic_substitution_data(*nested, substitution)?;
+
+        let selected_witnesses = selected_witnesses
+            .iter()
+            .copied()
+            .map(|witness| self.substitute_implementation_instance(witness, substitution))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        match self.require_concrete_substitution(nested) {
+            Ok(nested) => Ok(StaticReferenceSelection::Closed(StaticInstanceKey::new(
+                *template,
+                nested,
+                selected_witnesses,
+                target.clone(),
+            ))),
+            Err(_) => Ok(StaticReferenceSelection::open(
+                *template,
+                nested,
+                selected_witnesses,
+                target.clone(),
+            )),
+        }
     }
 
     fn substitute_callable_dependency_contracts(
@@ -525,9 +675,11 @@ impl SemanticValueStore {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
-        CallableDependencyContracts, CallableTypeData, ConstantTermData,
-        DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+        CallableDependencyContracts, CallableTypeData, ConstantTermData, ConstantValueData,
+        ConstantValueKind, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
         DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
         GenericSubstitutionData, SemanticValueStore, TypeData,
     };
@@ -536,6 +688,68 @@ mod tests {
         FunctionSymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
         GenericTypeParameterSymbolId, SymbolId, SymbolOrdinal,
     };
+
+    #[test]
+    fn substitutions_apply_to_types_retained_by_constant_values() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let source_type = store
+            .intern_type(TypeData::TypeParameter(parameter))
+            .unwrap_or_else(|error| panic!("source type interning failed: {error:?}"));
+
+        let target_type = store
+            .intern_type(TypeData::Tuple(Arc::from([])))
+            .unwrap_or_else(|error| panic!("target type interning failed: {error:?}"));
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(
+                source_type,
+                ConstantValueKind::Error,
+            ))
+            .unwrap_or_else(|error| panic!("constant value interning failed: {error:?}"));
+
+        let term = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap_or_else(|error| panic!("constant term interning failed: {error:?}"));
+
+        let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
+            SymbolId::new(1),
+        )))
+        .unwrap_or_else(|| panic!("function must support generic substitutions"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            [GenericParameterSymbolId::Type(parameter)],
+            [GenericArgument::Type(target_type)],
+        )
+        .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
+
+        let substitution = store
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("substitution interning failed: {error:?}"));
+
+        let term = store
+            .substitute_constant_term(term, substitution)
+            .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
+
+        let term = store
+            .constant_term_data(term)
+            .unwrap_or_else(|error| panic!("substituted term must be available: {error:?}"));
+
+        let ConstantTermData::Value(value) = term.as_ref() else {
+            panic!("substituted term must remain a value");
+        };
+
+        let value = store
+            .constant_value_data(*value)
+            .unwrap_or_else(|error| panic!("substituted value must be available: {error:?}"));
+
+        assert_eq!(value.ty(), target_type);
+        assert_eq!(value.kind(), &ConstantValueKind::Error);
+    }
 
     #[test]
     fn substitutions_apply_type_and_constant_arguments_through_arrays() {

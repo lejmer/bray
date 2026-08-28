@@ -276,29 +276,25 @@ where
             let key = candidate.key().clone();
             let resolution = candidate.resolution().clone();
 
-            let implementation_hook = match resolution.target() {
+            let implementation_symbol = match resolution.target() {
                 BoundCallableTarget::Declaration(instance) => {
-                    match request.implementation_hook(instance.definition().symbol()) {
-                        Ok(Some(resolution)) if resolution.is_available() => {
-                            Some(resolution.hook())
-                        }
-                        Ok(_) => None,
-                        Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
-                        Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
-                    }
+                    Some(instance.definition().symbol())
                 }
-                BoundCallableTarget::Indirect(_) => match input.callee_member {
-                    Some(member) => match request.implementation_hook(member.member()) {
-                        Ok(Some(resolution)) if resolution.is_available() => {
-                            Some(resolution.hook())
-                        }
-                        Ok(_) => None,
-                        Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
-                        Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
-                    },
-                    None => None,
+                BoundCallableTarget::Predicate(instance) => Some(instance.definition().into_any()),
+                BoundCallableTarget::Indirect(_) => {
+                    input.callee_member.map(|member| member.member())
+                }
+                BoundCallableTarget::Anonymous(_) => None,
+            };
+
+            let implementation_hook = match implementation_symbol {
+                Some(symbol) => match request.implementation_hook(symbol) {
+                    Ok(Some(resolution)) if resolution.is_available() => Some(resolution.hook()),
+                    Ok(_) => None,
+                    Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
+                    Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
                 },
-                BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => None,
+                None => None,
             };
 
             Ok(Some(CandidateCheck::Applicable {
@@ -381,13 +377,13 @@ where
         request,
         input.types,
         input.receiver,
-        candidate
-            .declaration_signature()
-            .and_then(CallableSignature::receiver)
+        input
+            .callee_member
+            .and_then(bray_bound_tree::MemberTarget::receiver)
             .or_else(|| {
-                input
-                    .callee_member
-                    .and_then(bray_bound_tree::MemberTarget::receiver)
+                candidate
+                    .declaration_signature()
+                    .and_then(CallableSignature::receiver)
             }),
     )? {
         ReceiverApplicability::Incompatible(reason) => {

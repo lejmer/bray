@@ -116,6 +116,8 @@ pub enum StorageBindingTarget {
     PredicateParameter(PredicateParameterSymbolId),
     /// A pattern-introduced local binding.
     Local(LocalBindingSymbolId),
+    /// An owned value consumed by a discard pattern.
+    PatternDiscard(BoundPatternId),
     /// A callable result visible to a postcondition.
     PostconditionResult(PostconditionResultSymbolId),
     /// The value produced by the bound unit.

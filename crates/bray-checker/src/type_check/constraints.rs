@@ -398,6 +398,15 @@ where
             ) if construction.head().is_none() => {
                 inference.add_evidence(variable, expectation.ty(), expectation.expression());
             }
+            (
+                expression,
+                TypeData::Named {
+                    definition: NamedTypeSymbolId::Union(expected),
+                    ..
+                },
+            ) if qualified_union_construction(request, expression) == Some(*expected) => {
+                inference.add_evidence(variable, expectation.ty(), expectation.expression());
+            }
             (BoundExpression::Structured(structured), TypeData::Tuple(expected_elements))
                 if structured.kind() == BoundStructuredExpressionKind::Tuple
                     && structured.operands().len() == expected_elements.len() =>
@@ -449,4 +458,40 @@ where
     }
 
     Ok(Some(()))
+}
+
+fn qualified_union_construction<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: &BoundExpression,
+) -> Option<bray_symbols::UnionSymbolId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let member = match expression {
+        BoundExpression::MemberAccess(member) => member,
+        BoundExpression::Call(call) => {
+            let BoundExpression::MemberAccess(member) = request.view().expression(call.callee())?
+            else {
+                return None;
+            };
+
+            member
+        }
+        _ => return None,
+    };
+
+    let BoundExpression::Name(receiver) = request.view().expression(member.receiver())? else {
+        return None;
+    };
+
+    if receiver.generic_argument_list().is_some() {
+        return None;
+    }
+
+    let BoundReferenceTarget::Surface(bray_symbols::AnySymbolId::Union(union)) = receiver.target()
+    else {
+        return None;
+    };
+
+    Some(union)
 }

@@ -62,7 +62,7 @@ extern trusted func copy_overlapping<T>(pos source: RawPointer<T>, pos destinati
     ensures(trusted core.memory.initialized_range_as<T>(pointer = destination, count = count))
     uses(raw_memory, unchecked_init);
 
-extern func uninit<T>() -> Uninit<T>;
+extern const func uninit<T>() -> Uninit<T>;
 
 extern func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>;
 
@@ -326,6 +326,57 @@ extern trusted func allocate(pos layout: MemoryLayout) -> RawAllocation
 
 extern trusted func deallocate(pos allocation: RawAllocation) -> unit
     uses(manual_alloc);
+
+trusted internal func allocate_value<T>(pos value: T) -> RawPointer<T>
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = trusted reinterpret<u8, T>(result),
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+    )
+    uses(manual_alloc)
+{
+    let bytes: usize = internal value_allocation_bytes<T>();
+    let align: usize = align_of<T>();
+    let allocation: RawPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = align);
+    let storage_pointer: RawPointer<T> = trusted reinterpret<T, u8>(allocation);
+
+    trusted write<T>(storage_pointer, value);
+
+    return storage_pointer;
+}
+
+trusted internal func deallocate_value<T>(pos pointer: RawPointer<T>)
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = trusted reinterpret<u8, T>(pointer),
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+    )
+    uses(manual_alloc)
+{
+    let allocation: RawPointer<u8> = trusted reinterpret<u8, T>(pointer);
+
+    trusted core.memory.deallocate(allocation, bytes = internal value_allocation_bytes<T>(), align = align_of<T>());
+}
+
+internal const func value_allocation_bytes<T>() -> usize
+{
+    let size: usize = size_of<T>();
+
+    if size == 0
+    {
+        return 1;
+    }
+
+    return size;
+}
 
 struct RawBuffer<T>
 {

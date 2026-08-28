@@ -56,21 +56,9 @@ impl SemanticFragment {
             &mut declarations,
         )?;
 
-        export_generic_semantics(
-            compilation,
-            binder,
-            symbol,
-            &mut export,
-            &mut declarations,
-        )?;
+        export_generic_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
 
-        export_constant_semantics(
-            compilation,
-            binder,
-            symbol,
-            &mut export,
-            &mut declarations,
-        )?;
+        export_constant_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
 
         export_predicate_semantics(binder, symbol, &export, &mut declarations)?;
 
@@ -102,10 +90,8 @@ impl SemanticFragment {
     pub(super) fn diagnostic_identity(
         &self,
         graph: &bray_symbols::SymbolGraph,
-    ) -> Result<
-        bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
-        PackageInterfaceExportError,
-    > {
+    ) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError>
+    {
         crate::compilation::diagnostics::symbol_diagnostic_identity(graph, None, self.symbol)
             .map_err(PackageInterfaceExportError::FragmentCoordination)
     }
@@ -113,10 +99,8 @@ impl SemanticFragment {
     pub(super) fn exact_diagnostic_identity(
         &self,
         graph: &bray_symbols::SymbolGraph,
-    ) -> Result<
-        bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
-        PackageInterfaceExportError,
-    > {
+    ) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError>
+    {
         graph
             .symbol_key(self.symbol)
             .map(bray_symbols::diagnostic_symbol_identity)
@@ -129,9 +113,9 @@ impl SemanticFragment {
         &self,
         graph: &bray_symbols::SymbolGraph,
     ) -> Option<bray_source::SourceSpan> {
-        graph.declaration_syntax_anchor(self.symbol).map(|anchor| {
-            bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range())
-        })
+        graph
+            .declaration_syntax_anchor(self.symbol)
+            .map(|anchor| bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()))
     }
 
     pub(super) fn commit(
@@ -164,8 +148,7 @@ struct SemanticValueOrigins {
     substitutions: BTreeMap<GenericSubstitutionId, InterfaceGenericSubstitutionId>,
     trait_applications: BTreeMap<TraitApplicationId, InterfaceTraitApplicationId>,
     callable_instances: BTreeMap<CallableInstanceId, InterfaceCallableInstanceId>,
-    implementation_instances:
-        BTreeMap<ImplementationInstanceId, InterfaceImplementationInstanceId>,
+    implementation_instances: BTreeMap<ImplementationInstanceId, InterfaceImplementationInstanceId>,
     dependency_contracts:
         BTreeMap<bray_symbols::DependencyContractTemplateId, InterfaceDependencyContractId>,
     types: BTreeMap<TypeId, InterfaceTypeId>,
@@ -230,7 +213,9 @@ impl SemanticValueOrigins {
             export.trait_application_id(id)
         })?;
 
-        commit_origins(&self.callable_instances, |id| export.callable_instance_id(id))?;
+        commit_origins(&self.callable_instances, |id| {
+            export.callable_instance_id(id)
+        })?;
 
         commit_origins(&self.implementation_instances, |id| {
             export.implementation_instance_id(id)
@@ -308,7 +293,10 @@ where
     K: Copy + Ord,
     I: Copy + Ord,
 {
-    let mut ordered = origins.iter().map(|(key, id)| (*id, *key)).collect::<Vec<_>>();
+    let mut ordered = origins
+        .iter()
+        .map(|(key, id)| (*id, *key))
+        .collect::<Vec<_>>();
 
     ordered.sort_unstable();
 
@@ -336,14 +324,13 @@ where
     ordered
         .into_iter()
         .map(|(local_id, key)| {
-            package
-                .get(key)
-                .copied()
-                .ok_or(PackageInterfaceExportError::IncompleteSemanticFragment {
+            package.get(key).copied().ok_or(
+                PackageInterfaceExportError::IncompleteSemanticFragment {
                     declaration: None,
                     table,
                     reference: reference(local_id),
-                })
+                },
+            )
         })
         .collect()
 }

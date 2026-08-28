@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use super::super::model::{
     InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior,
-    InterfaceConstraint, InterfaceConstraintKind, InterfaceDeclarationTemplate,
-    InterfacePredicateSummary, InterfaceSemanticRecordKind, InterfaceSemantics,
-    InterfaceStorageMember, InterfaceStorageShape,
+    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceConstraint,
+    InterfaceConstraintKind, InterfaceDeclarationTemplate, InterfacePredicateSummary,
+    InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
 };
 use super::model::{
     InterfaceSemanticCommitError, InterfaceSemanticIdRemap, InterfaceSemanticTableKind,
@@ -24,9 +23,7 @@ pub(super) fn commit_fragment(
     remap.validate(&fragment)?;
 
     if let Some(table) = unexpected_package_table(&fragment) {
-        return Err(InterfaceSemanticCommitError::UnexpectedPackageRecord(
-            table,
-        ));
+        return Err(InterfaceSemanticCommitError::UnexpectedPackageRecord(table));
     }
 
     let checked_template_base = offset(
@@ -118,9 +115,7 @@ pub(super) fn commit_fragment(
     Ok(fragment)
 }
 
-fn unexpected_package_table(
-    fragment: &InterfaceSemantics,
-) -> Option<InterfaceSemanticTableKind> {
+fn unexpected_package_table(fragment: &InterfaceSemantics) -> Option<InterfaceSemanticTableKind> {
     [
         (
             !fragment.implementations.is_empty(),
@@ -322,12 +317,8 @@ mod tests {
 
     #[test]
     fn shared_fragment_types_receive_one_package_identity() {
-        let base = InterfaceSemantics::new().with_values(
-            [],
-            [InterfaceType::Tuple(Arc::new([]))],
-            [],
-            [],
-        );
+        let base =
+            InterfaceSemantics::new().with_values([], [InterfaceType::Tuple(Arc::new([]))], [], []);
 
         let fragments = [1, 2].map(|owner| {
             let fragment = InterfaceSemantics::new()
@@ -337,12 +328,8 @@ mod tests {
                     InterfaceTypeId::new(0),
                 )]);
 
-            let remap = InterfaceSemanticIdRemap::new().with_values(
-                [],
-                [InterfaceTypeId::new(0)],
-                [],
-                [],
-            );
+            let remap =
+                InterfaceSemanticIdRemap::new().with_values([], [InterfaceTypeId::new(0)], [], []);
 
             (fragment, remap)
         });
@@ -363,12 +350,8 @@ mod tests {
 
     #[test]
     fn incomplete_fragment_reports_its_missing_table_reference() {
-        let fragment = InterfaceSemantics::new().with_values(
-            [],
-            [InterfaceType::Tuple(Arc::new([]))],
-            [],
-            [],
-        );
+        let fragment =
+            InterfaceSemantics::new().with_values([], [InterfaceType::Tuple(Arc::new([]))], [], []);
 
         let error = commit_interface_semantic_fragments(
             InterfaceSemantics::new(),
@@ -433,18 +416,12 @@ mod tests {
             [],
         );
 
-        let remap = InterfaceSemanticIdRemap::new().with_values(
-            [],
-            [InterfaceTypeId::new(0)],
-            [],
-            [],
-        );
+        let remap =
+            InterfaceSemanticIdRemap::new().with_values([], [InterfaceTypeId::new(0)], [], []);
 
-        let error = commit_interface_semantic_fragments(
-            InterfaceSemantics::new(),
-            [(fragment, remap)],
-        )
-        .expect_err("cyclic fragment type tables must be rejected");
+        let error =
+            commit_interface_semantic_fragments(InterfaceSemantics::new(), [(fragment, remap)])
+                .expect_err("cyclic fragment type tables must be rejected");
 
         assert_eq!(
             error,

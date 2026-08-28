@@ -431,6 +431,28 @@ mod tests {
     }
 
     #[test]
+    fn parser_distinguishes_chained_calls_from_trait_qualified_members() {
+        const CASES: [&str; 2] = [
+            "send_sequence(first_sender, first = 0, count = 64).start();",
+            "hold(&value).start();",
+        ];
+
+        for source_text in CASES {
+            let sources = source_store([source_text]);
+            let snapshot = source(&sources, 0);
+
+            let mut parser = Parser::new(snapshot);
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+            let expression = parser.parse_expression_until(&mut boundary);
+            let diagnostics = parser.finish();
+
+            assert_eq!(expression.full_text(), source_text.trim_end_matches(';'));
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+    }
+
+    #[test]
     fn parser_parses_bare_generic_access_path_arguments() {
         let sources = source_store(["Value<1>;"]);
         let snapshot = source(&sources, 0);

@@ -2,7 +2,26 @@ module bray.standard_library_tests.outcomes;
 
 using std.run;
 using std.string;
+using std.sync;
 using std.testing;
+
+static FIRST_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+
+static SECOND_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+
+internal func initialize_first_once() -> i32
+{
+    let _: &i32 = SECOND_ONCE.get_or_init(initialize_second_once);
+
+    return 1;
+}
+
+internal func initialize_second_once() -> i32
+{
+    let _: &i32 = FIRST_ONCE.get_or_init(initialize_first_once);
+
+    return 2;
+}
 
 @test
 func assertion_failure()
@@ -20,6 +39,12 @@ func explicit_failure()
 func panic_failure()
 {
     panic("expected panic");
+}
+
+@test
+func once_indirect_reentry_panics()
+{
+    let _: &i32 = FIRST_ONCE.get_or_init(initialize_first_once);
 }
 
 @test

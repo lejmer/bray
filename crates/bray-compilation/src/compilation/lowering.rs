@@ -374,7 +374,7 @@ mod tests {
         MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
-    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiVersion};
     use bray_symbols::{BorrowKind, ConstantValueKind, PackageIdentity, ProductKind, TypeData};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -383,6 +383,7 @@ mod tests {
         compilation, compilation_with_sources_and_worker_budget,
         compilation_with_target_operations, package_identity, source_callable_body_key,
         source_function_body_key, source_input, source_trait_callable_fulfillment_body_key,
+        source_type_callable_member_body_key,
     };
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, FactQueryError, QueryPriority,
@@ -1317,6 +1318,73 @@ mod tests {
                 ..
             })
         )));
+    }
+
+    #[test]
+    fn async_callable_frames_retain_declared_execution_lanes() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "async func wait()\n",
+            "    requires(blocking_execution())\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("blocking async MIR must publish: {error:?}"));
+
+        let frame = lowered_mir(&result)
+            .frame_descriptor()
+            .unwrap_or_else(|| panic!("async callable must publish a frame descriptor"));
+
+        assert!(frame.states().iter().all(|state| {
+            state.lane_requirements() == [ExecutionLaneRequirement::Blocking]
+        }));
+    }
+
+    #[test]
+    fn generic_union_returns_preserve_the_callable_result_through_cleanup() {
+        let compilation = compilation(
+            r#"module app;
+
+union Choice<T>
+{
+    Value(pos value: T);
+    Empty;
+}
+
+struct Guard
+{
+    destruct() {}
+}
+
+struct Receiver<T>
+{
+    async func receive(pos value: T) -> Choice<T>
+    {
+        let guard: Guard = Guard {};
+
+        return Choice.Empty;
+    }
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_type_callable_member_body_key(
+                &compilation,
+                "receive",
+            ))
+            .unwrap_or_else(|error| panic!("generic union return must lower: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
     }
 
     #[test]
@@ -2686,6 +2754,67 @@ impl I32Read = i32(Read)
                         Some(MirProjectionKind::Dereference)
                     )
             )),
+            "{mir:#?}"
+        );
+    }
+
+    #[test]
+    fn nested_borrowed_fields_insert_each_implicit_dereference() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+    number: i32;
+}
+
+struct Owner
+{
+    value: &Value;
+}
+
+func read(pos owner: &Owner) -> i32
+{
+    return owner.value.number;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "read"))
+            .unwrap_or_else(|error| panic!("nested borrowed fields must lower: {error:?}"));
+
+        let mir = lowered_mir(&lowered);
+
+        let projections = mir.blocks().iter().find_map(|block| {
+            let edge = match block.terminator().kind() {
+                MirTerminatorKind::BeginCleanup(cleanup)
+                | MirTerminatorKind::ContinueCleanup(cleanup) => cleanup.edge(),
+                _ => return None,
+            };
+
+            edge.arguments().iter().find_map(|argument| match argument {
+                MirOperand::Copy(place) => Some(place.projections()),
+                _ => None,
+            })
+        });
+
+        let Some(projections) = projections else {
+            panic!("nested field read must return from a place: {mir:#?}");
+        };
+
+        assert_eq!(
+            projections
+                .iter()
+                .filter(|projection| projection.kind() == &MirProjectionKind::Dereference)
+                .count(),
+            2,
             "{mir:#?}"
         );
     }

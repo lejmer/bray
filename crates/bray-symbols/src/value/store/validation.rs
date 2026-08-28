@@ -112,11 +112,17 @@ pub(super) fn validate_constant_term_data(
     data: &ConstantTermData,
 ) -> Result<(), SemanticValueStoreError> {
     match data {
+        ConstantTermData::Typed { term, ty } => {
+            tables.constant_terms.get(store, *term)?;
+            tables.types.get(store, *ty)?;
+        }
         ConstantTermData::Value(value) => {
             tables.constant_values.get(store, *value)?;
         }
         ConstantTermData::IntegerLiteral { .. } => {}
-        ConstantTermData::Parameter(_) | ConstantTermData::TargetProperty(_) => {}
+        ConstantTermData::CallableArgument(_)
+        | ConstantTermData::Parameter(_)
+        | ConstantTermData::TargetProperty(_) => {}
         ConstantTermData::Unary { operand, .. } => {
             tables.constant_terms.get(store, *operand)?;
         }

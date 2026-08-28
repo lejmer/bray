@@ -204,11 +204,11 @@ fn format_english_emission_planning_failure(
 fn format_english_package_interface_failure(
     failure: &bray_diagnostics::DiagnosticPackageInterfaceFailure,
 ) -> String {
-use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
+    use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
-use crate::catalog::english::argument::interface::{
-    format_english_interface_symbol_identity, format_english_interface_symbol_reference,
-};
+    use crate::catalog::english::argument::interface::{
+        format_english_interface_symbol_identity, format_english_interface_symbol_reference,
+    };
 
     match failure {
         Failure::Unavailable => {
@@ -220,6 +220,11 @@ use crate::catalog::english::argument::interface::{
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
+        Failure::ConstantCallableEvaluation { declaration, cause } => format!(
+            "the compiler could not prepare the constant body for {} because {}",
+            format_english_interface_symbol_identity(declaration),
+            format_english_emission_evaluation_failure(*cause)
+        ),
         Failure::IncompletePublicDeclaration(kind) => format!(
             "the compiler could not prepare complete data for a reachable public {kind} declaration"
         ),
@@ -393,6 +398,9 @@ use crate::catalog::english::argument::interface::{
         Failure::SemanticTableOverflow { table, maximum } => format!(
             "package-interface export requires more than {maximum} {table} records, which the file format cannot represent"
         ),
+        Failure::DuplicateConstantCallableBody(owner) => {
+            format!("two constant callable bodies claim callable record {owner}")
+        }
         Failure::DuplicateExecutableTemplate(owner) => {
             format!("two executable templates claim callable record {owner}")
         }

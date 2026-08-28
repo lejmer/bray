@@ -212,6 +212,11 @@ trusted func clear<T>(pos list: &mut List<T>) -> unit
     trusted truncate<T>(list, new_length = 0);
 }
 
+trusted internal func release_list_storage<T>(pos list: &mut List<T>) -> unit
+{
+    trusted std.memory.raw_buffer_release<T>(&mut list.storage);
+}
+
 func reverse<T>(pos list: &mut List<T>) -> unit
 {
     let count: usize = list.storage.initialized;

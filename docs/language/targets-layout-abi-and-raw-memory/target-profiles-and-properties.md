@@ -226,6 +226,9 @@ selected target profile.
 
 Every native target profile listed above has `target.platform.native_threads = true`.
 
+The `x86_64-apple-darwin` and `aarch64-apple-darwin` native profiles require macOS 14.4 or later. The target contract
+records that deployment floor in linked products.
+
 Exactly one of `target.endian.LITTLE` and `target.endian.BIG` is true.
 
 Scalar availability properties for required scalar types must be true for every conforming target profile.

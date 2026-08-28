@@ -12,6 +12,7 @@ use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
 pub(super) fn retained_suspension_subjects(
     liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
+    storage: &StoragePlan,
     await_expression: BoundExpressionId,
     dependency_contract: Option<BoundDependencyContractId>,
 ) -> Vec<BoundDependencySubject> {
@@ -28,7 +29,23 @@ pub(super) fn retained_suspension_subjects(
         }
     }
 
-    retained.into_iter().collect()
+    retained
+        .into_iter()
+        .filter(|subject| retained_subject_has_storage(storage, *subject))
+        .collect()
+}
+
+fn retained_subject_has_storage(storage: &StoragePlan, subject: BoundDependencySubject) -> bool {
+    match subject {
+        BoundDependencySubject::StorageAccess(access) => storage.root_identity(access).is_some(),
+        BoundDependencySubject::Storage(_)
+        | BoundDependencySubject::BorrowCapability(_)
+        | BoundDependencySubject::ScopedCapability(_)
+        | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ProductStatic(_)
+        | BoundDependencySubject::ExactThreadStatic(_)
+        | BoundDependencySubject::LifecycleObligation(_) => true,
+    }
 }
 
 fn collect_requirement_subjects(
@@ -373,7 +390,10 @@ mod tests {
     };
     use bray_symbols::{BorrowKind, TypeData, testing::implementation_instance};
 
-    use super::{collect_requirement_subjects, dependency_subject_has_exclusive_access};
+    use super::{
+        collect_requirement_subjects, dependency_subject_has_exclusive_access,
+        retained_subject_has_storage,
+    };
     use crate::test_support::{error_type, push_expression, semantic_values, test_source_origins};
 
     #[test]
@@ -391,6 +411,41 @@ mod tests {
         collect_requirement_subjects(&requirement, &mut subjects);
 
         assert_eq!(subjects, BTreeSet::from([subject]));
+    }
+
+    #[test]
+    fn frame_retention_requires_a_resolved_storage_root_for_access_subjects() {
+        let unit = BoundUnitId::new(74);
+        let source = test_source_origins()[0].source_anchor();
+        let mut builder = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let identity = builder
+            .push_identity(StorageIdentity::CompilerCreated(BoundNodeOrigin::source(
+                source,
+            )))
+            .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+        let access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Recovery(identity),
+                [],
+                error_type(),
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+
+        let storage = builder.finish();
+
+        assert!(!retained_subject_has_storage(
+            &storage,
+            BoundDependencySubject::StorageAccess(access),
+        ));
+
+        assert!(retained_subject_has_storage(
+            &storage,
+            BoundDependencySubject::Storage(identity),
+        ));
     }
 
     #[test]

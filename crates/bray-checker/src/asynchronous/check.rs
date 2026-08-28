@@ -194,6 +194,7 @@ where
                 let retained = retained_suspension_subjects(
                     liveness,
                     dependencies,
+                    storage,
                     expression,
                     dependency_contract,
                 );

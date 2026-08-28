@@ -1,8 +1,7 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundMemberSelector,
-    BoundOperator, ConstructionInputId, ConstructionTarget, ConversionTarget, IndexTarget,
-    OperatorTarget, SelectedArgument, SelectedConstructionInput, SelectedOperation,
-    SemanticSelection,
+    BoundCallResult, BoundCallableTarget, BoundExpressionId, BoundMemberSelector, BoundOperator,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget,
+    SelectedArgument, SelectedConstructionInput, SelectedOperation, SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
 use bray_diagnostics::DiagnosticConstantOperation;
@@ -67,7 +66,8 @@ where
                 .map(|argument| self.evaluate(argument))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            return self.intern_term(ConstantTermData::predicate_call(predicate, arguments));
+            return self
+                .intern_typed_term(ty, ConstantTermData::predicate_call(predicate, arguments));
         }
 
         let BoundCallableTarget::Declaration(callable) = call.target() else {
@@ -151,7 +151,7 @@ where
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            return self.intern_term(ConstantTermData::Unary { operation, operand });
+            return self.intern_typed_term(ty, ConstantTermData::Unary { operation, operand });
         };
 
         let value = self.constant_value(value)?;
@@ -192,11 +192,14 @@ where
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            return self.intern_term(ConstantTermData::Binary {
-                operation,
-                left,
-                right,
-            });
+            return self.intern_typed_term(
+                ty,
+                ConstantTermData::Binary {
+                    operation,
+                    left,
+                    right,
+                },
+            );
         };
 
         let left_value = self.constant_value(left_value)?;
@@ -289,14 +292,20 @@ where
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
                 ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => self
-                    .intern_term(ConstantTermData::Conversion {
+                    .intern_typed_term(
+                        ty,
+                        ConstantTermData::Conversion {
+                            operand,
+                            target: conversion.target_type(),
+                        },
+                    ),
+                ConversionTarget::Composite(_) => self.intern_typed_term(
+                    ty,
+                    ConstantTermData::Conversion {
                         operand,
                         target: conversion.target_type(),
-                    }),
-                ConversionTarget::Composite(_) => self.intern_term(ConstantTermData::Conversion {
-                    operand,
-                    target: conversion.target_type(),
-                }),
+                    },
+                ),
                 ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
@@ -467,10 +476,13 @@ where
         let (Some(subject_value), Some(index_value)) =
             (self.term_value(subject)?, self.term_value(index)?)
         else {
-            return self.intern_term(ConstantTermData::Projection(ConstantProjection::new(
-                subject,
-                ConstantProjectionKind::ArrayElement(index),
-            )));
+            return self.intern_typed_term(
+                ty,
+                ConstantTermData::Projection(ConstantProjection::new(
+                    subject,
+                    ConstantProjectionKind::ArrayElement(index),
+                )),
+            );
         };
 
         let subject_value = self.constant_value(subject_value)?;
@@ -579,9 +591,10 @@ where
         let receiver = self.evaluate(member.receiver())?;
 
         if self.term_value(receiver)?.is_none() {
-            return self.intern_term(ConstantTermData::Projection(ConstantProjection::new(
-                receiver, projection,
-            )));
+            return self.intern_typed_term(
+                ty,
+                ConstantTermData::Projection(ConstantProjection::new(receiver, projection)),
+            );
         }
 
         let receiver = self.closed_value(receiver, expression)?;
@@ -687,7 +700,7 @@ where
 
         match self.closed_fields(&fields)? {
             Some(fields) => self.intern_value_term(ty, ConstantValueKind::product(fields)),
-            None => self.intern_term(ConstantTermData::product(fields)),
+            None => self.intern_typed_term(ty, ConstantTermData::product(fields)),
         }
     }
 
@@ -711,7 +724,7 @@ where
 
         match self.closed_fields(&fields)? {
             Some(fields) => self.intern_value_term(ty, ConstantValueKind::union(variant, fields)),
-            None => self.intern_term(ConstantTermData::union(variant, fields)),
+            None => self.intern_typed_term(ty, ConstantTermData::union(variant, fields)),
         }
     }
 
@@ -762,31 +775,5 @@ where
         }
 
         Ok(Some(values))
-    }
-
-    pub(super) fn is_complex_literal(
-        &self,
-        binary: &bray_bound_tree::BoundBinaryExpression,
-    ) -> bool {
-        if !matches!(
-            binary.operator(),
-            BoundOperator::Add | BoundOperator::Subtract
-        ) {
-            return false;
-        }
-
-        let [real, imaginary] = binary.operands() else {
-            return false;
-        };
-
-        matches!(
-            self.request.view().expression(*real),
-            Some(BoundExpression::Literal(literal))
-                if literal.kind() == bray_bound_tree::BoundLiteralKind::Real
-        ) && matches!(
-            self.request.view().expression(*imaginary),
-            Some(BoundExpression::Literal(literal))
-                if literal.kind() == bray_bound_tree::BoundLiteralKind::Imaginary
-        )
     }
 }

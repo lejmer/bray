@@ -3,11 +3,11 @@ use std::sync::Arc;
 use bray_symbols::InterfaceSupportEntityId;
 
 use super::super::model::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-    InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
-    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
-    InterfaceCheckedTemplateTemporary, InterfaceImplementationReference, InterfaceSupportEntity,
-    InterfaceSupportImplementation, InterfaceTemplateReference,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
+    InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
+    InterfaceImplementationReference, InterfaceSupportEntity, InterfaceSupportImplementation,
+    InterfaceTemplateReference,
 };
 use super::model::{
     InterfaceSemanticCommitError, InterfaceSemanticIdRemap, InterfaceSemanticTableKind,
@@ -54,8 +54,7 @@ pub(super) fn remap_checked_template(
         })
         .collect::<Result<Vec<_>, InterfaceSemanticCommitError>>()?;
 
-    let behavior =
-        remap_checked_behavior(template.behavior(), remap, support_base, support_count)?;
+    let behavior = remap_checked_behavior(template.behavior(), remap, support_base, support_count)?;
 
     Ok(InterfaceCheckedTemplate::new(
         template.kind(),
@@ -248,24 +247,20 @@ pub(super) fn remap_support_entity(
         InterfaceSupportEntity::Declaration(declaration) => {
             Ok(InterfaceSupportEntity::Declaration(declaration.clone()))
         }
-        InterfaceSupportEntity::Implementation(implementation) => {
-            Ok(InterfaceSupportEntity::Implementation(
-                InterfaceSupportImplementation::new(
-                    implementation.declaration().clone(),
-                    remap.ty(implementation.subject())?,
-                    implementation
-                        .trait_application()
-                        .map(|application| remap.trait_application(application))
-                        .transpose()?,
-                ),
-            ))
+        InterfaceSupportEntity::Implementation(implementation) => Ok(
+            InterfaceSupportEntity::Implementation(InterfaceSupportImplementation::new(
+                implementation.declaration().clone(),
+                remap.ty(implementation.subject())?,
+                implementation
+                    .trait_application()
+                    .map(|application| remap.trait_application(application))
+                    .transpose()?,
+            )),
+        ),
+        InterfaceSupportEntity::CheckedTemplate(template) => {
+            offset_checked_template(*template, checked_template_base, checked_template_count)
+                .map(InterfaceSupportEntity::CheckedTemplate)
         }
-        InterfaceSupportEntity::CheckedTemplate(template) => offset_checked_template(
-            *template,
-            checked_template_base,
-            checked_template_count,
-        )
-        .map(InterfaceSupportEntity::CheckedTemplate),
     }
 }
 

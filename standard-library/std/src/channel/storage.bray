@@ -1,0 +1,114 @@
+trusted module std.channel;
+
+internal struct ChannelState<T>
+{
+    mut storage: std.memory.RawBuffer<Uninit<T>>;
+    capacity: usize;
+    mut head: usize;
+    mut length: usize;
+    mut receiver_open: bool;
+    mut rendezvous_ticket: usize?;
+    mut send_waiters: WaitQueue;
+    mut receive_waiters: WaitQueue;
+
+    trusted destruct()
+    {
+        while self.length > 0
+        {
+            let _: T = trusted self.take_message();
+        }
+    }
+
+    func send_can_commit() -> bool
+    {
+        if self.capacity == 0
+        {
+            return self.length == 0 && !self.receive_waiters.is_empty();
+        }
+
+        return self.length < self.capacity;
+    }
+
+    func rendezvous_belongs_to(pos ticket: usize) -> bool
+    {
+        return match self.rendezvous_ticket
+        {
+            case ?committed { yield committed == ticket; }
+            case none { yield false; }
+        };
+    }
+
+    trusted mut func take_committed_rendezvous(pos ticket: usize) -> T
+    {
+        if !self.rendezvous_belongs_to(ticket)
+        {
+            panic("channel rendezvous ticket is not committed");
+        }
+
+        self.rendezvous_ticket = none;
+        self.send_waiters.pop_head();
+
+        return trusted self.take_message();
+    }
+
+    trusted mut func store_message(pos value: T)
+    {
+        let mut index: usize = self.head + self.length;
+        let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
+
+        if index >= storage_capacity
+        {
+            index -= storage_capacity;
+        }
+
+        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
+        let _: &mut T = std.memory.uninit_write<T>(&mut slots[index], value);
+
+        self.length += 1;
+    }
+
+    trusted mut func take_message() -> T
+    {
+        let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
+        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
+        let pointer: RawPointer<Uninit<T>> = std.memory.address_of_mut<Uninit<T>>(&mut slots[self.head]);
+        let value: Uninit<T> = trusted std.memory.read<Uninit<T>>(pointer);
+
+        trusted std.memory.write<Uninit<T>>(pointer, std.memory.uninit<T>());
+
+        self.length -= 1;
+        self.head += 1;
+
+        if self.head == storage_capacity
+        {
+            self.head = 0;
+        }
+
+        return trusted std.memory.assume_initialized<T>(value);
+    }
+
+    trusted mut func take_received_message() -> T
+    {
+        let message: T = trusted self.take_message();
+
+        match self.rendezvous_ticket
+        {
+            case ?ticket
+            {
+                self.send_waiters.complete_head(ticket);
+                self.rendezvous_ticket = none;
+            }
+            case none {}
+        }
+
+        return message;
+    }
+}
+
+internal struct ChannelCore<T>
+{
+    owners: core.atomic.Atomic<usize>;
+    senders: core.atomic.Atomic<usize>;
+    generation: core.atomic.Atomic<u32>;
+    state: std.sync.SpinLock<ChannelState<T>>;
+}

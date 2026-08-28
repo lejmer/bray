@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use bray_platform::NativeThread;
@@ -10,8 +10,13 @@ use super::state::NativeRuntimeCore;
 
 pub(super) struct WorkerPool {
     stopping: AtomicBool,
-    threads: Mutex<Vec<NativeThread<()>>>,
-    controls: Mutex<Vec<Arc<WorkerControl>>>,
+    idle_blocking_workers: AtomicUsize,
+    workers: Mutex<Vec<Worker>>,
+}
+
+struct Worker {
+    thread: NativeThread<()>,
+    control: Arc<WorkerControl>,
 }
 
 #[derive(Default)]
@@ -22,6 +27,7 @@ pub(super) struct WorkerControl {
 #[derive(Default)]
 struct WorkerControlState {
     requests: VecDeque<Arc<WorkerRequest>>,
+    retired: bool,
 }
 
 struct WorkerRequest {
@@ -34,8 +40,8 @@ impl WorkerPool {
     pub(super) const fn new() -> Self {
         Self {
             stopping: AtomicBool::new(false),
-            threads: Mutex::new(Vec::new()),
-            controls: Mutex::new(Vec::new()),
+            idle_blocking_workers: AtomicUsize::new(0),
+            workers: Mutex::new(Vec::new()),
         }
     }
 
@@ -45,32 +51,108 @@ impl WorkerPool {
             ExecutionWorkload::Blocking,
             ExecutionWorkload::Compute,
         ] {
-            let worker_runtime = Arc::clone(runtime);
-            let control = Arc::new(WorkerControl::default());
-            let worker_control = Arc::clone(&control);
-
-            let thread = NativeThread::spawn(None, move |thread| {
-                super::state::run_worker(worker_runtime, thread, workload, worker_control);
-            });
-
-            let Ok(thread) = thread else {
+            if !self.spawn(runtime, workload) {
                 self.stop(runtime.scheduler(), None);
 
                 return false;
-            };
-
-            self.threads
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(thread);
-
-            self.controls
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(control);
+            }
         }
 
         true
+    }
+
+    fn spawn(&self, runtime: &Arc<NativeRuntimeCore>, workload: ExecutionWorkload) -> bool {
+        let worker_runtime = Arc::clone(runtime);
+        let control = Arc::new(WorkerControl::default());
+        let worker_control = Arc::clone(&control);
+
+        let mut workers = self
+            .workers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if self.is_stopping() {
+            return false;
+        }
+
+        if workload == ExecutionWorkload::Blocking {
+            self.idle_blocking_workers.fetch_add(1, Ordering::AcqRel);
+        }
+
+        let thread = NativeThread::spawn(None, move |thread| {
+            super::state::run_worker(worker_runtime, thread, workload, worker_control);
+        });
+
+        let Ok(thread) = thread else {
+            if workload == ExecutionWorkload::Blocking {
+                self.idle_blocking_workers.fetch_sub(1, Ordering::AcqRel);
+            }
+
+            return false;
+        };
+
+        let mut index = 0;
+
+        while index < workers.len() {
+            if workers[index].thread.is_finished() {
+                let finished = workers.swap_remove(index);
+                let _ = finished.thread.join();
+            } else {
+                index += 1;
+            }
+        }
+
+        workers.push(Worker { thread, control });
+
+        true
+    }
+
+    pub(super) fn begin_blocking_work(&self, runtime: &Arc<NativeRuntimeCore>) {
+        let idle = self.idle_blocking_workers.fetch_sub(1, Ordering::AcqRel);
+
+        debug_assert!(
+            idle > 0,
+            "a blocking worker must account for its idle state"
+        );
+
+        if idle == 1 && !self.is_stopping() {
+            let _ = self.spawn(runtime, ExecutionWorkload::Blocking);
+        }
+    }
+
+    pub(super) fn finish_blocking_work(&self) -> bool {
+        if self.is_stopping() {
+            return false;
+        }
+
+        let mut idle = self.idle_blocking_workers.load(Ordering::Acquire);
+
+        while idle < 2 {
+            match self.idle_blocking_workers.compare_exchange_weak(
+                idle,
+                idle + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => idle = observed,
+            }
+        }
+
+        false
+    }
+
+    pub(super) fn retire(
+        &self,
+        workload: ExecutionWorkload,
+        control: &Arc<WorkerControl>,
+        accounted_as_idle: bool,
+    ) {
+        if workload == ExecutionWorkload::Blocking && accounted_as_idle {
+            self.idle_blocking_workers.fetch_sub(1, Ordering::AcqRel);
+        }
+
+        control.retire();
     }
 
     pub(super) fn is_stopping(&self) -> bool {
@@ -81,31 +163,19 @@ impl WorkerPool {
         self.stopping.store(true, Ordering::Release);
         scheduler.wake_waiters();
 
-        let controls = self
-            .controls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-
-        let current = current.and_then(|current| {
-            controls
-                .iter()
-                .position(|control| Arc::ptr_eq(current, control))
-        });
-
-        let threads = std::mem::take(
+        let workers = std::mem::take(
             &mut *self
-                .threads
+                .workers
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
 
-        for (index, thread) in threads.into_iter().enumerate() {
-            if current == Some(index) {
+        for worker in workers {
+            if current.is_some_and(|current| Arc::ptr_eq(current, &worker.control)) {
                 continue;
             }
 
-            let _ = thread.join();
+            let _ = worker.thread.join();
         }
     }
 
@@ -116,10 +186,12 @@ impl WorkerPool {
         scheduler: &crate::Scheduler,
     ) {
         let controls = self
-            .controls
+            .workers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+            .iter()
+            .map(|worker| Arc::clone(&worker.control))
+            .collect::<Vec<_>>();
 
         let requests = controls
             .iter()
@@ -148,11 +220,16 @@ impl WorkerControl {
             completed: Condvar::new(),
         });
 
-        self.state
+        let mut state = self
+            .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .requests
-            .push_back(Arc::clone(&request));
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if state.retired {
+            request.complete();
+        } else {
+            state.requests.push_back(Arc::clone(&request));
+        }
 
         request
     }
@@ -163,6 +240,25 @@ impl WorkerControl {
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            std::mem::take(&mut state.requests)
+        };
+
+        for request in requests {
+            let _ = crate::product::drain_product_thread_statics(request.product);
+
+            request.complete();
+        }
+    }
+
+    fn retire(&self) {
+        let requests = {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            state.retired = true;
 
             std::mem::take(&mut state.requests)
         };
@@ -202,9 +298,10 @@ impl WorkerRequest {
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use super::WorkerControl;
+    use super::{WorkerControl, WorkerPool};
 
     #[test]
     fn dequeued_request_waits_for_cleanup_completion() {
@@ -248,5 +345,27 @@ mod tests {
             .unwrap_or_else(|error| panic!("completed request must release waiter: {error}"));
 
         waiter.join().unwrap_or_else(|_| panic!("waiter must join"));
+    }
+
+    #[test]
+    fn retired_controls_complete_cleanup_requests_immediately() {
+        let control = WorkerControl::default();
+
+        control.retire();
+
+        let request = control.request(1);
+
+        request.wait();
+    }
+
+    #[test]
+    fn completed_blocking_work_keeps_a_bounded_idle_reserve() {
+        let workers = WorkerPool::new();
+
+        assert!(workers.finish_blocking_work());
+        assert!(workers.finish_blocking_work());
+        assert!(!workers.finish_blocking_work());
+
+        assert_eq!(workers.idle_blocking_workers.load(Ordering::Acquire), 2);
     }
 }

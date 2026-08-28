@@ -128,7 +128,7 @@ impl PackageImplementationArtifact {
             bundle.surface(),
             bundle.semantics(),
             bundle.implementation_configuration().clone(),
-            [],
+            bundle.constant_callable_bodies().iter().cloned(),
             bundle.executable_templates().iter().cloned(),
             bundle.native_boundaries().iter().cloned(),
             [],

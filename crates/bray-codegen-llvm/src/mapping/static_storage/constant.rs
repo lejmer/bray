@@ -180,6 +180,10 @@ fn static_constant<'context>(
             types,
         ),
         bray_symbols::ConstantValueKind::Product(fields) => {
+            if fields.is_empty() {
+                return Ok(ty.const_zero());
+            }
+
             let layout = aggregate_fields(owner, representation, mappings)?;
             let total = layout_size(owner, representation, mappings)?;
             let mut values = Vec::with_capacity(fields.len());

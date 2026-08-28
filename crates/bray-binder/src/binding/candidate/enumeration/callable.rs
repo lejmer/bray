@@ -5,20 +5,21 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
-    CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
-    CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
-    PredicateCandidateTemplate,
+    CallableDeclarationCandidateTemplate, CallableValueCandidateTemplate, CandidateAbsence,
+    ExpressionCandidateSet, PredicateCandidateTemplate,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplateQuery, CallableDefinitionId, CallableOverloadSymbolId,
+    AnySymbolId, CallableContractTemplateQuery, CallableOverloadSymbolId,
     CallableOverloadTemplateQuery, CallableParameterDefaultTemplateQuery, CallableSignatureQuery,
-    CallableSymbolId, GenericArgumentTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateQuery, GenericOwnerId, MemberLookupResult, NamedTypeSymbolId,
-    OverloadArmTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
-    SymbolQueryContract, SymbolQueryRequest,
+    GenericArgumentTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
+    GenericOwnerId, MemberLookupResult, NamedTypeSymbolId, OverloadArmTemplate,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, SymbolQueryContract,
+    SymbolQueryRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
+
+use super::template::{callable_declaration_template, combined_generic_declaration};
 
 use crate::lookup::{NameAccess, ResolvedName, bind_module_path};
 use crate::{
@@ -34,6 +35,12 @@ use super::constructor::{
 pub(super) struct CallGenericContext<'syntax> {
     pub(super) arguments: &'syntax [GenericArgumentSyntax],
     pub(super) scope: &'syntax TypeExpressionScope,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct InheritedGenericContext<'syntax> {
+    pub(super) owner: NamedTypeSymbolId,
+    pub(super) arguments: &'syntax [GenericArgumentSyntax],
 }
 
 struct CandidateCancellation<'context, C: ?Sized>(&'context C);
@@ -384,7 +391,7 @@ pub(super) fn bind_resolved_name_candidate<C>(
     name: ResolvedName,
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
-    inherited_generic: Option<NamedTypeSymbolId>,
+    inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<DeclarationCandidateOutcome>
@@ -430,7 +437,7 @@ pub(super) fn bind_declaration_candidate<C>(
     symbol: AnySymbolId,
     state: CallableCandidateTemplateState,
     call_generic: CallGenericContext<'_>,
-    inherited_generic: Option<NamedTypeSymbolId>,
+    inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<DeclarationCandidateOutcome>
@@ -441,89 +448,117 @@ where
         + SymbolQueryProvider<GenericDeclarationTemplateQuery>
         + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>,
 {
-    let Some(definition) = CallableDefinitionId::try_new(symbol) else {
-        return Ok(DeclarationCandidateOutcome::Ignored);
-    };
-
-    let Some(callable) = CallableSymbolId::try_from_any(symbol) else {
-        return Ok(DeclarationCandidateOutcome::Ignored);
-    };
-
     let Some(generic_owner) = GenericOwnerId::try_new(symbol) else {
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
 
-    // Candidate records outlive the provider borrow and therefore own the stable key.
-    let Some(key) = context.symbol_key(symbol)?.cloned() else {
-        return Ok(DeclarationCandidateOutcome::Ignored);
-    };
-
-    let (signature, signature_diagnostics) =
-        resolve_symbol_query_value::<_, CallableSignatureQuery>(context, callable)?;
-
-    let (contract, contract_diagnostics) =
-        resolve_symbol_query_value::<_, CallableContractTemplateQuery>(context, callable)?;
-
-    let generic_source = inherited_generic
-        .and_then(|subject| GenericOwnerId::try_new(subject.into_any()))
-        .unwrap_or(generic_owner);
-
-    let (generic, generic_diagnostics) =
-        resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, generic_source)?;
-
-    let Some(generic_arguments) =
-        bind_generic_arguments(context, call_generic, &generic, diagnostics)?
+    let Some(generics) = bind_declaration_generics(
+        context,
+        generic_owner,
+        call_generic,
+        inherited_generic,
+        diagnostics,
+    )?
     else {
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
 
-    let mut defaults = Vec::with_capacity(signature.parameters().len());
-
-    let mut has_diagnostics = signature_diagnostics
-        || contract_diagnostics
-        || generic_diagnostics
-        || generic_arguments.has_diagnostics;
-
-    for parameter in signature.parameters() {
-        let (value, default_diagnostics) = resolve_symbol_query_value::<
-            _,
-            CallableParameterDefaultTemplateQuery,
-        >(context, *parameter)?;
-
-        has_diagnostics |= default_diagnostics;
-
-        let provider = context.callable_parameter_default_provider(*parameter)?;
-
-        defaults.push(CallableParameterDefaultTemplate::new(
-            *parameter, value, provider,
-        ));
-    }
+    let Some((declaration, declaration_diagnostics)) =
+        callable_declaration_template(context, symbol, generics.declaration, generics.arguments)?
+    else {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    };
 
     let is_recovered = context.symbol_is_recovered(symbol)?.unwrap_or(true);
-    let state = combine_recovery(state, is_recovered || has_diagnostics);
+
+    let state = combine_recovery(
+        state,
+        is_recovered || generics.has_diagnostics || declaration_diagnostics,
+    );
 
     candidates.push(CallableCandidateTemplate::Declaration(
-        CallableDeclarationCandidateTemplate::new(
-            key,
-            definition,
-            signature,
-            contract,
-            generic,
-            generic_arguments.arguments,
-            state,
-        )
-        .with_defaults(defaults),
+        CallableDeclarationCandidateTemplate::from_declaration(declaration, state),
     ));
 
     Ok(DeclarationCandidateOutcome::Added)
 }
 
-struct BoundGenericArguments {
+struct BoundDeclarationGenerics {
+    declaration: GenericDeclarationTemplate,
     arguments: Vec<GenericArgumentTemplate>,
     has_diagnostics: bool,
 }
 
-fn bind_generic_arguments<C>(
+fn bind_declaration_generics<C>(
+    context: &C,
+    owner: GenericOwnerId,
+    call: CallGenericContext<'_>,
+    inherited: Option<InheritedGenericContext<'_>>,
+    diagnostics: &mut DiagnosticBag,
+) -> BindingQueryResult<Option<BoundDeclarationGenerics>>
+where
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<GenericDeclarationTemplateQuery>,
+{
+    let Some(inherited) = inherited else {
+        let (declaration, declaration_diagnostics) =
+            resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, owner)?;
+
+        let Some(arguments) = bind_generic_arguments(context, call, &declaration, diagnostics)?
+        else {
+            return Ok(None);
+        };
+
+        return Ok(Some(BoundDeclarationGenerics {
+            declaration,
+            arguments: arguments.arguments,
+            has_diagnostics: declaration_diagnostics || arguments.has_diagnostics,
+        }));
+    };
+
+    let inherited_owner = GenericOwnerId::try_new(inherited.owner.into_any())
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
+
+    let (inherited_declaration, inherited_diagnostics) =
+        resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, inherited_owner)?;
+
+    let (direct_declaration, direct_diagnostics) =
+        resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, owner)?;
+
+    let declaration =
+        combined_generic_declaration(owner, &inherited_declaration, &direct_declaration);
+
+    let argument_syntax = inherited
+        .arguments
+        .iter()
+        .chain(call.arguments)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let combined_call = CallGenericContext {
+        arguments: &argument_syntax,
+        scope: call.scope,
+    };
+
+    let Some(arguments) =
+        bind_generic_arguments(context, combined_call, &declaration, diagnostics)?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(BoundDeclarationGenerics {
+        declaration,
+        arguments: arguments.arguments,
+        has_diagnostics: inherited_diagnostics || direct_diagnostics || arguments.has_diagnostics,
+    }))
+}
+
+pub(super) struct BoundGenericArguments {
+    pub(super) arguments: Vec<GenericArgumentTemplate>,
+    pub(super) has_diagnostics: bool,
+}
+
+pub(super) fn bind_generic_arguments<C>(
     context: &C,
     call: CallGenericContext<'_>,
     declaration: &GenericDeclarationTemplate,
@@ -630,7 +665,7 @@ where
     Ok(DeclarationCandidateOutcome::Added)
 }
 
-fn resolve_symbol_query_value<C, F>(
+pub(super) fn resolve_symbol_query_value<C, F>(
     context: &C,
     owner: F::Owner,
 ) -> BindingQueryResult<(F::Value, bool)>

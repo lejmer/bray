@@ -13,8 +13,8 @@ use std::fmt;
 
 use super::scheduler::FactScheduler;
 use super::task::{
-    FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
-    current_cycle, record_frozen_fact, record_input, record_request_with_cycle_key,
+    FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, check_request_cycle,
+    current_context, current_cycle, record_completed_request, record_frozen_fact, record_input,
     run_with_evaluations,
 };
 use super::{
@@ -227,12 +227,18 @@ impl FactRuntime {
         results.into_iter().collect()
     }
 
-    pub(crate) fn request_with_cycle_key(
+    pub(crate) fn check_request_cycle(
         &self,
-        key: &CompilationFactKey,
         cycle_key: &CompilationFactKey,
     ) -> Result<(), FactQueryError> {
-        record_request_with_cycle_key(self.identity(), key, cycle_key)
+        check_request_cycle(self.identity(), cycle_key)
+    }
+
+    pub(crate) fn record_completed_request(
+        &self,
+        key: &CompilationFactKey,
+    ) -> Result<(), FactQueryError> {
+        record_completed_request(self.identity(), key)
     }
 
     pub(crate) fn current_task_context(&self) -> Result<FactTaskContext, FactQueryError> {

@@ -1,7 +1,8 @@
 use bray_codegen::BackendArtifactKind;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag, DiagnosticEmissionFailure,
-    DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
+    DiagnosticArtifactKind, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId, DiagnosticKind,
+    SeverityKind,
 };
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
@@ -57,6 +58,15 @@ pub(super) const fn diagnostic_backend_artifact(
     bray_diagnostics::DiagnosticEmissionArtifact::new(
         diagnostic_backend_artifact_kind(artifact.kind()),
         artifact.ordinal(),
+    )
+}
+
+pub(super) fn codegen_unit_identity(
+    unit: &bray_codegen::CodegenUnitKey,
+) -> DiagnosticArtifactDigest {
+    DiagnosticArtifactDigest::new(
+        DiagnosticArtifactDigestAlgorithm::Blake3,
+        unit.content_identity(),
     )
 }
 

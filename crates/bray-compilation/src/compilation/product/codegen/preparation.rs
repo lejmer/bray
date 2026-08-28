@@ -213,19 +213,14 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<BTreeSet<bray_runtime_interface::RuntimeAbiRole>, NativeProductPlanningError> {
         for instance in reachability.graph().instances() {
-            let Some(boundary) = self.codegen_native_boundary(
-                instance.key(),
-                &BTreeSet::new(),
-                cancellation,
-            )?
+            let Some(boundary) =
+                self.codegen_native_boundary(instance.key(), &BTreeSet::new(), cancellation)?
             else {
                 continue;
             };
 
             if boundary.is_callback() {
-                return Ok(BTreeSet::from(
-                    bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES,
-                ));
+                return Ok(BTreeSet::from(bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES));
             }
         }
 

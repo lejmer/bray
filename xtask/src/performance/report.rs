@@ -627,10 +627,8 @@ fn measurement_detail(
 
 fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactReport]) {
     for artifact in artifacts {
-        let (logical_provenance_count, omitted_logical_provenance) = artifact
-            .linker_map
-            .as_ref()
-            .map_or((0, 0), |map| {
+        let (logical_provenance_count, omitted_logical_provenance) =
+            artifact.linker_map.as_ref().map_or((0, 0), |map| {
                 (
                     map.logical_provenance.entries.len(),
                     map.logical_provenance.omitted_count,
@@ -832,9 +830,8 @@ mod tests {
         report.workloads[0].compiler_profile.runtime_roles =
             vec!["foreign_callback_execution".to_owned()];
 
-        report.workloads[0]
-            .compiler_profile
-            .native_callback_entries = vec!["callback<&>".to_owned()];
+        report.workloads[0].compiler_profile.native_callback_entries =
+            vec!["callback<&>".to_owned()];
 
         first_workload_logical_provenance(&mut report).omitted_count = 3;
 

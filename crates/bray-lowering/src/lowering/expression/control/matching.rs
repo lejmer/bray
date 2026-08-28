@@ -142,12 +142,13 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
     ) -> Result<MirOperand, LoweringError> {
-        if matches!(
-            subject,
-            MirOperand::Constant { .. } | MirOperand::Immediate { .. } | MirOperand::Copy(_)
-        ) {
-            return Ok(subject);
-        }
+        let subject = match subject {
+            MirOperand::Move(place) => return Ok(MirOperand::Copy(place)),
+            subject @ (MirOperand::Constant { .. }
+            | MirOperand::Immediate { .. }
+            | MirOperand::Copy(_)) => return Ok(subject),
+            MirOperand::Value(value) => MirOperand::Value(value),
+        };
 
         let storage = self.builder.push_storage(
             Self::retained_source(source),

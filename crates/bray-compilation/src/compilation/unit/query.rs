@@ -637,10 +637,11 @@ mod tests {
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticConstructionInputRejection,
-        DiagnosticKind, DiagnosticPatternMissingCase, DiagnosticRelatedLocationKind,
-        DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
-        DiagnosticSelectionRejectionReason, DiagnosticStorageProjection, DiagnosticStorageRoot,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+        DiagnosticConstructionInputRejection, DiagnosticKind, DiagnosticPatternMissingCase,
+        DiagnosticRelatedLocationKind, DiagnosticSelectionCandidateIdentity,
+        DiagnosticSelectionCandidateSignature, DiagnosticSelectionRejectionReason,
+        DiagnosticSelectionRejections, DiagnosticStorageProjection, DiagnosticStorageRoot,
         DiagnosticType,
     };
     use bray_messages::DiagnosticRenderer;
@@ -660,6 +661,19 @@ mod tests {
         source_input, source_trait_callable_fulfillment_body_key,
         source_type_callable_member_body_key,
     };
+
+    fn selection_rejections(diagnostic: &Diagnostic) -> &DiagnosticSelectionRejections {
+        let Some(DiagnosticArgValue::SelectionRejections(rejections)) = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::SelectionRejections)
+            .map(DiagnosticArg::value)
+        else {
+            panic!("selection diagnostic must retain rejected candidates: {diagnostic:?}");
+        };
+
+        rejections
+    }
 
     #[test]
     fn storage_plans_publish_unit_local_identities_accesses_and_dependencies() {
@@ -3550,14 +3564,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             .next()
             .unwrap_or_else(|| panic!("incompatible construction diagnostic must exist"));
 
-        let Some(DiagnosticArgValue::SelectionRejections(rejections)) = diagnostic
-            .args()
-            .iter()
-            .find(|argument| argument.name() == DiagnosticArgName::SelectionRejections)
-            .map(DiagnosticArg::value)
-        else {
-            panic!("incompatible construction must retain rejected candidates: {diagnostic:?}");
-        };
+        let rejections = selection_rejections(diagnostic);
 
         assert_eq!(rejections.rejections().len(), 1);
         assert_eq!(rejections.omitted_count(), 0);
@@ -4523,6 +4530,99 @@ func convert(pos value: Value) -> i32
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn generic_instance_methods_combine_receiver_and_method_arguments() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "impl Wrapper<T>\n",
+            "{\n",
+            "    func choose<U>(pos value: U) -> U\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "}\n",
+            "func main(pos wrapper: Wrapper<i32>) -> bool\n",
+            "{\n",
+            "    let explicit: bool = wrapper.choose<bool>(true);\n",
+            "    let inferred: i32 = wrapper.choose(7);\n",
+            "\n",
+            "    return explicit;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("generic method selections must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "generic method selection must be diagnostic-free: {:?}",
+            selections.diagnostics()
+        );
+
+        assert_eq!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .filter(|entry| matches!(entry.selection(), SemanticSelection::Call(_)))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn generic_instance_method_diagnostics_count_only_method_arguments() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "impl Wrapper<T>\n",
+            "{\n",
+            "    func choose<U>(pos value: U) -> U\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "}\n",
+            "func main(pos wrapper: Wrapper<i32>)\n",
+            "{\n",
+            "    let value = wrapper.choose<bool, i32>(true);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("generic method diagnostics must publish: {error:?}"));
+
+        let diagnostic = selections
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingIncompatibleCandidate)
+            .next()
+            .unwrap_or_else(|| panic!("generic argument count diagnostic must exist"));
+
+        let rejections = selection_rejections(diagnostic);
+
+        assert!(rejections.rejections().iter().any(|rejection| {
+            matches!(
+                rejection.reason(),
+                DiagnosticSelectionRejectionReason::GenericArgumentCount {
+                    provided: 2,
+                    maximum: 1,
+                }
+            )
+        }));
     }
 
     #[test]

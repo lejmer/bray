@@ -106,6 +106,12 @@
           "value": 1
         },
         {
+          "name": "OS_CLOCK_MACH_ABSOLUTE_TIME",
+          "native": "OS_CLOCK_MACH_ABSOLUTE_TIME",
+          "type": "u32",
+          "value": 32
+        },
+        {
           "name": "OS_SYNC_WAIT_ON_ADDRESS_NONE",
           "native": "OS_SYNC_WAIT_ON_ADDRESS_NONE",
           "type": "u32",
@@ -643,8 +649,89 @@
           ]
         },
         {
+          "name": "os_sync_wait_on_address_with_timeout",
+          "native": "os_sync_wait_on_address_with_timeout",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "expected",
+              "type": "u64",
+              "native_type": "uint64_t"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "os_sync_wait_on_address_flags_t"
+            },
+            {
+              "name": "clock",
+              "type": "u32",
+              "native_type": "os_clockid_t"
+            },
+            {
+              "name": "timeout_nanoseconds",
+              "type": "u64",
+              "native_type": "uint64_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "the kernel owns wait state while the calling thread is blocked",
+          "initialization": "the operation reads size bytes from address atomically",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
           "name": "os_sync_wake_by_address_any",
           "native": "os_sync_wake_by_address_any",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "address",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "size",
+              "type": "usize",
+              "native_type": "size_t"
+            },
+            {
+              "name": "flags",
+              "type": "u32",
+              "native_type": "os_sync_wake_by_address_flags_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "c",
+          "error_state": "returns minus one and sets the C runtime error state",
+          "ownership": "no resource transfer",
+          "initialization": "the operation does not initialize caller storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "os_sync_wake_by_address_all",
+          "native": "os_sync_wake_by_address_all",
           "abi": "c",
           "parameters": [
             {

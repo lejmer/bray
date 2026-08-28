@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider, bind_member_callable_template};
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundStructuredExpressionKind,
     IndexTarget, MemberTarget, SelectedImplementationWitness, SelectedOperation,
@@ -23,10 +23,12 @@ use bray_symbols::{
     TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
     TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
-use bray_syntax::TraitApplicationSyntax;
+use bray_syntax::{GenericArgumentSyntax, TraitApplicationSyntax};
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBindingContext, binding_query_error, type_binder};
+use super::super::binder::{
+    CompilationBindingContext, binding_query_error, type_binder, type_scope,
+};
 use super::super::implementation::{
     implementation_fulfillments, match_implementation_subject, selected_callable,
 };
@@ -39,6 +41,35 @@ use super::query::expression_type;
 struct ResolvedCallableMember {
     signature: CallableSignature,
     instance: CallableInstanceData,
+    template: Option<bray_bound_tree::CallableDeclarationTemplate>,
+}
+
+fn member_call_generic_arguments(
+    compilation: &Compilation,
+    unit: &bray_bound_tree::BoundUnit,
+    expression: BoundExpressionId,
+) -> Result<Vec<GenericArgumentSyntax>, FactQueryError> {
+    let Some(parent) = unit.view().expression_parent(expression) else {
+        return Ok(Vec::new());
+    };
+
+    let Some(BoundExpression::Call(call)) = unit.view().expression(parent) else {
+        return Ok(Vec::new());
+    };
+
+    if call.callee() != expression {
+        return Ok(Vec::new());
+    }
+
+    call.generic_arguments()
+        .iter()
+        .map(|argument| {
+            argument
+                .syntax()
+                .find_descendant::<GenericArgumentSyntax>(compilation.syntax_tree())
+                .ok_or(FactQueryError::InfrastructureFailure)
+        })
+        .collect()
 }
 
 fn member_callable_signature(
@@ -260,6 +291,8 @@ impl Compilation {
 
                 let Some(callable) = self.resolve_callable_member_signature(
                     binding_context,
+                    unit,
+                    expression,
                     member,
                     member_substitution,
                     diagnostics,
@@ -278,11 +311,15 @@ impl Compilation {
 
                 let signature = member_callable_signature(callable.signature, receiver_type);
 
-                let target = MemberTarget::new(member, result_type, []).with_callable(
+                let mut target = MemberTarget::new(member, result_type, []).with_callable(
                     callable.instance,
                     signature,
                     defaults,
                 );
+
+                if let Some(template) = callable.template {
+                    target = target.with_callable_template(template);
+                }
 
                 let operation = SelectedOperation::Member(target);
 
@@ -657,16 +694,45 @@ impl Compilation {
     fn resolve_callable_member_signature(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        expression: BoundExpressionId,
         member: AnySymbolId,
         receiver_substitution: bray_symbols::GenericSubstitutionId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        self.resolve_callable_signature(
+        let callable = self.resolve_callable_signature(
             binding_context,
             member,
             [receiver_substitution],
             diagnostics,
+        )?;
+
+        let Some(mut callable) = callable else {
+            return Ok(None);
+        };
+
+        let arguments = member_call_generic_arguments(self, unit, expression)?;
+
+        let owner = binding_context
+            .symbols()
+            .symbol_for_key(unit.key().declared_owner())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let scope = type_scope(binding_context, owner).map_err(binding_query_error)?;
+
+        let template = bind_member_callable_template(
+            binding_context,
+            member,
+            receiver_substitution,
+            &arguments,
+            &scope,
         )
+        .map_err(binding_query_error)?;
+
+        *diagnostics = diagnostics.merged(template.diagnostics());
+        callable.template = template.value().clone();
+
+        Ok(Some(callable))
     }
 
     fn resolve_callable_defaults(
@@ -748,6 +814,7 @@ impl Compilation {
         Ok(signature.map(|signature| ResolvedCallableMember {
             signature,
             instance: CallableInstanceData::new(definition, substitution),
+            template: None,
         }))
     }
 

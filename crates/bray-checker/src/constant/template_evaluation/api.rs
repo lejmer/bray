@@ -327,14 +327,15 @@ mod tests {
     use bray_symbols::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
         CurrentRunCancellation, DependencyContractTemplateData, FunctionSymbolId, GenericOwnerId,
-        GenericSubstitutionData, SymbolId, TypeData,
+        GenericSubstitutionData, SymbolId, SymbolOrdinal, TypeData,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::super::call::{
-        ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
+        ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+        ConstantTemplateResolver, EvaluatedConstantCall,
     };
-    use super::super::super::limits::ConstantEvaluationLimits;
+    use super::super::super::limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
     use super::{evaluate_constant_callable_template, evaluate_generic_constraint_template};
     use crate::test_support::{TestCheckerContext, semantic_values};
     use crate::{CheckerQueryResult, ConstantReferenceResolution};
@@ -477,6 +478,209 @@ mod tests {
     }
 
     #[test]
+    fn constant_body_templates_resolve_callable_arguments() {
+        let values = semantic_values();
+
+        let ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("tuple type must intern: {error:?}"));
+
+        let value = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Tuple(Arc::from([])),
+            ))
+            .unwrap_or_else(|error| panic!("tuple constant must intern: {error:?}"));
+
+        let term = values
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .unwrap_or_else(|error| panic!("callable argument term must intern: {error:?}"));
+
+        let dependency_contract = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            dependency_contract,
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantCallableBody, behavior);
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: bray_bound_tree::CheckedTemplateConstantUsage::new(1, 0, 0),
+                },
+                ty,
+            ))
+            .unwrap_or_else(|error| panic!("callable argument node must validate: {error:?}"));
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap_or_else(|error| panic!("constant body template must validate: {error:?}"));
+
+        let owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into())
+                .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let substitution = GenericSubstitutionData::try_new(owner, [], [])
+            .unwrap_or_else(|error| panic!("empty substitution must validate: {error:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let callable = bray_symbols::CallableDefinitionId::try_new(
+            FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into(),
+        )
+        .unwrap_or_else(|| panic!("test function must be callable"));
+
+        let outcome = evaluate_constant_callable_template(
+            &TestCheckerContext::new(false),
+            &template,
+            &ConstantCallRequest::new(
+                CallableInstanceData::new(callable, substitution),
+                None,
+                [value],
+                ty,
+                ConstantEvaluationLimits::default(),
+            ),
+            &UnusedTemplateResolver,
+            None,
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("callable argument template must evaluate"));
+
+        assert!(outcome.diagnostics().is_empty());
+        assert_eq!(outcome.value().value(), value);
+    }
+
+    #[test]
+    fn typed_nested_terms_preserve_their_call_result_type() {
+        let values = semantic_values();
+
+        let inner_type = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("inner type must intern: {error:?}"));
+
+        let outer_type = values
+            .intern_type(TypeData::tuple([inner_type]))
+            .unwrap_or_else(|error| panic!("outer type must intern: {error:?}"));
+
+        let inner_value = values
+            .intern_constant_value(ConstantValueData::new(
+                inner_type,
+                ConstantValueKind::Tuple(Arc::from([])),
+            ))
+            .unwrap_or_else(|error| panic!("inner value must intern: {error:?}"));
+
+        let owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into())
+                .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let substitution = GenericSubstitutionData::try_new(owner, [], [])
+            .unwrap_or_else(|error| panic!("empty substitution must validate: {error:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let callable = bray_symbols::CallableDefinitionId::try_new(
+            FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into(),
+        )
+        .unwrap_or_else(|| panic!("test function must be callable"));
+
+        let callable = CallableInstanceData::new(callable, substitution);
+
+        let callable_id = values
+            .intern_callable_instance(callable)
+            .unwrap_or_else(|error| panic!("callable instance must intern: {error:?}"));
+
+        let call = values
+            .intern_constant_term(ConstantTermData::call(callable_id, None, []))
+            .unwrap_or_else(|error| panic!("call term must intern: {error:?}"));
+
+        let call = values
+            .intern_constant_term(ConstantTermData::typed(call, inner_type))
+            .unwrap_or_else(|error| panic!("typed call term must intern: {error:?}"));
+
+        let result = values
+            .intern_constant_term(ConstantTermData::tuple([call]))
+            .unwrap_or_else(|error| panic!("tuple term must intern: {error:?}"));
+
+        let dependency_contract = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            dependency_contract,
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantCallableBody, behavior);
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term: result,
+                    usage: bray_bound_tree::CheckedTemplateConstantUsage::new(1, 1, 0),
+                },
+                outer_type,
+            ))
+            .unwrap_or_else(|error| panic!("constant body node must validate: {error:?}"));
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap_or_else(|error| panic!("constant body template must validate: {error:?}"));
+
+        let outcome = evaluate_constant_callable_template(
+            &TestCheckerContext::new(false),
+            &template,
+            &ConstantCallRequest::new(
+                callable,
+                None,
+                [],
+                outer_type,
+                ConstantEvaluationLimits::default(),
+            ),
+            &TypedCallResolver {
+                result: inner_value,
+                expected_result_type: inner_type,
+            },
+            None,
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("typed constant body template must evaluate"));
+
+        assert!(outcome.diagnostics().is_empty());
+
+        let result = values
+            .constant_value_data(outcome.value().value())
+            .unwrap_or_else(|error| panic!("result value must exist: {error:?}"));
+
+        assert_eq!(result.ty(), outer_type);
+
+        assert_eq!(
+            result.kind(),
+            &ConstantValueKind::Tuple(Arc::from([inner_value]))
+        );
+    }
+
+    #[test]
     fn generic_constraint_templates_evaluate_concrete_predicates() {
         let values = semantic_values();
 
@@ -554,6 +758,58 @@ mod tests {
     }
 
     struct UnusedTemplateResolver;
+
+    struct TypedCallResolver {
+        result: bray_symbols::ConstantValueId,
+        expected_result_type: bray_symbols::TypeId,
+    }
+
+    impl ConstantCallResolver for TypedCallResolver {
+        fn is_constant_callable(
+            &self,
+            _callable: CallableInstanceData,
+        ) -> CheckerQueryResult<bool> {
+            Ok(true)
+        }
+
+        fn resolve(
+            &self,
+            request: &ConstantCallRequest,
+        ) -> CheckerQueryResult<ConstantCallResolution> {
+            assert_eq!(request.result_type(), self.expected_result_type);
+
+            Ok(ConstantCallResolution::Evaluated(
+                bray_diagnostics::DiagnosticResult::without_diagnostics(
+                    EvaluatedConstantCall::new(self.result, ConstantEvaluationUsage::default()),
+                ),
+            ))
+        }
+    }
+
+    impl ConstantTemplateResolver for TypedCallResolver {
+        fn symbol(&self, _key: &bray_symbols::SymbolKey) -> Option<bray_symbols::AnySymbolId> {
+            None
+        }
+
+        fn resolve_constant(
+            &self,
+            _instance: bray_symbols::ConstantInstanceKey,
+            _limits: crate::ConstantEvaluationLimits,
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        {
+            unreachable!("typed call template must not resolve constants")
+        }
+
+        fn resolve_static(
+            &self,
+            _declaration: bray_symbols::StaticSymbolId,
+            _substitution: bray_symbols::GenericSubstitutionId,
+        ) -> CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<bray_symbols::StaticReferenceSelection>,
+        > {
+            unreachable!("typed call template must not resolve statics")
+        }
+    }
 
     impl ConstantCallResolver for UnusedTemplateResolver {
         fn is_constant_callable(

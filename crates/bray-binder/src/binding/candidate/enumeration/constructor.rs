@@ -9,13 +9,14 @@ use bray_symbols::{
     MemberLookupResult, NamedTypeSymbolId, PredicateSignatureTemplateQuery,
     TypeAssociatedLifecycleSlot,
 };
+use bray_syntax::{GenericArgumentListSyntax, GenericArgumentSyntax};
 
 use crate::lookup::ResolvedName;
 use crate::{BindingQueryContext, BindingQueryResult, SymbolQueryProvider};
 
 use super::callable::{
-    CallGenericContext, DeclarationCandidateOutcome, bind_declaration_candidate,
-    bind_resolved_name_candidate, combine_recovery,
+    CallGenericContext, DeclarationCandidateOutcome, InheritedGenericContext,
+    bind_declaration_candidate, bind_resolved_name_candidate, combine_recovery,
 };
 
 pub(super) fn bind_type_member_candidates<C>(
@@ -44,6 +45,13 @@ where
         return Ok(CandidateAbsence::UnavailableDeclarationSemantics);
     };
 
+    let inherited_arguments = receiver_generic_arguments(context, unit, member.receiver())?;
+
+    let inherited = InheritedGenericContext {
+        owner: subject,
+        arguments: &inherited_arguments,
+    };
+
     let Some(BoundMemberSelector::Name(name)) = member.selector() else {
         return Ok(CandidateAbsence::UnresolvedReference);
     };
@@ -61,7 +69,7 @@ where
             ResolvedName::Surface(symbol),
             state,
             generic,
-            Some(subject),
+            Some(inherited),
             diagnostics,
             candidates,
         )?,
@@ -70,7 +78,7 @@ where
             symbols,
             CallableCandidateTemplateState::Inaccessible,
             generic,
-            subject,
+            inherited,
             diagnostics,
             candidates,
         )?,
@@ -81,7 +89,7 @@ where
             symbols,
             CallableCandidateTemplateState::Recovered,
             generic,
-            subject,
+            inherited,
             diagnostics,
             candidates,
         )?,
@@ -89,6 +97,29 @@ where
     };
 
     Ok(outcome.absence())
+}
+
+fn receiver_generic_arguments<C>(
+    context: &C,
+    unit: &BoundUnit,
+    receiver: BoundExpressionId,
+) -> BindingQueryResult<Vec<GenericArgumentSyntax>>
+where
+    C: BindingQueryContext + ?Sized,
+{
+    let Some(BoundExpression::Name(receiver)) = unit.view().expression(receiver) else {
+        return Ok(Vec::new());
+    };
+
+    let Some(anchor) = receiver.generic_argument_list() else {
+        return Ok(Vec::new());
+    };
+
+    let arguments = anchor
+        .find_descendant::<GenericArgumentListSyntax>(context.syntax())
+        .ok_or(crate::BindingQueryError::DependencyUnavailable)?;
+
+    Ok(arguments.generic_arguments().collect())
 }
 
 pub(super) fn type_member_subject(
@@ -140,8 +171,14 @@ where
             context,
             member.id(),
             state,
-            generic,
-            Some(subject),
+            CallGenericContext {
+                arguments: &[],
+                scope: generic.scope,
+            },
+            Some(InheritedGenericContext {
+                owner: subject,
+                arguments: generic.arguments,
+            }),
             diagnostics,
             candidates,
         )?;
@@ -157,7 +194,7 @@ fn bind_member_candidates<C>(
     symbols: impl IntoIterator<Item = AnySymbolId>,
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
-    inherited_generic: NamedTypeSymbolId,
+    inherited_generic: InheritedGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<DeclarationCandidateOutcome>

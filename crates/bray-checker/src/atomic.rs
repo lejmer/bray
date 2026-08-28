@@ -10,8 +10,8 @@ use bray_diagnostics::{
     DiagnosticMemoryOperation, SeverityKind,
 };
 use bray_symbols::{
-    ConstantTermData, ConstantValueKind, DeclaredLayoutMode, DeclaredStorageShape, GenericArgument,
-    GenericSubstitutionId, TypeData, TypeId,
+    DeclaredLayoutMode, DeclaredStorageShape, GenericArgument, GenericSubstitutionId, TypeData,
+    TypeId,
 };
 use bray_target::TargetAtomicRepresentation;
 
@@ -337,37 +337,17 @@ where
         .map(|argument| match argument {
             GenericArgument::Type(ty) => Ok(Some(AtomicGenericArgument::Type(*ty))),
             GenericArgument::Constant(term) => {
-                let term = request
+                let value = request
                     .semantic_values()
-                    .constant_term_data(*term)
+                    .constant_term_integer(*term)
                     .map_err(|_| {
                         CheckerOutcome::InfrastructureFailure(
                             CheckerInfrastructureError::SemanticValueUnavailable,
                         )
                     })?;
 
-                let value = match term.as_ref() {
-                    ConstantTermData::IntegerLiteral { value, .. } => Some(value.to_u64()),
-                    ConstantTermData::Value(value) => {
-                        let value = request
-                            .semantic_values()
-                            .constant_value_data(*value)
-                            .map_err(|_| {
-                                CheckerOutcome::InfrastructureFailure(
-                                    CheckerInfrastructureError::SemanticValueUnavailable,
-                                )
-                            })?;
-
-                        match value.kind() {
-                            ConstantValueKind::Integer(value) => Some(value.to_u64()),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-
                 Ok(value
-                    .flatten()
+                    .and_then(|value| value.to_u64())
                     .and_then(MemoryOrder::from_u64)
                     .map(AtomicGenericArgument::Order))
             }

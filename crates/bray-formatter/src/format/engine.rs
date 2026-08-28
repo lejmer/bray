@@ -547,7 +547,11 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             spacing_enforced = true;
 
             if spacing.uses_space() {
-                self.writer.request_space();
+                if spacing.rule() == FormatterRule::GenericDelimiterSpacing {
+                    self.writer.request_space_when_flat();
+                } else {
+                    self.writer.request_space();
+                }
             } else {
                 self.writer.clear_space();
             }
@@ -775,8 +779,75 @@ fn required_trivia_text<'source>(trivia: &SyntaxTrivia, source_text: &'source st
 
 #[cfg(test)]
 mod tests {
+    use bray_parser::parse_source_unit;
+    use bray_testing::test_source_snapshot;
+
     use super::format_text;
     use crate::FormatterConfiguration;
+
+    fn format(source: &str) -> crate::FormattedSource {
+        format_text(source, &FormatterConfiguration::default())
+            .unwrap_or_else(|error| panic!("fixture must format: {error:?}"))
+    }
+
+    #[test]
+    fn separates_generic_delimiters_from_prefix_borrows() {
+        let source =
+            "module app; func borrow<T, E>(pos value: &T) -> Result< &T, E> { return Ok(value); }";
+
+        let output = format(source);
+
+        assert!(
+            output.text().contains("Result< &T, E>"),
+            "{}",
+            output.text()
+        );
+
+        let snapshot = test_source_snapshot(output.text());
+        let parsed = parse_source_unit(&snapshot);
+
+        assert!(parsed.diagnostics().is_empty());
+        assert!(!parsed.source_unit().is_recovered());
+        assert!(!format(output.text()).changed());
+    }
+
+    #[test]
+    fn flattens_callable_typed_parameters_without_leaking_header_indentation() {
+        let source = concat!(
+            "module app;\n",
+            "struct Once<T>\n",
+            "{\n",
+            "    trusted func get_or_init(\n",
+            "        pos initializer: func() -> T,\n",
+            "    ) -> &T\n",
+            "    {}\n",
+            "\n",
+            "    trusted func get_or_try_init<E>(\n",
+            "        pos initializer: func() -> Result<T, E>,\n",
+            "    ) -> Result< &T, E>\n",
+            "    {}\n",
+            "}\n",
+            "struct S {}\n",
+        );
+
+        let output = format(source);
+
+        assert!(
+            output
+                .text()
+                .contains("trusted func get_or_init(pos initializer: func() -> T) -> &T {}"),
+            "{}",
+            output.text(),
+        );
+
+        assert!(
+            output.text().contains("\nstruct S\n{\n}\n"),
+            "{}",
+            output.text(),
+        );
+
+        assert!(!format(output.text()).changed());
+    }
 
     #[test]
     fn long_extern_callable_headers_wrap_parameters() {

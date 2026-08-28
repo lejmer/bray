@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StorageIdentityId, StoragePlan, walk_bound_unit_view,
+    AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId,
+    BoundPatternId, BoundUnitView, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
+    StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId, StoragePlan,
+    walk_bound_unit_view,
 };
 
 use crate::{
@@ -53,6 +54,50 @@ impl StorageScopeOwners {
             ));
         }
 
+        for (_, expression) in request.unit().tree().expressions() {
+            match expression {
+                BoundExpression::Match(expression) => {
+                    for arm in expression.arms() {
+                        assign_pattern_scope(request.view(), arm.pattern(), arm.body(), &mut nodes)?;
+                    }
+                }
+                BoundExpression::For(expression) => assign_pattern_scope(
+                    request.view(),
+                    expression.pattern(),
+                    expression.body(),
+                    &mut nodes,
+                )?,
+                BoundExpression::Generator(expression) => assign_pattern_scope(
+                    request.view(),
+                    expression.pattern(),
+                    expression.body(),
+                    &mut nodes,
+                )?,
+                BoundExpression::Block(_)
+                | BoundExpression::Literal(_)
+                | BoundExpression::Name(_)
+                | BoundExpression::PatternReference(_)
+                | BoundExpression::UnresolvedReference(_)
+                | BoundExpression::Unary(_)
+                | BoundExpression::Binary(_)
+                | BoundExpression::Assignment(_)
+                | BoundExpression::Call(_)
+                | BoundExpression::ErrorCall(_)
+                | BoundExpression::Conversion(_)
+                | BoundExpression::ErrorConversion(_)
+                | BoundExpression::AnonymousCallable(_)
+                | BoundExpression::Await(_)
+                | BoundExpression::Structured(_)
+                | BoundExpression::StructConstruction(_)
+                | BoundExpression::MemberAccess(_)
+                | BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::UnqualifiedVariant(_)
+                | BoundExpression::TraitQualifiedMember(_)
+                | BoundExpression::ControlTransfer(_)
+                | BoundExpression::Error(_) => {}
+            }
+        }
+
         Ok(Self { nodes, root })
     }
 
@@ -72,6 +117,26 @@ impl StorageScopeOwners {
     ) -> Option<BoundBlockId> {
         self.scope(storage.identity(identity))
     }
+}
+
+fn assign_pattern_scope(
+    view: BoundUnitView<'_>,
+    pattern: BoundPatternId,
+    scope: BoundBlockId,
+    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+) -> Result<(), CheckerQueryError> {
+    let mut pending = vec![pattern];
+
+    while let Some(pattern) = pending.pop() {
+        let pattern_node = view.pattern(pattern).ok_or_else(|| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::InvalidStorageFlow)
+        })?;
+
+        nodes.insert(pattern.into(), scope);
+        pending.extend(pattern_node.children().iter().copied());
+    }
+
+    Ok(())
 }
 
 pub(crate) fn local_initialization_bindings<C>(

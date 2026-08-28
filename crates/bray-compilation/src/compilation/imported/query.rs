@@ -7,15 +7,13 @@ use bray_diagnostics::{
     DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId, DiagnosticInterfaceLimit,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolGraphProblem,
     DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
-    DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueKind, SeverityKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
+    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind, SeverityKind,
 };
 use bray_package_interface::{
     ImportedInterfaceSymbolResolver, ImportedSemanticRecord, ImportedSemantics,
     ImportedSymbolConstructionError, InterfaceSemanticInternError, LoadedInterfaceSurface,
-    PackageInterfaceSurface, ValidatedPackageInterface,
-    construct_imported_symbol_skeletons,
+    PackageInterfaceSurface, ValidatedPackageInterface, construct_imported_symbol_skeletons,
 };
 use bray_symbols::{
     ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity, SemanticValueKind,
@@ -171,6 +169,9 @@ impl super::super::Compilation {
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
+                | FactQueryError::UninitInitializerResultUnavailable
+                | FactQueryError::ConstantCallableBodyUnavailable
+                | FactQueryError::ConstantCallableRootUnavailable
                 | FactQueryError::ImportedExecutableTemplateMismatch),
             ) => {
                 panic!("dependency-interface query failed: {error}")

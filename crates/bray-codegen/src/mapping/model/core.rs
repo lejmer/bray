@@ -614,8 +614,11 @@ fn validate_symbol_structure(
     let mut names: Vec<_> = symbols
         .iter()
         .flat_map(|symbol| {
-            std::iter::once(symbol.name())
-                .chain(symbol.native_entry().map(crate::CodegenNativeEntryMapping::name))
+            std::iter::once(symbol.name()).chain(
+                symbol
+                    .native_entry()
+                    .map(crate::CodegenNativeEntryMapping::name),
+            )
         })
         .collect();
 

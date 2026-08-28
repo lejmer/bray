@@ -316,6 +316,7 @@ impl StoragePlanBuilder {
                     | StorageBindingTarget::AnonymousParameter(_)
                     | StorageBindingTarget::PredicateParameter(_)
                     | StorageBindingTarget::Local(_)
+                    | StorageBindingTarget::PatternDiscard(_)
             );
         };
 
@@ -338,6 +339,10 @@ impl StoragePlanBuilder {
                 StorageBindingTarget::PredicateParameter(expected),
                 Some(StorageIdentity::PredicateParameter(actual)),
             ) => expected == actual,
+            (
+                StorageBindingTarget::PatternDiscard(expected),
+                Some(StorageIdentity::LocalOwned(actual)),
+            ) => actual == expected.into(),
             (
                 StorageBindingTarget::Local(_),
                 Some(

@@ -166,9 +166,8 @@ pub(crate) struct RuntimeIdentity(pub(crate) usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct FactTaskIdentity(pub(crate) u64);
 
-pub(crate) fn record_request_with_cycle_key(
+pub(crate) fn check_request_cycle(
     runtime: RuntimeIdentity,
-    key: &CompilationFactKey,
     cycle_key: &CompilationFactKey,
 ) -> Result<(), FactQueryError> {
     local_evaluations(|active| {
@@ -182,6 +181,23 @@ pub(crate) fn record_request_with_cycle_key(
 
         if let Some(cycle) = task_cycle(active, runtime, cycle_key) {
             return Err(FactQueryError::Cycle(cycle));
+        }
+
+        Ok(())
+    })
+}
+
+pub(crate) fn record_completed_request(
+    runtime: RuntimeIdentity,
+    key: &CompilationFactKey,
+) -> Result<(), FactQueryError> {
+    local_evaluations(|active| {
+        let Some(context) = active.last() else {
+            return Ok(());
+        };
+
+        if context.data.runtime != runtime {
+            return Ok(());
         }
 
         context.record(key)

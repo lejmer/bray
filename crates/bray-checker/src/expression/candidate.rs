@@ -770,7 +770,28 @@ fn materialize_call_candidates<'prepared, C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
-    if prepared.generic_candidates.is_empty() && prepared.values.is_empty() {
+    let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+    };
+
+    let member = member_targets.get(&call.callee());
+
+    let member_template = member
+        .and_then(bray_bound_tree::MemberTarget::callable_template)
+        .cloned()
+        .map(|template| {
+            CallableCandidateTemplate::Declaration(
+                crate::CallableDeclarationCandidateTemplate::from_declaration(
+                    template,
+                    crate::CallableCandidateTemplateState::Visible,
+                ),
+            )
+        });
+
+    if prepared.generic_candidates.is_empty()
+        && prepared.values.is_empty()
+        && member_template.is_none()
+    {
         return Ok(Some(MaterializedCallCandidates {
             candidates: Cow::Borrowed(&prepared.candidates),
             diagnostics: DiagnosticBag::new(),
@@ -780,7 +801,11 @@ where
     let mut candidates = prepared.candidates.clone();
     let mut diagnostics = DiagnosticBag::new();
 
-    for template in &prepared.generic_candidates {
+    for template in prepared
+        .generic_candidates
+        .iter()
+        .chain(member_template.iter())
+    {
         let explicit = match template {
             CallableCandidateTemplate::Declaration(template) => {
                 resolve_generic_arguments(request, template.generic_arguments(), &mut diagnostics)?
@@ -862,16 +887,12 @@ where
         }
     }
 
-    if prepared.values.is_empty() {
+    if prepared.values.is_empty() || member_template.is_some() {
         return Ok(Some(MaterializedCallCandidates {
             candidates: Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
             diagnostics,
         }));
     }
-
-    let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
-    };
 
     let Some(callee_type) = types.expression(call.callee()) else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -894,8 +915,6 @@ where
     };
 
     let result = call_result(request, callable, callable.result())?;
-
-    let member = member_targets.get(&call.callee());
 
     let target = match prepared.anonymous_target {
         Some(anonymous) => BoundCallableTarget::Anonymous(anonymous),

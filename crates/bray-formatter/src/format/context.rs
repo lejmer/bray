@@ -35,7 +35,7 @@ pub(super) fn token_spacing(
     if previous_was_generic_delimiter {
         return Some(TokenSpacing {
             rule: FormatterRule::GenericDelimiterSpacing,
-            uses_space: is_word(current) || is_operator(current),
+            uses_space: is_operator(current),
         });
     }
 

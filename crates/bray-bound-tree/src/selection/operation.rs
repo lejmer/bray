@@ -11,7 +11,7 @@ use bray_symbols::{
 
 use crate::{
     BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
-    SelectedImplementationWitness,
+    CallableDeclarationTemplate, SelectedImplementationWitness,
 };
 
 /// The semantic operation category retained by a checked selection.
@@ -55,6 +55,7 @@ pub struct MemberTarget {
     result_type: TypeId,
     callable_instance: Option<CallableInstanceData>,
     callable_signature: Option<CallableSignature>,
+    callable_template: Option<CallableDeclarationTemplate>,
     callable_defaults: Arc<
         [(
             CallableParameterSymbolId,
@@ -77,6 +78,7 @@ impl MemberTarget {
             result_type,
             callable_instance: None,
             callable_signature: None,
+            callable_template: None,
             callable_defaults: Arc::new([]),
             trait_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
@@ -98,6 +100,13 @@ impl MemberTarget {
         self.callable_instance = Some(callable);
         self.callable_signature = Some(signature);
         self.callable_defaults = sorted_unique_shared_slice(defaults);
+
+        self
+    }
+
+    /// Returns a member target with its unresolved generic callable declaration.
+    pub fn with_callable_template(mut self, template: CallableDeclarationTemplate) -> Self {
+        self.callable_template = Some(template);
 
         self
     }
@@ -130,6 +139,11 @@ impl MemberTarget {
     /// Returns the resolved callable signature when this target is callable.
     pub const fn callable_signature(&self) -> Option<&CallableSignature> {
         self.callable_signature.as_ref()
+    }
+
+    /// Returns the generic callable declaration selected for this member access.
+    pub const fn callable_template(&self) -> Option<&CallableDeclarationTemplate> {
+        self.callable_template.as_ref()
     }
 
     /// Returns the declaration defaults available when this member is invoked directly.

@@ -1,0 +1,304 @@
+module bray.standard_library_tests.channel;
+
+using std.channel;
+using std.task;
+
+internal async func completed_value() -> i32
+{
+    return 13;
+}
+
+internal async func send_sequence(pos mut sender: std.channel.Sender<i32>, pos first: i32, pos count: i32)
+{
+    let mut offset: i32 = 0;
+
+    while offset < count
+    {
+        match await sender.send(first + offset)
+        {
+            case Ok(_) {}
+            case Error(_) { assert(false); }
+        }
+
+        offset += 1;
+        await std.task.yield_now();
+    }
+
+    sender.close();
+}
+
+@test
+async func independently_started_computation_completes()
+{
+    let computation: Task<i32> = internal completed_value().start();
+    let value: i32 = try await computation.join();
+
+    assert(value == 13);
+}
+
+@test
+async func buffered_send_completes_before_receiving()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 1)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(13).start();
+
+    match try await send.join()
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    match receiver.try_receive()
+    {
+        case Received(value) { assert(value == 13); }
+        case Empty { assert(false); }
+        case Closed { assert(false); }
+    }
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+async func buffered_channel_transfers_messages_in_commit_order()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 2)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    match await sender.send(11)
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    match await sender.send(29)
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    match await receiver.receive()
+    {
+        case Received(value) { assert(value == 11); }
+        case Closed { assert(false); }
+    }
+
+    match await receiver.receive()
+    {
+        case Received(value) { assert(value == 29); }
+        case Closed { assert(false); }
+    }
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+async func rendezvous_send_suspends_until_a_receiver_is_registered()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("rendezvous channel construction failed"); }
+    };
+
+    let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(41).start();
+
+    match await receiver.receive()
+    {
+        case Received(value) { assert(value == 41); }
+        case Closed { assert(false); }
+    }
+
+    match try await send.join()
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("rendezvous channel construction failed"); }
+    };
+
+    let blocked: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(17).start();
+
+    match await blocked.cancel()
+    {
+        case Cancelled {}
+        case Completed(_) { assert(false); }
+        case Panicked(_) { assert(false); }
+    }
+
+    let next: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(23).start();
+
+    match await receiver.receive()
+    {
+        case Received(value) { assert(value == 23); }
+        case Closed { assert(false); }
+    }
+
+    match try await next.join()
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_value()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("rendezvous channel construction failed"); }
+    };
+
+    let waiting: Task<std.channel.ReceiveResult<i32>> = receiver.receive().start();
+    let mut pending: i32 = 31;
+    let mut committed: bool = false;
+
+    while !committed
+    {
+        match sender.try_send(pending)
+        {
+            case Ok(_) { committed = true; }
+            case Error(error)
+            {
+                match consume error
+                {
+                    case Full(value) { pending = value; }
+                    case Closed(_) { assert(false); }
+                }
+            }
+        }
+
+        if !committed
+        {
+            await std.task.yield_now();
+        }
+    }
+
+    match await waiting.cancel()
+    {
+        case Completed(result)
+        {
+            match result
+            {
+                case Received(value) { assert(value == 31); }
+                case Closed { assert(false); }
+            }
+        }
+        case Cancelled
+        {
+            match await receiver.receive()
+            {
+                case Received(value) { assert(value == 31); }
+                case Closed { assert(false); }
+            }
+        }
+        case Panicked(_) { assert(false); }
+    }
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+async func contended_producers_preserve_each_senders_commit_order()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 4)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    let first_sender: std.channel.Sender<i32> = sender.duplicate();
+    let second_sender: std.channel.Sender<i32> = sender.duplicate();
+    let first: Task<unit> = send_sequence(first_sender, first = 0, count = 64).start();
+    let second: Task<unit> = send_sequence(second_sender, first = 1_000, count = 64).start();
+    let mut first_expected: i32 = 0;
+    let mut second_expected: i32 = 1_000;
+    let mut received: i32 = 0;
+
+    while received < 128
+    {
+        match await receiver.receive()
+        {
+            case Received(value)
+            {
+                if value < 1_000
+                {
+                    assert(value == first_expected);
+                    first_expected += 1;
+                }
+                else
+                {
+                    assert(value == second_expected);
+                    second_expected += 1;
+                }
+
+                received += 1;
+            }
+            case Closed { assert(false); }
+        }
+    }
+
+    try await first.join();
+    try await second.join();
+
+    assert(first_expected == 64);
+    assert(second_expected == 1_064);
+
+    sender.close();
+    receiver.close();
+}
+
+@test
+func endpoint_closure_preserves_unsent_values_and_terminal_receives()
+{
+    let(mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 1)
+    {
+        case Ok(endpoints) { yield endpoints; }
+        case Error(_) { panic("bounded channel construction failed"); }
+    };
+
+    let mut duplicate: std.channel.Sender<i32> = sender.duplicate();
+
+    sender.close();
+    receiver.close();
+
+    match duplicate.try_send(73)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match consume error
+            {
+                case Closed(value) { assert(value == 73); }
+                case Full(_) { assert(false); }
+            }
+        }
+    }
+
+    duplicate.close();
+}

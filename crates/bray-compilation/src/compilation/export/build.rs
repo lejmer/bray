@@ -112,7 +112,7 @@ impl Compilation {
         )
         .map_err(PackageInterfaceExportError::Surface)?;
 
-        let (semantics, executable_templates, native_boundaries) =
+        let (semantics, constant_callable_bodies, executable_templates, native_boundaries) =
             super::semantic::build_semantics(
                 self,
                 symbols,
@@ -131,6 +131,7 @@ impl Compilation {
             request.language_revision(),
             implementation_configuration,
         )
+        .and_then(|bundle| bundle.with_constant_callable_bodies(constant_callable_bodies))
         .and_then(|bundle| bundle.with_executable_templates(executable_templates))
         .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
         .map(Arc::new)
@@ -921,7 +922,8 @@ mod tests {
         let parallel_budget = WorkerBudget::new(4)
             .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
 
-        let parallel = profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
+        let parallel =
+            profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
 
         let serial_artifact = encode_package_interface(export(&serial))
             .unwrap_or_else(|error| panic!("serial interface must encode: {error:?}"));
@@ -1305,6 +1307,213 @@ trusted internal func flush() -> PlatformStatus
     }
 
     #[test]
+    fn public_constant_callables_round_trip_as_implementation_bodies() {
+        let compilation = compilation(concat!(
+            "module math;\n",
+            "public const func selected(pos value: i32) -> i32\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let request = compilation
+            .package_interface_export_request()
+            .unwrap_or_else(|| panic!("constant export request must exist"));
+
+        let bundle = compilation
+            .build_package_interface_export_bundle(request)
+            .unwrap_or_else(|error| panic!("constant export must build: {error:?}"));
+
+        let bundle = bundle.as_ref();
+
+        let interface = encode_package_interface(bundle)
+            .unwrap_or_else(|error| panic!("constant interface must encode: {error:?}"));
+
+        let implementation = PackageImplementationArtifact::try_from_export_bundle(
+            &interface,
+            bundle,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("constant implementation must encode: {error:?}"));
+
+        let package_identity = PackageIdentity::try_new("example.package")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let package = ExternalSymbolKey::package(package_identity.clone());
+
+        let module = ExternalSymbolKey::module(
+            package.clone(),
+            ModulePathKey::try_new(["math"])
+                .unwrap_or_else(|| panic!("test module path must be valid")),
+        )
+        .unwrap_or_else(|| panic!("test module key must be valid"));
+
+        let callable = ExternalSymbolKey::named(
+            module,
+            SymbolKind::Function,
+            SymbolName::try_new("selected")
+                .unwrap_or_else(|| panic!("test callable name must be valid")),
+        )
+        .unwrap_or_else(|| panic!("test callable key must be valid"));
+
+        let owner = bundle
+            .surface()
+            .symbol_by_external_key(&callable)
+            .unwrap_or_else(|| panic!("constant callable must be exported"));
+
+        let body = implementation
+            .constant_callable_body(owner, bundle.surface())
+            .unwrap_or_else(|error| panic!("constant body must decode: {error:?}"))
+            .unwrap_or_else(|| panic!("constant body must be present"));
+
+        assert_eq!(
+            body.template().kind(),
+            CheckedTemplateKind::ConstantCallableBody
+        );
+
+        let dependency = DependencyInterfaceInput::new(
+            package_identity,
+            InterfaceProductIdentity::try_new("library")
+                .unwrap_or_else(|| panic!("provider product identity must be valid")),
+            "provider.brayi",
+            interface.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "consumer.bray",
+            SourceVersion::new(0),
+            concat!(
+                "module app;\n",
+                "using example.package.math.selected;\n",
+                "const result: i32 = example.package.math.selected(37);\n",
+            ),
+        );
+
+        let consumer = Compilation::load(
+            CompilationRequest::new(
+                PackageIdentity::try_new("consumer.package")
+                    .unwrap_or_else(|| panic!("consumer package identity must be valid")),
+                vec![source],
+            )
+            .with_dependency_interfaces([dependency]),
+        )
+        .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"));
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{:#?}",
+            consumer.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn imported_generic_type_members_reuse_the_receiver_substitution() {
+        let provider = compilation(concat!(
+            "module types;\n",
+            "\n",
+            "public struct Factory<T>\n",
+            "{\n",
+            "    public static func empty() -> Self\n",
+            "    {\n",
+            "        panic(\"fixture\");\n",
+            "    }\n",
+            "\n",
+            "    public static func identity<U>(pos value: U) -> U\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "}\n",
+            "\n",
+            "public struct Guard<T>\n",
+            "{\n",
+            "    internal value: T;\n",
+            "\n",
+            "    public mut func get() -> &mut T\n",
+            "    {\n",
+            "        panic(\"fixture\");\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        assert!(
+            provider.check_diagnostics().is_empty(),
+            "{:#?}",
+            provider.check_diagnostics()
+        );
+
+        let artifact = encode_package_interface(export(&provider))
+            .unwrap_or_else(|error| panic!("provider interface must encode: {error:?}"));
+
+        let provider_package = PackageIdentity::try_new("example.package")
+            .unwrap_or_else(|| panic!("provider package identity must be valid"));
+
+        let provider_product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("provider product identity must be valid"));
+
+        let dependency = DependencyInterfaceInput::new(
+            provider_package,
+            provider_product,
+            "provider.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let consumer_package = PackageIdentity::try_new("consumer.package")
+            .unwrap_or_else(|| panic!("consumer package identity must be valid"));
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "consumer.bray",
+            SourceVersion::new(0),
+            concat!(
+                "module app;\n",
+                "\n",
+                "using example.package.types.Factory;\n",
+                "using example.package.types.Guard;\n",
+                "\n",
+                "func run(pos guard: &mut example.package.types.Guard<i32>)\n",
+                "{\n",
+                "    let value: example.package.types.Factory<i32> =\n",
+                "        example.package.types.Factory<i32>.empty();\n",
+                "    let text: string =\n",
+                "        example.package.types.Factory<i32>.identity<string>(\"ok\");\n",
+                "    let value_ref: &mut i32 = guard.get();\n",
+                "    value_ref += 1;\n",
+                "}\n",
+            ),
+        );
+
+        let request = CompilationRequest::new(consumer_package, vec![source])
+            .with_dependency_interfaces([dependency]);
+
+        let consumer = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"));
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{:#?}",
+            consumer.check_diagnostics()
+        );
+
+        let lowered = consumer
+            .lowered_unit(source_function_body_key(&consumer, "run"))
+            .unwrap_or_else(|error| {
+                panic!("imported mutable generic access must lower: {error:?}")
+            });
+
+        assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+    }
+
+    #[test]
     fn standard_memory_surface_exports_uninitialized_storage() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../standard-library/std/src/std.bray"),
@@ -1359,7 +1568,7 @@ trusted internal func flush() -> PlatformStatus
         )
         .unwrap_or_else(|error| panic!("standard memory interface surface must build: {error:?}"));
 
-        let (semantics, _, _) = super::super::semantic::build_semantics(
+        let (semantics, _, _, _) = super::super::semantic::build_semantics(
             &compilation,
             symbols,
             &surface,
@@ -2185,11 +2394,8 @@ trusted internal func flush() -> PlatformStatus
 
         let sources = test_source_inputs("test", sources);
 
-        let options = CompilationOptions::new(
-            worker_budget,
-            product_kind,
-            SelectedTarget::default(),
-        );
+        let options =
+            CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default());
 
         let request = CompilationRequest::with_options(package, sources, options)
             .with_platform_services(platform_services)

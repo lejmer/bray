@@ -1,0 +1,100 @@
+trusted module std.channel;
+
+union SendError<T>
+{
+    Closed(pos value: T);
+}
+
+union TrySendError<T>
+{
+    Full(pos value: T);
+    Closed(pos value: T);
+}
+
+union ReceiveResult<T>
+{
+    Received(pos value: T);
+    Closed;
+}
+
+union TryReceiveResult<T>
+{
+    Received(pos value: T);
+    Empty;
+    Closed;
+}
+
+@copy
+union ChannelError
+{
+    CapacityOverflow;
+}
+
+func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelError>
+{
+    let storage_capacity: usize = if capacity == 0
+    {
+        yield 1;
+    }
+    else
+    {
+        yield capacity;
+    };
+
+    let mut storage: std.memory.RawBuffer<Uninit<T>> = match trusted std.memory.RawBuffer<Uninit<T>>(
+        capacity = storage_capacity,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(ChannelError.CapacityOverflow); }
+    };
+
+    let mut initialized: usize = 0;
+
+    while initialized < storage_capacity
+    {
+        let pointer: RawPointer<Uninit<T>> = trusted std.memory.spare_pointer<Uninit<T>>(&mut storage);
+
+        trusted std.memory.write<Uninit<T>>(pointer, std.memory.uninit<T>());
+
+        initialized += 1;
+
+        trusted std.memory.set_initialized_count<Uninit<T>>(&mut storage, count = initialized);
+    }
+
+    let state: ChannelState<T> =
+    {
+        storage = storage,
+        capacity = capacity,
+        head = 0,
+        length = 0,
+        receiver_open = true,
+        rendezvous_ticket = none,
+        send_waiters = WaitQueue(),
+        receive_waiters = WaitQueue(),
+    };
+
+    let shared: ChannelCore<T> =
+    {
+        owners = core.atomic.initialize<usize>(2),
+        senders = core.atomic.initialize<usize>(1),
+        generation = core.atomic.initialize<u32>(0),
+        state = std.sync.SpinLock<ChannelState<T>>(state),
+    };
+
+    let pointer: RawPointer<ChannelCore<T>> = trusted std.memory.allocate_value<ChannelCore<T>>(shared);
+
+    let sender: Sender<T> =
+    {
+        core = pointer,
+        active = true,
+    };
+
+    let receiver: Receiver<T> =
+    {
+        core = pointer,
+        active = true,
+    };
+
+    return Ok((sender, receiver));
+}

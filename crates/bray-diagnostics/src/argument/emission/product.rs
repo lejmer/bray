@@ -81,10 +81,13 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidNativeLinkInput,
     EvaluationCycle,
     EvaluationInfrastructure,
+    EvaluationConstantCallableBodyUnavailable,
+    EvaluationConstantCallableRootUnavailable,
     EvaluationAtomicRepresentationTypeUnavailable,
     EvaluationAtomicRepresentationArgumentsUnavailable,
     EvaluationAtomicInitializerArgumentUnavailable,
     EvaluationAtomicInitializerResultUnavailable,
+    EvaluationUninitInitializerResultUnavailable,
     EvaluationImportedExecutableTemplateMismatch,
     SemanticContextFailure,
     CheckingInfrastructureFailure,
@@ -159,6 +162,12 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidNativeLinkInput => "invalid_native_link_input",
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
+            Self::EvaluationConstantCallableBodyUnavailable => {
+                "evaluation_constant_callable_body_unavailable"
+            }
+            Self::EvaluationConstantCallableRootUnavailable => {
+                "evaluation_constant_callable_root_unavailable"
+            }
             Self::EvaluationAtomicRepresentationTypeUnavailable => {
                 "evaluation_atomic_representation_type_unavailable"
             }
@@ -170,6 +179,9 @@ impl DiagnosticNativeProductFailureKind {
             }
             Self::EvaluationAtomicInitializerResultUnavailable => {
                 "evaluation_atomic_initializer_result_unavailable"
+            }
+            Self::EvaluationUninitInitializerResultUnavailable => {
+                "evaluation_uninit_initializer_result_unavailable"
             }
             Self::EvaluationImportedExecutableTemplateMismatch => {
                 "evaluation_imported_executable_template_mismatch"

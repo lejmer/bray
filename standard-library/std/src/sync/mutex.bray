@@ -1,0 +1,113 @@
+trusted module std.sync;
+
+struct Mutex<T>
+{
+    internal next_ticket: core.atomic.Atomic<u32>;
+    internal serving_ticket: core.atomic.Atomic<u32>;
+    internal storage: T;
+
+    construct(pos value: T) -> Self
+    {
+        return
+        {
+            next_ticket = core.atomic.initialize<u32>(0),
+            serving_ticket = core.atomic.initialize<u32>(0),
+            storage = value,
+        };
+    }
+
+    func lock() -> MutexGuard<T>
+        requires(blocking_execution())
+    {
+        let ticket: u32 = core.atomic.fetch_add<u32, 0>(&self.next_ticket, 1);
+        let mut serving: u32 = core.atomic.load<u32, 1>(&self.serving_ticket);
+
+        while serving != ticket
+        {
+            trusted internal std.atomic.platform_wait_word(&self.serving_ticket, expected = serving);
+
+            serving = core.atomic.load<u32, 1>(&self.serving_ticket);
+        }
+
+        let guard: MutexGuard<T> =
+        {
+            mutex = &self,
+            active = true,
+        };
+
+        return guard;
+    }
+
+    func try_lock() -> MutexGuard<T>?
+    {
+        let serving: u32 = core.atomic.load<u32, 1>(&self.serving_ticket);
+        let next: u32 = core.atomic.load<u32, 0>(&self.next_ticket);
+
+        if next != serving
+        {
+            return none;
+        }
+
+        let(_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
+            &self.next_ticket,
+            expected = next,
+            desired = next + 1,
+        );
+
+        if !acquired
+        {
+            return none;
+        }
+
+        let mut result: MutexGuard<T>? = none;
+
+        let guard: MutexGuard<T> =
+        {
+            mutex = &self,
+            active = true,
+        };
+
+        result = guard;
+
+        return result;
+    }
+}
+
+struct MutexGuard<T>
+{
+    internal mutex: &Mutex<T>;
+    internal mut active: bool;
+
+    trusted destruct()
+    {
+        if self.active
+        {
+            trusted internal release_mutex<T>(self.mutex);
+        }
+    }
+
+    mut func get() -> &mut T
+    {
+        let pointer: RawPointer<T> = std.memory.address_of<T>(&self.mutex.storage);
+
+        return trusted std.memory.borrow_mut_from<T, MutexGuard<T>>(&mut self, pointer);
+    }
+
+    consume mut func unlock()
+    {
+        trusted internal release_mutex<T>(self.mutex);
+        self.active = false;
+    }
+
+    internal func owner() -> &Mutex<T>
+    {
+        return self.mutex;
+    }
+}
+
+trusted internal func release_mutex<T>(pos mutex: &Mutex<T>)
+{
+    let _: u32 = core.atomic.fetch_add<u32, 2>(&mutex.serving_ticket, 1);
+
+    trusted internal std.atomic.platform_wake_all_words(&mutex.serving_ticket);
+}

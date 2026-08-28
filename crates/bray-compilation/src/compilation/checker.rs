@@ -673,11 +673,16 @@ pub(in crate::compilation) fn query_error_with_fallback(
         FactQueryError::AtomicInitializerResultUnavailable => CheckerQueryError::Infrastructure(
             CheckerInfrastructureError::AtomicInitializerResultUnavailable,
         ),
+        FactQueryError::UninitInitializerResultUnavailable => CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::UninitInitializerResultUnavailable,
+        ),
         FactQueryError::ImportedExecutableTemplateMismatch => CheckerQueryError::Infrastructure(
             CheckerInfrastructureError::ImportedExecutableTemplateMismatch,
         ),
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
+        | FactQueryError::ConstantCallableBodyUnavailable
+        | FactQueryError::ConstantCallableRootUnavailable
         | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(fallback),
     }
 }

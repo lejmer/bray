@@ -1039,10 +1039,7 @@ mod tests {
         );
 
         assert_eq!(
-            archive_file_name(
-                NativeTarget::Aarch64LinuxGnu,
-                RuntimeArchiveKind::Callback
-            ),
+            archive_file_name(NativeTarget::Aarch64LinuxGnu, RuntimeArchiveKind::Callback),
             "libbray_runtime_callback.a"
         );
 
@@ -1104,10 +1101,7 @@ mod tests {
                 .find(|component| component.identity().as_str().ends_with("product.callback"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain callback support"));
 
-            assert_eq!(
-                callback.roles(),
-                [RuntimeAbiRole::ForeignCallbackExecution]
-            );
+            assert_eq!(callback.roles(), [RuntimeAbiRole::ForeignCallbackExecution]);
 
             assert_eq!(callback.dependencies(), [common.identity().clone()]);
 

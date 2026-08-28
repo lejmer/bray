@@ -38,6 +38,15 @@ where
         .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
 
     match data.as_ref() {
+        ConstantTermData::Typed { term, ty } => {
+            let ty = evaluator
+                .context
+                .semantic_values()
+                .substitute_type(*ty, evaluator.substitution.substitution())
+                .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+
+            evaluator.evaluate_term(*term, ty)
+        }
         ConstantTermData::Value(value) => Ok(*value),
         ConstantTermData::Unary { operation, operand } => {
             let operand = evaluator.evaluate_term(*operand, ty)?;
@@ -217,6 +226,11 @@ where
 
             evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
         }
+        ConstantTermData::CallableArgument(ordinal) => ordinal
+            .to_index()
+            .and_then(|index| evaluator.arguments.get(index))
+            .copied()
+            .ok_or_else(TemplateEvaluationFailure::invalid_input),
         ConstantTermData::Parameter(_)
         | ConstantTermData::TargetProperty(_)
         | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),

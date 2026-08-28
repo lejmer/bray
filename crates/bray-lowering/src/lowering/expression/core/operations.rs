@@ -69,9 +69,7 @@ impl Lowerer<'_> {
                         Some(MirOperand::Constant { value, ty }),
                         source,
                     ))
-                } else if let Some(callable) =
-                    self.declared_foreign_callable_reference(id, *name)?
-                {
+                } else if let Some(callable) = self.declared_callable_reference(id, *name)? {
                     let source = self.source(expression.origin());
 
                     let value = self.push_value_operation(
@@ -186,7 +184,7 @@ impl Lowerer<'_> {
         self.materialize_temporary(id, lowered)
     }
 
-    fn declared_foreign_callable_reference(
+    fn declared_callable_reference(
         &self,
         expression: BoundExpressionId,
         name: BoundNameExpression,
@@ -210,10 +208,6 @@ impl Lowerer<'_> {
         let TypeData::Callable(callable) = data.as_ref() else {
             return Ok(None);
         };
-
-        if callable.abi() == CallableAbi::Bray {
-            return Ok(None);
-        }
 
         let owner = GenericOwnerId::try_new(definition.symbol())
             .ok_or(LoweringError::SemanticValueUnavailable)?;

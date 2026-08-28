@@ -918,11 +918,7 @@ mod tests {
             platform_archive_path,
             platform_archive_bytes,
         )
-        .map(|artifact| {
-            artifact.with_platform_services([
-                PlatformServiceRole::StandardOutputWrite,
-            ])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite]))
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
                 NonEmptySharedStr::try_new("c")
@@ -942,9 +938,7 @@ mod tests {
             ),
             filesystem_archive_bytes,
         )
-        .map(|artifact| {
-            artifact.with_platform_services([PlatformServiceRole::FileRead])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::FileRead]))
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
                 NonEmptySharedStr::try_new("filesystem")
@@ -964,10 +958,7 @@ mod tests {
             ),
             process_archive_bytes,
         )
-        .map(|artifact| {
-            artifact
-                .with_platform_services([PlatformServiceRole::ChildSpawn])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::ChildSpawn]))
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
                 NonEmptySharedStr::try_new("process")
@@ -3631,11 +3622,14 @@ mod tests {
                 CodegenLinkage::Export,
             );
 
-            let backend_ir =
-                generated_artifacts_of_kind(&backend, &callback_plan, BackendArtifactKind::BackendIr)
-                    .into_iter()
-                    .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
-                    .collect::<String>();
+            let backend_ir = generated_artifacts_of_kind(
+                &backend,
+                &callback_plan,
+                BackendArtifactKind::BackendIr,
+            )
+            .into_iter()
+            .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
+            .collect::<String>();
 
             assert!(
                 backend_ir

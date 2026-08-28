@@ -1,14 +1,12 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticBag,
-    DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticIoErrorKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticPackageInterfaceFailure, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure,
+    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticIoErrorKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticPackageInterfaceFailure, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
 use bray_package_interface::{
-    InterfaceSemanticCommitError, InterfaceValidationError,
-    PackageImplementationArtifactBuildError,
+    InterfaceSemanticCommitError, PackageImplementationArtifactBuildError,
     PackageInterfaceExportBuildError, PackageInterfaceExportSurfaceError,
     PackageInterfaceSurfaceBuildError,
 };
@@ -18,9 +16,11 @@ use bray_symbols::{
 use bray_target::TargetIdentity;
 
 use super::common::{
-    diagnostic_backend_artifact, emission_failure_diagnostic, emission_failure_diagnostics,
+    codegen_unit_identity, diagnostic_backend_artifact, emission_failure_diagnostic,
+    emission_failure_diagnostics,
 };
 use super::model::ProductEmissionErrorKind;
+use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
 use crate::compilation::product::{
     codegen_preparation_failure_kind, native_product_preparation_diagnostic,
 };
@@ -28,7 +28,6 @@ use crate::compilation::{
     CodegenPreparationError, EmissionCodegenError, EmissionCodegenErrorKind,
     PackageInterfaceExportError,
 };
-use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
 use crate::fact::FactQueryError;
 
 pub(super) fn codegen_failure_diagnostics(
@@ -156,29 +155,6 @@ fn contribution_merge_failure_diagnostics(
     emission_failure_diagnostics(DiagnosticEmissionFailure::Codegen(failure), product, target)
 }
 
-fn codegen_unit_identity(unit: &bray_codegen::CodegenUnitKey) -> DiagnosticArtifactDigest {
-    DiagnosticArtifactDigest::new(
-        DiagnosticArtifactDigestAlgorithm::Blake3,
-        unit.content_identity(),
-    )
-}
-
-pub(super) const fn package_interface_validation_error(
-    kind: &ProductEmissionErrorKind,
-) -> Option<&InterfaceValidationError> {
-    match kind {
-        ProductEmissionErrorKind::PackageInterfaceEncoding(error)
-        | ProductEmissionErrorKind::PackageImplementation(
-            PackageImplementationArtifactBuildError::InvalidBody(error)
-            | PackageImplementationArtifactBuildError::InvalidArtifact(error),
-        )
-        | ProductEmissionErrorKind::PackageInterface(PackageInterfaceExportError::Bundle(
-            PackageInterfaceExportBuildError::Validation(error),
-        )) => Some(error),
-        _ => None,
-    }
-}
-
 pub(super) fn package_interface_failure_diagnostics(
     kind: &ProductEmissionErrorKind,
     product: &ProductIdentity,
@@ -237,6 +213,16 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
+        PackageInterfaceExportError::ConstantCallableEvaluation { declaration, cause } => {
+            package_failure_diagnostic(
+                DiagnosticPackageInterfaceFailure::ConstantCallableEvaluation {
+                    declaration: declaration.clone(),
+                    cause: diagnostic_evaluation_failure(cause),
+                },
+                product,
+                target,
+            )
+        }
         PackageInterfaceExportError::IncompletePublicDeclarationSemantics(kind) => {
             package_compiler_defect_diagnostic(
                 DiagnosticPackageInterfaceFailure::IncompletePublicDeclaration(
@@ -303,7 +289,11 @@ fn package_interface_export_failure_diagnostic(
                 FactQueryError::Cycle(cycle) => cycle
                     .facts()
                     .iter()
-                    .map(|fact| crate::profile::ProfileQueryKind::from_key(fact).name().to_owned())
+                    .map(|fact| {
+                        crate::profile::ProfileQueryKind::from_key(fact)
+                            .name()
+                            .to_owned()
+                    })
                     .collect(),
                 _ => Box::new([]),
             };
@@ -382,9 +372,7 @@ fn package_interface_fragment_failure_diagnostic(
             }
         }
         InterfaceSemanticCommitError::UnexpectedPackageRecord(table) => {
-            DiagnosticPackageInterfaceFailure::MisassignedPackageRecord(
-                table.as_str().to_owned(),
-            )
+            DiagnosticPackageInterfaceFailure::MisassignedPackageRecord(table.as_str().to_owned())
         }
         InterfaceSemanticCommitError::ConflictingRecord { owner, kind } => {
             DiagnosticPackageInterfaceFailure::ConflictingDeclarationRecord {
@@ -451,6 +439,9 @@ fn package_interface_bundle_failure_diagnostic(
             ));
         }
         PackageInterfaceExportBuildError::Validation(_) => return None,
+        PackageInterfaceExportBuildError::DuplicateConstantCallableBody(owner) => {
+            DiagnosticPackageInterfaceFailure::DuplicateConstantCallableBody(owner.raw())
+        }
         PackageInterfaceExportBuildError::DuplicateExecutableTemplate(owner) => {
             DiagnosticPackageInterfaceFailure::DuplicateExecutableTemplate(owner.raw())
         }
@@ -745,20 +736,27 @@ pub(super) fn query_failure_diagnostics(
     )
 }
 
-fn diagnostic_evaluation_failure(
-    error: &FactQueryError,
-) -> DiagnosticEmissionEvaluationFailure {
+fn diagnostic_evaluation_failure(error: &FactQueryError) -> DiagnosticEmissionEvaluationFailure {
     match error {
         FactQueryError::Cancelled => unreachable!("cancelled queries do not produce diagnostics"),
         FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
+        FactQueryError::ConstantCallableBodyUnavailable => {
+            DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
+        }
+        FactQueryError::ConstantCallableRootUnavailable => {
+            DiagnosticEmissionEvaluationFailure::ConstantCallableRootUnavailable
+        }
         FactQueryError::AtomicInitializerArgumentUnavailable => {
             DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
         }
         FactQueryError::AtomicInitializerResultUnavailable => {
             DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+        }
+        FactQueryError::UninitInitializerResultUnavailable => {
+            DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
         }
         FactQueryError::ImportedExecutableTemplateMismatch => {
             DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
@@ -778,6 +776,9 @@ fn diagnostic_evaluation_failure(
             }
             bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
                 DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
+                DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
             }
             bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
                 DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
@@ -800,8 +801,7 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        package_interface_export_failure_diagnostic,
-        package_interface_fragment_failure_diagnostic,
+        package_interface_export_failure_diagnostic, package_interface_fragment_failure_diagnostic,
     };
     use crate::compilation::PackageInterfaceExportError;
 
@@ -845,9 +845,12 @@ mod tests {
             &target,
         );
 
-        assert!(diagnostic.notes().iter().any(|note| {
-            note.kind() == DiagnosticNoteKind::ReportCompilerDefect
-        }));
+        assert!(
+            diagnostic
+                .notes()
+                .iter()
+                .any(|note| { note.kind() == DiagnosticNoteKind::ReportCompilerDefect })
+        );
     }
 
     #[test]
@@ -889,8 +892,7 @@ mod tests {
         assert_eq!(diagnostic.primary_span(), Some(second_span));
 
         assert!(diagnostic.labels().iter().any(|label| {
-            label.kind() == DiagnosticLabelKind::DuplicateDeclaration
-                && label.span() == second_span
+            label.kind() == DiagnosticLabelKind::DuplicateDeclaration && label.span() == second_span
         }));
 
         assert!(diagnostic.related_locations().iter().any(|location| {

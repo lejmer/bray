@@ -3,8 +3,8 @@ use bray_bound_tree::{
     PatternProjection, StorageBinding, StorageBindingTarget,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStoreKind,
-    MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirEdge, MirFieldReference, MirOperand, MirOperationKind, MirPlace,
+    MirProjection, MirProjectionKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, LocalBindingSymbolId};
 
@@ -108,6 +108,14 @@ impl Lowerer<'_> {
         let operation = self.pattern_operation(pattern)?;
         let subject = self.project_pattern_subject(pattern, subject, current, operation)?;
 
+        if pattern_node.kind() == BoundPatternKind::Discard
+            && operation == PatternOperation::Consume
+        {
+            self.store_discarded_pattern(pattern, subject, pattern_node.origin(), current)?;
+
+            return Ok(current);
+        }
+
         if self.pattern_introduces_direct_bindings(pattern)? {
             for binding in pattern_node.bindings() {
                 self.store_pattern_binding(
@@ -139,6 +147,44 @@ impl Lowerer<'_> {
         }
 
         Ok(current)
+    }
+
+    fn store_discarded_pattern(
+        &mut self,
+        pattern: BoundPatternId,
+        value: MirOperand,
+        origin: bray_bound_tree::BoundNodeOrigin,
+        current: MirBlockId,
+    ) -> Result<(), LoweringError> {
+        let checked = self
+            .input
+            .patterns()
+            .pattern(pattern)
+            .ok_or(LoweringError::UnsupportedPattern(pattern))?;
+
+        let StorageBinding::Identity(identity) = self
+            .input
+            .storage_plan()
+            .binding(StorageBindingTarget::PatternDiscard(pattern))
+            .ok_or(LoweringError::UnsupportedPattern(pattern))?
+        else {
+            return Err(LoweringError::UnsupportedPattern(pattern));
+        };
+
+        let destination = self.place_for_identity(identity, checked.input_type(), origin)?;
+
+        self.builder.push_operation(
+            current,
+            self.source(origin),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination,
+                value,
+            },
+            None,
+        )?;
+
+        Ok(())
     }
 
     fn lower_alternative_pattern(
@@ -357,6 +403,27 @@ impl Lowerer<'_> {
 
         let source = self.source(self.pattern(pattern)?.origin());
 
+        if let MirOperand::Copy(place) | MirOperand::Move(place) = &subject {
+            let mut projections = place.projections().to_vec();
+
+            projections.push(MirProjection::new(
+                mir_pattern_projection(projection),
+                place.ty(),
+                check.input_type(),
+            ));
+
+            let place = MirPlace::new(place.storage(), projections, check.input_type());
+
+            return self.pattern_projected_place_operand(
+                pattern,
+                place,
+                current,
+                operation,
+                source,
+                check.input_type(),
+            );
+        }
+
         let result = self.builder.push_operation(
             current,
             source,
@@ -372,6 +439,41 @@ impl Lowerer<'_> {
             .result()
             .map(MirOperand::Value)
             .ok_or(LoweringError::UnsupportedPattern(pattern))
+    }
+
+    fn pattern_projected_place_operand(
+        &mut self,
+        pattern: BoundPatternId,
+        place: MirPlace,
+        current: MirBlockId,
+        operation: PatternOperation,
+        source: bray_ir::MirSourceAnchor,
+        result_type: bray_symbols::TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        match operation {
+            PatternOperation::Observe | PatternOperation::Copy => Ok(MirOperand::Copy(place)),
+            PatternOperation::Consume => Ok(MirOperand::Move(place)),
+            PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
+                let kind = match operation {
+                    PatternOperation::SharedBorrow => BorrowKind::Shared,
+                    PatternOperation::MutableBorrow => BorrowKind::Mutable,
+                    _ => return Err(LoweringError::UnsupportedPattern(pattern)),
+                };
+
+                let result = self.builder.push_operation(
+                    current,
+                    source,
+                    MirOperationKind::Borrow { kind, place },
+                    Some(result_type),
+                )?;
+
+                result
+                    .result()
+                    .map(MirOperand::Value)
+                    .ok_or(LoweringError::UnsupportedPattern(pattern))
+            }
+            PatternOperation::Recovered => Err(LoweringError::UnsupportedPattern(pattern)),
+        }
     }
 
     fn store_direct_pattern_bindings(
@@ -552,5 +654,25 @@ impl Lowerer<'_> {
             .pattern(pattern)
             .cloned()
             .ok_or_else(|| LoweringError::MissingBoundNode(pattern.into()))
+    }
+}
+
+const fn mir_pattern_projection(projection: PatternProjection) -> MirProjectionKind {
+    match projection {
+        PatternProjection::ProductField(field) => {
+            MirProjectionKind::Field(MirFieldReference::Struct(field))
+        }
+        PatternProjection::TupleElement(ordinal) => MirProjectionKind::TupleField(ordinal.raw()),
+        PatternProjection::ActiveUnionPayloadField { variant, field } => {
+            MirProjectionKind::ActiveUnionPayloadField { variant, field }
+        }
+        PatternProjection::ElementFromStart(ordinal) => {
+            MirProjectionKind::ElementFromStart(ordinal.raw())
+        }
+        PatternProjection::ElementFromEnd(ordinal) => {
+            MirProjectionKind::ElementFromEnd(ordinal.raw())
+        }
+        PatternProjection::NullableValue => MirProjectionKind::NullableValue,
+        PatternProjection::OwnedTarget => MirProjectionKind::OwnedStorage,
     }
 }

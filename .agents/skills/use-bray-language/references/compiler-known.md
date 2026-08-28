@@ -133,7 +133,7 @@ func summarize(pos value: &string) -> (usize, bool)
 
 These calls are recognized only because the visible declarations have the exact standard-library identities. A user declaration named `scalar_count`, a declaration in another package, or a different visible declaration with the same surface remains ordinary code.
 
-Recognition can provide specified checking, lowering, optimization, const eligibility, or contract behavior without making a declaration ambient. Current recognized families include numeric conversion policy, string operations, callback state, and the standard-library memory, layout, allocation, uninitialized-storage, and anchored-borrow surfaces listed by the conformance catalog. Channels, operating-system threads, child processes, task combinators, synchronization owners, run checkpoints, and runtime-selection types remain ordinary standard-library declarations rather than recognized names.
+Recognition can provide specified checking, lowering, optimization, const eligibility, or contract behavior without making a declaration ambient. Current recognized families include numeric conversion policy, string operations, callback state, and the standard-library memory, layout, allocation, uninitialized-storage, and anchored-borrow surfaces listed by the conformance catalog. Safe atomic wrappers, channels, operating-system threads, child processes, task combinators, synchronization owners, run checkpoints, and runtime-selection types remain ordinary standard-library declarations rather than recognized names.
 
 A bodyless standard-library declaration shown in the specification describes the required surface. It is not special declaration syntax for a standard-library package.
 
