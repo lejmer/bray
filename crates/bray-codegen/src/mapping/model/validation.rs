@@ -67,8 +67,35 @@ pub fn demanded_runtime_references_for_mir(
                 .map(|role| MirRuntimeReference::new(role, runtime_abi))
                 .map(Some),
         )
+        .chain(boundary_panic_propagation_is_demanded(mir).then_some(Some(
+            MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+                runtime_abi,
+            ),
+        )))
         .flatten()
         .collect()
+}
+
+fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
+    mir.blocks().iter().any(|block| {
+        let checked_call = matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::CheckCallPanic { .. }
+        )
+        .then(|| block.operations().last().copied())
+        .flatten();
+
+        block.operations().iter().any(|operation| {
+            Some(*operation) != checked_call
+                && mir.operation(*operation).is_some_and(|operation| {
+                    matches!(
+                        operation.kind(),
+                        MirOperationKind::Call(call) if call.may_propagate_panic()
+                    )
+                })
+        })
+    })
 }
 
 /// Returns direct MIR roles plus runtime helpers selected by operation mappings.
@@ -101,6 +128,16 @@ pub fn mapped_runtime_references(
             FOREIGN_CALLBACK_RUNTIME_ROLES
                 .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
         );
+    }
+
+    if symbols
+        .iter()
+        .any(|symbol| symbol.signature().has_panic_report_context())
+    {
+        references.insert(MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+            unit.target().runtime_abi(),
+        ));
     }
 
     references
@@ -297,6 +334,14 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
             ..
         }) => [Some(*runtime), None, None],
+        MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
+            Some(*runtime),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+                runtime.abi_version(),
+            )),
+            None,
+        ],
         MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
             completion,
             panic,
@@ -315,7 +360,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         )
         | MirOperationKind::Host(
             MirHostOperation::SelectTestEntry { runtime, .. }
-            | MirHostOperation::ExecuteRoot { runtime, .. }
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
@@ -381,6 +425,7 @@ fn terminator_runtime_references(
         | MirTerminatorKind::Return(_)
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::ForwardRunResult { .. }
+        | MirTerminatorKind::CheckCallPanic { .. }
         | MirTerminatorKind::BeginCleanup(_)
         | MirTerminatorKind::ContinueCleanup(_)
         | MirTerminatorKind::Panic { .. }
@@ -434,5 +479,32 @@ mod tests {
         for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
             assert!(references.iter().any(|reference| reference.role() == role));
         }
+    }
+
+    #[test]
+    fn hidden_panic_context_demands_panic_propagation_runtime() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+
+        let symbol = request
+            .mappings()
+            .symbols()
+            .first()
+            .unwrap_or_else(|| panic!("fixture must map one symbol"));
+
+        let direct = CodegenSymbolMapping::new(
+            symbol.key().clone(),
+            symbol.name().clone(),
+            CodegenLinkage::Fallback,
+            symbol.signature().clone().with_panic_report_context(),
+        );
+
+        let references = mapped_runtime_references(request.unit(), &[], &[direct]);
+
+        assert!(
+            references
+                .iter()
+                .any(|reference| reference.role() == RuntimeAbiRole::PanicPropagation)
+        );
     }
 }

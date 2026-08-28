@@ -1,9 +1,47 @@
+use std::collections::BTreeSet;
+
 use bray_codegen::CodegenFailure;
-use bray_ir::{MirEdge, MirPlace};
+use bray_ir::{MirBlockId, MirCallPanicEdge, MirEdge, MirOperationId, MirPlace, MirUnit};
 use inkwell::basic_block::BasicBlock;
 use inkwell::values::{BasicValueEnum, PhiValue};
 
 use super::core::UnitTranslator;
+
+pub(super) fn reachable_blocks(unit: &MirUnit) -> BTreeSet<MirBlockId> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = vec![unit.entry()];
+
+    while let Some(block) = pending.pop() {
+        if !reachable.insert(block) {
+            continue;
+        }
+
+        let Some(block) = unit.block(block) else {
+            continue;
+        };
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|successor| pending.push(successor));
+    }
+
+    reachable
+}
+
+pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId> {
+    unit.blocks()
+        .iter()
+        .filter_map(|block| {
+            matches!(
+                block.terminator().kind(),
+                bray_ir::MirTerminatorKind::CheckCallPanic { .. }
+            )
+            .then(|| block.operations().last().copied())
+            .flatten()
+        })
+        .collect()
+}
 use super::support::llvm;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -41,6 +79,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let route = self.begin_route(name, pending_moves);
 
         self.finish_route(target)?;
+
+        Ok(route)
+    }
+
+    pub(super) fn route_call_panic(
+        &mut self,
+        edge: MirCallPanicEdge,
+        report: BasicValueEnum<'context>,
+        name: &str,
+        pending_moves: &[MirPlace],
+    ) -> Result<BasicBlock<'context>, CodegenFailure> {
+        let route = self.begin_route(name, pending_moves);
+
+        let target = self
+            .unit
+            .block(edge.target())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let [parameter] = target.parameters() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let phi = self
+            .phis
+            .get(parameter)
+            .copied()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        phi.add_incoming(&[(&report, route)]);
+        self.finish_route(edge.target())?;
 
         Ok(route)
     }

@@ -1,0 +1,117 @@
+module app;
+
+internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal struct CleanupProbe
+{
+    internal digit: usize;
+
+    destruct()
+    {
+        let current: usize = core.atomic.load<usize, 1>(&CLEANUP_ORDER);
+
+        core.atomic.store<usize, 4>(&CLEANUP_ORDER, current * 10 + self.digit);
+    }
+}
+
+func main()
+{
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let direct: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 4,
+        };
+
+        panic("direct catch panic");
+
+        yield unit;
+    };
+
+    let direct_caught: bool = match consume direct
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(direct_caught, "direct panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 4, "direct panic cleanup was not exact");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let called: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 6,
+        };
+
+        panic_in_called_function();
+
+        yield unit;
+    };
+
+    let called_caught: bool = match consume called
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(called_caught, "called-function panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 56, "called-function cleanup was not exact");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let nested: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 3,
+        };
+
+        middle_function();
+
+        yield unit;
+    };
+
+    let nested_caught: bool = match consume nested
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(nested_caught, "nested panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 123, "nested cleanup was not exact");
+}
+
+internal func panic_in_called_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 5,
+    };
+
+    panic("called-function panic");
+}
+
+internal func middle_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 2,
+    };
+
+    leaf_function();
+}
+
+internal func leaf_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 1,
+    };
+
+    panic("nested panic");
+}

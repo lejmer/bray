@@ -419,7 +419,7 @@ pub(super) fn callable_type_signature(
         CodegenResultMapping::direct(result_type, None, [])
     };
 
-    Ok(CodegenCallableSignature::new(
+    let signature = CodegenCallableSignature::new(
         callable
             .parameters()
             .iter()
@@ -427,7 +427,25 @@ pub(super) fn callable_type_signature(
         result,
         callable.abi(),
         false,
+    );
+
+    Ok(synchronous_bray_signature(
+        signature,
+        callable.abi(),
+        callable.execution(),
     ))
+}
+
+pub(super) fn synchronous_bray_signature(
+    signature: CodegenCallableSignature,
+    abi: CallableAbi,
+    execution: CallableExecution,
+) -> CodegenCallableSignature {
+    if abi == CallableAbi::Bray && execution == CallableExecution::Synchronous {
+        signature.with_panic_report_context()
+    } else {
+        signature
+    }
 }
 
 pub(super) fn operation_result_type(mir: &MirUnit, operation: &MirOperation) -> Option<TypeId> {

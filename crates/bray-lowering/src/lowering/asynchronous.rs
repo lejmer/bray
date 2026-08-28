@@ -116,7 +116,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: MirSourceAnchor,
         call: MirCall,
-    ) -> Result<MirOperand, LoweringError> {
+    ) -> Result<(MirOperand, bool), LoweringError> {
         let task_operation = self
             .input
             .async_analysis()
@@ -170,7 +170,13 @@ impl Lowerer<'_> {
             },
         };
 
+        let may_propagate_panic = matches!(
+            &operation,
+            MirOperationKind::Call(call) if call.may_propagate_panic()
+        );
+
         self.push_value_operation(expression, block, source, operation)
+            .map(|value| (value, may_propagate_panic))
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {

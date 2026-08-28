@@ -924,6 +924,31 @@ mod tests {
     }
 
     #[test]
+    fn preselection_calls_retain_normal_and_panic_paths() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(19);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit);
+        let callee = push_error_expression(&mut builder, origin);
+
+        let call = push_expression(
+            &mut builder,
+            BoundExpression::Call(BoundCallExpression::pending(origin, callee, [], [])),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [call]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        for kind in [
+            AnalysisExitKind::NormalFallthrough,
+            AnalysisExitKind::Panic,
+        ] {
+            assert!(graph.exits().iter().any(|exit| exit.kind() == kind));
+        }
+    }
+
+    #[test]
     fn direct_await_has_suspend_resume_and_current_run_cancellation_paths() {
         let key = callable_key();
         let unit = BoundUnitId::new(10);

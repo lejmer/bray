@@ -5,9 +5,10 @@ use std::process::Command;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 use super::core::{
-    PRODUCT_NAME, inspect_objects, llvm_tool, object_files, reject_evidence,
+    inspect_objects, llvm_tool, object_files, reject_evidence,
     require_equal_artifacts, require_evidence, standard_library_root,
 };
+use super::fixtures::PRODUCT_NAME;
 use super::repeatable::{RepeatableFixtureAudit, audit_repeatable_fixtures};
 
 const STATIC_STORAGE_FIXTURE: &str = "xtask/fixtures/native-execution/static_storage.bray";

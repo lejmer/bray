@@ -140,6 +140,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             parameters.push(BasicMetadataTypeEnum::from(self.map(ty)?));
         }
 
+        if signature.has_panic_report_context() {
+            parameters.push(self.default_pointer_type()?.into());
+        }
+
         match signature.result() {
             CodegenResultMapping::Void | CodegenResultMapping::Indirect { .. } => Ok(self
                 .context

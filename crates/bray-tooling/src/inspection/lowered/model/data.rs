@@ -1740,6 +1740,23 @@ fn inspection_terminator(
 
             "forward_run_result"
         }
+        MirTerminatorKind::CheckCallPanic {
+            completed,
+            panicked,
+        } => {
+            parts.edge("completed", completed, None, &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("panicked"),
+                target: panicked.target().slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            parts.r#type("report", panicked.report_type(), &context)?;
+
+            "check_call_panic"
+        }
         MirTerminatorKind::BeginCleanup(edge) => {
             parts.cleanup_edge("cleanup", edge, &context)?;
 

@@ -61,8 +61,8 @@ impl Lowerer<'_> {
         let mut arguments = Vec::with_capacity(operation.arguments().len());
         let mut inline_assembly_labels = None;
 
-        for (ordinal, expression, conversion) in selected_arguments {
-            let ordinal = usize::try_from(ordinal)
+        for (index, (ordinal, expression, conversion)) in selected_arguments.iter().enumerate() {
+            let ordinal = usize::try_from(*ordinal)
                 .map_err(|_| LoweringError::MissingSemanticSelection(id))?;
 
             if matches!(
@@ -74,7 +74,7 @@ impl Lowerer<'_> {
             ) && ordinal == 6
             {
                 let (continuation, labels) =
-                    self.lower_inline_assembly_labels(expression, current)?;
+                    self.lower_inline_assembly_labels(*expression, current)?;
 
                 current = continuation;
                 inline_assembly_labels = Some(labels);
@@ -94,9 +94,9 @@ impl Lowerer<'_> {
                     return Err(LoweringError::MissingSemanticSelection(id));
                 };
 
-                self.lower_inline_assembly_inputs(expression, current, contract)?
+                self.lower_inline_assembly_inputs(*expression, current, contract)?
             } else {
-                self.lower_expression(expression, current)?
+                self.lower_expression(*expression, current)?
             };
 
             let Some(continuation) = lowered.block else {
@@ -106,7 +106,7 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(expression));
+                return Err(LoweringError::MissingOperationResult(*expression));
             };
 
             let operand = if assembly_inputs {
@@ -126,10 +126,26 @@ impl Lowerer<'_> {
                     return Err(LoweringError::MissingSemanticSelection(id));
                 };
 
-                self.inline_assembly_runtime_input_type(expression, contract)?
+                self.inline_assembly_runtime_input_type(*expression, contract)?
             } else {
                 conversion.target_type()
             };
+
+            let later_expressions = selected_arguments[index + 1..]
+                .iter()
+                .filter_map(|(ordinal, expression, _)| {
+                    usize::try_from(*ordinal)
+                        .is_ok_and(|ordinal| is_runtime_expression(kind, ordinal))
+                        .then_some(*expression)
+                });
+
+            let operand = self.materialize_memory_argument(
+                current,
+                *expression,
+                operand,
+                operand_type,
+                self.later_evaluation_may_check_call_panic(later_expressions)?,
+            )?;
 
             arguments.push((runtime_index, operand, operand_type));
         }
@@ -252,6 +268,29 @@ impl Lowerer<'_> {
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn materialize_memory_argument(
+        &mut self,
+        current: MirBlockId,
+        expression: BoundExpressionId,
+        operand: MirOperand,
+        operand_type: TypeId,
+        has_later_expression: bool,
+    ) -> Result<MirOperand, LoweringError> {
+        if !has_later_expression {
+            return Ok(operand);
+        }
+
+        let lowered = LoweredExpression::continuing(
+            current,
+            Some(operand),
+            self.expression_source(expression)?,
+        );
+
+        self.materialize_typed_for_later_evaluation(expression, lowered, operand_type)?
+            .value
+            .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
     fn lower_inline_assembly_inputs(
@@ -439,6 +478,20 @@ impl Lowerer<'_> {
             .intern_type(TypeData::tuple(runtime.into_iter().map(|(_, ty)| ty)))
             .map_err(|_| LoweringError::MissingExpressionType(expression))
     }
+}
+
+const fn is_runtime_expression(
+    kind: CheckedMemoryOperationKind,
+    ordinal: usize,
+) -> bool {
+    kind.runtime_argument_index(ordinal).is_some()
+        || matches!(
+            kind,
+            CheckedMemoryOperationKind::InlineAssembly {
+                labels: Some(_),
+                ..
+            }
+        ) && ordinal == 6
 }
 
 fn lower_inline_assembly_contract(

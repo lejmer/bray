@@ -58,6 +58,8 @@ pub enum MirUnitBuildError {
     InvalidInlineAssemblyTerminator(MirBlockId),
     /// A suspension carries an event payload inconsistent with its category.
     InvalidSuspensionPayload(MirBlockId),
+    /// A synchronous call-panic check does not follow a propagating Bray call.
+    InvalidCallPanicCheck(MirBlockId),
     /// An edge supplies the wrong number of destination arguments.
     EdgeArgumentCountMismatch(MirBlockId),
     /// An edge argument type does not match its destination parameter.

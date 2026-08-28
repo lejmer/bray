@@ -193,6 +193,21 @@ pub enum MirCallIntrinsic {
 }
 
 impl MirCall {
+    /// Returns whether this call can propagate a panic through the synchronous Bray ABI.
+    pub const fn may_propagate_panic(&self) -> bool {
+        matches!(
+            &self.target,
+            MirCallTarget::Direct(MirCallableReference {
+                abi: CallableAbi::Bray,
+                ..
+            }) | MirCallTarget::Indirect {
+                abi: CallableAbi::Bray,
+                ..
+            }
+        ) && matches!(self.result, BoundCallResult::Immediate(_))
+            && self.intrinsic.is_none()
+    }
+
     /// Creates a checked call reconstructed from a compiled dependency.
     #[expect(
         clippy::too_many_arguments,

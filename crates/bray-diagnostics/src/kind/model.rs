@@ -835,7 +835,7 @@ impl DiagnosticKind {
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingMissingStorageOwnership => 7039,
-            Self::CheckingEscapingStorageDependency => 7110,
+            Self::CheckingEscapingStorageDependency => 7113,
             Self::CheckingMissingTraitFulfillment => 7040,
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,

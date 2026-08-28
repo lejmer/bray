@@ -161,6 +161,33 @@ pub struct MirCleanupEdge {
     edge: MirEdge,
 }
 
+/// Panic successor of one synchronous Bray call.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct MirCallPanicEdge {
+    target: MirBlockId,
+    report_type: TypeId,
+}
+
+impl MirCallPanicEdge {
+    /// Creates a panic successor whose sole block parameter receives the propagated report.
+    pub const fn new(target: MirBlockId, report_type: TypeId) -> Self {
+        Self {
+            target,
+            report_type,
+        }
+    }
+
+    /// Returns the block that receives the propagated report.
+    pub const fn target(self) -> MirBlockId {
+        self.target
+    }
+
+    /// Returns the panic-report type received by the target block.
+    pub const fn report_type(self) -> TypeId {
+        self.report_type
+    }
+}
+
 impl MirCleanupEdge {
     /// Creates a cleanup edge with an explicit phase.
     pub const fn new(phase: MirCleanupPhase, edge: MirEdge) -> Self {
@@ -407,6 +434,13 @@ pub enum MirTerminatorKind {
         /// Distinct successor edges.
         edges: MirRunResultEdges,
     },
+    /// Continue normally or transfer a panic report returned by one synchronous Bray call.
+    CheckCallPanic {
+        /// Normal continuation after the call completed.
+        completed: MirEdge,
+        /// Abnormal continuation receiving the propagated panic report.
+        panicked: MirCallPanicEdge,
+    },
     /// Enter phase-one cleanup.
     BeginCleanup(MirCleanupEdge),
     /// Continue from phase one into phase-two lifecycle resolution.
@@ -518,6 +552,13 @@ impl MirTerminatorKind {
                 visit(edges.panicked().edge().target());
                 visit(edges.cancelled().edge().target());
             }
+            Self::CheckCallPanic {
+                completed,
+                panicked,
+            } => {
+                visit(completed.target());
+                visit(panicked.target());
+            }
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
@@ -571,6 +612,7 @@ impl MirTerminatorKind {
             | Self::PropagateCancellation { .. }
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
+            | Self::CheckCallPanic { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::Panic { .. }

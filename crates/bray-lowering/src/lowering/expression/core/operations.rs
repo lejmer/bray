@@ -355,6 +355,24 @@ impl Lowerer<'_> {
 
         let left = self.lower_operator_operand(id, *left_id, selection, current)?;
 
+        let left_type = match selection {
+            OperatorTarget::BuiltIn(_) => self.expression_type(*left_id)?,
+            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => self
+                .input
+                .semantic_values()
+                .intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Shared,
+                    target: self.expression_type(*left_id)?,
+                })
+                .map_err(|_| LoweringError::SemanticValueUnavailable)?,
+        };
+
+        let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
+            self.materialize_typed_for_later_evaluation(*left_id, left, left_type)?
+        } else {
+            left
+        };
+
         let Some(current) = left.block else {
             return Ok(left);
         };
@@ -814,6 +832,23 @@ impl Lowerer<'_> {
                 BoundCallableTarget::Indirect(_) => {
                     let callee = self.lower_expression(expression.callee(), current)?;
 
+                    let later_expressions = selection
+                        .receiver()
+                        .map(bray_bound_tree::SelectedReceiver::expression)
+                        .into_iter()
+                        .chain(selection.arguments().iter().filter_map(|argument| match argument {
+                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                            SelectedArgument::Default { .. } => None,
+                        }));
+
+                    let callee = if self
+                        .later_evaluation_may_check_call_panic(later_expressions)?
+                    {
+                        self.materialize_for_later_evaluation(expression.callee(), callee)?
+                    } else {
+                        callee
+                    };
+
                     let Some(continuation) = callee.block else {
                         return Ok(callee);
                     };
@@ -836,7 +871,24 @@ impl Lowerer<'_> {
         };
 
         if let Some(receiver) = selection.receiver() {
-            let (lowered, _) = self.lower_call_receiver(receiver, current)?;
+            let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
+
+            let later_expressions = selection.arguments().iter().filter_map(|argument| {
+                match argument {
+                    SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                    SelectedArgument::Default { .. } => None,
+                }
+            });
+
+            let lowered = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+                self.materialize_typed_for_later_evaluation(
+                    receiver.expression(),
+                    lowered,
+                    receiver_type,
+                )?
+            } else {
+                lowered
+            };
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -854,7 +906,7 @@ impl Lowerer<'_> {
             });
         }
 
-        for argument in selection.arguments() {
+        for (index, argument) in selection.arguments().iter().enumerate() {
             match argument {
                 SelectedArgument::Default {
                     parameter,
@@ -874,6 +926,21 @@ impl Lowerer<'_> {
                     conversion,
                 } => {
                     let lowered = self.lower_expression(*expression, current)?;
+
+                    let later_expressions = selection.arguments()[index + 1..]
+                        .iter()
+                        .filter_map(|argument| match argument {
+                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                            SelectedArgument::Default { .. } => None,
+                        });
+
+                    let lowered = if self
+                        .later_evaluation_may_check_call_panic(later_expressions)?
+                    {
+                        self.materialize_for_later_evaluation(*expression, lowered)?
+                    } else {
+                        lowered
+                    };
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);
@@ -918,7 +985,12 @@ impl Lowerer<'_> {
             selection.witnesses().iter().copied(),
         );
 
-        let value = self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
+        let (mut value, may_propagate_panic) =
+            self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
+
+        if may_propagate_panic {
+            (current, value) = self.finish_call_panic_check(id, current, &source, &value)?;
+        }
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }

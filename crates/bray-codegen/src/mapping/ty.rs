@@ -218,6 +218,7 @@ pub struct CodegenCallableSignature {
     result: CodegenResultMapping,
     abi: CallableAbi,
     variadic: bool,
+    panic_report_context: bool,
 }
 
 impl CodegenCallableSignature {
@@ -233,7 +234,15 @@ impl CodegenCallableSignature {
             result,
             abi,
             variadic,
+            panic_report_context: false,
         }
+    }
+
+    /// Adds the hidden context through which a synchronous Bray call returns a panic report.
+    pub const fn with_panic_report_context(mut self) -> Self {
+        self.panic_report_context = true;
+
+        self
     }
 
     /// Returns target-classified parameters in semantic call order.
@@ -254,6 +263,11 @@ impl CodegenCallableSignature {
     /// Returns whether the machine signature accepts trailing variadic arguments.
     pub const fn is_variadic(&self) -> bool {
         self.variadic
+    }
+
+    /// Returns whether the physical signature carries a hidden panic-report context.
+    pub const fn has_panic_report_context(&self) -> bool {
+        self.panic_report_context
     }
 }
 

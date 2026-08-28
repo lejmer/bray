@@ -2,8 +2,8 @@ use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpression, ConstructionInputId, ConstructionTarget,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirConstruction, MirConstructionInput, MirEdge, MirOperand,
-    MirOperationKind, MirPanicCause, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirCallPanicEdge, MirConstruction, MirConstructionInput, MirEdge,
+    MirOperand, MirOperationKind, MirPanicCause, MirTerminatorKind,
 };
 use bray_symbols::TypeId;
 
@@ -312,6 +312,56 @@ impl Lowerer<'_> {
             scope_depth,
             expression.into(),
         )
+    }
+
+    pub(in crate::lowering::expression) fn finish_call_panic_check(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: &bray_ir::MirSourceAnchor,
+        value: &MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let report_type = self.panic_report_type()?;
+        let result_type = self.expression_type(expression)?;
+
+        let completed = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let result = self.builder.push_block_parameter(
+            completed,
+            Self::retained_source(source),
+            result_type,
+        )?;
+
+        let panicked = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let report = self.builder.push_block_parameter(
+            panicked,
+            Self::retained_source(source),
+            report_type,
+        )?;
+
+        self.builder.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::CheckCallPanic {
+                completed: MirEdge::new(completed, [Self::retained_operand(value)]),
+                panicked: MirCallPanicEdge::new(panicked, report_type),
+            },
+        )?;
+
+        self.finish_panic_to_active_catch(
+            expression,
+            panicked,
+            source,
+            MirOperand::Value(report),
+            report_type,
+        )?;
+
+        Ok((completed, MirOperand::Value(result)))
     }
 
     pub(super) fn construct_result(

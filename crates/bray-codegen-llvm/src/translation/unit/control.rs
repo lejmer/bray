@@ -236,6 +236,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_switch(tag, cancelled_route, &cases))?;
             }
+            MirTerminatorKind::CheckCallPanic {
+                completed,
+                panicked,
+            } => self.translate_call_panic(completed, *panicked)?,
         }
 
         Ok(())
@@ -353,29 +357,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(progress)
-    }
-
-    fn translate_panic_propagation(
-        &mut self,
-        report: &MirOperand,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<(), CodegenFailure> {
-        let report = match self.operand(report)? {
-            BasicValueEnum::PointerValue(value) => llvm(self.builder.build_ptr_to_int(
-                value,
-                crate::native::pointer_integer_type(self.types.context(), self.request.target()),
-                "panic.report",
-            ))?,
-            BasicValueEnum::IntValue(value) => value,
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
-        };
-
-        self.clear_moved_places()?;
-
-        self.invoke_runtime(runtime, &[report.into()])?;
-        llvm(self.builder.build_unreachable())?;
-
-        Ok(())
     }
 
     pub(super) fn translate_iteration(

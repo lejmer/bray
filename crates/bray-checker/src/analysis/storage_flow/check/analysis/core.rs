@@ -669,6 +669,13 @@ where
                     .iter()
                     .any(|entry| entry.subject() == subject);
 
+                let retained_by_owner_across_scope = self.liveness.is_owner_retained(subject)
+                    && self
+                        .liveness
+                        .live_across_scopes()
+                        .iter()
+                        .any(|entry| entry.subject() == subject);
+
                 let completed_retaining_suspension = match operation {
                     AnyBoundNodeId::Expression(expression) => {
                         self.liveness.is_live_across_suspension(expression, subject)
@@ -678,15 +685,17 @@ where
                     | AnyBoundNodeId::CallableBody(_) => false,
                 };
 
+                let reaches_last_use = self.liveness.is_last_use(operation, subject)
+                    || capability.expression().is_some_and(|expression| {
+                        self.liveness
+                            .is_last_use(AnyBoundNodeId::Expression(expression), subject)
+                    });
+
                 capability.entry_binding().is_none()
                     && ((moved_borrows.contains(borrow)
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
-                        || self.liveness.is_last_use(operation, subject)
-                        || capability.expression().is_some_and(|expression| {
-                            self.liveness
-                                .is_last_use(AnyBoundNodeId::Expression(expression), subject)
-                        }))
+                        || (reaches_last_use && !retained_by_owner_across_scope))
             })
             .collect::<BTreeSet<_>>();
 

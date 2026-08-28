@@ -21,7 +21,7 @@ use super::super::super::substitution::named_type;
 use super::super::specialization::ConcreteCodegenInstance;
 use super::support::{
     callable_type_signature, codegen_checker_error, implementation_subject, is_void_result,
-    receiver_codegen_type, substitute_contextual_self, void_signature,
+    receiver_codegen_type, substitute_contextual_self, synchronous_bray_signature, void_signature,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -258,11 +258,17 @@ impl Compilation {
             CodegenResultMapping::direct(result_type, None, [])
         };
 
-        Ok(CodegenCallableSignature::new(
+        let signature = CodegenCallableSignature::new(
             parameters,
             result,
             callable.abi(),
             callable.is_variadic(),
+        );
+
+        Ok(synchronous_bray_signature(
+            signature,
+            callable.abi(),
+            callable.execution(),
         ))
     }
 
@@ -368,12 +374,10 @@ impl Compilation {
             CodegenResultMapping::direct(result, None, [])
         };
 
-        Ok(CodegenCallableSignature::new(
-            parameters,
-            result,
-            CallableAbi::Bray,
-            false,
-        ))
+        Ok(
+            CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false)
+                .with_panic_report_context(),
+        )
     }
 
     pub(super) fn codegen_runtime_default_input_type(

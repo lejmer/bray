@@ -1,17 +1,52 @@
-use bray_bound_tree::{BoundExpression, BoundExpressionId, StorageIdentity};
-use bray_ir::{MirOperand, MirOperationKind, MirStoreKind};
+use bray_bound_tree::{
+    BoundCallResult, BoundExpression, BoundExpressionId, SemanticSelection, StorageIdentity,
+};
+use bray_ir::{MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind};
+use bray_symbols::{CallableAbi, TypeId};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    pub(in crate::lowering) fn later_evaluation_may_check_call_panic(
+        &self,
+        expressions: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> Result<bool, LoweringError> {
+        let mut pending = expressions.into_iter().collect::<Vec<_>>();
+
+        while let Some(expression) = pending.pop() {
+            let bound = self
+                .input
+                .unit()
+                .view()
+                .expression(expression)
+                .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
+
+            if matches!(
+                self.input.semantic_selections().expression(expression),
+                Some(SemanticSelection::Call(selection))
+                    if selection.abi() == CallableAbi::Bray
+                        && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
+                        && selection.implementation_hook().is_none()
+            ) {
+                return Ok(true);
+            }
+
+            pending.extend(bound.child_expressions());
+        }
+
+        Ok(false)
+    }
+
     pub(super) fn materialize_temporary(
         &mut self,
         expression: BoundExpressionId,
         lowered: LoweredExpression,
     ) -> Result<LoweredExpression, LoweringError> {
-        self.materialize_temporary_when(expression, lowered, false)
+        let ty = self.expression_type(expression)?;
+
+        self.materialize_temporary_when(expression, lowered, ty, false)
     }
 
     pub(in crate::lowering) fn materialize_for_later_evaluation(
@@ -19,13 +54,25 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         lowered: LoweredExpression,
     ) -> Result<LoweredExpression, LoweringError> {
-        self.materialize_temporary_when(expression, lowered, true)
+        let ty = self.expression_type(expression)?;
+
+        self.materialize_temporary_when(expression, lowered, ty, true)
+    }
+
+    pub(in crate::lowering) fn materialize_typed_for_later_evaluation(
+        &mut self,
+        expression: BoundExpressionId,
+        lowered: LoweredExpression,
+        ty: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        self.materialize_temporary_when(expression, lowered, ty, true)
     }
 
     fn materialize_temporary_when(
         &mut self,
         expression: BoundExpressionId,
         lowered: LoweredExpression,
+        ty: TypeId,
         required: bool,
     ) -> Result<LoweredExpression, LoweringError> {
         let Some(current) = lowered.block else {
@@ -43,9 +90,21 @@ impl Lowerer<'_> {
                 .find_map(|(identity, model)| {
                     matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
                         .then_some(identity)
+                        .filter(|identity| {
+                            self.input.storage_plan().storage_type(*identity) == Some(ty)
+                        })
                 });
 
         let Some(temporary) = temporary else {
+            if required {
+                return self.materialize_synthetic_temporary(
+                    current,
+                    lowered.source,
+                    value,
+                    ty,
+                );
+            }
+
             return Ok(LoweredExpression::continuing(
                 current,
                 Some(value),
@@ -68,8 +127,6 @@ impl Lowerer<'_> {
                 lowered.source,
             ));
         }
-
-        let ty = self.expression_type(expression)?;
 
         let origin = self
             .input
@@ -104,6 +161,39 @@ impl Lowerer<'_> {
             current,
             Some(MirOperand::Move(place)),
             lowered.source,
+        ))
+    }
+
+    fn materialize_synthetic_temporary(
+        &mut self,
+        current: bray_ir::MirBlockId,
+        source: bray_ir::MirSourceAnchor,
+        value: MirOperand,
+        ty: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let storage = self.builder.push_storage(
+            Self::retained_source(&source),
+            MirStorageKind::Temporary,
+            ty,
+        )?;
+
+        let place = MirPlace::new(storage, [], ty);
+
+        self.builder.push_operation(
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: place.clone(),
+                value,
+            },
+            None,
+        )?;
+
+        Ok(LoweredExpression::continuing(
+            current,
+            Some(MirOperand::Move(place)),
+            source,
         ))
     }
 }

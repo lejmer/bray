@@ -8,6 +8,7 @@ mod edge;
 mod effect;
 mod generator;
 mod memory;
+mod panic;
 mod place;
 mod range;
 mod scalar;
