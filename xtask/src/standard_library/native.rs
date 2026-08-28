@@ -16,11 +16,11 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 118;
+const API_TEST_COUNT: usize = 119;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 9] = [
+const OUTCOME_CASES: [OutcomeCase; 11] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -30,6 +30,24 @@ const OUTCOME_CASES: [OutcomeCase; 9] = [
         "explicit-failure",
         "explicit_failure",
         OutcomeExpectation::Explicit,
+    ),
+    OutcomeCase::new(
+        "assert-ok-rejects-error",
+        "assert_ok_rejects_an_error",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected Result.Ok",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-completed-rejects-cancellation",
+        "assert_completed_rejects_cancellation",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected RunResult.Completed",
+            source_available: false,
+        },
     ),
     OutcomeCase::new(
         "invalid-allocation-alignment",

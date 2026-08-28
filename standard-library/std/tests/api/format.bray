@@ -24,6 +24,7 @@ using std.io;
 using std.io.WriterFormattingSink;
 using std.memory;
 using std.string;
+using std.testing;
 
 trusted func assert_default_integer_format<Value>(
     pos value: &Value,
@@ -213,14 +214,12 @@ trusted func counting_formatting_sizes_output_without_collecting_bytes()
     let mut sink: std.format.CountingSink = std.format.CountingSink();
     let value: u32 = 42;
 
-    match consume trusted std.format.write_to<u32, std.format.CountingSink, std.format.CountingSinkError>(
-        &mut sink,
-        std.format.Argument.with_options<u32>(&value, options = options),
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(
+        trusted std.format.write_to<u32, std.format.CountingSink, std.format.CountingSinkError>(
+            &mut sink,
+            std.format.Argument.with_options<u32>(&value, options = options),
+        )
+    );
 
     assert(std.format.formatted_length(&sink) == 8);
 }
@@ -243,14 +242,12 @@ trusted func fixed_formatting_uses_borrowed_storage()
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 255;
 
-    match consume trusted std.format.write_to<u32, std.format.FixedSink, std.format.FixedSinkError>(
-        &mut sink,
-        std.format.Argument.with_options<u32>(&value, options = options),
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<u32, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink,
+            std.format.Argument.with_options<u32>(&value, options = options),
+        )
+    );
 
     let expected: [u8; 8] = [32, 32, 32, 43, 48, 48, 70, 70];
     let length: usize = std.format.finish_fixed(sink);
@@ -265,14 +262,12 @@ trusted func fixed_formatting_accepts_zero_length_output()
     let mut storage: [u8; 0] = [0; 0];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
-    match consume trusted std.format.write_to<string, std.format.FixedSink, std.format.FixedSinkError>(
-        &mut sink,
-        std.format.Argument<string>(&""),
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<string, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink,
+            std.format.Argument<string>(&""),
+        )
+    );
 
     let length: usize = std.format.finish_fixed(sink);
 
@@ -514,14 +509,12 @@ trusted func streaming_formatting_writes_without_collecting_an_intermediate_buff
 
     let value: u32 = 42;
 
-    match consume trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
-        &mut sink,
-        std.format.Argument.with_options<u32>(&value, options = options)
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.io.IoError>(
+        trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
+            &mut sink,
+            std.format.Argument.with_options<u32>(&value, options = options)
+        )
+    );
 
     assert(writer.length == 130);
     assert(writer.writes == 3);

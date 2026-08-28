@@ -211,10 +211,19 @@ The complete public `std.testing` declaration surface is:
 ```bray
 module std.testing;
 
-func fail(pos message: string) -> never;
+func assert_ok<T, E>(pos result: Result<T, E>) -> T;
+
+func assert_completed<T>(pos result: RunResult<T>) -> T;
+
+extern func fail(pos message: &string) -> never;
 ```
 
-`fail` evaluates and consumes its message once, constructs an explicit structured test failure at the call source, and
+`assert_ok` consumes a result and returns its `Ok` payload. An `Error` fails the current test with an
+`expected Result.Ok` message. `assert_completed` consumes a run result and returns its `Completed` payload. A panicked
+or cancelled run fails the current test with an `expected RunResult.Completed` message. These helpers keep tests that
+require success from repeating union matches solely to reject the other variants.
+
+`fail` evaluates its borrowed message once, constructs an explicit structured test failure at the call source, and
 terminates the current test root without a normal continuation. A generated test host reports it as `explicit_failure`,
 not as an unclassified panic. Calling it outside a test root panics with the same owned failure payload so it can never
 return. The operation requires no I/O capability and does not write the message to a stream.

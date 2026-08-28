@@ -1,3 +1,23 @@
 module std.testing;
 
+/// Returns the successful value or fails the current test when the result is an error.
+func assert_ok<T, E>(pos result: Result<T, E>) -> T
+{
+    match consume result
+    {
+        case Ok(value) { return value; }
+        case Error(_) { fail(&"expected Result.Ok"); }
+    }
+}
+
+/// Returns the completed value or fails the current test when the run panicked or was cancelled.
+func assert_completed<T>(pos result: RunResult<T>) -> T
+{
+    match consume result
+    {
+        case Completed(value) { return value; }
+        case Panicked(_) | Cancelled { fail(&"expected RunResult.Completed"); }
+    }
+}
+
 extern func fail(pos message: &string) -> never;

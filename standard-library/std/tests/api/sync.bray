@@ -3,6 +3,7 @@ module bray.standard_library_tests.sync;
 using std.atomic;
 using std.sync;
 using std.task;
+using std.testing;
 
 internal async func increment_mutex(pos counter: &std.sync.Mutex<u32>, pos iterations: u32)
     requires(blocking_execution())
@@ -169,11 +170,7 @@ func synchronization_signals_cover_immediate_progress()
     assert(semaphore.try_acquire());
     assert(!semaphore.try_acquire());
 
-    match semaphore.release()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.sync.SemaphoreError>(semaphore.release());
 
     let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 1)
     {

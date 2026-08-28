@@ -2,6 +2,7 @@ module bray.standard_library_tests.random;
 
 using std.random;
 using std.bytes;
+using std.testing;
 
 @test
 func deterministic_generators_repeat_the_seeded_sequence()
@@ -44,9 +45,5 @@ func system_entropy_fills_caller_owned_storage()
 {
     let mut bytes: [u8; 32] = [0; 32];
 
-    match std.random.fill_entropy(&mut bytes[..])
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.random.EntropyError>(std.random.fill_entropy(&mut bytes[..]));
 }

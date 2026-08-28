@@ -2,6 +2,7 @@ module bray.standard_library_tests.atomic;
 
 using std.atomic;
 using std.task;
+using std.testing;
 using std.thread;
 
 internal async func increment_with_compare_exchange(pos counter: &std.atomic.Atomic<u32>, pos iterations: u32)
@@ -191,19 +192,8 @@ func concurrency_model_atomic_wait_observes_notification()
         }
     };
 
-    match consume waiting.join()
-    {
-        case Completed(_) {}
-        case Panicked(_) { assert(false); }
-        case Cancelled { assert(false); }
-    }
-
-    match consume publishing.join()
-    {
-        case Completed(_) {}
-        case Panicked(_) { assert(false); }
-        case Cancelled { assert(false); }
-    }
+    std.testing.assert_completed<unit>(waiting.join());
+    std.testing.assert_completed<unit>(publishing.join());
 }
 
 @test

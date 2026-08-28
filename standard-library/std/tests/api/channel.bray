@@ -2,6 +2,7 @@ module bray.standard_library_tests.channel;
 
 using std.channel;
 using std.task;
+using std.testing;
 
 static CHANNEL_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
@@ -28,11 +29,7 @@ internal async func send_sequence(pos mut sender: std.channel.Sender<i32>, pos f
 
     while offset < count
     {
-        match await sender.send(first + offset)
-        {
-            case Ok(_) {}
-            case Error(_) { assert(false); }
-        }
+        std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(first + offset));
 
         offset += 1;
         await std.task.yield_now();
@@ -61,11 +58,7 @@ async func buffered_send_completes_before_receiving()
 
     let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(13).start();
 
-    match try await send.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
 
     match receiver.try_receive()
     {
@@ -87,17 +80,8 @@ async func buffered_channel_transfers_messages_in_commit_order()
         case Error(_) { panic("bounded channel construction failed"); }
     };
 
-    match await sender.send(11)
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
-
-    match await sender.send(29)
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(11));
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(29));
 
     match await receiver.receive()
     {
@@ -132,11 +116,7 @@ async func rendezvous_send_suspends_until_a_receiver_is_registered()
         case Closed { assert(false); }
     }
 
-    match try await send.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
 
     sender.close();
     receiver.close();
@@ -168,11 +148,7 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
         case Closed { assert(false); }
     }
 
-    match try await next.join()
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await next.join());
 
     sender.close();
     receiver.close();
@@ -328,27 +304,23 @@ func concurrency_model_receiver_close_resolves_buffered_messages()
         case Error(_) { panic("bounded channel construction failed"); }
     };
 
-    match sender.try_send(
-        ChannelCleanupProbe
-        {
-            value = 1,
-        }
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+        sender.try_send(
+            ChannelCleanupProbe
+            {
+                value = 1,
+            }
+        )
+    );
 
-    match sender.try_send(
-        ChannelCleanupProbe
-        {
-            value = 2,
-        }
-    )
-    {
-        case Ok(_) {}
-        case Error(_) { assert(false); }
-    }
+    std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
+        sender.try_send(
+            ChannelCleanupProbe
+            {
+                value = 2,
+            }
+        )
+    );
 
     receiver.close();
 

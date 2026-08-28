@@ -1,6 +1,7 @@
 module bray.standard_library_tests.time;
 
 using std.string;
+using std.testing;
 using std.time;
 
 @test
@@ -145,17 +146,14 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
 
     assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
 
-    match std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    let extreme: std.time.Timestamp = std.testing.assert_ok<std.time.Timestamp, std.time.ClockError>(
+        std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    );
+
+    match extreme.rfc3339()
     {
-        case Ok(extreme)
-        {
-            match extreme.rfc3339()
-            {
-                case Ok(_) { assert(false); }
-                case Error(std.time.TimeError.OutOfRange) {}
-                case Error(_) { assert(false); }
-            }
-        }
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.OutOfRange) {}
         case Error(_) { assert(false); }
     }
 

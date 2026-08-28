@@ -1,0 +1,13 @@
+module bray.standard_library_tests.testing;
+
+using std.testing;
+
+@test
+func testing_success_assertions_return_the_success_payload()
+{
+    let ok: i32 = std.testing.assert_ok<i32, unit>(Ok(41));
+    let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(42));
+
+    assert(ok == 41);
+    assert(completed == 42);
+}

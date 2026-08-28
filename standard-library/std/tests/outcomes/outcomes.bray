@@ -50,6 +50,18 @@ func explicit_failure()
 }
 
 @test
+func assert_ok_rejects_an_error()
+{
+    let _: unit = std.testing.assert_ok<unit, unit>(Error(unit));
+}
+
+@test
+func assert_completed_rejects_cancellation()
+{
+    let _: unit = std.testing.assert_completed<unit>(RunResult.Cancelled);
+}
+
+@test
 func panic_failure()
 {
     panic("expected panic");

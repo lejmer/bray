@@ -5,6 +5,8 @@ using std.ffi;
 using std.ffi.c;
 using std.memory;
 using std.string;
+using std.testing;
+using internal std.ffi.ForeignResourceState;
 using internal std.platform.PlatformStatus;
 
 @abi(c)
@@ -260,35 +262,33 @@ trusted func foreign_resources_reject_invalid_handles() -> Result<unit, std.ffi.
 @test
 trusted func foreign_resources_borrow_transfer_and_reject_repeated_transfer() -> Result<unit, std.ffi.ForeignError>
 {
-    match consume trusted internal std.ffi.owned_foreign_resource(41, valid = true)
+    let mut resource: std.ffi.ForeignResourceState = std.testing.assert_ok<
+        std.ffi.ForeignResourceState,
+        std.ffi.ForeignError
+    >(trusted internal std.ffi.owned_foreign_resource(41, valid = true));
+
+    assert(internal std.ffi.foreign_resource_is_owned(&resource));
+
     {
-        case Error(_) { assert(false); }
-        case Ok(mut resource)
+        let borrowed: &u64 = trusted internal std.ffi.borrow_foreign_resource_handle(&resource);
+
+        assert(borrowed == 41);
+    }
+
+    let transferred: u64 = try trusted internal std.ffi.transfer_foreign_resource(&mut resource);
+
+    assert(transferred == 41);
+    assert(!internal std.ffi.foreign_resource_is_owned(&resource));
+
+    match trusted internal std.ffi.transfer_foreign_resource(&mut resource)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
         {
-            assert(internal std.ffi.foreign_resource_is_owned(&resource));
-
+            match error.kind()
             {
-                let borrowed: &u64 = trusted internal std.ffi.borrow_foreign_resource_handle(&resource);
-
-                assert(borrowed == 41);
-            }
-
-            let transferred: u64 = try trusted internal std.ffi.transfer_foreign_resource(&mut resource);
-
-            assert(transferred == 41);
-            assert(!internal std.ffi.foreign_resource_is_owned(&resource));
-
-            match trusted internal std.ffi.transfer_foreign_resource(&mut resource)
-            {
-                case Ok(_) { assert(false); }
-                case Error(error)
-                {
-                    match error.kind()
-                    {
-                        case std.ffi.ForeignErrorKind.InvalidResource {}
-                        case _ { assert(false); }
-                    }
-                }
+                case std.ffi.ForeignErrorKind.InvalidResource {}
+                case _ { assert(false); }
             }
         }
     }
@@ -306,32 +306,32 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
         native_code = 0,
     };
 
-    match consume trusted internal std.ffi.owned_foreign_resource(42, valid = true)
     {
-        case Error(_) { assert(false); }
-        case Ok(mut released)
+        let mut released: std.ffi.ForeignResourceState = std.testing.assert_ok<
+            std.ffi.ForeignResourceState,
+            std.ffi.ForeignError
+        >(trusted internal std.ffi.owned_foreign_resource(42, valid = true));
+
+        try trusted internal std.ffi.resolve_foreign_resource_release(&mut released, success);
+
+        assert(!internal std.ffi.foreign_resource_is_owned(&released));
+
+        let repeated_release: std.platform.PlatformStatus =
         {
-            try trusted internal std.ffi.resolve_foreign_resource_release(&mut released, success);
+            category = 0,
+            reserved = 0,
+            native_code = 0,
+        };
 
-            assert(!internal std.ffi.foreign_resource_is_owned(&released));
-
-            let repeated_release: std.platform.PlatformStatus =
+        match trusted internal std.ffi.resolve_foreign_resource_release(&mut released, repeated_release)
+        {
+            case Ok(_) { assert(false); }
+            case Error(error)
             {
-                category = 0,
-                reserved = 0,
-                native_code = 0,
-            };
-
-            match trusted internal std.ffi.resolve_foreign_resource_release(&mut released, repeated_release)
-            {
-                case Ok(_) { assert(false); }
-                case Error(error)
+                match error.kind()
                 {
-                    match error.kind()
-                    {
-                        case std.ffi.ForeignErrorKind.InvalidResource {}
-                        case _ { assert(false); }
-                    }
+                    case std.ffi.ForeignErrorKind.InvalidResource {}
+                    case _ { assert(false); }
                 }
             }
         }
@@ -344,42 +344,42 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
         native_code = 13,
     };
 
-    match consume trusted internal std.ffi.owned_foreign_resource(43, valid = true)
     {
-        case Error(_) { assert(false); }
-        case Ok(mut failed)
-        {
-            match trusted internal std.ffi.resolve_foreign_resource_release(&mut failed, denied)
-            {
-                case Ok(_) { assert(false); }
-                case Error(error)
-                {
-                    match error.kind()
-                    {
-                        case std.ffi.ForeignErrorKind.PermissionDenied {}
-                        case _ { assert(false); }
-                    }
+        let mut failed: std.ffi.ForeignResourceState = std.testing.assert_ok<
+            std.ffi.ForeignResourceState,
+            std.ffi.ForeignError
+        >(trusted internal std.ffi.owned_foreign_resource(43, valid = true));
 
-                    match error.native_code()
-                    {
-                        case ?value { assert(value == 13); }
-                        case none { assert(false); }
-                    }
+        match trusted internal std.ffi.resolve_foreign_resource_release(&mut failed, denied)
+        {
+            case Ok(_) { assert(false); }
+            case Error(error)
+            {
+                match error.kind()
+                {
+                    case std.ffi.ForeignErrorKind.PermissionDenied {}
+                    case _ { assert(false); }
+                }
+
+                match error.native_code()
+                {
+                    case ?value { assert(value == 13); }
+                    case none { assert(false); }
                 }
             }
+        }
 
-            assert(!internal std.ffi.foreign_resource_is_owned(&failed));
+        assert(!internal std.ffi.foreign_resource_is_owned(&failed));
 
-            match trusted internal std.ffi.transfer_foreign_resource(&mut failed)
+        match trusted internal std.ffi.transfer_foreign_resource(&mut failed)
+        {
+            case Ok(_) { assert(false); }
+            case Error(error)
             {
-                case Ok(_) { assert(false); }
-                case Error(error)
+                match error.kind()
                 {
-                    match error.kind()
-                    {
-                        case std.ffi.ForeignErrorKind.InvalidResource {}
-                        case _ { assert(false); }
-                    }
+                    case std.ffi.ForeignErrorKind.InvalidResource {}
+                    case _ { assert(false); }
                 }
             }
         }

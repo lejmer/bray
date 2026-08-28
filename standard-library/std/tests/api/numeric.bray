@@ -3,6 +3,7 @@ module bray.standard_library_tests.numeric;
 using std.numeric;
 using std.numeric.I32Integer;
 using std.numeric.U8Integer;
+using std.testing;
 
 @test
 func integer_limits_and_checked_arithmetic()
@@ -94,17 +95,11 @@ func widest_integer_parsing()
     let signed_minimum: Result<i8, std.numeric.ParseError> = std.numeric.parse_i8(&"-128");
     let signed_overflow: Result<i8, std.numeric.ParseError> = std.numeric.parse_i8(&"128");
 
-    match consume unsigned_decimal
-    {
-        case Ok(value) { assert(value == 42); }
-        case Error(_) { assert(false); }
-    }
+    let decimal_value: u128 = std.testing.assert_ok<u128, std.numeric.ParseError>(unsigned_decimal);
+    let hexadecimal_value: u128 = std.testing.assert_ok<u128, std.numeric.ParseError>(unsigned_hexadecimal);
 
-    match consume unsigned_hexadecimal
-    {
-        case Ok(value) { assert(value == 255); }
-        case Error(_) { assert(false); }
-    }
+    assert(decimal_value == 42);
+    assert(hexadecimal_value == 255);
 
     match consume invalid
     {
@@ -113,11 +108,9 @@ func widest_integer_parsing()
         case Error(_) { assert(false); }
     }
 
-    match consume signed
-    {
-        case Ok(value) { assert(value == -42); }
-        case Error(_) { assert(false); }
-    }
+    let signed_value: i32 = std.testing.assert_ok<i32, std.numeric.ParseError>(signed);
+
+    assert(signed_value == -42);
 
     match consume narrow_overflow
     {
@@ -140,11 +133,9 @@ func widest_integer_parsing()
         case Error(_) { assert(false); }
     }
 
-    match consume signed_minimum
-    {
-        case Ok(value) { assert(value == -128); }
-        case Error(_) { assert(false); }
-    }
+    let minimum_value: i8 = std.testing.assert_ok<i8, std.numeric.ParseError>(signed_minimum);
+
+    assert(minimum_value == -128);
 
     match consume signed_overflow
     {
