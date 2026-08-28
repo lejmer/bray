@@ -608,6 +608,15 @@ mod tests {
         "}\n",
     );
 
+    const TERMINATING_ASSERTION_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func value() -> i32\n",
+        "{\n",
+        "    assert(false);\n",
+        "}\n",
+    );
+
     const RESULT_PROPAGATION_LOWERING_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -867,6 +876,25 @@ mod tests {
         );
 
         assert!(lowered.value().is_some());
+    }
+
+    #[test]
+    fn discard_pattern_reads_parameter_initializer() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "func discard(pos value: usize)\n",
+            "{\n",
+            "    let _: usize = value;\n",
+            "}\n",
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "discard"))
+            .unwrap_or_else(|error| panic!("discard-pattern MIR must be available: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
     }
 
     #[test]
@@ -2756,6 +2784,23 @@ impl I32Read = i32(Read)
             )),
             "{mir:#?}"
         );
+    }
+
+    #[test]
+    fn constant_false_assertions_terminate_non_unit_callables() {
+        let compilation = compilation(TERMINATING_ASSERTION_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("assertion MIR must be available: {error:?}"));
+
+        let mir = lowered_mir(&result);
+
+        assert!(mir.blocks().iter().all(|block| !matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::Return(None)
+        )));
     }
 
     #[test]

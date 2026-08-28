@@ -21,15 +21,16 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
 
 /// Builds one valid single-block MIR unit for a caller-selected target profile.
 pub fn test_mir_unit_for_target(unit: u32, target: MirTargetContract) -> MirUnit {
-    test_mir_unit_with_declaration_and_target(unit, 0, target)
+    test_mir_unit_with_declaration_for_target(unit, 0, target)
 }
 
 /// Builds one valid single-block MIR unit with a caller-selected declaration identity.
 pub fn test_mir_unit_with_declaration(unit: u32, declaration: u32) -> MirUnit {
-    test_mir_unit_with_declaration_and_target(unit, declaration, test_mir_target())
+    test_mir_unit_with_declaration_for_target(unit, declaration, test_mir_target())
 }
 
-fn test_mir_unit_with_declaration_and_target(
+/// Builds one valid single-block MIR unit with caller-selected declaration and target identities.
+pub fn test_mir_unit_with_declaration_for_target(
     unit: u32,
     declaration: u32,
     target: MirTargetContract,

@@ -406,17 +406,17 @@ mod tests {
         assert_eq!(
             rust_static_library_file_name(
                 bray_target::NativeTarget::X86_64WindowsMsvc,
-                "bray-runtime-builtins",
+                "bray-runtime-observation",
             ),
-            "bray_runtime_builtins.lib"
+            "bray_runtime_observation.lib"
         );
 
         assert_eq!(
             rust_static_library_file_name(
                 bray_target::NativeTarget::X86_64LinuxGnu,
-                "bray-runtime-builtins",
+                "bray-runtime-observation",
             ),
-            "libbray_runtime_builtins.a"
+            "libbray_runtime_observation.a"
         );
     }
 

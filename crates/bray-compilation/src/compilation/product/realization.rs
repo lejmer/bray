@@ -5,6 +5,7 @@ mod names;
 mod native_statics;
 mod operations;
 mod signatures;
+mod standard;
 mod statics;
 mod storage;
 mod support;

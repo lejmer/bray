@@ -169,9 +169,9 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::TASK_START_SYMBOL,
         bray_runtime_abi::WAKE_SYMBOL,
         bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-        bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
-        bray_runtime_abi::STRING_SCALAR_COUNT_SYMBOL,
-        bray_runtime_abi::CHARACTER_SCALAR_VALUE_SYMBOL,
+        "bray_runtime_memory_allocation",
+        "bray_runtime_string_scalar_count",
+        "bray_runtime_character_scalar_value",
         "blake3",
     ];
 
@@ -216,44 +216,17 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
                 ],
             ),
-            RuntimeArchiveKind::Memory => (
+            RuntimeArchiveKind::Observation => (
                 &[
-                    bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
-                    bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
+                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                    bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+                    bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
+                    bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
+                    bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
                 ],
                 &[
                     "bray_runtime_string_",
                     "bray_runtime_character_",
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::String => (
-                &[
-                    bray_runtime_abi::STRING_SCALAR_COUNT_SYMBOL,
-                    bray_runtime_abi::STRING_EQUALS_SYMBOL,
-                    bray_runtime_abi::STRING_SCALAR_AT_SYMBOL,
-                    bray_runtime_abi::STRING_SCALAR_SLICE_SYMBOL,
-                    bray_runtime_abi::STRING_FROM_UTF8_SYMBOL,
-                ],
-                &[
-                    "bray_runtime_memory_",
-                    "bray_runtime_character_",
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Character => (
-                &[
-                    bray_runtime_abi::CHARACTER_SCALAR_VALUE_SYMBOL,
-                    bray_runtime_abi::CHARACTER_FROM_SCALAR_VALUE_SYMBOL,
-                    bray_runtime_abi::CHARACTER_UTF8_LENGTH_SYMBOL,
-                    bray_runtime_abi::CHARACTER_UTF8_BYTE_SYMBOL,
-                    bray_runtime_abi::CHARACTER_IS_ALPHABETIC_SYMBOL,
-                    bray_runtime_abi::CHARACTER_IS_NUMERIC_SYMBOL,
-                    bray_runtime_abi::CHARACTER_IS_WHITESPACE_SYMBOL,
-                ],
-                &[
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
                     "bray_platform_standard_",
                 ],
             ),

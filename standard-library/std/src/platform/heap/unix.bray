@@ -1,0 +1,28 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted internal module std.platform.heap;
+
+trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted aligned_allocate(alignment = align, bytes = bytes);
+}
+
+trusted internal func deallocate(pos allocation: RawPointer<u8>) -> bool
+    uses(foreign_call)
+{
+    trusted release(allocation);
+
+    return true;
+}
+
+@link(name = "c", kind = system)
+@symbol(name = "aligned_alloc")
+@abi(c)
+extern trusted func aligned_allocate(pos alignment: usize, pos bytes: usize) -> RawPointer<u8>
+    uses(foreign_call);
+
+@link(name = "c", kind = system)
+@symbol(name = "free")
+@abi(c)
+extern trusted func release(pos allocation: RawPointer<u8>) -> unit
+    uses(foreign_call);

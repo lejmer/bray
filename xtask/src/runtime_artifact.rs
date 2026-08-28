@@ -6,6 +6,4 @@ mod partition;
 mod reuse;
 mod smoke;
 
-pub(crate) use command::{
-    build_for_performance_observation, build_for_readiness, run, smoke_test_host,
-};
+pub(crate) use command::{build_for_readiness, run, smoke_test_host};

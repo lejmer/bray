@@ -495,7 +495,7 @@ mod tests {
             "--require-capability",
             "cooperative-execution",
             "--require-capability",
-            "string-operations",
+            "performance-observation",
             "--inspect",
             "backend-ir",
             "--artifact",
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(
             configuration.required_capabilities(),
             &[
-                RuntimeCapability::StringOperations,
+                RuntimeCapability::PerformanceObservation,
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::MainThreadLane,
             ]

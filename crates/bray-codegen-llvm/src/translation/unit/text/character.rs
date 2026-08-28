@@ -1,129 +1,80 @@
 use bray_codegen::CodegenFailure;
-use bray_ir::MirTextOperation;
-use inkwell::IntPredicate;
+use bray_ir::{MirOperationId, MirStandardLibraryHelper, MirTextOperation};
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::llvm;
-use super::operation::zeroed_scalar_output;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn character_scalar_value(
         &mut self,
+        operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let value = self.only_scalar_operand(operation)?;
-
-        let function = self.text_function(
-            bray_runtime_abi::CHARACTER_SCALAR_VALUE_SYMBOL,
-            Some(value.get_type().into()),
-            &[value.get_type().into()],
-        );
-
-        self.call_value(function, &[value.into()], "character.scalar_value")
+        self.invoke_character_helper(
+            operation_id,
+            operation,
+            MirStandardLibraryHelper::CharacterScalarValue,
+        )
     }
 
     pub(super) fn character_from_scalar_value(
         &mut self,
+        operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let value = self.only_scalar_operand(operation)?;
-        let scalar = zeroed_scalar_output(&self.builder, value.get_type(), "character.scalar")?;
-        let byte = self.types.context().i8_type();
-
-        let function = self.text_function(
-            bray_runtime_abi::CHARACTER_FROM_SCALAR_VALUE_SYMBOL,
-            Some(byte.into()),
-            &[value.get_type().into(), scalar.get_type().into()],
-        );
-
-        let present = self
-            .call_value(
-                function,
-                &[value.into(), scalar.into()],
-                "character.from_scalar_value",
-            )?
-            .into_int_value();
-
-        let present = llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            present,
-            present.get_type().const_zero(),
-            "character.scalar.present",
-        ))?;
-
-        let scalar = llvm(self.builder.build_load(
-            value.get_type(),
-            scalar,
-            "character.scalar.value",
-        ))?;
-
-        self.nullable_value(operation.result_type(), present, scalar)
+        self.invoke_character_helper(
+            operation_id,
+            operation,
+            MirStandardLibraryHelper::CharacterFromScalarValue,
+        )
     }
 
     pub(super) fn character_utf8_length(
         &mut self,
+        operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let value = self.only_scalar_operand(operation)?;
-        let result = self.pointer_integer_type();
-
-        let function = self.text_function(
-            bray_runtime_abi::CHARACTER_UTF8_LENGTH_SYMBOL,
-            Some(result.into()),
-            &[value.get_type().into()],
-        );
-
-        self.call_value(function, &[value.into()], "character.utf8_length")
+        self.invoke_character_helper(
+            operation_id,
+            operation,
+            MirStandardLibraryHelper::CharacterUtf8Length,
+        )
     }
 
     pub(super) fn character_utf8_byte(
         &mut self,
+        operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let operands = self.text_operands(operation)?;
-
-        let [(value, _), (index, _)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let value = value.into_int_value();
-        let index = index.into_int_value();
-        let result = self.types.context().i8_type();
-
-        let function = self.text_function(
-            bray_runtime_abi::CHARACTER_UTF8_BYTE_SYMBOL,
-            Some(result.into()),
-            &[value.get_type().into(), index.get_type().into()],
-        );
-
-        self.call_value(
-            function,
-            &[value.into(), index.into()],
-            "character.utf8_byte",
+        self.invoke_character_helper(
+            operation_id,
+            operation,
+            MirStandardLibraryHelper::CharacterUtf8Byte,
         )
     }
 
     pub(super) fn character_predicate(
         &mut self,
+        operation_id: MirOperationId,
         operation: &MirTextOperation,
-        symbol: &str,
-        name: &str,
+        helper: MirStandardLibraryHelper,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let value = self.only_scalar_operand(operation)?;
-        let byte = self.types.context().i8_type();
-        let function = self.text_function(symbol, Some(byte.into()), &[value.get_type().into()]);
+        self.invoke_character_helper(operation_id, operation, helper)
+    }
 
-        let result = self
-            .call_value(function, &[value.into()], name)?
-            .into_int_value();
+    fn invoke_character_helper(
+        &mut self,
+        operation_id: MirOperationId,
+        operation: &MirTextOperation,
+        helper: MirStandardLibraryHelper,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let operands = self.text_operands(operation)?;
 
-        llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            result,
-            result.get_type().const_zero(),
-            name,
-        ))
-        .map(Into::into)
+        let arguments = operands
+            .iter()
+            .map(|(value, _)| *value)
+            .collect::<Vec<_>>();
+
+        self.invoke_text_helper(operation_id, helper, &arguments)
     }
 }

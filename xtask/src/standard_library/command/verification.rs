@@ -16,6 +16,11 @@ pub(super) fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), 
     })
     .map_err(BuildError::OsBindings)?;
 
+    crate::progress::run("Checking standard library Unicode data", || {
+        crate::standard_library::unicode_data::verify()
+    })
+    .map_err(BuildError::UnicodeData)?;
+
     crate::progress::run(
         "Checking standard library source for every native target",
         || verify_source_targets(),

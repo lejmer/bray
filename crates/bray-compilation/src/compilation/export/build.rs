@@ -1809,6 +1809,9 @@ trusted internal func flush() -> PlatformStatus
                 "}\n",
             ),
             include_str!("../../../../../standard-library/std/src/io/formatting.bray"),
+            crate::test_support::RUNTIME_MEMORY_SOURCE,
+            crate::test_support::RUNTIME_TEXT_SOURCE,
+            crate::test_support::RUNTIME_CHARACTER_SOURCE,
         ]);
 
         assert!(
@@ -1881,15 +1884,7 @@ trusted internal func flush() -> PlatformStatus
             .copied()
             .collect();
 
-        assert!(
-            runtime_capabilities
-                .contains(&bray_runtime_interface::RuntimeCapability::StringOperations)
-        );
-
-        assert!(
-            runtime_capabilities
-                .contains(&bray_runtime_interface::RuntimeCapability::CharacterOperations)
-        );
+        assert!(runtime_capabilities.is_empty());
 
         let artifact = encode_package_interface(interface)
             .unwrap_or_else(|error| panic!("formatting interface must encode: {error:?}"));

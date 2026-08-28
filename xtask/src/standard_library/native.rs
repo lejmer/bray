@@ -18,7 +18,7 @@ const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
 const API_TEST_COUNT: usize = 100;
 const API_FILTERED_TEST_COUNT: usize = 3;
-const OUTCOME_CASES: [OutcomeCase; 7] = [
+const OUTCOME_CASES: [OutcomeCase; 9] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -30,9 +30,28 @@ const OUTCOME_CASES: [OutcomeCase; 7] = [
         OutcomeExpectation::Explicit,
     ),
     OutcomeCase::new(
+        "invalid-allocation-alignment",
+        "invalid_allocation_alignment",
+        OutcomeExpectation::Panic {
+            cause: "assertion",
+            message: "memory allocation alignment must be a nonzero power of two",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "allocation-size-overflow",
+        "allocation_size_overflow",
+        OutcomeExpectation::Panic {
+            cause: "assertion",
+            message: "memory allocation size exceeds the target address range",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
         "panic-failure",
         "panic_failure",
         OutcomeExpectation::Panic {
+            cause: "message",
             message: "expected panic",
             source_available: true,
         },
@@ -41,6 +60,7 @@ const OUTCOME_CASES: [OutcomeCase; 7] = [
         "once-indirect-reentry",
         "once_indirect_reentry_panics",
         OutcomeExpectation::Panic {
+            cause: "message",
             message: "Once initialization reentered",
             source_available: false,
         },
@@ -143,9 +163,10 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         }
 
         if selected(parts, TestPart::Outcomes) {
-            crate::progress::run("Checking native test outcomes (7 cases)", || {
-                audit_outcomes(&root, &workspace, &toolchain, target, profile_output)
-            })?;
+            crate::progress::run(
+                &format!("Checking native test outcomes ({} cases)", OUTCOME_CASES.len()),
+                || audit_outcomes(&root, &workspace, &toolchain, target, profile_output),
+            )?;
         }
     }
 
@@ -331,7 +352,7 @@ fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
 
 fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
-    require_selection(report, 7, 1, 6)?;
+    require_selection(report, OUTCOME_CASES.len(), 1, OUTCOME_CASES.len() - 1)?;
 
     if report.summary.passed != 0 || report.summary.failed != 1 {
         return Err(BuildError::conformance(
@@ -866,6 +887,7 @@ enum OutcomeExpectation {
     Assertion,
     Explicit,
     Panic {
+        cause: &'static str,
         message: &'static str,
         source_available: bool,
     },
@@ -885,6 +907,7 @@ impl OutcomeExpectation {
             }
             (
                 Self::Panic {
+                    cause: expected_cause,
                     message: expected_message,
                     source_available,
                 },
@@ -894,7 +917,7 @@ impl OutcomeExpectation {
                     message,
                 },
             ) => {
-                cause == "message"
+                cause == expected_cause
                     && match (source_available, source) {
                         (true, Some(source)) => source.is_valid(),
                         (false, None) => true,

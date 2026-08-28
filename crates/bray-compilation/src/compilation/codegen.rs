@@ -107,6 +107,12 @@ impl Compilation {
                     .as_ref()
                     .and_then(bray_lowering::LoweredUnit::mir)
                 else {
+                    if lowered.diagnostics().has_errors() {
+                        return Err(CodegenPreparationError::Diagnostics(
+                            lowered.diagnostics().clone(),
+                        ));
+                    }
+
                     return Err(CodegenPreparationError::MirUnavailable(MirUnitKey::Bound(
                         key.clone(),
                     )));

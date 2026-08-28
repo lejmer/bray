@@ -135,6 +135,8 @@ These calls are recognized only because the visible declarations have the exact 
 
 Recognition can provide specified checking, lowering, optimization, const eligibility, or contract behavior without making a declaration ambient. Current recognized families include numeric conversion policy, string operations, callback state, and the standard-library memory, layout, allocation, uninitialized-storage, and anchored-borrow surfaces listed by the conformance catalog. Safe atomic wrappers, channels, operating-system threads, child processes, task combinators, synchronization owners, run checkpoints, and runtime-selection types remain ordinary standard-library declarations rather than recognized names.
 
+Compiler lowering retains the recognized internal `std.runtime` allocation, owned-text, and character declarations by identity. These are ordinary Bray implementations, while their public operations keep the contracts of the owning visible declarations.
+
 A bodyless standard-library declaration shown in the specification describes the required surface. It is not special declaration syntax for a standard-library package.
 
 See [standard-library declarations](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/standard-library-declarations.md), [standard-library recognition](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/standard-library-recognition.md), and [recognized standard-library operations](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/recognized-standard-library-operations.md).

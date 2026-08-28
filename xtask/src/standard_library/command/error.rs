@@ -24,6 +24,7 @@ pub(in crate::standard_library) enum BuildError {
     Project(String),
     Source(String),
     OsBindings(String),
+    UnicodeData(String),
     NativeArchive(String),
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
@@ -178,6 +179,9 @@ impl fmt::Display for BuildError {
                     formatter,
                     "standard library OS bindings are invalid: {error}"
                 )
+            }
+            Self::UnicodeData(error) => {
+                write!(formatter, "standard library Unicode data is invalid: {error}")
             }
             Self::NativeArchive(error) => {
                 write!(

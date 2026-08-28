@@ -1,5 +1,5 @@
-use std::collections::BTreeSet;
-use std::sync::{Arc, Condvar, Mutex};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
@@ -22,10 +22,140 @@ use crate::fact::{
     CompilationFactKey, FactCellTestEvent, FactCellTestObserver, FactEvaluationTestObserver,
 };
 use crate::{
-    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+    PackageInterfaceExportRequest, WorkerBudget,
 };
 
 const FACT_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub(crate) const RUNTIME_MEMORY_SOURCE: &str = r#"trusted internal module std.runtime.memory;
+
+trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
+{
+    return core.memory.null<u8>();
+}
+
+trusted func deallocate(
+    pos pointer: RawPointer<u8>,
+    pos bytes: usize,
+    pos align: usize,
+) -> unit
+{
+}
+"#;
+
+pub(crate) const RUNTIME_TEXT_SOURCE: &str = r#"trusted internal module std.runtime.text;
+
+internal struct OwnedText
+{
+    data: RawPointer<u8>;
+    length: usize;
+    owner: RawPointer<u8>;
+}
+
+internal struct ValidatedText
+{
+    valid: bool;
+    text: OwnedText;
+}
+
+trusted internal func scalar_count(pos data: RawPointer<u8>, pos length: usize) -> usize
+{
+    return 0;
+}
+
+trusted internal func equals(
+    pos left_data: RawPointer<u8>,
+    pos left_length: usize,
+    pos right_data: RawPointer<u8>,
+    pos right_length: usize,
+) -> bool
+{
+    return false;
+}
+
+trusted internal func scalar_at(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u32?
+{
+    return none;
+}
+
+trusted internal func scalar_slice(
+    pos data: RawPointer<u8>,
+    pos length: usize,
+    pos start: usize,
+    pos end: usize,
+) -> OwnedText
+{
+    return empty_text();
+}
+
+trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> ValidatedText
+{
+    return
+    {
+        valid = true,
+        text = empty_text(),
+    };
+}
+
+internal func empty_text() -> OwnedText
+{
+    let empty: RawPointer<u8> = core.memory.null<u8>();
+
+    return
+    {
+        data = empty,
+        length = 0,
+        owner = empty,
+    };
+}
+"#;
+
+pub(crate) const RUNTIME_CHARACTER_SOURCE: &str = r#"trusted internal module std.runtime.character;
+
+trusted internal func scalar_value(pos value: u32) -> u32
+{
+    return value;
+}
+
+trusted internal func from_scalar_value(pos value: u32) -> u32?
+{
+    let mut result: u32? = none;
+
+    result = value;
+
+    return result;
+}
+
+trusted internal func utf8_length(pos value: u32) -> usize
+{
+    return 1;
+}
+
+trusted internal func utf8_byte(pos value: u32, pos index: usize) -> u8
+{
+    return 0;
+}
+
+trusted internal func is_alphabetic(pos value: u32) -> bool
+{
+    return false;
+}
+
+trusted internal func is_numeric(pos value: u32) -> bool
+{
+    return false;
+}
+
+trusted internal func is_whitespace(pos value: u32) -> bool
+{
+    return false;
+}
+"#;
+
+static RUNTIME_STANDARD_LIBRARY_DEPENDENCIES: OnceLock<
+    Mutex<HashMap<crate::SelectedTarget, DependencyInterfaceInput>>,
+> = OnceLock::new();
 
 pub(crate) struct FactTestGate {
     held_event: FactCellTestEvent,
@@ -165,6 +295,122 @@ pub(crate) fn source_input(text: &str, version: u32) -> SourceInput {
         SourceVersion::new(u64::from(version)),
         text,
     )
+}
+
+pub(crate) fn runtime_standard_library_dependency(
+    target: &crate::SelectedTarget,
+) -> DependencyInterfaceInput {
+    let dependencies = RUNTIME_STANDARD_LIBRARY_DEPENDENCIES.get_or_init(Mutex::default);
+
+    let mut dependencies = dependencies
+        .lock()
+        .unwrap_or_else(|_| panic!("runtime standard-library fixture cache must remain available"));
+
+    if let Some(dependency) = dependencies.get(target) {
+        return dependency.clone();
+    }
+
+    let dependency = build_runtime_standard_library_dependency(target.clone());
+
+    dependencies.insert(target.clone(), dependency.clone());
+
+    dependency
+}
+
+fn build_runtime_standard_library_dependency(
+    target: crate::SelectedTarget,
+) -> DependencyInterfaceInput {
+    let package = PackageIdentity::try_new(
+        bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
+    )
+    .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+    let product = bray_package_interface::InterfaceProductIdentity::try_new(
+        bray_standard_library::PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
+    )
+    .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+    let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
+        package.clone(),
+        package_version(),
+        product.clone(),
+        bray_package_interface::InterfaceProductKind::Library,
+        bray_standard_library::PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
+    )
+    .unwrap_or_else(|| panic!("standard-library interface identity must be valid"));
+
+    let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+
+    let request = CompilationRequest::with_options(
+        package.clone(),
+        [
+            RUNTIME_MEMORY_SOURCE,
+            RUNTIME_TEXT_SOURCE,
+            RUNTIME_CHARACTER_SOURCE,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, source)| {
+            source_input(
+                source,
+                u32::try_from(index)
+                    .unwrap_or_else(|_| panic!("runtime source identity must fit u32")),
+            )
+        })
+        .collect(),
+        CompilationOptions::new(WorkerBudget::serial(), bray_symbols::ProductKind::Library, target),
+    )
+    .with_standard_library_source_authority()
+    .with_package_interface_export(export);
+
+    let compilation = Compilation::load(request)
+        .unwrap_or_else(|error| panic!("runtime standard-library fixture must load: {error:?}"));
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "runtime standard-library fixture diagnostics: {:#?}",
+        compilation.check_diagnostics(),
+    );
+
+    let bundle = compilation
+        .package_interface_export_bundle()
+        .and_then(|bundle| bundle.as_ref().ok())
+        .unwrap_or_else(|| panic!("runtime standard-library fixture must export"));
+
+    let interface = bray_package_interface::encode_package_interface(bundle)
+        .unwrap_or_else(|error| panic!("runtime standard-library interface must encode: {error:?}"));
+
+    let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
+
+    let validated = bray_package_interface::ValidatedPackageInterface::try_new(
+        interface.bytes(),
+        policy,
+    )
+    .unwrap_or_else(|error| panic!("runtime standard-library interface must validate: {error:?}"));
+
+    let implementation = bray_package_interface::PackageImplementationArtifact::try_new(
+        &validated,
+        bundle.surface(),
+        bundle.semantics(),
+        bundle.implementation_configuration().clone(),
+        [],
+        bundle.executable_templates().iter().cloned(),
+        [],
+        [],
+        bray_package_interface::InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| {
+        panic!("runtime standard-library implementation must encode: {error:?}")
+    });
+
+    DependencyInterfaceInput::new(
+        package,
+        product,
+        "std.brayi",
+        interface.shared_bytes(),
+        policy,
+    )
+    .with_implementation_artifact("std.brayimpl", Arc::new(implementation))
 }
 
 pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKind> {

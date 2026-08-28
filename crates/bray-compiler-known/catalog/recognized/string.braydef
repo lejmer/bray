@@ -100,3 +100,112 @@ scope StandardString at std.string {
         surface { mut func next() -> char? {} }
     }
 }
+
+scope StandardRuntimeText at std.runtime.text {
+    declaration StandardRuntimeOwnedText {
+        identity name OwnedText;
+
+        surface { internal struct OwnedText {} }
+    }
+
+    declaration StandardRuntimeOwnedTextData {
+        owner StandardRuntimeOwnedText;
+        identity name data;
+
+        surface { internal data: RawPointer<u8>; }
+    }
+
+    declaration StandardRuntimeOwnedTextLength {
+        owner StandardRuntimeOwnedText;
+        identity name length;
+
+        surface { internal length: usize; }
+    }
+
+    declaration StandardRuntimeOwnedTextOwner {
+        owner StandardRuntimeOwnedText;
+        identity name owner;
+
+        surface { internal owner: RawPointer<u8>; }
+    }
+
+    declaration StandardRuntimeValidatedText {
+        identity name ValidatedText;
+
+        surface { internal struct ValidatedText {} }
+    }
+
+    declaration StandardRuntimeValidatedTextValid {
+        owner StandardRuntimeValidatedText;
+        identity name valid;
+
+        surface { internal valid: bool; }
+    }
+
+    declaration StandardRuntimeValidatedTextText {
+        owner StandardRuntimeValidatedText;
+        identity name text;
+
+        surface { internal text: OwnedText; }
+    }
+
+    declaration StandardRuntimeStringScalarCount {
+        identity name scalar_count;
+
+        surface {
+            trusted internal func scalar_count(
+                pos data: RawPointer<u8>,
+                pos length: usize,
+            ) -> usize;
+        }
+    }
+
+    declaration StandardRuntimeStringEquals {
+        identity name equals;
+
+        surface {
+            trusted internal func equals(
+                pos left_data: RawPointer<u8>,
+                pos left_length: usize,
+                pos right_data: RawPointer<u8>,
+                pos right_length: usize,
+            ) -> bool;
+        }
+    }
+
+    declaration StandardRuntimeStringScalarAt {
+        identity name scalar_at;
+
+        surface {
+            trusted internal func scalar_at(
+                pos data: RawPointer<u8>,
+                pos length: usize,
+                pos index: usize,
+            ) -> u32?;
+        }
+    }
+
+    declaration StandardRuntimeStringScalarSlice {
+        identity name scalar_slice;
+
+        surface {
+            trusted internal func scalar_slice(
+                pos data: RawPointer<u8>,
+                pos length: usize,
+                pos start: usize,
+                pos end: usize,
+            ) -> OwnedText;
+        }
+    }
+
+    declaration StandardRuntimeStringFromUtf8 {
+        identity name from_utf8;
+
+        surface {
+            trusted internal func from_utf8(
+                pos data: RawPointer<u8>,
+                pos length: usize,
+            ) -> ValidatedText;
+        }
+    }
+}

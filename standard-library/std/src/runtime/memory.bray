@@ -1,0 +1,46 @@
+trusted internal module std.runtime.memory;
+
+trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
+{
+    assert(align != 0 && align & (align - 1) == 0, "memory allocation alignment must be a nonzero power of two");
+
+    let pointer_alignment: usize = std.memory.align_of<RawPointer<u8>>();
+    let effective_alignment: usize = maximum(align, right = pointer_alignment);
+
+    let payload_bytes: usize = maximum(bytes, right = 1);
+    let padding_bytes: usize = effective_alignment - 1;
+    let maximum_bytes: usize = ~0;
+
+    assert(padding_bytes <= maximum_bytes - payload_bytes, "memory allocation size exceeds the target address range");
+
+    let allocation_bytes: usize = (payload_bytes + padding_bytes) & ~padding_bytes;
+    let allocation: RawPointer<u8> = trusted std.platform.heap.allocate(allocation_bytes, align = effective_alignment);
+
+    assert(!std.memory.is_null<u8>(allocation), "memory allocation failed");
+
+    return allocation;
+}
+
+trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align: usize) -> unit
+{
+    let _: usize = bytes;
+
+    assert(
+        !std.memory.is_null<u8>(pointer) && align != 0 && align & (align - 1) == 0,
+        "memory deallocation received an invalid allocation"
+    );
+
+    let released: bool = trusted std.platform.heap.deallocate(pointer);
+
+    assert(released, "memory deallocation failed");
+}
+
+func maximum(pos left: usize, right: usize) -> usize
+{
+    if left >= right
+    {
+        return left;
+    }
+
+    return right;
+}

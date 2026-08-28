@@ -87,6 +87,10 @@ Compiler-known declarations remain in the checked-in compiler-known catalog owne
 copied into the standard-library source workspace, and their generated Rust descriptors are compiler inputs rather than
 `std` source.
 
+Internal allocation, owned-text, and character operations are implemented as ordinary trusted Bray declarations under
+`std.runtime`. Compiler lowering retains those exact declarations through recognized standard-library identity. Their
+platform allocation boundary is implemented through target-selected `std.platform.heap` declarations.
+
 ## Compatibility Dimensions
 
 There is no single standard-library version number that participates in dependency solving. Compatibility is the
@@ -122,6 +126,7 @@ JSON. The manifest records:
 - each target set's exact target identity and runtime ABI requirement,
 - each target set's platform-service ABI, provided role set, and semantic-contract digest,
 - every native or dependency artifact's kind, relative path, byte length, and digest,
+- the Unicode data version, input digests, and deterministic generator revision through packaged dependency metadata,
 - and the digest-derived identity of the complete bundle.
 
 The bundle identity is the 32-byte result of:
@@ -161,6 +166,7 @@ standard-library/
         `-- <runtime-abi>/
             |-- std.brayi
             |-- std.brayimpl
+            |-- unicode-data.json
             `-- <target-native artifacts>
 ```
 

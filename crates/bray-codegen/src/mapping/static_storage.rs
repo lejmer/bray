@@ -157,6 +157,37 @@ pub struct CodegenStaticFinalization {
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<CodegenInstanceKey>,
+    incident_memory: Option<CodegenStaticIncidentMemory>,
+}
+
+/// Bray allocation helpers retained for one fallible static-finalization incident.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenStaticIncidentMemory {
+    allocation: CodegenInstanceKey,
+    deallocation: CodegenInstanceKey,
+}
+
+impl CodegenStaticIncidentMemory {
+    /// Creates one paired allocation and deallocation contract.
+    pub const fn new(
+        allocation: CodegenInstanceKey,
+        deallocation: CodegenInstanceKey,
+    ) -> Self {
+        Self {
+            allocation,
+            deallocation,
+        }
+    }
+
+    /// Returns the Bray allocation helper.
+    pub const fn allocation(&self) -> &CodegenInstanceKey {
+        &self.allocation
+    }
+
+    /// Returns the Bray deallocation helper.
+    pub const fn deallocation(&self) -> &CodegenInstanceKey {
+        &self.deallocation
+    }
 }
 
 impl CodegenStaticFinalization {
@@ -168,6 +199,7 @@ impl CodegenStaticFinalization {
         error_type_identity: Option<[u8; 32]>,
         source: Option<bray_ir::MirSourceAnchor>,
         incident_cleanup: Option<CodegenInstanceKey>,
+        incident_memory: Option<CodegenStaticIncidentMemory>,
     ) -> Self {
         Self {
             execution,
@@ -176,6 +208,7 @@ impl CodegenStaticFinalization {
             error_type_identity,
             source,
             incident_cleanup,
+            incident_memory,
         }
     }
 
@@ -207,6 +240,11 @@ impl CodegenStaticFinalization {
     /// Returns abandonment cleanup for an owned incident payload.
     pub const fn incident_cleanup(&self) -> Option<&CodegenInstanceKey> {
         self.incident_cleanup.as_ref()
+    }
+
+    /// Returns the Bray memory helpers used for a fallible incident payload.
+    pub const fn incident_memory(&self) -> Option<&CodegenStaticIncidentMemory> {
+        self.incident_memory.as_ref()
     }
 }
 

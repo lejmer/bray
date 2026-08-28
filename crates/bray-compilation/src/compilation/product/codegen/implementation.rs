@@ -57,7 +57,7 @@ impl Compilation {
             crate::BuildConfiguration::ObservedRelease
                 | crate::BuildConfiguration::TimedRelease { .. }
         ) {
-            required_capabilities.push(RuntimeCapability::MemoryOperations);
+            required_capabilities.push(RuntimeCapability::PerformanceObservation);
         }
 
         required_capabilities.sort_unstable();
@@ -274,9 +274,6 @@ impl Compilation {
                     product_host.as_ref(),
                     &mappings,
                     host_statics.iter().any(
-                        super::super::realization::ProductStaticHostEntry::transfers_cleanup_incident,
-                    ),
-                    host_statics.iter().any(
                         super::super::realization::ProductStaticHostEntry::requires_main_thread_cleanup,
                     ),
                     &target,
@@ -347,7 +344,6 @@ impl Compilation {
         host: Option<&bray_runtime_interface::ExecutableHostContract>,
         product_host: Option<&bray_codegen::CodegenProductHostMapping>,
         mappings: &[bray_codegen::CodegenMappings],
-        transfers_cleanup_incident: bool,
         requires_main_thread_cleanup: bool,
         target: &CodegenTarget,
     ) -> Result<Option<RuntimeArtifactSelection>, NativeProductPlanningError> {
@@ -401,9 +397,6 @@ impl Compilation {
                 }
 
                 // Runtime selection owns the Arc-backed identities used after planning.
-                let capabilities =
-                    transfers_cleanup_incident.then_some(RuntimeCapability::MemoryOperations);
-
                 bray_runtime_interface::RuntimeRequirements::new(
                     Some(runtime.contract().identity().clone()),
                     self.selected_target().target().runtime_abi(),
@@ -411,7 +404,7 @@ impl Compilation {
                     target.identity().clone(),
                     target.panic_abi().clone(),
                     roles,
-                    capabilities,
+                    [],
                     [],
                 )
             }
@@ -3908,6 +3901,9 @@ mod tests {
         let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
             .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
 
+        let runtime_dependency =
+            crate::test_support::runtime_standard_library_dependency(&target);
+
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
             sources
@@ -3924,6 +3920,7 @@ mod tests {
             CompilationOptions::new(worker_budget, product_kind, target)
                 .with_native_link_inputs(native_link_inputs.iter().cloned()),
         )
+        .with_dependency_interfaces([runtime_dependency])
         .with_platform_services(platform_services);
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)
@@ -3983,7 +3980,6 @@ mod tests {
         let version = RuntimeAbiVersion::new(1, 0);
 
         let capabilities = [
-            RuntimeCapability::MemoryOperations,
             RuntimeCapability::CooperativeExecution,
             RuntimeCapability::LocalLanes,
             RuntimeCapability::MainThreadLane,

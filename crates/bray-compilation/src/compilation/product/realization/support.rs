@@ -535,6 +535,7 @@ pub(super) fn direct_helper_symbol(
         | MirHelperReference::PushGenerator
         | MirHelperReference::FinishGenerator
         | MirHelperReference::PanicReport
+        | MirHelperReference::StandardLibrary(_)
         | MirHelperReference::Finalize(_)
         | MirHelperReference::StaticFinalize(_)
         | MirHelperReference::Destroy(_)

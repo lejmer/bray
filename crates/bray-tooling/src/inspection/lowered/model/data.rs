@@ -2448,6 +2448,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
         | MirHelperReference::PushGenerator
         | MirHelperReference::FinishGenerator
         | MirHelperReference::PanicReport
+        | MirHelperReference::StandardLibrary(_)
         | MirHelperReference::CreateFrame(_)
         | MirHelperReference::MoveInactiveFrame(_)
         | MirHelperReference::ComposeAwaitedFrame(_)

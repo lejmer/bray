@@ -10,6 +10,7 @@ use super::{CodegenInstance, CodegenInstanceKey};
 pub struct CodegenReachability {
     roots: Arc<[CodegenInstanceKey]>,
     instances: Arc<[CodegenInstance]>,
+    external: Arc<[CodegenInstanceKey]>,
 }
 
 impl CodegenReachability {
@@ -29,6 +30,11 @@ impl CodegenReachability {
             .binary_search_by(|instance| instance.key().cmp(key))
             .ok()
             .and_then(|index| self.instances.get(index))
+    }
+
+    /// Returns whether the reachable definition is a bodyless external leaf.
+    pub fn is_external(&self, key: &CodegenInstanceKey) -> bool {
+        self.external.binary_search(key).is_ok()
     }
 }
 
@@ -132,6 +138,7 @@ impl CodegenReachabilityBuilder {
         Ok(CodegenReachability {
             roots: shared_slice(self.roots),
             instances: shared_slice(self.instances.into_values()),
+            external: shared_slice(self.external),
         })
     }
 }
@@ -341,10 +348,16 @@ mod tests {
         expected_frontier.sort_unstable();
 
         assert_eq!(builder.take_frontier().as_ref(), expected_frontier);
-        assert_eq!(builder.push_external(external_key), Ok(()));
+        assert_eq!(builder.push_external(external_key.clone()), Ok(()));
         assert_eq!(builder.push_instance(second), Ok(()));
         assert!(builder.take_frontier().is_empty());
-        assert!(builder.finish().is_ok());
+
+        let Ok(graph) = builder.finish() else {
+            panic!("closed graph with external leaf must publish");
+        };
+
+        assert!(graph.is_external(&external_key));
+        assert!(graph.instance(&external_key).is_none());
     }
 
     fn graph(

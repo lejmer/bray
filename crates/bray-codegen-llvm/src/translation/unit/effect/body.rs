@@ -86,7 +86,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirOperationKind::Call(call) => self.translate_call(id, call)?,
             MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,
-            MirOperationKind::Text(text) => self.translate_text(text)?,
+            MirOperationKind::Text(text) => self.translate_text(id, text)?,
             MirOperationKind::PatternProjection {
                 subject,
                 projection,

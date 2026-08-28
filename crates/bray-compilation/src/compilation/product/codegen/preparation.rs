@@ -84,9 +84,6 @@ impl Compilation {
                     source_reachability
                         .as_ref()
                         .map(ConcreteCodegenReachability::graph),
-                    host_statics
-                        .iter()
-                        .any(ProductStaticHostEntry::transfers_cleanup_incident),
                     runtime,
                     foreign_callback_roles,
                     required_capabilities,

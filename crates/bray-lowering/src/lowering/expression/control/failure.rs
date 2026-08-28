@@ -33,6 +33,13 @@ impl Lowerer<'_> {
         };
 
         let source = self.source(expression.origin());
+        let result_type = self.expression_type(id)?;
+
+        if self.constant_boolean(&condition)? == Some(false) {
+            self.finish_assertion_failure(id, expression, current, &source)?;
+
+            return Ok(LoweredExpression::terminated(source));
+        }
 
         let success = self
             .builder
@@ -52,48 +59,50 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let failure_cause = match expression.operands().get(1).copied() {
-            Some(message) => {
-                let lowered = self.lower_expression(message, failure)?;
-
-                let Some(failure) = lowered.block else {
-                    return Ok(LoweredExpression::continuing(
-                        success,
-                        Some(self.unit_operand(self.expression_type(id)?)),
-                        source,
-                    ));
-                };
-
-                let Some(message) = lowered.value else {
-                    return Err(LoweringError::MissingOperationResult(message));
-                };
-
-                Some((failure, Some(message)))
-            }
-            None => Some((failure, None)),
-        };
-
-        if let Some((failure, message)) = failure_cause {
-            let report_type = self.panic_report_type()?;
-
-            let report = self.push_panic_report(
-                id,
-                failure,
-                &source,
-                MirPanicCause::Assertion(message),
-                report_type,
-            )?;
-
-            self.finish_panic_to_active_catch(id, failure, &source, report, report_type)?;
-        }
-
-        let result_type = self.expression_type(id)?;
+        self.finish_assertion_failure(id, expression, failure, &source)?;
 
         Ok(LoweredExpression::continuing(
             success,
             Some(self.unit_operand(result_type)),
             source,
         ))
+    }
+
+    fn finish_assertion_failure(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &BoundStructuredExpression,
+        failure: MirBlockId,
+        source: &bray_ir::MirSourceAnchor,
+    ) -> Result<(), LoweringError> {
+        let (failure, message) = match expression.operands().get(1).copied() {
+            Some(message) => {
+                let lowered = self.lower_expression(message, failure)?;
+
+                let Some(failure) = lowered.block else {
+                    return Ok(());
+                };
+
+                let Some(message) = lowered.value else {
+                    return Err(LoweringError::MissingOperationResult(message));
+                };
+
+                (failure, Some(message))
+            }
+            None => (failure, None),
+        };
+
+        let report_type = self.panic_report_type()?;
+
+        let report = self.push_panic_report(
+            id,
+            failure,
+            source,
+            MirPanicCause::Assertion(message),
+            report_type,
+        )?;
+
+        self.finish_panic_to_active_catch(id, failure, source, report, report_type)
     }
 
     pub(super) fn lower_panic(

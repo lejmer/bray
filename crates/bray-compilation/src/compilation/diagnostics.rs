@@ -549,7 +549,7 @@ impl Compilation {
             _ => return Ok(()),
         };
 
-        let Some(expression) = syntax.first_expression(anchor) else {
+        let Some(expression) = syntax.surface_expression(anchor) else {
             return Ok(());
         };
 
@@ -587,7 +587,7 @@ impl Compilation {
             return Ok(());
         };
 
-        let Some(expression) = syntax.first_expression(default) else {
+        let Some(expression) = syntax.surface_expression(default) else {
             return Ok(());
         };
 
@@ -842,16 +842,23 @@ impl SemanticSyntaxIndex {
         }
 
         let mut active = Vec::new();
+        let mut depth = 0_usize;
 
         walk_syntax_tree(syntax, |event| {
             let node = match event {
-                SyntaxWalkEvent::EnterNode(node) => node,
+                SyntaxWalkEvent::EnterNode(node) => {
+                    depth += 1;
+
+                    node
+                }
                 SyntaxWalkEvent::ExitNode(node) => {
                     let anchor = SyntaxAnchor::from_node(&node);
 
-                    if active.last() == Some(&anchor) {
+                    if active.last().is_some_and(|(active, _)| *active == anchor) {
                         active.pop();
                     }
+
+                    depth -= 1;
 
                     return SyntaxWalkControl::Continue;
                 }
@@ -861,23 +868,30 @@ impl SemanticSyntaxIndex {
             let anchor = SyntaxAnchor::from_node(&node);
 
             if entries.contains_key(&anchor) {
-                active.push(anchor);
+                active.push((anchor, depth));
             }
 
             if node.kind() == SyntaxKind::CallableBodyBlockExpression
-                && let Some(active_anchor) = active.last()
+                && let Some((active_anchor, _)) = active.last()
                 && let Some(entry) = entries.get_mut(active_anchor)
             {
                 entry.has_callable_body = true;
             }
 
-            if let Some(active_anchor) = active.last()
+            if let Some((active_anchor, active_depth)) = active.last()
                 && let Some(entry) = entries.get_mut(active_anchor)
             {
-                if node.kind() == SyntaxKind::Expression && entry.first_expression.is_none() {
-                    entry.first_expression = Some(anchor);
+                let expression_depth = depth - active_depth;
 
-                    entry.first_expression_is_trait_satisfaction =
+                if node.kind() == SyntaxKind::Expression
+                    && entry
+                        .surface_expression_depth
+                        .is_none_or(|current| expression_depth < current)
+                {
+                    entry.surface_expression = Some(anchor);
+                    entry.surface_expression_depth = Some(expression_depth);
+
+                    entry.surface_expression_is_trait_satisfaction =
                         node.cast::<ExpressionSyntax>().is_some_and(|expression| {
                             expression.trait_satisfaction_constraint().is_some()
                         });
@@ -898,19 +912,21 @@ impl SemanticSyntaxIndex {
 
     fn has_bound_constraint_expression(&self, anchor: SyntaxAnchor) -> bool {
         self.entries.get(&anchor).is_some_and(|entry| {
-            entry.first_expression.is_some() && !entry.first_expression_is_trait_satisfaction
+            entry.surface_expression.is_some()
+                && !entry.surface_expression_is_trait_satisfaction
         })
     }
 
-    fn first_expression(&self, anchor: SyntaxAnchor) -> Option<SyntaxAnchor> {
-        self.entries.get(&anchor)?.first_expression
+    fn surface_expression(&self, anchor: SyntaxAnchor) -> Option<SyntaxAnchor> {
+        self.entries.get(&anchor)?.surface_expression
     }
 }
 
 #[derive(Default)]
 struct SemanticSyntaxEntry {
-    first_expression: Option<SyntaxAnchor>,
-    first_expression_is_trait_satisfaction: bool,
+    surface_expression: Option<SyntaxAnchor>,
+    surface_expression_depth: Option<usize>,
+    surface_expression_is_trait_satisfaction: bool,
     has_callable_body: bool,
 }
 

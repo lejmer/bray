@@ -16,7 +16,7 @@ const INPUT_PATH: &str = "standard-library/targets/os-bindings.json";
 const BRAY_OUTPUT_ROOT: &str = "standard-library/std/src/os/generated";
 const PROBE_OUTPUT_ROOT: &str = "standard-library/targets/probes";
 
-pub(in crate::standard_library) fn native_links(
+pub(crate) fn native_links(
     target: &bray_target::TargetIdentity,
 ) -> Result<Vec<bray_symbols::NativeLinkRequirement>, String> {
     let loaded = read_description()?;

@@ -24,8 +24,8 @@ use bray_standard_library::{
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationInstanceId,
-    ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, ModuleOwnerId,
-    ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, StructSymbol,
+    ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, NamedTypeSymbolId,
+    PackageIdentity, SemanticValueStore, StructSymbol,
     StructSymbolId, SymbolName, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
     TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
     UnionVariantSymbolId,
@@ -38,6 +38,7 @@ use super::implementation::{
     TypeValuedMemberResolution, implementation_fulfillments, implementation_instance_requirement,
     selected_type_valued_member,
 };
+use super::standard_library::source_standard_library_scope_owner;
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
@@ -304,23 +305,13 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
             let owner = match descriptor.owner() {
                 RecognizedStandardLibraryDeclarationOwner::Scope(scope) => {
-                    let Some(scope) =
-                        COMPILER_KNOWN_CATALOG.recognized_standard_library_scope(scope)
+                    let Some(owner) =
+                        source_standard_library_scope_owner(symbols, package.id(), scope)
                     else {
                         continue;
                     };
 
-                    let Some(path) = ModulePathKey::try_new(scope.path().segments()) else {
-                        continue;
-                    };
-
-                    let Some(module) =
-                        symbols.module_by_path(ModuleOwnerId::from(package.id()), &path)
-                    else {
-                        continue;
-                    };
-
-                    module.id().into()
+                    owner
                 }
                 RecognizedStandardLibraryDeclarationOwner::Declaration(owner) => {
                     let Some(owner) = declarations.get(&owner).copied() else {

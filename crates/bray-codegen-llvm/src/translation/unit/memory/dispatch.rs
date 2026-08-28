@@ -163,18 +163,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .translate_layout_query(operation, memory, ty, kind)
                 .map(Some),
             CheckedMemoryOperationKind::RawAllocate => self
-                .translate_raw_memory_allocation(operation, memory)
+                .translate_raw_memory_allocation(id, operation, memory)
                 .map(Some),
             CheckedMemoryOperationKind::RawDeallocate => {
-                self.translate_raw_memory_deallocation(memory)?;
+                self.translate_raw_memory_deallocation(id, memory)?;
 
                 Ok(None)
             }
             CheckedMemoryOperationKind::Allocate => self
-                .translate_owned_memory_allocation(operation, memory)
+                .translate_owned_memory_allocation(id, operation, memory)
                 .map(Some),
             CheckedMemoryOperationKind::Deallocate => {
-                self.translate_owned_memory_deallocation(memory)?;
+                self.translate_owned_memory_deallocation(id, memory)?;
 
                 Ok(None)
             }
@@ -489,7 +489,8 @@ mod tests {
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
         CodeGenerator, CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
-        CodegenHelperMapping, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
+        CodegenHelperMapping, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
+        CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
         CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
         CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit,
         TargetAddressSpaceKind,
@@ -497,8 +498,8 @@ mod tests {
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
         MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
-        MirUnitBuilder, MirUnitKind, MirValueId,
+        MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
+        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -514,6 +515,10 @@ mod tests {
     use inkwell::context::Context;
 
     use crate::backend::LlvmCodeGenerator;
+
+    const MEMORY_ALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_allocate";
+    const MEMORY_DEALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_deallocate";
+    const MEMORY_VALUE_CLEANUP_HELPER_SYMBOL: &str = "bray_test_memory_value_cleanup";
 
     #[derive(Clone, Copy)]
     struct MemoryTypes {
@@ -574,8 +579,8 @@ mod tests {
             "inttoptr",
             "llvm.debugtrap",
             "pause",
-            bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
-            bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
+            MEMORY_ALLOCATION_HELPER_SYMBOL,
+            MEMORY_DEALLOCATION_HELPER_SYMBOL,
         ] {
             assert!(
                 ir.contains(spelling),
@@ -654,11 +659,21 @@ mod tests {
             .lines()
             .filter(|line| {
                 line.contains("call void")
-                    && line.contains(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL)
+                    && line.contains(MEMORY_DEALLOCATION_HELPER_SYMBOL)
             })
             .count();
 
         assert_eq!(deallocations, 4);
+
+        assert!(
+            ir.lines().any(|line| {
+                line.contains("memory.buffer.previous_index")
+                    && line.contains("sub i64 %memory.buffer.index, 1")
+            }),
+            "raw-buffer destruction did not walk the initialized prefix in reverse order: {ir}"
+        );
+
+        assert!(!ir.contains("memory.buffer.next_index"));
     }
 
     #[test]
@@ -678,7 +693,7 @@ mod tests {
             .unwrap_or_else(|| panic!("observed memory LLVM must not be cancelled"));
 
         let ir = module.print_to_string().to_string();
-        let allocation = position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL);
+        let allocation = position(&ir, MEMORY_ALLOCATION_HELPER_SYMBOL);
 
         let allocation_observation =
             position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL);
@@ -1159,7 +1174,7 @@ mod tests {
             None,
         );
 
-        let cleanup_operations = push_buffer_and_byte_operations(
+        push_buffer_and_byte_operations(
             &mut builder,
             entry,
             &source,
@@ -1177,16 +1192,51 @@ mod tests {
             .finish(entry)
             .unwrap_or_else(|error| panic!("memory test MIR must be valid: {error:?}"));
 
-        let unit = CodegenUnit::try_new(
+        let allocation = helper_instance_key(172, 1, mir.target());
+        let deallocation = helper_instance_key(173, 2, mir.target());
+        let cleanup = helper_instance_key(174, 3, mir.target());
+
+        let instance = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&mir),
+            mir,
+            [
+                CodegenInstanceDependency::definition(allocation.clone()),
+                CodegenInstanceDependency::definition(deallocation.clone()),
+                CodegenInstanceDependency::definition(cleanup.clone()),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("memory test instance must be valid: {error:?}"));
+
+        let unit = CodegenUnit::try_from_instances(
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
-            [mir],
+            [instance],
         )
         .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
 
-        let mappings = memory_mappings(&unit, &target, types, source, cleanup_operations);
+        let mappings = memory_mappings(
+            &unit,
+            &target,
+            types,
+            source,
+            &allocation,
+            &deallocation,
+            &cleanup,
+        );
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
+    }
+
+    fn helper_instance_key(
+        unit: u32,
+        declaration: u32,
+        target: &MirTargetContract,
+    ) -> CodegenInstanceKey {
+        CodegenInstanceKey::non_generic(&bray_testing::test_mir_unit_with_declaration_for_target(
+            unit,
+            declaration,
+            target.clone(),
+        ))
     }
 
     fn push_memory<const OPERANDS: usize, const TYPES: usize>(
@@ -1865,7 +1915,9 @@ mod tests {
         target: &bray_codegen::CodegenTarget,
         types: MemoryTypes,
         source: MirSourceAnchor,
-        cleanup_operations: Vec<MirOperationId>,
+        allocation: &CodegenInstanceKey,
+        deallocation: &CodegenInstanceKey,
+        cleanup: &CodegenInstanceKey,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
         let align8 = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
@@ -2069,24 +2121,85 @@ mod tests {
             panic!("memory test symbol must be valid");
         };
 
-        let symbol = CodegenSymbolMapping::new(
+        let owner_symbol = CodegenSymbolMapping::new(
             CodegenSymbolKey::Instance(instance.key().clone()),
             name,
             CodegenLinkage::Internal,
             CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false),
         );
 
-        let cleanup_reference = MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::LifecycleResolution,
-            ty: types.value,
-        };
+        let allocation_symbol = helper_symbol(
+            allocation,
+            MEMORY_ALLOCATION_HELPER_SYMBOL,
+            CodegenCallableSignature::new(
+                [
+                    CodegenParameterMapping::direct(types.usize, None, []),
+                    CodegenParameterMapping::direct(types.usize, None, []),
+                ],
+                CodegenResultMapping::direct(types.pointer, None, []),
+                CallableAbi::Bray,
+                false,
+            ),
+        );
 
-        let operation_mappings = cleanup_operations.into_iter().map(|operation| {
-            CodegenOperationMapping::new(
-                instance.key().clone(),
-                operation,
-                [CodegenHelperMapping::lowered(cleanup_reference.clone())],
-            )
+        let deallocation_symbol = helper_symbol(
+            deallocation,
+            MEMORY_DEALLOCATION_HELPER_SYMBOL,
+            CodegenCallableSignature::new(
+                [
+                    CodegenParameterMapping::direct(types.pointer, None, []),
+                    CodegenParameterMapping::direct(types.usize, None, []),
+                    CodegenParameterMapping::direct(types.usize, None, []),
+                ],
+                CodegenResultMapping::Void,
+                CallableAbi::Bray,
+                false,
+            ),
+        );
+
+        let cleanup_symbol = helper_symbol(
+            cleanup,
+            MEMORY_VALUE_CLEANUP_HELPER_SYMBOL,
+            CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(types.pointer, None, [])],
+                CodegenResultMapping::Void,
+                CallableAbi::Bray,
+                false,
+            ),
+        );
+
+        let operation_mappings = instance.mir().operations_with_ids().filter_map(|(id, operation)| {
+            let helpers = operation
+                .kind()
+                .helper_references()
+                .into_iter()
+                .map(|reference| match &reference {
+                    MirHelperReference::StandardLibrary(
+                        MirStandardLibraryHelper::MemoryAllocate,
+                    ) => CodegenHelperMapping::new(
+                        reference,
+                        CodegenSymbolKey::Instance(allocation.clone()),
+                    ),
+                    MirHelperReference::StandardLibrary(
+                        MirStandardLibraryHelper::MemoryDeallocate,
+                    ) => CodegenHelperMapping::new(
+                        reference,
+                        CodegenSymbolKey::Instance(deallocation.clone()),
+                    ),
+                    MirHelperReference::Cleanup {
+                        phase: MirCleanupPhase::LifecycleResolution,
+                        ty,
+                    } if *ty == types.value => CodegenHelperMapping::new(
+                        reference,
+                        CodegenSymbolKey::Instance(cleanup.clone()),
+                    ),
+                    _ => panic!("memory fixture contains an unexpected helper: {reference:?}"),
+                })
+                .collect::<Vec<_>>();
+
+            (!helpers.is_empty()).then(|| {
+                CodegenOperationMapping::new(instance.key().clone(), id, helpers)
+            })
         });
 
         let Some(file) = CodegenSourceFile::try_new("memory-operations.bray") else {
@@ -2100,7 +2213,12 @@ mod tests {
             target,
             type_mappings,
             [],
-            [symbol],
+            [
+                owner_symbol,
+                allocation_symbol,
+                deallocation_symbol,
+                cleanup_symbol,
+            ],
             [],
             [],
             [],
@@ -2109,5 +2227,21 @@ mod tests {
             [debug],
         )
         .unwrap_or_else(|error| panic!("memory test mappings must be valid: {error:?}"))
+    }
+
+    fn helper_symbol(
+        instance: &CodegenInstanceKey,
+        name: &str,
+        signature: CodegenCallableSignature,
+    ) -> CodegenSymbolMapping {
+        let name = BinarySymbolName::try_new(name)
+            .unwrap_or_else(|| panic!("memory helper symbol must be valid"));
+
+        CodegenSymbolMapping::new(
+            CodegenSymbolKey::Instance(instance.clone()),
+            name,
+            CodegenLinkage::Import,
+            signature,
+        )
     }
 }

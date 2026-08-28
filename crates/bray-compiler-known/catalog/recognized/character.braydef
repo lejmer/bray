@@ -50,3 +50,52 @@ scope StandardCharacter at std.character {
         surface { extern func is_whitespace(value: char) -> bool; }
     }
 }
+
+scope StandardRuntimeCharacter at std.runtime.character {
+    declaration StandardRuntimeCharacterScalarValue {
+        identity name scalar_value;
+
+        surface { trusted internal func scalar_value(pos value: u32) -> u32; }
+    }
+
+    declaration StandardRuntimeCharacterFromScalarValue {
+        identity name from_scalar_value;
+
+        surface { trusted internal func from_scalar_value(pos value: u32) -> u32?; }
+    }
+
+    declaration StandardRuntimeCharacterUtf8Length {
+        identity name utf8_length;
+
+        surface { trusted internal func utf8_length(pos value: u32) -> usize; }
+    }
+
+    declaration StandardRuntimeCharacterUtf8Byte {
+        identity name utf8_byte;
+
+        surface {
+            trusted internal func utf8_byte(
+                pos value: u32,
+                pos index: usize,
+            ) -> u8;
+        }
+    }
+
+    declaration StandardRuntimeCharacterIsAlphabetic {
+        identity name is_alphabetic;
+
+        surface { trusted internal func is_alphabetic(pos value: u32) -> bool; }
+    }
+
+    declaration StandardRuntimeCharacterIsNumeric {
+        identity name is_numeric;
+
+        surface { trusted internal func is_numeric(pos value: u32) -> bool; }
+    }
+
+    declaration StandardRuntimeCharacterIsWhitespace {
+        identity name is_whitespace;
+
+        surface { trusted internal func is_whitespace(pos value: u32) -> bool; }
+    }
+}

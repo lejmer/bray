@@ -425,9 +425,9 @@ cannot be claimed by a runtime artifact.
 
 Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata.
 Ordinary-product adapter components separately own host, scheduler, cancellation, and event roles or capabilities. A
-test product instead selects one coherent test-host adapter that owns the complete test execution surface, while memory,
-string, and character operations remain independently retainable components. Support components own no semantic surface
-and are reachable only as explicit dependencies of those adapters. The metadata records the runtime and artifact
+test product instead selects one coherent test-host adapter that owns the complete test execution surface. Performance
+observation is an independently retainable component. Support components own no semantic surface and are reachable only
+as explicit dependencies of those adapters. The metadata records the runtime and artifact
 identities, target and panic ABI, runtime and protected-frame ABI versions, capabilities, exact role-to-symbol bindings,
 component purposes, archive file names, archive digests, component dependencies, exact role and capability ownership,
 and exact platform-service overrides. Catalog validation requires one owner for every advertised role and capability in

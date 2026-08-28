@@ -32,7 +32,7 @@ pub use control::{
 pub use frame::{
     MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameState,
 };
-pub use helper::MirHelperReference;
+pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,

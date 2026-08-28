@@ -40,8 +40,15 @@ func character_boundaries()
     assert(std.character.utf8_length(value = ascii) == 1);
     assert(std.character.utf8_byte(value = ascii, index = 0) == 65);
     assert(std.character.utf8_length(value = supplementary) == 4);
+    assert(std.character.utf8_byte(value = supplementary, index = 0) == 240);
+    assert(std.character.utf8_byte(value = supplementary, index = 1) == 159);
+    assert(std.character.utf8_byte(value = supplementary, index = 2) == 152);
+    assert(std.character.utf8_byte(value = supplementary, index = 3) == 128);
     assert(std.character.is_numeric(value = '7'));
+    assert(std.character.is_numeric(value = '٧'));
+    assert(std.character.is_alphabetic(value = '界'));
     assert(std.character.is_whitespace(value = ' '));
+    assert(std.character.is_whitespace(value = ' '));
 
     let invalid: char? = std.character.from_scalar_value(value = 1114112);
 
