@@ -2,8 +2,6 @@ use bray_ir::MirRuntimeReference;
 use bray_runtime_interface::{
     BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
 };
-use bray_symbols::CallableAbi;
-
 use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
 
 /// Runtime roles required by every native entry that invokes a Bray callable.
@@ -12,15 +10,28 @@ pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
     RuntimeAbiRole::PanicReporting,
 ];
 
-/// Returns whether one definition needs a native-to-Bray callback boundary.
-pub const fn requires_foreign_callback_boundary(
+/// Exact binary spelling and linkage for a native entry into one Bray callable.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenNativeEntryMapping {
+    name: BinarySymbolName,
     linkage: CodegenLinkage,
-    abi: CallableAbi,
-) -> bool {
-    matches!(
-        linkage,
-        CodegenLinkage::Export | CodegenLinkage::Weak | CodegenLinkage::Fallback
-    ) && !matches!(abi, CallableAbi::Bray)
+}
+
+impl CodegenNativeEntryMapping {
+    /// Creates one native entry mapping.
+    pub const fn new(name: BinarySymbolName, linkage: CodegenLinkage) -> Self {
+        Self { name, linkage }
+    }
+
+    /// Returns the exact binary symbol name.
+    pub const fn name(&self) -> &BinarySymbolName {
+        &self.name
+    }
+
+    /// Returns the selected binary linkage.
+    pub const fn linkage(&self) -> CodegenLinkage {
+        self.linkage
+    }
 }
 
 /// Stable semantic identity of one binary definition or reference.
@@ -46,6 +57,7 @@ pub struct CodegenSymbolMapping {
     name: BinarySymbolName,
     linkage: CodegenLinkage,
     signature: CodegenCallableSignature,
+    native_entry: Option<CodegenNativeEntryMapping>,
 }
 
 impl CodegenSymbolMapping {
@@ -61,7 +73,15 @@ impl CodegenSymbolMapping {
             name,
             linkage,
             signature,
+            native_entry: None,
         }
+    }
+
+    /// Adds the native entry through which external code invokes this Bray callable.
+    pub fn with_native_entry(mut self, native_entry: CodegenNativeEntryMapping) -> Self {
+        self.native_entry = Some(native_entry);
+
+        self
     }
 
     /// Returns the semantic symbol identity.
@@ -84,6 +104,19 @@ impl CodegenSymbolMapping {
         &self.signature
     }
 
+    /// Returns the native entry when external code may invoke this Bray callable.
+    pub const fn native_entry(&self) -> Option<&CodegenNativeEntryMapping> {
+        self.native_entry.as_ref()
+    }
+
+    /// Returns the symbol whose address crosses a native callable boundary.
+    pub const fn callable_address_name(&self) -> &BinarySymbolName {
+        match &self.native_entry {
+            Some(entry) => entry.name(),
+            None => &self.name,
+        }
+    }
+
     /// Consumes the mapping into its completed symbol contributions.
     pub fn into_parts(
         self,
@@ -92,7 +125,14 @@ impl CodegenSymbolMapping {
         BinarySymbolName,
         CodegenLinkage,
         CodegenCallableSignature,
+        Option<CodegenNativeEntryMapping>,
     ) {
-        (self.key, self.name, self.linkage, self.signature)
+        (
+            self.key,
+            self.name,
+            self.linkage,
+            self.signature,
+            self.native_entry,
+        )
     }
 }

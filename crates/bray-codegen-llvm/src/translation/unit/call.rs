@@ -289,7 +289,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let function = self
             .module
-            .get_function(symbol.name().as_str())
+            .get_function(symbol.callable_address_name().as_str())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         Ok(Some(function.as_global_value().as_pointer_value().into()))

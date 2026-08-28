@@ -188,6 +188,22 @@ impl Compilation {
             },
         )?;
 
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            let runtime_roles = host
+                .iter()
+                .flat_map(|host| host.requirements().roles())
+                .map(|role| role.as_str());
+
+            let native_callback_entries = mappings
+                .iter()
+                .flat_map(CodegenMappings::symbols)
+                .filter_map(bray_codegen::CodegenSymbolMapping::native_entry)
+                .map(bray_codegen::CodegenNativeEntryMapping::name)
+                .map(bray_runtime_interface::BinarySymbolName::as_str);
+
+            profile.add_native_product_contract(runtime_roles, native_callback_entries);
+        }
+
         Ok((host, units, mappings, host_statics))
     }
 
@@ -197,7 +213,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<BTreeSet<bray_runtime_interface::RuntimeAbiRole>, NativeProductPlanningError> {
         for instance in reachability.graph().instances() {
-            let Some((_, linkage)) = self.codegen_native_boundary(
+            let Some(boundary) = self.codegen_native_boundary(
                 instance.key(),
                 &BTreeSet::new(),
                 cancellation,
@@ -206,13 +222,7 @@ impl Compilation {
                 continue;
             };
 
-            let realization = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let signature = self.codegen_instance_signature(realization, cancellation)?;
-
-            if bray_codegen::requires_foreign_callback_boundary(linkage, signature.abi()) {
+            if boundary.is_callback() {
                 return Ok(BTreeSet::from(
                     bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES,
                 ));

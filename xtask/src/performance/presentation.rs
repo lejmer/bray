@@ -224,7 +224,29 @@ pub(super) fn compiler_details(
         );
     }
 
-    html.push_str("</dl></details>");
+    html.push_str("</dl><h4>Runtime roles</h4>");
+    compiler_contract_list(html, &profile.runtime_roles);
+
+    html.push_str("<h4>Native callback entries</h4>");
+    compiler_contract_list(html, &profile.native_callback_entries);
+
+    html.push_str("</details>");
+}
+
+fn compiler_contract_list(html: &mut BoundedHtml, entries: &[String]) {
+    if entries.is_empty() {
+        html.push_str("<p>None</p>");
+
+        return;
+    }
+
+    html.push_str("<ul>");
+
+    for entry in entries {
+        let _ = write!(html, "<li><code>{}</code></li>", escape(entry));
+    }
+
+    html.push_str("</ul>");
 }
 
 const fn runtime_linkage(linkage: RuntimeLinkage) -> &'static str {

@@ -159,7 +159,7 @@ impl Compilation {
         let mut pending = BTreeSet::new();
 
         for symbol in symbols {
-            let (key, name, linkage, signature) = symbol.into_parts();
+            let (key, name, linkage, signature, native_entry) = symbol.into_parts();
 
             let signature = self.classify_codegen_signature(
                 signature,
@@ -169,7 +169,13 @@ impl Compilation {
                 &mut pending,
             )?;
 
-            classified.push(CodegenSymbolMapping::new(key, name, linkage, signature));
+            let mut symbol = CodegenSymbolMapping::new(key, name, linkage, signature);
+
+            if let Some(native_entry) = native_entry {
+                symbol = symbol.with_native_entry(native_entry);
+            }
+
+            classified.push(symbol);
         }
 
         Ok(classified)

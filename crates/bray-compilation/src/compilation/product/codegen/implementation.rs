@@ -3505,6 +3505,7 @@ mod tests {
             "}\n",
             "func main()\n",
             "{\n",
+            "    let value: i32 = weak_export();\n",
             "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
             "    let pointer_storage: RawPointer<RawPointer<u8>> = NATIVE_POINTER;\n",
             "}\n",
@@ -3529,12 +3530,8 @@ mod tests {
 
         assert_eq!(host.entries().len(), 1);
 
-        assert!(plan.mappings().iter().any(|mappings| {
-            mappings.symbols().iter().any(|mapping| {
-                mapping.name().as_str() == "weak_export"
-                    && mapping.linkage() == CodegenLinkage::Weak
-            })
-        }));
+        let callback_body =
+            assert_native_callback_entry(&plan, "weak_export", CodegenLinkage::Weak);
 
         assert!(plan.mappings().iter().any(|mappings| {
             mappings.static_storages().iter().any(|mapping| {
@@ -3561,11 +3558,102 @@ mod tests {
                 .any(|artifact| { String::from_utf8_lossy(artifact).contains("@unused_export =") })
         );
 
+        assert!(backend_ir.iter().any(|artifact| {
+            String::from_utf8_lossy(artifact)
+                .lines()
+                .any(|line| line.contains(" call ") && line.contains(&callback_body))
+        }));
+
         assert!(
             generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
+        let callback_source = concat!(
+            "module app;\n",
+            "@symbol(name = \"native_callback\")\n",
+            "@abi(c)\n",
+            "func callback(pos value: i32) -> i32\n",
+            "{\n",
+            "    return value + 1;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let result: i32 = callback(1);\n",
+            "}\n",
+        );
+
+        let platform_source = concat!(
+            "trusted module app;\n",
+            "@layout(c)\n",
+            "internal struct PlatformStatus\n",
+            "{\n",
+            "    category: u32;\n",
+            "    reserved: u32;\n",
+            "    native_code: i64;\n",
+            "}\n",
+            "@abi(c)\n",
+            "trusted internal func flush() -> PlatformStatus\n",
+            "{\n",
+            "    return { category = 0, reserved = 0, native_code = 0 };\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let status: PlatformStatus = trusted flush();\n",
+            "}\n",
+        );
+
+        let binding =
+            PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
+                .unwrap_or_else(|| panic!("platform service binding must validate"));
+
+        let platform_symbol = bray_runtime_interface::native_platform_service_role_symbol(
+            PlatformServiceRole::StandardOutputFlush,
+        );
+
+        for target in NativeTarget::ALL {
+            let selected = SelectedTarget::for_native(target);
+
+            let (backend, callback_plan) = runtime_native_plan_for_sources_target(
+                &[callback_source],
+                ProductKind::Executable,
+                selected.clone(),
+                &[],
+            );
+
+            let callback_body = assert_native_callback_entry(
+                &callback_plan,
+                "native_callback",
+                CodegenLinkage::Export,
+            );
+
+            let backend_ir =
+                generated_artifacts_of_kind(&backend, &callback_plan, BackendArtifactKind::BackendIr)
+                    .into_iter()
+                    .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
+                    .collect::<String>();
+
+            assert!(
+                backend_ir
+                    .lines()
+                    .any(|line| line.contains(" call ") && line.contains(&callback_body)),
+                "{target:?}"
+            );
+
+            let (_, platform_plan) = runtime_native_plan_for_sources_target_with_platform_services(
+                &[platform_source],
+                ProductKind::Executable,
+                selected,
+                &[],
+                [binding.clone()],
+            );
+
+            assert_direct_platform_service(&platform_plan, platform_symbol);
+        }
     }
 
     #[test]
@@ -3611,30 +3699,12 @@ mod tests {
             PlatformServiceRole::StandardOutputFlush,
         );
 
-        assert!(plan.mappings().iter().any(|mappings| {
-            mappings.symbols().iter().any(|mapping| {
-                mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Fallback
-            })
-        }));
+        assert_direct_platform_service(&plan, symbol);
 
         assert!(
             plan.preservation_roots()
                 .any(|root| root.as_str() == symbol)
         );
-
-        let host = plan
-            .executable_host()
-            .unwrap_or_else(|| panic!("executable plan must retain its host"));
-
-        for role in bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES {
-            assert!(host.requirements().requires_role(role));
-
-            assert_eq!(
-                host.role_binding(role)
-                    .map(RuntimeRoleBinding::implementation),
-                Some(RuntimeRoleImplementation::BrayRuntime)
-            );
-        }
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -3673,6 +3743,74 @@ mod tests {
             !backend_ir
                 .lines()
                 .any(|line| line.starts_with("define ") && line.contains(symbol))
+        );
+    }
+
+    fn assert_native_callback_entry(
+        plan: &super::NativeProductPlan,
+        entry_name: &str,
+        entry_linkage: CodegenLinkage,
+    ) -> String {
+        let callback = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .find(|mapping| {
+                mapping.native_entry().is_some_and(|entry| {
+                    entry.name().as_str() == entry_name && entry.linkage() == entry_linkage
+                })
+            })
+            .unwrap_or_else(|| panic!("native callback entry must be mapped"));
+
+        assert_eq!(callback.linkage(), CodegenLinkage::LinkOnce);
+        assert_ne!(callback.name().as_str(), entry_name);
+
+        let bray_codegen::CodegenSymbolKey::Instance(instance) = callback.key() else {
+            panic!("native callback entry must map a concrete instance");
+        };
+
+        let compatibility = plan
+            .units()
+            .iter()
+            .find_map(|unit| unit.key().compatibility(instance))
+            .unwrap_or_else(|| panic!("callback instance must retain partition compatibility"));
+
+        assert_eq!(compatibility.linkage(), CodegenLinkage::LinkOnce);
+
+        assert_eq!(
+            compatibility.visibility(),
+            bray_codegen::CodegenDefinitionVisibility::Product
+        );
+
+        let host = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("callback plan must retain an executable host"));
+
+        assert!(
+            host.requirements()
+                .requires_role(RuntimeAbiRole::ForeignCallbackExecution)
+        );
+
+        callback.name().as_str().to_owned()
+    }
+
+    fn assert_direct_platform_service(plan: &super::NativeProductPlan, symbol: &str) {
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == symbol
+                    && mapping.linkage() == CodegenLinkage::Fallback
+                    && mapping.native_entry().is_none()
+            })
+        }));
+
+        let host = plan
+            .executable_host()
+            .unwrap_or_else(|| panic!("platform plan must retain an executable host"));
+
+        assert!(
+            !host
+                .requirements()
+                .requires_role(RuntimeAbiRole::ForeignCallbackExecution)
         );
     }
 

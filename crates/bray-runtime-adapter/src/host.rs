@@ -41,15 +41,6 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_foreign_callback_execution(
-        callback: NativeSynchronousRootCallback,
-        destination: usize,
-    ) -> NativeRunOutcome {
-        implementation::bray_runtime_foreign_callback_execution(callback, destination)
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_root_terminal_observation(
         root: NativeRootHandle,
     ) -> NativeRunOutcome {

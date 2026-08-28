@@ -87,9 +87,9 @@ Compiler libraries and installed Bray tools.
       by generated code and linked runtime components.
 
 - `bray-runtime-adapter`
-    - Link-isolated native ABI adapters for host, scheduler, cancellation, event, and test-host runtime components. Each
-      selected adapter publishes only the stable symbols for its semantic component and delegates their implementation
-      to `bray-runtime`.
+    - Link-isolated native ABI adapters for host, foreign callback, scheduler, cancellation, event, and test-host runtime
+      components. Each selected adapter publishes only the stable symbols for its semantic component and delegates its
+      implementation to `bray-runtime`.
 
 - `bray-runtime-builtins`
     - Link-isolated native implementations of compiler-lowered memory, string, and character operations, partitioned by

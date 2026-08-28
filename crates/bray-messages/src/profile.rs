@@ -79,6 +79,8 @@ mod tests {
                 identity: "bray.runtime.host".to_owned(),
                 bytes: 4_096,
             }],
+            runtime_roles: Vec::new(),
+            native_callback_entries: Vec::new(),
             events: Vec::new(),
             dropped_events: 0,
         };

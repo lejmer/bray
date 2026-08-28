@@ -829,6 +829,13 @@ mod tests {
         report.workloads[0].id = "workload<&>\"'".to_owned();
         report.workloads[0].artifacts[0].path = "<artifact>".to_owned();
 
+        report.workloads[0].compiler_profile.runtime_roles =
+            vec!["foreign_callback_execution".to_owned()];
+
+        report.workloads[0]
+            .compiler_profile
+            .native_callback_entries = vec!["callback<&>".to_owned()];
+
         first_workload_logical_provenance(&mut report).omitted_count = 3;
 
         let first = render_candidate(&report)
@@ -846,6 +853,10 @@ mod tests {
         assert!(first.contains("Rust execution details"));
         assert!(first.contains("C++ execution details"));
         assert!(first.contains("<dt>Logical provenance</dt><dd>1 shown, 3 omitted</dd>"));
+        assert!(first.contains("<h4>Runtime roles</h4>"));
+        assert!(first.contains("foreign_callback_execution"));
+        assert!(first.contains("<h4>Native callback entries</h4>"));
+        assert!(first.contains("callback&lt;&amp;&gt;"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(first.contains("<tr class=\"bray-row\">"));
         assert_eq!(first.matches("class=\"metric-best\"").count(), 32);

@@ -32,6 +32,10 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
         };
 
         declare_symbol(module, mapping, target, defines_symbol, types)?;
+
+        if !defines_symbol {
+            declare_native_entry(module, mapping, target, false, types)?;
+        }
     }
 
     super::static_storage::declare_static_storages(module, mappings, target, types)?;
@@ -39,7 +43,7 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     Ok(())
 }
 
-pub(crate) fn declare_symbol<'context>(
+fn declare_symbol<'context>(
     module: &Module<'context>,
     mapping: &CodegenSymbolMapping,
     target: &CodegenTarget,
@@ -62,6 +66,27 @@ pub(crate) fn declare_symbol<'context>(
     }
 
     Ok(function)
+}
+
+pub(crate) fn declare_native_entry<'context>(
+    module: &Module<'context>,
+    mapping: &CodegenSymbolMapping,
+    target: &CodegenTarget,
+    defines_symbol: bool,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<Option<FunctionValue<'context>>, CodegenFailure> {
+    let Some(native_entry) = mapping.native_entry() else {
+        return Ok(None);
+    };
+
+    let entry_mapping = CodegenSymbolMapping::new(
+        mapping.key().clone(),
+        native_entry.name().clone(),
+        native_entry.linkage(),
+        mapping.signature().clone(),
+    );
+
+    declare_symbol(module, &entry_mapping, target, defines_symbol, types).map(Some)
 }
 
 pub(crate) fn apply_instance_optimization_attributes(
@@ -475,9 +500,9 @@ mod tests {
     use bray_codegen::test_support::codegen_request;
     use bray_codegen::{
         CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance,
-        CodegenIntegerExtension, CodegenLinkage, CodegenMappings, CodegenParameterMapping,
-        CodegenResultMapping, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
-        CodegenTypeMapping, CodegenValueAttribute, TargetAddressSpaceKind,
+        CodegenIntegerExtension, CodegenLinkage, CodegenMappings, CodegenNativeEntryMapping,
+        CodegenParameterMapping, CodegenResultMapping, CodegenSymbolMapping, CodegenTarget,
+        CodegenTypeKind, CodegenTypeMapping, CodegenValueAttribute, TargetAddressSpaceKind,
     };
     use bray_ir::{
         MirBlockKind, MirExecutableTemplateId, MirFrameDescriptor, MirFrameState, MirFrameStateId,
@@ -485,7 +510,7 @@ mod tests {
         MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
-        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+        BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
     };
     use bray_symbols::testing::{intern_type, source_function_key};
     use bray_symbols::{
@@ -499,8 +524,8 @@ mod tests {
     use inkwell::module::Linkage;
 
     use super::{
-        apply_instance_optimization_attributes, apply_linkage, declare_symbols,
-        is_static_trait_fulfillment,
+        apply_instance_optimization_attributes, apply_linkage, declare_native_entry,
+        declare_symbols, is_static_trait_fulfillment,
     };
     use crate::machine::LlvmTargetMachine;
     use crate::mapping::LlvmTypeMappings;
@@ -553,6 +578,56 @@ mod tests {
         );
 
         assert_eq!(reference.get_linkage(), Linkage::External);
+    }
+
+    #[test]
+    fn referenced_callbacks_declare_their_native_entry() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let mapping = &request.mappings().symbols()[0];
+
+        let entry = BinarySymbolName::try_new("native_callback")
+            .unwrap_or_else(|| panic!("callback symbol name must validate"));
+
+        let callback = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::LinkOnce,
+            mapping.signature().clone(),
+        )
+        .with_native_entry(CodegenNativeEntryMapping::new(
+            entry.clone(),
+            CodegenLinkage::Export,
+        ));
+
+        let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
+            panic!("test target must construct an LLVM machine");
+        };
+
+        let target_data = machine.target_data();
+        let context = Context::create();
+        let module = context.create_module("callback-reference");
+
+        let mut types = LlvmTypeMappings::new(
+            &context,
+            request.mappings(),
+            request.target(),
+            &target_data,
+        );
+
+        let declaration = declare_native_entry(
+            &module,
+            &callback,
+            request.target(),
+            false,
+            &mut types,
+        )
+        .unwrap_or_else(|error| panic!("callback entry must declare: {error:?}"))
+        .unwrap_or_else(|| panic!("callback entry must exist"));
+
+        assert_eq!(declaration.get_name().to_str(), Ok(entry.as_str()));
+        assert_eq!(declaration.get_linkage(), Linkage::External);
+        assert_eq!(declaration.count_basic_blocks(), 0);
     }
 
     #[test]

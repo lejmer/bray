@@ -3,6 +3,7 @@
 #![deny(unsafe_code)]
 
 #[cfg(any(
+    feature = "callback",
     feature = "host",
     feature = "scheduler",
     feature = "cancellation",
@@ -11,6 +12,8 @@
 ))]
 #[macro_use]
 mod export;
+#[cfg(feature = "callback")]
+mod callback;
 #[cfg(feature = "cancellation")]
 mod cancellation;
 #[cfg(feature = "event")]

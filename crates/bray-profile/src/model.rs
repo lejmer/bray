@@ -446,6 +446,12 @@ pub struct CompilationProfileReport {
     /// Exact runtime artifacts selected for the product link.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_artifacts: Vec<CompilationProfileRuntimeArtifact>,
+    /// Exact private runtime ABI roles selected for the product.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_roles: Vec<String>,
+    /// Native callback entry symbols that require foreign thread entry and panic isolation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_callback_entries: Vec<String>,
     /// Detailed events retained in trace mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<CompilationProfileEvent>,
