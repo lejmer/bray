@@ -1,0 +1,360 @@
+trusted internal module std.runtime.text;
+
+using internal std.runtime.memory;
+
+internal struct OwnedText
+{
+    data: RawPointer<u8>;
+    length: usize;
+    owner: RawPointer<u8>;
+}
+
+internal struct ValidatedText
+{
+    valid: bool;
+    text: OwnedText;
+}
+
+trusted internal func scalar_count(pos data: RawPointer<u8>, pos length: usize) -> usize
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let mut offset: usize = 0;
+    let mut count: usize = 0;
+
+    while offset < length
+    {
+        let width: usize = trusted scalar_width(data, length = length, offset = offset);
+
+        assert(width != 0, "string storage must contain valid UTF-8");
+
+        offset += width;
+        count += 1;
+    }
+
+    return count;
+}
+
+trusted internal func equals(
+    pos left_data: RawPointer<u8>,
+    pos left_length: usize,
+    pos right_data: RawPointer<u8>,
+    pos right_length: usize,
+) -> bool
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = left_data, count = left_length),
+        trusted core.memory.valid_read<u8>(pointer = right_data, count = right_length),
+    )
+{
+    if left_length != right_length
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < left_length
+    {
+        if trusted byte(left_data, length = left_length, index = index) != trusted byte(
+            right_data,
+            length = right_length,
+            index = index
+        )
+        {
+            return false;
+        }
+
+        index += 1;
+    }
+
+    return true;
+}
+
+trusted internal func scalar_at(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u32?
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let mut offset: usize = 0;
+    let mut scalar_index: usize = 0;
+
+    while offset < length
+    {
+        let width: usize = trusted scalar_width(data, length = length, offset = offset);
+
+        assert(width != 0, "string storage must contain valid UTF-8");
+
+        if scalar_index == index
+        {
+            let scalar: u32 = trusted decode_scalar(data, length = length, offset = offset, width = width);
+            let mut result: u32? = none;
+
+            result = scalar;
+
+            return result;
+        }
+
+        offset += width;
+        scalar_index += 1;
+    }
+
+    return none;
+}
+
+trusted internal func scalar_slice(
+    pos data: RawPointer<u8>,
+    pos length: usize,
+    pos start: usize,
+    pos end: usize,
+) -> OwnedText
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    assert(start <= end, "string scalar slice start must not exceed its end");
+
+    let start_offset: usize? = trusted scalar_offset(data, length = length, index = start);
+    let end_offset: usize? = trusted scalar_offset(data, length = length, index = end);
+
+    match(start_offset, end_offset)
+    {
+        case(?start_byte, ?end_byte)
+        {
+            return trusted copy_text(
+                std.memory.offset<u8>(data, elements = std.truncate_to<isize>(start_byte)),
+                length = end_byte - start_byte,
+            );
+        }
+        case _ { assert(false, "string scalar slice bounds must identify existing scalar boundaries"); }
+    }
+}
+
+trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> ValidatedText
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    if !trusted valid_utf8(data, length = length)
+    {
+        return
+        {
+            valid = false,
+            text = trusted empty_text(),
+        };
+    }
+
+    return
+    {
+        valid = true,
+        text = trusted copy_text(data, length = length),
+    };
+}
+
+trusted internal func valid_utf8(pos data: RawPointer<u8>, pos length: usize) -> bool
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let mut offset: usize = 0;
+
+    while offset < length
+    {
+        let width: usize = trusted scalar_width(data, length = length, offset = offset);
+
+        if width == 0
+        {
+            return false;
+        }
+
+        offset += width;
+    }
+
+    return true;
+}
+
+trusted internal func scalar_offset(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> usize?
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let mut offset: usize = 0;
+    let mut scalar_index: usize = 0;
+
+    while offset < length && scalar_index < index
+    {
+        let width: usize = trusted scalar_width(data, length = length, offset = offset);
+
+        assert(width != 0, "string storage must contain valid UTF-8");
+
+        offset += width;
+        scalar_index += 1;
+    }
+
+    if scalar_index == index
+    {
+        let mut result: usize? = none;
+
+        result = offset;
+
+        return result;
+    }
+
+    return none;
+}
+
+trusted internal func scalar_width(pos data: RawPointer<u8>, pos length: usize, pos offset: usize) -> usize
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    if offset >= length
+    {
+        return 0;
+    }
+
+    let first: u8 = trusted byte(data, length = length, index = offset);
+
+    if first <= 0x7f
+    {
+        return 1;
+    }
+
+    if first >= 0xc2 && first <= 0xdf
+    {
+        if offset + 1 < length && trusted continuation(data, length = length, index = offset + 1)
+        {
+            return 2;
+        }
+
+        return 0;
+    }
+
+    if first >= 0xe0 && first <= 0xef
+    {
+        if offset + 2 >= length
+        {
+            return 0;
+        }
+
+        let second: u8 = trusted byte(data, length = length, index = offset + 1);
+
+        if !continuation_value(second) || !trusted continuation(data, length = length, index = offset + 2)
+        {
+            return 0;
+        }
+
+        if first == 0xe0 && second < 0xa0 || first == 0xed && second > 0x9f
+        {
+            return 0;
+        }
+
+        return 3;
+    }
+
+    if first >= 0xf0 && first <= 0xf4
+    {
+        if offset + 3 >= length
+        {
+            return 0;
+        }
+
+        let second: u8 = trusted byte(data, length = length, index = offset + 1);
+
+        if !continuation_value(second) || !trusted continuation(data, length = length, index = offset + 2) ||
+            !trusted continuation(data, length = length, index = offset + 3)
+        {
+            return 0;
+        }
+
+        if first == 0xf0 && second < 0x90 || first == 0xf4 && second > 0x8f
+        {
+            return 0;
+        }
+
+        return 4;
+    }
+
+    return 0;
+}
+
+trusted internal func decode_scalar(
+    pos data: RawPointer<u8>,
+    pos length: usize,
+    pos offset: usize,
+    pos width: usize,
+) -> u32
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let first: u32 = trusted byte(data, length = length, index = offset) as u32;
+
+    match width
+    {
+        case 1 { return first; }
+        case 2 { return(first & 0x1f) << 6 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f); }
+        case 3
+        {
+            return(first & 0x0f) << 12 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 6 |
+                (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f);
+        }
+        case 4
+        {
+            return(first & 0x07) << 18 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 12 |
+                (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f) << 6 | (trusted byte(
+                data,
+                length = length,
+                index = offset + 3
+            ) as u32 & 0x3f);
+        }
+        case _ { assert(false, "UTF-8 scalar width must be between one and four bytes"); }
+    }
+}
+
+trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> OwnedText
+    requires(trusted core.memory.valid_read<u8>(pointer = data, count = length))
+{
+    let header_bytes: usize = std.memory.size_of<usize>();
+    let maximum_bytes: usize = ~0;
+
+    assert(header_bytes <= maximum_bytes - length, "string allocation exceeds the target address range");
+
+    let allocation_bytes: usize = header_bytes + length;
+
+    let owner: RawPointer<u8> = trusted internal std.runtime.memory.allocate(
+        allocation_bytes,
+        align = std.memory.align_of<usize>(),
+    );
+
+    let reference_count: RawPointer<usize> = trusted std.memory.reinterpret<usize, u8>(owner);
+
+    trusted std.memory.write<usize>(reference_count, value = 1);
+
+    let destination: RawPointer<u8> = std.memory.offset<u8>(owner, elements = std.truncate_to<isize>(header_bytes));
+
+    if length != 0
+    {
+        trusted internal std.memory.byte_buffer_copy(data, destination = destination, count = length);
+    }
+
+    return
+    {
+        data = destination,
+        length = length,
+        owner = owner,
+    };
+}
+
+trusted internal func empty_text() -> OwnedText
+{
+    let empty: RawPointer<u8> = std.memory.null<u8>();
+
+    return
+    {
+        data = empty,
+        length = 0,
+        owner = empty,
+    };
+}
+
+trusted internal func byte(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u8
+    requires(index < length)
+{
+    return trusted internal std.memory.byte_buffer_read(data, index = index);
+}
+
+trusted internal func continuation(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> bool
+    requires(index < length)
+{
+    return continuation_value(trusted internal byte(data, length = length, index = index));
+}
+
+internal func continuation_value(pos value: u8) -> bool
+{
+    return value >= 0x80 && value <= 0xbf;
+}

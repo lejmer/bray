@@ -63,12 +63,6 @@ pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown";
 /// Stable symbol allocating runtime-owned task storage.
 pub const TASK_ALLOCATION_SYMBOL: &str = "bray_runtime_task_allocation";
 
-/// Stable symbol allocating manually managed Bray storage.
-pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation";
-
-/// Stable symbol releasing manually managed Bray storage.
-pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation";
-
 /// Stable symbol observing one successful generated memory allocation.
 pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_allocation_observation";
 
@@ -285,45 +279,6 @@ pub const PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL: &str = "bray_platform_dynamic_
 
 /// Stable symbol closing one owned dynamic library.
 pub const PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL: &str = "bray_platform_dynamic_library_close";
-
-/// Stable symbol counting Unicode scalar values in UTF-8 text.
-pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count";
-
-/// Stable symbol comparing UTF-8 text values for equality.
-pub const STRING_EQUALS_SYMBOL: &str = "bray_runtime_string_equals";
-
-/// Stable symbol selecting one Unicode scalar by scalar index.
-pub const STRING_SCALAR_AT_SYMBOL: &str = "bray_runtime_string_scalar_at";
-
-/// Stable symbol copying one scalar range into owned UTF-8 text.
-pub const STRING_SCALAR_SLICE_SYMBOL: &str = "bray_runtime_string_scalar_slice";
-
-/// Stable symbol validating and copying borrowed UTF-8 bytes.
-pub const STRING_FROM_UTF8_SYMBOL: &str = "bray_runtime_string_from_utf8";
-
-/// Stable symbol returning a character's Unicode scalar value.
-pub const CHARACTER_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_scalar_value";
-
-/// Stable symbol constructing a character from a Unicode scalar value.
-pub const CHARACTER_FROM_SCALAR_VALUE_SYMBOL: &str = "bray_runtime_character_from_scalar_value";
-
-/// Stable symbol returning a character's UTF-8 encoded length.
-pub const CHARACTER_UTF8_LENGTH_SYMBOL: &str = "bray_runtime_character_utf8_length";
-
-/// Stable symbol returning one byte from a character's UTF-8 encoding.
-pub const CHARACTER_UTF8_BYTE_SYMBOL: &str = "bray_runtime_character_utf8_byte";
-
-/// Stable symbol testing whether a character is alphabetic.
-pub const CHARACTER_IS_ALPHABETIC_SYMBOL: &str = "bray_runtime_character_is_alphabetic";
-
-/// Stable symbol testing whether a character is numeric.
-pub const CHARACTER_IS_NUMERIC_SYMBOL: &str = "bray_runtime_character_is_numeric";
-
-/// Stable symbol testing whether a character is whitespace.
-pub const CHARACTER_IS_WHITESPACE_SYMBOL: &str = "bray_runtime_character_is_whitespace";
-
-/// Unicode data version required by the character-classification runtime ABI.
-pub const CHARACTER_UNICODE_DATA_VERSION: (u8, u8, u8) = (17, 0, 0);
 
 /// Stable symbol publishing an allocated task for execution.
 pub const TASK_START_SYMBOL: &str = "bray_runtime_task_start";

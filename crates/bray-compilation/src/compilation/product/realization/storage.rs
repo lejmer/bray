@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget};
-use bray_runtime_interface::{ExecutableEntryResult, ExecutionLaneRequirement};
+use bray_runtime_interface::ExecutionLaneRequirement;
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::{CodegenPreparationError, Compilation};
@@ -31,10 +31,13 @@ impl Compilation {
                 continue;
             }
 
-            let instance = reachability
-                .graph()
-                .instance(&key)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let Some(instance) = reachability.graph().instance(&key) else {
+                if reachability.graph().is_external(&key) {
+                    continue;
+                }
+
+                return Err(FactQueryError::InfrastructureFailure.into());
+            };
 
             if instance.mir().frame_descriptor().is_some_and(|frame| {
                 frame.states().iter().any(|state| {
@@ -84,10 +87,13 @@ impl Compilation {
                 continue;
             }
 
-            let instance = reachability
-                .graph()
-                .instance(&key)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let Some(instance) = reachability.graph().instance(&key) else {
+                if reachability.graph().is_external(&key) {
+                    continue;
+                }
+
+                return Err(FactQueryError::InfrastructureFailure.into());
+            };
 
             let owner = reachability
                 .instance(&key)
@@ -217,12 +223,6 @@ impl Compilation {
                 static_instance.reference.clone(),
                 static_instance.ty,
                 dependencies.remove(&key).unwrap_or_default(),
-                static_instance
-                    .finalization
-                    .as_ref()
-                    .is_some_and(|finalization| {
-                        matches!(finalization.result, ExecutableEntryResult::Fallible { .. })
-                    }),
                 self.static_cleanup_requires_main_thread(static_instance, reachability)?,
             ));
 
@@ -254,7 +254,6 @@ pub(in crate::compilation::product) struct ProductStaticHostEntry {
     reference: StaticReferenceSelection,
     ty: TypeId,
     dependencies: Vec<CodegenStaticInstanceKey>,
-    transfers_cleanup_incident: bool,
     requires_main_thread_cleanup: bool,
 }
 
@@ -264,7 +263,6 @@ impl ProductStaticHostEntry {
         reference: StaticReferenceSelection,
         ty: TypeId,
         dependencies: Vec<CodegenStaticInstanceKey>,
-        transfers_cleanup_incident: bool,
         requires_main_thread_cleanup: bool,
     ) -> Self {
         Self {
@@ -272,7 +270,6 @@ impl ProductStaticHostEntry {
             reference,
             ty,
             dependencies,
-            transfers_cleanup_incident,
             requires_main_thread_cleanup,
         }
     }
@@ -283,10 +280,6 @@ impl ProductStaticHostEntry {
 
     pub(in crate::compilation::product) fn dependencies(&self) -> &[CodegenStaticInstanceKey] {
         &self.dependencies
-    }
-
-    pub(in crate::compilation::product) const fn transfers_cleanup_incident(&self) -> bool {
-        self.transfers_cleanup_incident
     }
 
     pub(in crate::compilation::product) const fn requires_main_thread_cleanup(&self) -> bool {

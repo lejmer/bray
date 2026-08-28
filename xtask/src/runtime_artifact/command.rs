@@ -35,10 +35,8 @@ const SCHEDULER_CAPABILITIES: [RuntimeCapability; 6] = [
     RuntimeCapability::ComputeLanes,
     RuntimeCapability::MainThreadLane,
 ];
-const SUPPORTED_CAPABILITIES: [RuntimeCapability; 10] = [
-    RuntimeCapability::MemoryOperations,
-    RuntimeCapability::StringOperations,
-    RuntimeCapability::CharacterOperations,
+const SUPPORTED_CAPABILITIES: [RuntimeCapability; 8] = [
+    RuntimeCapability::PerformanceObservation,
     RuntimeCapability::CooperativeExecution,
     RuntimeCapability::LocalLanes,
     RuntimeCapability::MigratableLanes,
@@ -85,12 +83,7 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
 
     let output = options.native.target_output(target);
 
-    build(
-        target,
-        &output,
-        &options.profile,
-        MemoryObservation::Disabled,
-    )
+    build(target, &output, &options.profile)
 }
 
 fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
@@ -107,7 +100,7 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let output = directory.path().join(target.as_str());
 
-    let package = build(target, &output, "release", MemoryObservation::Disabled)?;
+    let package = build(target, &output, "release")?;
 
     crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())
@@ -121,16 +114,7 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
 }
 
 pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
-    build(target, output, "release", MemoryObservation::Disabled)
-        .map(|package| package.metadata)
-        .map_err(|error| error.to_string())
-}
-
-pub(crate) fn build_for_performance_observation(
-    target: NativeTarget,
-    output: &Path,
-) -> Result<PathBuf, String> {
-    build(target, output, "release", MemoryObservation::Enabled)
+    build(target, output, "release")
         .map(|package| package.metadata)
         .map_err(|error| error.to_string())
 }
@@ -139,22 +123,16 @@ fn build(
     target: NativeTarget,
     output: &Path,
     profile: &str,
-    memory_observation: MemoryObservation,
 ) -> Result<Package, CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     let sources = crate::input_identity::WorkspaceSources::load(&root)
         .map_err(CommandError::InputIdentity)?;
 
-    let component = match memory_observation {
-        MemoryObservation::Disabled => crate::input_identity::Component::Runtime,
-        MemoryObservation::Enabled => crate::input_identity::Component::ObservationRuntime,
-    };
-
     let input = crate::input_identity::input_digest(
         &root,
         Some(target),
-        component,
+        crate::input_identity::Component::Runtime,
         &[profile],
         &[],
         &sources,
@@ -177,10 +155,7 @@ fn build(
     )
     .map_err(CommandError::InputIdentity)?
     {
-        crate::progress::message(match memory_observation {
-            MemoryObservation::Disabled => "Reusing native runtime artifacts",
-            MemoryObservation::Enabled => "Reusing performance observation runtime artifacts",
-        });
+        crate::progress::message("Reusing native runtime artifacts");
 
         return Ok(existing_package);
     }
@@ -188,7 +163,7 @@ fn build(
     let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
         .map_err(CommandError::Publication)?;
 
-    build_contents(target, publication.contents(), profile, memory_observation)?;
+    build_contents(target, publication.contents(), profile)?;
 
     crate::input_identity::write_digest(publication.contents(), &input)
         .map_err(CommandError::InputIdentity)?;
@@ -215,7 +190,6 @@ fn build_contents(
     target: NativeTarget,
     output: &Path,
     profile: &str,
-    memory_observation: MemoryObservation,
 ) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
@@ -237,27 +211,10 @@ fn build_contents(
         );
 
         let (crate_name, features, member_prefix) = match kind {
-            RuntimeArchiveKind::Memory => match memory_observation {
-                MemoryObservation::Disabled => (
-                    "bray-runtime-builtins",
-                    &["memory"][..],
-                    "bray_runtime_builtins-",
-                ),
-                MemoryObservation::Enabled => (
-                    "bray-runtime-builtins",
-                    &["memory", "performance-observation"][..],
-                    "bray_runtime_builtins-",
-                ),
-            },
-            RuntimeArchiveKind::String => (
-                "bray-runtime-builtins",
-                &["string"][..],
-                "bray_runtime_builtins-",
-            ),
-            RuntimeArchiveKind::Character => (
-                "bray-runtime-builtins",
-                &["character"][..],
-                "bray_runtime_builtins-",
+            RuntimeArchiveKind::Observation => (
+                "bray-runtime-observation",
+                &["performance-observation"][..],
+                "bray_runtime_observation-",
             ),
             RuntimeArchiveKind::Host => (
                 "bray-runtime-adapter",
@@ -356,7 +313,7 @@ fn audit_dependency_boundaries(root: &Path) -> Result<(), CommandError> {
 
     crate::dependency_audit::require_absent_normal_dependencies(
         root,
-        "bray-runtime-builtins",
+        "bray-runtime-observation",
         &[
             "blake3",
             "bray-base",
@@ -432,35 +389,17 @@ fn metadata(
 
         let common_identity = component_identity(target, purpose, "common")?;
 
-        for (kind, name, capability) in [
-            (
-                RuntimeArchiveKind::Memory,
-                "memory",
-                RuntimeCapability::MemoryOperations,
-            ),
-            (
-                RuntimeArchiveKind::String,
-                "string",
-                RuntimeCapability::StringOperations,
-            ),
-            (
-                RuntimeArchiveKind::Character,
-                "character",
-                RuntimeCapability::CharacterOperations,
-            ),
-        ] {
-            metadata_components.push(
-                component_metadata(
-                    target,
-                    purpose,
-                    component(components, kind)?,
-                    name,
-                    [],
-                    [capability],
-                )?
-                .with_dependencies([common_identity.clone()]),
-            );
-        }
+        metadata_components.push(
+            component_metadata(
+                target,
+                purpose,
+                component(components, RuntimeArchiveKind::Observation)?,
+                "observation",
+                [],
+                [RuntimeCapability::PerformanceObservation],
+            )?
+            .with_dependencies([common_identity.clone()]),
+        );
 
         let common = component_metadata(
             target,
@@ -734,9 +673,7 @@ struct BuiltComponent {
 pub(super) enum RuntimeArchiveKind {
     Common,
     TestCommon,
-    Memory,
-    String,
-    Character,
+    Observation,
     Host,
     Callback,
     Scheduler,
@@ -745,19 +682,11 @@ pub(super) enum RuntimeArchiveKind {
     TestHost,
 }
 
-#[derive(Clone, Copy)]
-enum MemoryObservation {
-    Disabled,
-    Enabled,
-}
-
 impl RuntimeArchiveKind {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 9] = [
         Self::Common,
         Self::TestCommon,
-        Self::Memory,
-        Self::String,
-        Self::Character,
+        Self::Observation,
         Self::Host,
         Self::Callback,
         Self::Scheduler,
@@ -766,10 +695,8 @@ impl RuntimeArchiveKind {
         Self::TestHost,
     ];
 
-    const OWNING: [Self; 9] = [
-        Self::Memory,
-        Self::String,
-        Self::Character,
+    const OWNING: [Self; 7] = [
+        Self::Observation,
         Self::Host,
         Self::Callback,
         Self::Scheduler,
@@ -782,9 +709,7 @@ impl RuntimeArchiveKind {
         match self {
             Self::Common => "bray_runtime_common",
             Self::TestCommon => "bray_runtime_test_common",
-            Self::Memory => "bray_runtime_memory",
-            Self::String => "bray_runtime_string",
-            Self::Character => "bray_runtime_character",
+            Self::Observation => "bray_runtime_observation",
             Self::Host => "bray_runtime_host",
             Self::Callback => "bray_runtime_callback",
             Self::Scheduler => "bray_runtime_scheduler",
@@ -1021,8 +946,11 @@ mod tests {
     #[test]
     fn archive_names_follow_native_target_conventions() {
         assert_eq!(
-            archive_file_name(NativeTarget::X86_64WindowsMsvc, RuntimeArchiveKind::Memory),
-            "bray_runtime_memory.lib"
+            archive_file_name(
+                NativeTarget::X86_64WindowsMsvc,
+                RuntimeArchiveKind::Observation
+            ),
+            "bray_runtime_observation.lib"
         );
 
         assert_eq!(
@@ -1044,8 +972,11 @@ mod tests {
         );
 
         assert_eq!(
-            archive_file_name(NativeTarget::Aarch64LinuxGnu, RuntimeArchiveKind::Character),
-            "libbray_runtime_character.a"
+            archive_file_name(
+                NativeTarget::Aarch64LinuxGnu,
+                RuntimeArchiveKind::Observation
+            ),
+            "libbray_runtime_observation.a"
         );
 
         assert_eq!(
@@ -1079,7 +1010,7 @@ mod tests {
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 14);
+            assert_eq!(first.components().len(), 10);
 
             let common = first
                 .components()
@@ -1087,13 +1018,13 @@ mod tests {
                 .find(|component| component.identity().as_str().ends_with("product.common"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain product support"));
 
-            let memory = first
+            let observation = first
                 .components()
                 .iter()
-                .find(|component| component.identity().as_str().ends_with("product.memory"))
-                .unwrap_or_else(|| panic!("runtime metadata must contain memory support"));
+                .find(|component| component.identity().as_str().ends_with("product.observation"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain observation support"));
 
-            assert_eq!(memory.dependencies(), [common.identity().clone()]);
+            assert_eq!(observation.dependencies(), [common.identity().clone()]);
 
             let callback = first
                 .components()

@@ -41,12 +41,7 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
         &installed.join("runtime").join(target.as_str()),
     )?;
 
-    progress::phase("Checking performance observation runtime");
-
-    let observation_runtime = crate::runtime_artifact::build_for_performance_observation(
-        target,
-        &cache.join("observation-runtime"),
-    )?;
+    let observation_runtime = runtime.clone();
 
     let source = root.join("standard-library");
     let installed_standard_library = installed.join("standard-library");

@@ -1,5 +1,19 @@
 module std.memory;
 
+internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal struct CleanupProbe
+{
+    internal digit: usize;
+
+    trusted destruct()
+    {
+        let current: usize = core.atomic.load<usize, 1>(&CLEANUP_ORDER);
+
+        core.atomic.store<usize, 4>(&CLEANUP_ORDER, current * 10 + self.digit);
+    }
+}
+
 trusted func main() -> Result<unit, MemoryLayoutError>
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
@@ -8,5 +22,88 @@ trusted func main() -> Result<unit, MemoryLayoutError>
     assert(initialized_count<u8>(&buffer) == 0);
     assert(capacity<u8>(&buffer) == 5);
 
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+    trusted destroy_probes();
+
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 321);
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let cleanup: Result<unit, PanicReport> = catch
+    {
+        let buffer_owner: RawBuffer<CleanupProbe> = trusted probe_buffer();
+        let panic_after_initialize: bool = true;
+
+        if panic_after_initialize
+        {
+            panic("raw buffer unwind probe panic");
+        }
+
+        yield unit;
+    };
+
+    let panicked: bool = match consume cleanup
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(panicked, "raw buffer unwind panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 321, "raw buffer unwind cleanup order is invalid");
+
     return Ok(unit);
+}
+
+trusted internal func destroy_probes() -> unit
+    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
+{
+    let buffer_owner: RawBuffer<CleanupProbe> = trusted probe_buffer();
+}
+
+trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
+    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
+{
+    let mut buffer: RawBuffer<CleanupProbe> = match trusted RawBuffer<CleanupProbe>(capacity = 3)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("raw buffer cleanup probe layout is unavailable"); }
+    };
+
+    let first: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
+
+    trusted write<CleanupProbe>(
+        first,
+        value = CleanupProbe
+        {
+            digit = 1,
+        },
+    );
+
+    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 1);
+
+    let second: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
+
+    trusted write<CleanupProbe>(
+        second,
+        value = CleanupProbe
+        {
+            digit = 2,
+        },
+    );
+
+    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 2);
+
+    let third: RawPointer<CleanupProbe> = trusted spare_pointer<CleanupProbe>(&mut buffer);
+
+    trusted write<CleanupProbe>(
+        third,
+        value = CleanupProbe
+        {
+            digit = 3,
+        },
+    );
+
+    trusted set_initialized_count<CleanupProbe>(&mut buffer, count = 3);
+
+    return buffer;
 }

@@ -19,3 +19,7 @@ extern const func align_of<T>() -> usize;
 extern const func stride_of<T>() -> usize;
 
 extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
+
+extern const func trailing_layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
+
+extern func is_null<T>(pos pointer: RawPointer<T>) -> bool;

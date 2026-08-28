@@ -364,12 +364,8 @@ impl From<CliBackend> for DriverBackend {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliRuntimeCapability {
-    #[value(help = help::CAPABILITY_MEMORY)]
-    MemoryOperations,
-    #[value(help = help::CAPABILITY_STRING)]
-    StringOperations,
-    #[value(help = help::CAPABILITY_CHARACTER)]
-    CharacterOperations,
+    #[value(help = help::CAPABILITY_PERFORMANCE_OBSERVATION)]
+    PerformanceObservation,
     #[value(help = help::CAPABILITY_COOPERATIVE)]
     CooperativeExecution,
     #[value(help = help::CAPABILITY_LOCAL_LANES)]
@@ -389,9 +385,7 @@ enum CliRuntimeCapability {
 impl From<CliRuntimeCapability> for RuntimeCapability {
     fn from(capability: CliRuntimeCapability) -> Self {
         match capability {
-            CliRuntimeCapability::MemoryOperations => Self::MemoryOperations,
-            CliRuntimeCapability::StringOperations => Self::StringOperations,
-            CliRuntimeCapability::CharacterOperations => Self::CharacterOperations,
+            CliRuntimeCapability::PerformanceObservation => Self::PerformanceObservation,
             CliRuntimeCapability::CooperativeExecution => Self::CooperativeExecution,
             CliRuntimeCapability::LocalLanes => Self::LocalLanes,
             CliRuntimeCapability::MigratableLanes => Self::MigratableLanes,

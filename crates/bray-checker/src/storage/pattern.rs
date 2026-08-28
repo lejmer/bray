@@ -64,14 +64,27 @@ where
             None => parent_access,
         };
 
-        if pattern.kind() == BoundPatternKind::Discard
-            && checked.operation() == PatternOperation::Consume
-        {
-            self.bind_owned_pattern_storage(
-                StorageBindingTarget::PatternDiscard(id),
-                id,
-                checked.input_type(),
-                checked.is_recovered(),
+        if pattern.kind() == BoundPatternKind::Discard {
+            let transfers_borrow = checked.operation() == PatternOperation::Consume
+                && self.type_is_borrow(checked.input_type())?;
+
+            if checked.operation() == PatternOperation::Consume {
+                self.bind_owned_pattern_storage(
+                    StorageBindingTarget::PatternDiscard(id),
+                    id,
+                    checked.input_type(),
+                    checked.is_recovered(),
+                )?;
+            }
+
+            self.record_purpose(
+                subject_expression,
+                Some(pattern_operation_purpose(
+                    pattern.mode(),
+                    checked.operation(),
+                    transfers_borrow,
+                )),
+                access,
             )?;
         }
 
@@ -192,29 +205,14 @@ where
             }
         }
 
-        let purpose = match checked.operation() {
-            PatternOperation::Consume if transfers_borrow => StorageAccessPurpose::Read,
-            PatternOperation::Consume => {
-                match self.request.view().pattern(pattern).map(BoundPattern::mode) {
-                    Some(BoundPatternMode::MatchConsume) => StorageAccessPurpose::Move,
-                    Some(
-                        BoundPatternMode::Declaration
-                        | BoundPatternMode::Assignment
-                        | BoundPatternMode::MatchObserve,
-                    )
-                    | None => StorageAccessPurpose::ValueTransfer,
-                }
-            }
-            PatternOperation::Copy => StorageAccessPurpose::Copy,
-            PatternOperation::Observe => StorageAccessPurpose::Read,
-            PatternOperation::SharedBorrow => {
-                StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Shared)
-            }
-            PatternOperation::MutableBorrow => {
-                StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
-            }
-            PatternOperation::Recovered => StorageAccessPurpose::Projection,
-        };
+        let mode = self
+            .request
+            .view()
+            .pattern(pattern)
+            .map(BoundPattern::mode)
+            .ok_or_else(|| invalid_node(pattern))?;
+
+        let purpose = pattern_operation_purpose(mode, checked.operation(), transfers_borrow);
 
         self.record_purpose(subject_expression, Some(purpose), access)
     }
@@ -460,5 +458,28 @@ where
         self.builder_mut()?
             .push_access(access)
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+    }
+}
+
+const fn pattern_operation_purpose(
+    mode: BoundPatternMode,
+    operation: PatternOperation,
+    transfers_borrow: bool,
+) -> StorageAccessPurpose {
+    match operation {
+        PatternOperation::Consume if transfers_borrow => StorageAccessPurpose::Read,
+        PatternOperation::Consume if matches!(mode, BoundPatternMode::MatchConsume) => {
+            StorageAccessPurpose::Move
+        }
+        PatternOperation::Consume => StorageAccessPurpose::ValueTransfer,
+        PatternOperation::Copy => StorageAccessPurpose::Copy,
+        PatternOperation::Observe => StorageAccessPurpose::Read,
+        PatternOperation::SharedBorrow => {
+            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Shared)
+        }
+        PatternOperation::MutableBorrow => {
+            StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
+        }
+        PatternOperation::Recovered => StorageAccessPurpose::Projection,
     }
 }

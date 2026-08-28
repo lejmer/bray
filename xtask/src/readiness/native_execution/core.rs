@@ -28,7 +28,8 @@ const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bra
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
 const ATOMIC_FIXTURE: &str = "xtask/fixtures/native-execution/atomic-operations.bray";
 const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layout.bray";
-const STANDARD_MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/standard-memory.bray";
+pub(super) const STANDARD_MEMORY_FIXTURE: &str =
+    "xtask/fixtures/native-execution/standard-memory.bray";
 const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
 const TEXT_CURSOR_FIXTURE: &str = "xtask/fixtures/native-execution/standard-text-cursor.bray";
 pub(super) const PRODUCT_NAME: &str = "application";
@@ -120,6 +121,15 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     crate::native_toolchain::build_compiler(root)?;
 
+    crate::progress::run("Preparing native readiness standard library", || {
+        crate::standard_library::build_target_bundle(
+            &root.join("standard-library"),
+            &standard_library_root(root),
+            target,
+        )
+        .map(|_| ())
+    })?;
+
     crate::progress::run("Checking native memory rejection", || {
         audit_memory_rejection(root, target)
     })?;
@@ -201,11 +211,8 @@ fn audit_memory_operations(
         "bray-native-memory-",
         MEMORY_FIXTURE,
         42,
-        "compiler-provided memory operations",
-        &[
-            bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
-            bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
-        ],
+        "Bray-provided memory operations",
+        &[],
     )
 }
 
@@ -542,6 +549,10 @@ pub(super) fn build_fixtures(
 
     command.arg(output);
 
+    command
+        .arg("--standard-library-root")
+        .arg(standard_library_root(root));
+
     if let Some(package) = package {
         command.args(["--package", package]);
     }
@@ -553,6 +564,14 @@ pub(super) fn build_fixtures(
     let operation = format!("building native execution fixtures {fixtures:?}");
 
     crate::command::require_success(command, &operation).map(|_| ())
+}
+
+pub(super) fn standard_library_root(root: &Path) -> PathBuf {
+    crate::workspace::cargo_target(root)
+        .join("release")
+        .join("lib")
+        .join("bray")
+        .join("standard-library")
 }
 
 fn compile_host(root: &Path, output: &Path) -> Result<(), String> {

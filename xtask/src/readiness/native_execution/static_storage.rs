@@ -6,7 +6,7 @@ use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 use super::core::{
     PRODUCT_NAME, inspect_objects, llvm_tool, object_files, reject_evidence,
-    require_equal_artifacts, require_evidence,
+    require_equal_artifacts, require_evidence, standard_library_root,
 };
 use super::repeatable::{RepeatableFixtureAudit, audit_repeatable_fixtures};
 
@@ -166,6 +166,11 @@ fn build_library(
 
     command.arg(runtime).args(["--output"]);
     command.arg(output);
+
+    command
+        .arg("--standard-library-root")
+        .arg(standard_library_root(root));
+
     command.arg(root.join(STATIC_STORAGE_FIXTURE));
     command.arg(root.join(STATIC_STORAGE_CONTRIBUTION));
 

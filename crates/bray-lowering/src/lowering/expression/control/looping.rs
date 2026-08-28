@@ -1,6 +1,5 @@
 use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
 use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirOperand, MirTerminatorKind};
-use bray_symbols::ConstantValueKind;
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -98,17 +97,7 @@ impl Lowerer<'_> {
     }
 
     fn condition_is_always_true(&self, condition: &MirOperand) -> Result<bool, LoweringError> {
-        let MirOperand::Constant { value, .. } = condition else {
-            return Ok(false);
-        };
-
-        let data = self
-            .input
-            .semantic_values()
-            .constant_value_data(*value)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
-
-        Ok(matches!(data.kind(), ConstantValueKind::Boolean(true)))
+        Ok(self.constant_boolean(condition)? == Some(true))
     }
 
     pub(super) fn lower_loop(

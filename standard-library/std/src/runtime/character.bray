@@ -1,0 +1,89 @@
+trusted internal module std.runtime.character;
+
+trusted internal func scalar_value(pos value: u32) -> u32
+{
+    return value;
+}
+
+trusted internal func from_scalar_value(pos value: u32) -> u32?
+{
+    if value > 0x10ffff || value >= 0xd800 && value <= 0xdfff
+    {
+        return none;
+    }
+
+    let mut result: u32? = none;
+
+    result = value;
+
+    return result;
+}
+
+trusted internal func utf8_length(pos value: u32) -> usize
+{
+    assert(trusted is_scalar(value), "character storage must contain a Unicode scalar value");
+
+    if value <= 0x7f
+    {
+        return 1;
+    }
+
+    if value <= 0x7ff
+    {
+        return 2;
+    }
+
+    if value <= 0xffff
+    {
+        return 3;
+    }
+
+    return 4;
+}
+
+trusted internal func utf8_byte(pos value: u32, pos index: usize) -> u8
+{
+    let length: usize = trusted utf8_length(value);
+
+    assert(index < length, "character UTF-8 byte index must be within its encoding");
+
+    if length == 1
+    {
+        return std.truncate_to<u8>(value);
+    }
+
+    if index == 0
+    {
+        match length
+        {
+            case 2 { return std.truncate_to<u8>(0xc0 | value >> 6); }
+            case 3 { return std.truncate_to<u8>(0xe0 | value >> 12); }
+            case 4 { return std.truncate_to<u8>(0xf0 | value >> 18); }
+            case _ { assert(false, "character UTF-8 length must be between one and four bytes"); }
+        }
+    }
+
+    let shift: u32 = std.truncate_to<u32>((length - index - 1) * 6);
+
+    return std.truncate_to<u8>(0x80 | value >> shift & 0x3f);
+}
+
+trusted internal func is_alphabetic(pos value: u32) -> bool
+{
+    return trusted alphabetic(value);
+}
+
+trusted internal func is_numeric(pos value: u32) -> bool
+{
+    return trusted numeric(value);
+}
+
+trusted internal func is_whitespace(pos value: u32) -> bool
+{
+    return trusted whitespace(value);
+}
+
+trusted internal func is_scalar(pos value: u32) -> bool
+{
+    return value <= 0x10ffff && (value < 0xd800 || value > 0xdfff);
+}

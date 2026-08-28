@@ -699,3 +699,30 @@ scope StandardMemory at std.memory {
         }
     }
 }
+
+scope StandardRuntimeMemory at std.runtime.memory {
+    declaration StandardRuntimeMemoryAllocate {
+        identity name allocate;
+        availability Allocation;
+
+        surface {
+            trusted func allocate(
+                pos bytes: usize,
+                pos align: usize,
+            ) -> RawPointer<u8>;
+        }
+    }
+
+    declaration StandardRuntimeMemoryDeallocate {
+        identity name deallocate;
+        availability Allocation;
+
+        surface {
+            trusted func deallocate(
+                pos pointer: RawPointer<u8>,
+                pos bytes: usize,
+                pos align: usize,
+            ) -> unit;
+        }
+    }
+}

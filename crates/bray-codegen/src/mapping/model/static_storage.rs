@@ -73,14 +73,20 @@ pub(super) fn validate_static_storage_mappings(
                     || finalization
                         .incident_cleanup()
                         .is_some_and(|cleanup| !instances.contains(cleanup))
+                    || finalization.incident_memory().is_some_and(|memory| {
+                        !instances.contains(memory.allocation())
+                            || !instances.contains(memory.deallocation())
+                    })
                     || match finalization.result() {
                         bray_runtime_interface::ExecutableEntryResult::Fallible { .. } => {
                             finalization.error_type_identity().is_none()
                                 || finalization.incident_cleanup().is_none()
+                                || finalization.incident_memory().is_none()
                         }
                         bray_runtime_interface::ExecutableEntryResult::Unit => {
                             finalization.error_type_identity().is_some()
                                 || finalization.incident_cleanup().is_some()
+                                || finalization.incident_memory().is_some()
                         }
                         bray_runtime_interface::ExecutableEntryResult::I32 => true,
                     }

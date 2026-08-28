@@ -46,6 +46,22 @@ pub(crate) fn assemble(
     install_runtime(runtime, target, &library_root)
 }
 
+pub(crate) fn assemble_from_bundles(
+    target: NativeTarget,
+    runtime: &Path,
+    standard_library: &Path,
+    toolchain: &Path,
+) -> Result<(), String> {
+    let library_root = toolchain.join("lib").join("bray");
+
+    copy_directory(
+        standard_library,
+        &library_root.join("standard-library"),
+    )?;
+
+    install_runtime(runtime, target, &library_root)
+}
+
 fn build_standard_library(root: &Path, target: NativeTarget, output: &Path) -> Result<(), String> {
     crate::standard_library::build_target_bundle(&root.join("standard-library"), output, target)
         .map(|_| ())
@@ -101,6 +117,42 @@ pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), String>
             destination.display()
         )
     })
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| {
+        format!(
+            "could not create toolchain directory {}: {error}",
+            destination.display()
+        )
+    })?;
+
+    let entries = fs::read_dir(source).map_err(|error| {
+        format!(
+            "could not read toolchain directory {}: {error}",
+            source.display()
+        )
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "could not read an entry from toolchain directory {}: {error}",
+                source.display()
+            )
+        })?;
+
+        let source = entry.path();
+        let destination = destination.join(entry.file_name());
+
+        if source.is_dir() {
+            copy_directory(&source, &destination)?;
+        } else {
+            copy_file(&source, &destination)?;
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn executable_name(name: &str) -> std::ffi::OsString {

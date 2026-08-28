@@ -31,6 +31,7 @@ mod snapshot;
 mod source_graph;
 mod source_module;
 mod state;
+mod standard_library;
 mod substitution;
 mod symbol_surface;
 mod testing;

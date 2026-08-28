@@ -13,6 +13,12 @@ trusted func main() -> i32
 
     trusted core.memory.deallocate(pointer = released, bytes = 16, align = 4);
 
+    let empty: RawPointer<u8> = trusted core.memory.allocate(bytes = 0, align = 64);
+    let empty_address: usize = trusted core.target.expose_address<u8>(empty);
+    let empty_ok: bool = !core.memory.is_null<u8>(empty) && empty_address % 64 == 0;
+
+    trusted core.memory.deallocate(pointer = empty, bytes = 0, align = 64);
+
     let pointer: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
     let next: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 1);
     let destination: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 4);
@@ -83,8 +89,8 @@ trusted func main() -> i32
     let null_ok = core.memory.is_null<u8>(null);
     let target_feature_known = target_feature || !target_feature;
 
-    let valid = released_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly.0 == 42 &&
-        branching.0 == 42;
+    let valid = released_ok && empty_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly.0 ==
+        42 && branching.0 == 42;
 
     if valid
     {

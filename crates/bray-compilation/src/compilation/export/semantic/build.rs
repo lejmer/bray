@@ -510,30 +510,20 @@ fn export_executable_template_family(
             .and_then(bray_lowering::LoweredUnit::mir)
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
 
-        let capabilities = crate::compilation::product::demanded_runtime_capabilities(mir);
-
-        if !capabilities.is_empty() || mir.frame_descriptor().is_some() {
-            let frame = mir.frame_descriptor();
-
+        if let Some(frame) = mir.frame_descriptor() {
             let requirements = bray_runtime_interface::RuntimeRequirements::new(
                 None,
-                frame.map_or(
-                    selected_target.runtime_abi(),
-                    bray_ir::MirFrameDescriptor::abi_version,
-                ),
-                frame.map(bray_ir::MirFrameDescriptor::frame_abi),
+                frame.abi_version(),
+                Some(frame.frame_abi()),
                 codegen_target.identity().clone(),
                 codegen_target.panic_abi().clone(),
                 [],
-                capabilities,
+                [],
                 [],
             );
 
             family_requirements.push(requirements);
-
-            if let Some(frame) = frame {
-                frames.insert(frame.frame());
-            }
+            frames.insert(frame.frame());
         }
 
         let mut context = ExecutableTemplateExporter::new(export, &identities);

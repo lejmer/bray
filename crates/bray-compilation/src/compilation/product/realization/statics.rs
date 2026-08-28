@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticFinalization,
-    CodegenStaticInstanceKey, CodegenStaticRelocation, CodegenStaticStorageMapping,
-    CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping, CodegenUnit,
+    CodegenStaticIncidentMemory, CodegenStaticInstanceKey, CodegenStaticRelocation,
+    CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping,
+    CodegenUnit,
     demanded_callable_instances_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
@@ -43,6 +44,12 @@ pub(super) struct ConcreteStaticFinalization {
     error_type_identity: Option<[u8; 32]>,
     source: Option<bray_ir::MirSourceAnchor>,
     incident_cleanup: Option<ConcreteCodegenInstance>,
+    incident_memory: Option<ConcreteStaticIncidentMemory>,
+}
+
+struct ConcreteStaticIncidentMemory {
+    allocation: ConcreteCodegenInstance,
+    deallocation: ConcreteCodegenInstance,
 }
 
 impl Compilation {
@@ -175,6 +182,10 @@ impl Compilation {
 
                 if let Some(cleanup) = finalization.incident_cleanup {
                     dependencies.push(cleanup);
+                }
+
+                if let Some(memory) = finalization.incident_memory {
+                    dependencies.extend([memory.allocation, memory.deallocation]);
                 }
             }
 
@@ -392,6 +403,12 @@ impl Compilation {
                             finalization
                                 .incident_cleanup
                                 .map(|cleanup| cleanup.key().clone()),
+                            finalization.incident_memory.map(|memory| {
+                                CodegenStaticIncidentMemory::new(
+                                    memory.allocation.key().clone(),
+                                    memory.deallocation.key().clone(),
+                                )
+                            }),
                         )
                     }),
                     realization.destroy.map(|destroy| destroy.key().clone()),
@@ -520,17 +537,32 @@ impl Compilation {
                 },
             )?;
 
-            let incident_cleanup = match result {
+            let (incident_cleanup, incident_memory) = match result {
                 ExecutableEntryResult::Fallible { error, .. } => {
-                    Some(self.concrete_codegen_lifecycle(
+                    let cleanup = self.concrete_codegen_lifecycle(
                         bray_ir::MirHelperReference::Cleanup {
                             phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                             ty: error,
                         },
                         target,
-                    )?)
+                    )?;
+
+                    let memory = ConcreteStaticIncidentMemory {
+                        allocation: self.concrete_standard_library_helper(
+                            bray_ir::MirStandardLibraryHelper::MemoryAllocate,
+                            target,
+                            cancellation,
+                        )?,
+                        deallocation: self.concrete_standard_library_helper(
+                            bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
+                            target,
+                            cancellation,
+                        )?,
+                    };
+
+                    (Some(cleanup), Some(memory))
                 }
-                ExecutableEntryResult::Unit => None,
+                ExecutableEntryResult::Unit => (None, None),
                 ExecutableEntryResult::I32 => {
                     return Err(CodegenPreparationError::from(
                         FactQueryError::InfrastructureFailure,
@@ -548,6 +580,7 @@ impl Compilation {
                 error_type_identity,
                 source,
                 incident_cleanup,
+                incident_memory,
             })
         })
         .transpose()?;

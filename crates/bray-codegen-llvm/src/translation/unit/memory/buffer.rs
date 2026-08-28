@@ -1,12 +1,15 @@
 use bray_bound_tree::CheckedMemoryOperationKind;
 use bray_codegen::CodegenFailure;
-use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
+use bray_ir::{
+    MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId,
+    MirStandardLibraryHelper,
+};
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, llvm};
+use super::super::support::{extract_value, llvm, next_helper};
 use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -154,15 +157,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(release);
 
-        self.destroy_raw_buffer_elements(operation, pointer, initialized, stride)?;
+        let helpers = self.operation_helpers(operation)?;
+        let mut helpers = helpers.iter();
 
-        let function = self.memory_deallocation_function(pointer.get_type());
+        let cleanup = next_helper(
+            &mut helpers,
+            &MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: element,
+            },
+        )?;
 
-        llvm(self.builder.build_call(
-            function,
-            &[pointer.into(), bytes.into(), alignment.into()],
-            "memory.buffer.release",
-        ))?;
+        self.destroy_raw_buffer_elements(cleanup, pointer, initialized, stride)?;
+
+        let deallocate = next_helper(
+            &mut helpers,
+            &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
+        )?;
+
+        if self
+            .invoke_helper(deallocate, &[pointer.into(), bytes.into(), alignment.into()])?
+            .is_some()
+        {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
 
         llvm(self.builder.build_unconditional_branch(done))?;
         self.builder.position_at_end(done);
@@ -295,17 +313,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn destroy_raw_buffer_elements(
         &mut self,
-        operation: MirOperationId,
+        helper: &bray_codegen::CodegenHelperMapping,
         pointer: PointerValue<'context>,
         initialized: IntValue<'context>,
         stride: u64,
     ) -> Result<(), CodegenFailure> {
-        let helpers = self.operation_helpers(operation)?;
-
-        let [helper] = helpers.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
         if helper.symbol().is_none() {
             return Ok(());
         }
@@ -338,29 +350,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_phi(self.pointer_integer_type(), "memory.buffer.index"),
         )?;
 
-        index.add_incoming(&[(&self.pointer_integer_type().const_zero(), entry)]);
+        index.add_incoming(&[(&initialized, entry)]);
 
         let current = index.as_basic_value().into_int_value();
 
         let remaining = llvm(self.builder.build_int_compare(
-            IntPredicate::ULT,
+            IntPredicate::NE,
             current,
-            initialized,
+            self.pointer_integer_type().const_zero(),
             "memory.buffer.has_element",
         ))?;
 
         llvm(self.builder.build_conditional_branch(remaining, body, done))?;
         self.builder.position_at_end(body);
 
-        let element = self.dynamic_offset_pointer(pointer, current, stride)?;
-
-        self.invoke_helper(helper, &[element.into()])?;
-
-        let next = llvm(self.builder.build_int_add(
+        let previous = llvm(self.builder.build_int_sub(
             current,
             self.pointer_integer_type().const_int(1, false),
-            "memory.buffer.next_index",
+            "memory.buffer.previous_index",
         ))?;
+
+        let element = self.dynamic_offset_pointer(pointer, previous, stride)?;
+
+        self.invoke_helper(helper, &[element.into()])?;
 
         let body_end = self
             .builder
@@ -368,7 +380,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         llvm(self.builder.build_unconditional_branch(condition))?;
-        index.add_incoming(&[(&next, body_end)]);
+        index.add_incoming(&[(&previous, body_end)]);
 
         self.builder.position_at_end(done);
 

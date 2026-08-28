@@ -23,6 +23,8 @@ For shared mutable state, use `std.sync` guards or `std.atomic` operations. Sync
 
 `std.platform` is an internal implementation module, not part of the public standard-library surface. The compiler-provided `core` namespace is also separate from `std`. Consult [compiler-known declarations](compiler-known.md) when a task concerns protected representations or compiler-provided operations rather than ordinary library APIs.
 
+Internal allocation, owned-text, and character helpers are Bray declarations under `std.runtime`. Public code uses their owning `std.memory`, `std.string`, and `std.character` surfaces.
+
 [io-platform]: https://github.com/lejmer/bray/blob/develop/docs/language/io-and-platform-services.md
 
 **Remember:** Start with the module group that owns the operation and read its linked specification. A declaration's `std` spelling does not imply compiler recognition.

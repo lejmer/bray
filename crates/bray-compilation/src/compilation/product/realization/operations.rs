@@ -292,6 +292,8 @@ impl Compilation {
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
             }
+            MirHelperReference::StandardLibrary(helper) => self
+                .concrete_standard_library_helper(*helper, target, cancellation)?,
             MirHelperReference::Finalize(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
@@ -344,6 +346,7 @@ impl Compilation {
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
+            | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::BeginGenerator
             | MirHelperReference::PushGenerator
             | MirHelperReference::FinishGenerator
@@ -685,6 +688,7 @@ impl Compilation {
             | MirHelperReference::PushGenerator
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
+            | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
             | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)

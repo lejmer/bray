@@ -375,6 +375,8 @@ An anchored borrow retains the exact owner or scoped capability as its dependenc
 
 `core.memory.allocate` returns owned writable storage or panics, and deallocation requires the exact pointer, byte count, alignment, and ownership condition. `RawAllocation` is the untyped linear owner. `RawBuffer<T>` is a linear typed-storage owner with a checked initialized prefix. Moving either owner transfers its obligations, while copying an exposed pointer does not.
 
+Allocation lowers through the selected Bray standard-library implementation. Portable code uses `std.memory` owners and layout helpers, while trusted standard-library code reaches target allocators through target-selected `std.platform.heap` declarations.
+
 See [manual allocation](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/manual-allocation.md), [uninitialized storage and anchored borrows](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/uninitialized-storage-and-anchored-borrows.md), [the standard-library memory surface](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/standard-library-memory-surface.md), and [raw allocation and buffers](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/raw-allocation-and-buffers.md).
 
 ## Device memory and operating-system surfaces

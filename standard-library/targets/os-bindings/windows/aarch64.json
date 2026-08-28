@@ -15,6 +15,7 @@
           "revision": "14.44.35207"
         },
         "headers": [
+          "malloc.h",
           "shellapi.h",
           "windows.h"
         ],
@@ -38,6 +39,10 @@
         },
         {
           "name": "Shell32",
+          "kind": "system"
+        },
+        {
+          "name": "libucrt",
           "kind": "system"
         }
       ],

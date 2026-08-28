@@ -30,6 +30,20 @@ func assertion_failure()
 }
 
 @test
+trusted func invalid_allocation_alignment()
+    uses(manual_alloc)
+{
+    let _: RawPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 3);
+}
+
+@test
+trusted func allocation_size_overflow()
+    uses(manual_alloc)
+{
+    let _: RawPointer<u8> = trusted core.memory.allocate(bytes = ~0, align = 8);
+}
+
+@test
 func explicit_failure()
 {
     std.testing.fail(&"expected explicit failure");

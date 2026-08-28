@@ -1,12 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::CheckedMemoryOperationKind;
 use bray_codegen::{
     CodegenLinkage, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
     CodegenTarget, CodegenUnit, demanded_runtime_references_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirOperationKind, MirTextOperationKind};
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
     ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeCapability,
@@ -117,7 +115,6 @@ impl Compilation {
         kind: ProductKind,
         roots: &[ConcreteCodegenInstance],
         reachability: Option<&bray_codegen::CodegenReachability>,
-        transfers_cleanup_incident: bool,
         runtime: Option<&RuntimeArtifact>,
         required_roles: impl IntoIterator<Item = RuntimeAbiRole>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
@@ -256,14 +253,6 @@ impl Compilation {
         }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
-
-        if let Some(reachability) = reachability {
-            capabilities.extend(demanded_product_runtime_capabilities(reachability));
-        }
-
-        if transfers_cleanup_incident {
-            capabilities.insert(RuntimeCapability::MemoryOperations);
-        }
 
         if has_async_entries {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
@@ -441,128 +430,4 @@ fn demanded_product_runtime_roles(
         .flat_map(|instance| demanded_runtime_references_for_mir(instance.mir()))
         .map(|reference| reference.role())
         .collect()
-}
-
-fn demanded_product_runtime_capabilities(
-    reachability: &bray_codegen::CodegenReachability,
-) -> BTreeSet<RuntimeCapability> {
-    reachability
-        .instances()
-        .iter()
-        .flat_map(|instance| demanded_runtime_capabilities(instance.mir()))
-        .collect()
-}
-
-pub(in crate::compilation) fn demanded_runtime_capabilities(
-    mir: &bray_ir::MirUnit,
-) -> BTreeSet<RuntimeCapability> {
-    mir.operations()
-        .iter()
-        .filter_map(|operation| runtime_operation_capability(operation.kind()))
-        .collect()
-}
-
-const fn runtime_operation_capability(operation: &MirOperationKind) -> Option<RuntimeCapability> {
-    match operation {
-        MirOperationKind::Memory(memory) => match memory.kind() {
-            CheckedMemoryOperationKind::RawAllocate
-            | CheckedMemoryOperationKind::RawDeallocate
-            | CheckedMemoryOperationKind::Allocate
-            | CheckedMemoryOperationKind::Deallocate
-            | CheckedMemoryOperationKind::RawBufferRelease { .. }
-            | CheckedMemoryOperationKind::RawBufferReplace { .. }
-            | CheckedMemoryOperationKind::RawBufferRelocate { .. } => {
-                Some(RuntimeCapability::MemoryOperations)
-            }
-            _ => None,
-        },
-        MirOperationKind::Text(text) => match text.kind() {
-            MirTextOperationKind::ScalarCount
-            | MirTextOperationKind::Equals
-            | MirTextOperationKind::ScalarAt
-            | MirTextOperationKind::ScalarSlice
-            | MirTextOperationKind::FromUtf8 => Some(RuntimeCapability::StringOperations),
-            MirTextOperationKind::CharacterScalarValue
-            | MirTextOperationKind::CharacterFromScalarValue
-            | MirTextOperationKind::CharacterUtf8Length
-            | MirTextOperationKind::CharacterUtf8Byte
-            | MirTextOperationKind::CharacterIsAlphabetic
-            | MirTextOperationKind::CharacterIsNumeric
-            | MirTextOperationKind::CharacterIsWhitespace => {
-                Some(RuntimeCapability::CharacterOperations)
-            }
-            MirTextOperationKind::Release => Some(RuntimeCapability::MemoryOperations),
-            MirTextOperationKind::IsEmpty | MirTextOperationKind::Utf8 => None,
-        },
-        _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_bound_tree::CheckedMemoryOperationKind;
-    use bray_ir::{MirMemoryOperation, MirOperationKind, MirTextOperation, MirTextOperationKind};
-    use bray_runtime_interface::RuntimeCapability;
-
-    use super::runtime_operation_capability;
-
-    #[test]
-    fn native_builtin_operations_demand_their_owning_runtime_capability() {
-        let memory = MirOperationKind::Memory(MirMemoryOperation::new(
-            CheckedMemoryOperationKind::RawAllocate,
-            [],
-            [],
-            None,
-        ));
-
-        let string = MirOperationKind::Text(MirTextOperation::new(
-            MirTextOperationKind::ScalarSlice,
-            [],
-            [],
-            None,
-        ));
-
-        let character = MirOperationKind::Text(MirTextOperation::new(
-            MirTextOperationKind::CharacterIsAlphabetic,
-            [],
-            [],
-            None,
-        ));
-
-        let release = MirOperationKind::Text(MirTextOperation::new(
-            MirTextOperationKind::Release,
-            [],
-            [],
-            None,
-        ));
-
-        assert_eq!(
-            runtime_operation_capability(&memory),
-            Some(RuntimeCapability::MemoryOperations)
-        );
-
-        assert_eq!(
-            runtime_operation_capability(&string),
-            Some(RuntimeCapability::StringOperations)
-        );
-
-        assert_eq!(
-            runtime_operation_capability(&character),
-            Some(RuntimeCapability::CharacterOperations)
-        );
-
-        assert_eq!(
-            runtime_operation_capability(&release),
-            Some(RuntimeCapability::MemoryOperations)
-        );
-    }
-
-    #[test]
-    fn inline_text_operations_do_not_select_native_builtins() {
-        for kind in [MirTextOperationKind::IsEmpty, MirTextOperationKind::Utf8] {
-            let operation = MirOperationKind::Text(MirTextOperation::new(kind, [], [], None));
-
-            assert_eq!(runtime_operation_capability(&operation), None);
-        }
-    }
 }

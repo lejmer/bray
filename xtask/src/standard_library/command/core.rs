@@ -35,6 +35,7 @@ const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] \
         [--profile <summary|trace> --profile-output <directory>] | \
     os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
+    unicode <generate [--check]> | \
     test [--part <provider-retention|interoperability|api|outcomes>] [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
@@ -43,6 +44,9 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         Some("os-bindings") => crate::standard_library::os_bindings::run(arguments)
             .map(|()| PathBuf::new())
             .map_err(BuildError::OsBindings),
+        Some("unicode") => crate::standard_library::unicode_data::run(arguments)
+            .map(|()| PathBuf::new())
+            .map_err(BuildError::UnicodeData),
         Some("test") => native_test(arguments).map(|()| PathBuf::new()),
         Some("verify") => super::verification::verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
@@ -188,6 +192,8 @@ pub(super) fn build_selected_targets(
     target: Option<NativeTarget>,
     profile: Option<&BuildProfileOptions>,
 ) -> Result<PathBuf, BuildError> {
+    crate::standard_library::unicode_data::verify().map_err(BuildError::UnicodeData)?;
+
     let graph = load_standard_library_project_graph(source)
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;
 
@@ -299,6 +305,11 @@ fn build_bundle(
     let temporal_provenance = fs::read(&temporal_provenance_path)
         .map_err(|error| BuildError::read(&temporal_provenance_path, error))?;
 
+    let unicode_metadata_path = root.join("standard-library/targets/unicode/metadata.json");
+
+    let unicode_metadata = fs::read(&unicode_metadata_path)
+        .map_err(|error| BuildError::read(&unicode_metadata_path, error))?;
+
     for (index, target) in targets.iter().enumerate() {
         crate::progress::item(
             index.saturating_add(1),
@@ -379,6 +390,17 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
+        let unicode_path = format!("{target_path}/unicode-data.json");
+
+        write_bundle_artifact(bundle, &unicode_path, &unicode_metadata)?;
+
+        let unicode = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::DependencyMetadata,
+            unicode_path,
+            &unicode_metadata,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
         let optimization_publication = super::super::optimization::OptimizationPublication::new(
             bundle,
             &target_path,
@@ -431,6 +453,7 @@ fn build_bundle(
         }
 
         artifacts.push(provenance);
+        artifacts.push(unicode);
 
         let target = StandardLibraryTargetArtifacts::try_new(target.clone(), abi, artifacts)
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;

@@ -29,7 +29,7 @@ const STANDARD_LIBRARY_SOURCE_INPUTS: &[&str] =
 const RUNTIME_PACKAGES: &[&str] = &[
     "bray-llvm-toolchain",
     "bray-runtime-adapter",
-    "bray-runtime-builtins",
+    "bray-runtime-observation",
     "bray-tooling",
 ];
 const STANDARD_LIBRARY_PACKAGES: &[&str] = &[
@@ -81,7 +81,6 @@ const BUILD_ENVIRONMENT_PREFIXES: &[&str] = &[
 #[derive(Clone, Copy)]
 pub(crate) enum Component {
     Runtime,
-    ObservationRuntime,
     StandardLibrary,
 }
 
@@ -89,21 +88,20 @@ impl Component {
     const fn identity(self) -> &'static str {
         match self {
             Self::Runtime => "runtime",
-            Self::ObservationRuntime => "observation-runtime",
             Self::StandardLibrary => "standard-library",
         }
     }
 
     const fn packages(self) -> &'static [&'static str] {
         match self {
-            Self::Runtime | Self::ObservationRuntime => RUNTIME_PACKAGES,
+            Self::Runtime => RUNTIME_PACKAGES,
             Self::StandardLibrary => STANDARD_LIBRARY_PACKAGES,
         }
     }
 
     const fn source_inputs(self) -> &'static [&'static str] {
         match self {
-            Self::Runtime | Self::ObservationRuntime => RUNTIME_SOURCE_INPUTS,
+            Self::Runtime => RUNTIME_SOURCE_INPUTS,
             Self::StandardLibrary => STANDARD_LIBRARY_SOURCE_INPUTS,
         }
     }

@@ -177,17 +177,16 @@ extern func is_whitespace(value: char) -> bool;
 ```
 
 `from_scalar_value` returns `none` for values that are not Unicode scalar values. The character-classification contract
-uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact and its private
-runtime ABI must agree on that exact Unicode data version. Changing the classification data requires a deliberate
-runtime ABI compatibility update and rebuilt standard-library artifacts, so an unchanged artifact and ABI cannot
-silently acquire new classification behavior from a host toolchain update. Case conversion and normalization remain
-separate policy-bearing additions because one input scalar can produce multiple output scalars.
+uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact owns the exact data
+used by these operations. Changing the classification data requires rebuilt standard-library artifacts, so an unchanged
+artifact cannot silently acquire new classification behavior from a host toolchain update. Case conversion and
+normalization remain separate policy-bearing additions because one input scalar can produce multiple output scalars.
 
 The standard-library artifact metadata records the Unicode data version, the digests of every Unicode Character Database
 input, and the revision of the deterministic table generator. Generated tables are checked against those identities
-during the standard library build. A Unicode update changes this metadata, generated tables, runtime ABI compatibility
-identity, conformance fixtures, and every affected semantic operation in one coordinated change. Host libraries and host
-locale data are never an alternate source of Unicode behavior.
+during the standard library build. A Unicode update changes this metadata, generated tables, bundle identity,
+conformance fixtures, and every affected semantic operation in one coordinated change. Host libraries and host locale
+data are never an alternate source of Unicode behavior.
 
 ## Bytes And Buffers
 

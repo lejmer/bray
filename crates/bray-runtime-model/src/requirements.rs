@@ -12,12 +12,8 @@ pub enum ExecutionLaneRequirement {
 /// Runtime facility required by reachable product code.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeCapability {
-    /// Compiler-provided allocation and deallocation operations.
-    MemoryOperations,
-    /// Compiler-provided owned UTF-8 string operations.
-    StringOperations,
-    /// Compiler-provided Unicode character operations.
-    CharacterOperations,
+    /// Compiler-generated performance observation hooks.
+    PerformanceObservation,
     /// Baseline cooperative task execution.
     CooperativeExecution,
     /// Thread-local task lanes.
@@ -36,10 +32,8 @@ pub enum RuntimeCapability {
 
 impl RuntimeCapability {
     /// Every runtime capability in stable order.
-    pub const ALL: [Self; 10] = [
-        Self::MemoryOperations,
-        Self::StringOperations,
-        Self::CharacterOperations,
+    pub const ALL: [Self; 8] = [
+        Self::PerformanceObservation,
         Self::CooperativeExecution,
         Self::LocalLanes,
         Self::MigratableLanes,
@@ -52,9 +46,7 @@ impl RuntimeCapability {
     /// Returns this capability's stable textual name.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::MemoryOperations => "memory_operations",
-            Self::StringOperations => "string_operations",
-            Self::CharacterOperations => "character_operations",
+            Self::PerformanceObservation => "performance_observation",
             Self::CooperativeExecution => "cooperative_execution",
             Self::LocalLanes => "local_lanes",
             Self::MigratableLanes => "migratable_lanes",

@@ -344,6 +344,7 @@ impl Compilation {
             | MirHelperReference::PushGenerator
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
+            | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
             | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)

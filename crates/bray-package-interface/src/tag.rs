@@ -235,9 +235,7 @@ wire_tags!(RuntimeCapability {
     5 => RuntimeCapability::ComputeLanes,
     6 => RuntimeCapability::MainThreadLane,
     7 => RuntimeCapability::Reactor,
-    8 => RuntimeCapability::MemoryOperations,
-    9 => RuntimeCapability::StringOperations,
-    10 => RuntimeCapability::CharacterOperations,
+    8 => RuntimeCapability::PerformanceObservation,
 });
 
 wire_tags!(ExecutionLaneRequirement {

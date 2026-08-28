@@ -227,12 +227,9 @@ pub const ARTIFACT_SHARED_LIBRARY: &str = "Final shared library product";
 /// Describes a linked companion artifact.
 pub const ARTIFACT_LINKED_COMPANION: &str = "Platform companion emitted during final linking";
 
-/// Describes memory runtime support.
-pub const CAPABILITY_MEMORY: &str = "Allocation, deallocation, and raw memory operations";
-/// Describes string runtime support.
-pub const CAPABILITY_STRING: &str = "String storage and manipulation operations";
-/// Describes character runtime support.
-pub const CAPABILITY_CHARACTER: &str = "Unicode character operations";
+/// Describes performance-observation runtime support.
+pub const CAPABILITY_PERFORMANCE_OBSERVATION: &str =
+    "Compiler-generated performance observation hooks";
 /// Describes cooperative execution support.
 pub const CAPABILITY_COOPERATIVE: &str = "Cooperative task scheduling";
 /// Describes local execution lanes.

@@ -1023,6 +1023,20 @@ mod tests {
     }
 
     #[test]
+    fn static_initializer_accepts_array_literals() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "static VALUES: [u32; 2] = [1, 2];\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            compilation.check_diagnostics(),
+        );
+    }
+
+    #[test]
     fn static_initializer_reports_runtime_function_calls() {
         let compilation = compilation(concat!(
             "module app;\n",

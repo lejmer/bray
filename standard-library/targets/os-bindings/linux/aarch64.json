@@ -25,6 +25,7 @@
           "signal.h",
           "spawn.h",
           "stdio.h",
+          "stdlib.h",
           "sys/inotify.h",
           "sys/mman.h",
           "sys/random.h",
