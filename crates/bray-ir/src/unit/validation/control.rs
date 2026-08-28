@@ -189,6 +189,12 @@ pub(super) fn validate_terminator(
             validate_cleanup_start(unit, block_id, edges.panicked())?;
             validate_cleanup_start(unit, block_id, edges.cancelled())?;
         }
+        MirTerminatorKind::CheckCallPanic {
+            completed,
+            panicked,
+        } => {
+            validate_call_panic_check(unit, block_id, block, completed, *panicked)?;
+        }
         MirTerminatorKind::BeginCleanup(edge) => {
             if block.kind() == MirBlockKind::LifecycleResolution {
                 return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id));
@@ -266,6 +272,60 @@ fn validate_iteration_item(
 
     if block.kind() != MirBlockKind::Ordinary || parameter.ty() != element_type {
         return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(item));
+    }
+
+    Ok(())
+}
+
+fn validate_call_panic_edge(
+    unit: &MirUnit,
+    source: MirBlockId,
+    edge: crate::MirCallPanicEdge,
+) -> Result<(), MirUnitBuildError> {
+    let Some(block) = unit.block(edge.target()) else {
+        return Err(missing_or_foreign_block(unit, edge.target()));
+    };
+
+    let [parameter] = block.parameters() else {
+        return Err(MirUnitBuildError::EdgeArgumentCountMismatch(edge.target()));
+    };
+
+    let Some(parameter) = unit.value(*parameter) else {
+        return Err(MirUnitBuildError::MissingValue(*parameter));
+    };
+
+    if block.kind() != MirBlockKind::Ordinary || parameter.ty() != edge.report_type() {
+        return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(edge.target()));
+    }
+
+    if unit.block(source).map(MirBlock::kind) != Some(MirBlockKind::Ordinary) {
+        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(source));
+    }
+
+    Ok(())
+}
+
+fn validate_call_panic_check(
+    unit: &MirUnit,
+    source: MirBlockId,
+    block: &MirBlock,
+    completed: &MirEdge,
+    panicked: crate::MirCallPanicEdge,
+) -> Result<(), MirUnitBuildError> {
+    validate_ordinary_edge(unit, source, completed)?;
+    validate_call_panic_edge(unit, source, panicked)?;
+
+    let propagates_panic = block
+        .operations()
+        .last()
+        .and_then(|operation| unit.operation(*operation))
+        .is_some_and(|operation| match operation.kind() {
+            crate::MirOperationKind::Call(call) => call.may_propagate_panic(),
+            _ => false,
+        });
+
+    if !propagates_panic {
+        return Err(MirUnitBuildError::InvalidCallPanicCheck(source));
     }
 
     Ok(())

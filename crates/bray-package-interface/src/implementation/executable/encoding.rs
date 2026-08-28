@@ -985,6 +985,15 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(item.slot());
                 self.edge(exhausted)?;
             }
+            MirTerminatorKind::CheckCallPanic {
+                completed,
+                panicked,
+            } => {
+                self.wire.write_u32(17);
+                self.edge(completed)?;
+                self.wire.write_u32(panicked.target().slot());
+                self.ty(panicked.report_type())?;
+            }
         }
 
         Ok(())

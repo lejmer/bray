@@ -40,7 +40,7 @@ pub(super) fn audit_rejections(
         target,
         Some(standard_library),
         THREAD_BORROW_ESCAPE_FIXTURE,
-        "E7110",
+        "E7113",
         "native-thread state escaping its source scope",
     )
 }

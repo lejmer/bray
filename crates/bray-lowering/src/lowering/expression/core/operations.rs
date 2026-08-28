@@ -126,7 +126,7 @@ impl Lowerer<'_> {
 
                 let source = self.source(expression.origin());
 
-                let operand = self.convert_operand(
+                let (current, operand) = self.convert_operand(
                     id,
                     current,
                     Self::retained_source(&source),
@@ -256,7 +256,7 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(id)?;
 
-        let value = match selection {
+        let (current, value) = match selection {
             OperatorTarget::BuiltIn(_) => {
                 if operator == BoundOperator::Add {
                     return Ok(LoweredExpression::continuing(
@@ -273,23 +273,25 @@ impl Lowerer<'_> {
                     _ => return Err(LoweringError::UnsupportedOperator(operator)),
                 };
 
-                self.push_value_operation(
+                let value = self.push_value_operation(
                     id,
                     current,
                     Self::retained_source(&source),
                     MirOperationKind::Unary { operator, operand },
-                )?
+                )?;
+
+                (current, value)
             }
             OperatorTarget::Trait {
                 fulfillment,
                 requirement,
                 witness,
                 ..
-            } => self.push_value_operation(
+            } => self.push_checked_call(
                 id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::protocol(
+                MirCall::protocol(
                     MirCallTarget::Direct(MirCallableReference::new(
                         fulfillment,
                         CallableAbi::Bray,
@@ -300,7 +302,8 @@ impl Lowerer<'_> {
                         requirement,
                         witness,
                     )],
-                )),
+                ),
+                self.expression_type(id)?,
             )?,
             OperatorTarget::TraitConstraint {
                 member, dispatch, ..
@@ -309,23 +312,22 @@ impl Lowerer<'_> {
                     .map(MirCallIntrinsic::Unary)
                     .ok_or(LoweringError::UnsupportedOperator(operator))?;
 
-                self.push_value_operation(
+                self.push_checked_call(
                     id,
                     current,
                     Self::retained_source(&source),
-                    MirOperationKind::Call(
-                        MirCall::protocol(
-                            MirCallTarget::Direct(MirCallableReference::new(
-                                member,
-                                CallableAbi::Bray,
-                            )),
-                            BoundCallResult::Immediate(self.expression_type(id)?),
-                            [operand],
-                            [],
-                        )
-                        .with_trait_dispatch(dispatch)
-                        .with_intrinsic(intrinsic),
-                    ),
+                    MirCall::protocol(
+                        MirCallTarget::Direct(MirCallableReference::new(
+                            member,
+                            CallableAbi::Bray,
+                        )),
+                        BoundCallResult::Immediate(self.expression_type(id)?),
+                        [operand],
+                        [],
+                    )
+                    .with_trait_dispatch(dispatch)
+                    .with_intrinsic(intrinsic),
+                    self.expression_type(id)?,
                 )?
             }
         };
@@ -354,6 +356,24 @@ impl Lowerer<'_> {
         let (selection, result_type) = self.selected_operator_operation(id)?;
 
         let left = self.lower_operator_operand(id, *left_id, selection, current)?;
+
+        let left_type = match selection {
+            OperatorTarget::BuiltIn(_) => self.expression_type(*left_id)?,
+            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => self
+                .input
+                .semantic_values()
+                .intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Shared,
+                    target: self.expression_type(*left_id)?,
+                })
+                .map_err(|_| LoweringError::SemanticValueUnavailable)?,
+        };
+
+        let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
+            self.materialize_typed_for_later_evaluation(*left_id, left, left_type)?
+        } else {
+            left
+        };
 
         let Some(current) = left.block else {
             return Ok(left);
@@ -431,11 +451,11 @@ impl Lowerer<'_> {
             } => {
                 let call_result_type = self.trait_binary_result_type(operator, result_type)?;
 
-                let value = self.push_typed_value_operation(
+                let (current, value) = self.push_checked_call(
                     id,
                     current,
                     Self::retained_source(&source),
-                    MirOperationKind::Call(MirCall::protocol(
+                    MirCall::protocol(
                         MirCallTarget::Direct(MirCallableReference::new(
                             fulfillment,
                             CallableAbi::Bray,
@@ -446,7 +466,7 @@ impl Lowerer<'_> {
                             requirement,
                             witness,
                         )],
-                    )),
+                    ),
                     call_result_type,
                 )?;
 
@@ -464,23 +484,21 @@ impl Lowerer<'_> {
                     .map(MirCallIntrinsic::Binary)
                     .ok_or(LoweringError::UnsupportedOperator(operator))?;
 
-                let value = self.push_typed_value_operation(
+                let (current, value) = self.push_checked_call(
                     id,
                     current,
                     Self::retained_source(&source),
-                    MirOperationKind::Call(
-                        MirCall::protocol(
-                            MirCallTarget::Direct(MirCallableReference::new(
-                                member,
-                                CallableAbi::Bray,
-                            )),
-                            BoundCallResult::Immediate(result_type),
-                            [left, right],
-                            [],
-                        )
-                        .with_trait_dispatch(dispatch)
-                        .with_intrinsic(intrinsic),
-                    ),
+                    MirCall::protocol(
+                        MirCallTarget::Direct(MirCallableReference::new(
+                            member,
+                            CallableAbi::Bray,
+                        )),
+                        BoundCallResult::Immediate(result_type),
+                        [left, right],
+                        [],
+                    )
+                    .with_trait_dispatch(dispatch)
+                    .with_intrinsic(intrinsic),
                     result_type,
                 )?;
 
@@ -814,6 +832,23 @@ impl Lowerer<'_> {
                 BoundCallableTarget::Indirect(_) => {
                     let callee = self.lower_expression(expression.callee(), current)?;
 
+                    let later_expressions = selection
+                        .receiver()
+                        .map(bray_bound_tree::SelectedReceiver::expression)
+                        .into_iter()
+                        .chain(selection.arguments().iter().filter_map(|argument| match argument {
+                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                            SelectedArgument::Default { .. } => None,
+                        }));
+
+                    let callee = if self
+                        .later_evaluation_may_check_call_panic(later_expressions)?
+                    {
+                        self.materialize_for_later_evaluation(expression.callee(), callee)?
+                    } else {
+                        callee
+                    };
+
                     let Some(continuation) = callee.block else {
                         return Ok(callee);
                     };
@@ -836,7 +871,24 @@ impl Lowerer<'_> {
         };
 
         if let Some(receiver) = selection.receiver() {
-            let (lowered, _) = self.lower_call_receiver(receiver, current)?;
+            let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
+
+            let later_expressions = selection.arguments().iter().filter_map(|argument| {
+                match argument {
+                    SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                    SelectedArgument::Default { .. } => None,
+                }
+            });
+
+            let lowered = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+                self.materialize_typed_for_later_evaluation(
+                    receiver.expression(),
+                    lowered,
+                    receiver_type,
+                )?
+            } else {
+                lowered
+            };
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -854,7 +906,7 @@ impl Lowerer<'_> {
             });
         }
 
-        for argument in selection.arguments() {
+        for (index, argument) in selection.arguments().iter().enumerate() {
             match argument {
                 SelectedArgument::Default {
                     parameter,
@@ -875,6 +927,21 @@ impl Lowerer<'_> {
                 } => {
                     let lowered = self.lower_expression(*expression, current)?;
 
+                    let later_expressions = selection.arguments()[index + 1..]
+                        .iter()
+                        .filter_map(|argument| match argument {
+                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                            SelectedArgument::Default { .. } => None,
+                        });
+
+                    let lowered = if self
+                        .later_evaluation_may_check_call_panic(later_expressions)?
+                    {
+                        self.materialize_for_later_evaluation(*expression, lowered)?
+                    } else {
+                        lowered
+                    };
+
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);
                     };
@@ -885,13 +952,15 @@ impl Lowerer<'_> {
                         return Err(LoweringError::MissingOperationResult(*expression));
                     };
 
-                    let value = self.convert_operand(
+                    let (continuation, value) = self.convert_operand(
                         id,
                         current,
                         Self::retained_source(&source),
                         operand,
                         conversion,
                     )?;
+
+                    current = continuation;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
@@ -918,7 +987,8 @@ impl Lowerer<'_> {
             selection.witnesses().iter().copied(),
         );
 
-        let value = self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
+        let (current, value) =
+            self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
@@ -1009,7 +1079,58 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
-    pub(in crate::lowering::expression) fn expression_type(
+    pub(in crate::lowering) fn push_checked_call(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        call: MirCall,
+        result_type: TypeId,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        self.push_checked_value_operation(
+            expression,
+            current,
+            source,
+            MirOperationKind::Call(call),
+            result_type,
+        )
+    }
+
+    pub(in crate::lowering) fn push_checked_value_operation(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operation: MirOperationKind,
+        result_type: TypeId,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let may_propagate_panic = matches!(
+            &operation,
+            MirOperationKind::Call(call) if call.may_propagate_panic()
+        );
+
+        let value = self.push_typed_value_operation(
+            expression,
+            current,
+            Self::retained_source(&source),
+            operation,
+            result_type,
+        )?;
+
+        if may_propagate_panic {
+            self.finish_typed_call_panic_check(
+                expression,
+                current,
+                &source,
+                &value,
+                result_type,
+            )
+        } else {
+            Ok((current, value))
+        }
+    }
+
+    pub(in crate::lowering) fn expression_type(
         &self,
         expression: BoundExpressionId,
     ) -> Result<TypeId, LoweringError> {

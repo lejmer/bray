@@ -239,16 +239,16 @@ fn block_transfer(
             continue;
         }
 
-        let Some(effect) = effects.effect(operation.kind().node()) else {
+        let Some(effect) = effects.operation_effect(operation) else {
             continue;
         };
 
         transfer
             .generated
-            .retain(|subject| !effect.definitions.contains(subject));
+            .retain(|subject| !effect.defines(subject));
 
-        transfer.generated.extend(effect.uses.iter().copied());
-        transfer.killed.extend(effect.definitions.iter().copied());
+        transfer.generated.extend(effect.uses().copied());
+        transfer.killed.extend(effect.definitions().copied());
     }
 
     transfer
@@ -285,12 +285,12 @@ fn transfer_operation(
         return;
     }
 
-    let Some(effect) = effects.effect(operation.kind().node()) else {
+    let Some(effect) = effects.operation_effect(operation) else {
         return;
     };
 
-    state.retain(|subject| !effect.definitions.contains(subject));
-    state.extend(effect.uses.iter().copied());
+    state.retain(|subject| !effect.defines(subject));
+    state.extend(effect.uses().copied());
 }
 
 fn merge_state(
@@ -373,15 +373,14 @@ fn collect_liveness(
 
             if OperationEffects::operation_requires_conservative_liveness(operation) {
                 is_recovered = true;
-            } else if let Some(effect) = effects.effect(operation.kind().node()) {
+            } else if let Some(effect) = effects.operation_effect(operation) {
                 is_recovered |= effects.recovered_nodes.contains(&operation.kind().node());
 
                 last_uses.extend(
                     effect
-                        .uses
-                        .iter()
+                        .uses()
                         .filter(|subject| {
-                            !effect.definitions.contains(subject) && !state.contains(subject)
+                            !effect.defines(subject) && !state.contains(subject)
                         })
                         .copied()
                         .map(|subject| LastUse::new(subject, operation.kind().node())),
@@ -389,11 +388,10 @@ fn collect_liveness(
 
                 last_uses.extend(
                     effect
-                        .definitions
-                        .iter()
+                        .definitions()
                         .filter(|subject| {
                             matches!(subject, BoundDependencySubject::BorrowCapability(_))
-                                && !effect.uses.contains(subject)
+                                && !effect.uses().any(|used| used == *subject)
                                 && !state.contains(subject)
                         })
                         .copied()
@@ -417,10 +415,12 @@ fn collect_liveness(
         last_uses,
         live_across_scopes,
         live_across_suspensions,
-        effects
-            .owner_dependencies
-            .values()
-            .flat_map(|subjects| subjects.iter().copied()),
+        effects.owner_dependencies.iter().flat_map(|(expression, subjects)| {
+            subjects
+                .iter()
+                .copied()
+                .map(|subject| bray_bound_tree::OwnerRetention::new(*expression, subject))
+        }),
         is_recovered,
     )
 }

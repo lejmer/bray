@@ -224,11 +224,11 @@ impl Lowerer<'_> {
             call = call.with_trait_dispatch(dispatch);
         }
 
-        let value = self.push_typed_value_operation(
+        let (block, value) = self.push_checked_call(
             id,
             block,
             Self::retained_source(&source),
-            MirOperationKind::Call(call),
+            call,
             result_type,
         )?;
 

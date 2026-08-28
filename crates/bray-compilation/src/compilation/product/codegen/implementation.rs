@@ -1224,12 +1224,14 @@ mod tests {
         );
 
         let product = test_product_identity();
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let available_runtime = runtime_artifact(&compilation, archive.path());
 
         let plan = compilation
             .native_product_plan(
                 product.clone(),
                 crate::BuildConfiguration::Development,
-                None,
+                Some(available_runtime.clone()),
                 [],
                 Some(&test_linker()),
             )
@@ -1239,7 +1241,7 @@ mod tests {
             .native_product_plan(
                 product.clone(),
                 crate::BuildConfiguration::Release,
-                None,
+                Some(available_runtime.clone()),
                 [],
                 Some(&test_linker()),
             )
@@ -1249,11 +1251,8 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("executable must retain its host"));
 
-        assert!(!host.requirements().requires_implementation());
-        assert_eq!(host.runtime_artifact(), None);
-
-        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
-        let available_runtime = runtime_artifact(&compilation, archive.path());
+        assert!(host.requirements().requires_implementation());
+        assert!(host.runtime_artifact().is_some());
 
         compilation
             .native_product_plan(
@@ -1263,9 +1262,7 @@ mod tests {
                 [],
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| {
-                panic!("unused available runtime must not create an empty selection: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("available runtime must remain reusable: {error:?}"));
 
         assert_eq!(plan.options().optimization(), OptimizationLevel::Basic);
 

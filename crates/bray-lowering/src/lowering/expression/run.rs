@@ -101,13 +101,17 @@ impl Lowerer<'_> {
                         .value
                         .ok_or(LoweringError::MissingOperationResult(*event))?;
 
-                    Some(self.convert_operand(
+                    let (continuation, event) = self.convert_operand(
                         expression,
                         current,
                         Self::retained_source(&source),
                         event,
                         conversion,
-                    )?)
+                    )?;
+
+                    current = continuation;
+
+                    Some(event)
                 } else {
                     None
                 };

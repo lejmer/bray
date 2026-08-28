@@ -1,0 +1,249 @@
+module app;
+
+internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal struct CleanupProbe
+{
+    internal digit: usize;
+
+    destruct()
+    {
+        let current: usize = core.atomic.load<usize, 1>(&CLEANUP_ORDER);
+
+        core.atomic.store<usize, 4>(&CLEANUP_ORDER, current * 10 + self.digit);
+    }
+}
+
+internal struct BorrowContext
+{
+    internal value: &mut usize;
+}
+
+struct PanickingNumber
+{
+}
+
+internal impl PanickingNumberAdd = PanickingNumber(Add<PanickingNumber>)
+{
+    type Output = PanickingNumber;
+
+    func add(pos rhs: &PanickingNumber) -> PanickingNumber
+    {
+        rhs;
+
+        panic("trait-dispatched operator panic");
+    }
+}
+
+func main()
+{
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let direct: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 4,
+        };
+
+        panic("direct catch panic");
+
+        yield unit;
+    };
+
+    let direct_caught: bool = match consume direct
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(direct_caught, "direct panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 4, "direct panic cleanup was not exact");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let called: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 6,
+        };
+
+        panic_in_called_function();
+
+        yield unit;
+    };
+
+    let called_caught: bool = match consume called
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(called_caught, "called-function panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 56, "called-function cleanup was not exact");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let nested: Result<unit, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 3,
+        };
+
+        middle_function();
+
+        yield unit;
+    };
+
+    let nested_caught: bool = match consume nested
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(nested_caught, "nested panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 123, "nested cleanup was not exact");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let owned_argument: Result<unit, PanicReport> = catch
+    {
+        panic_with_owned_argument(CleanupProbe
+        {
+            digit = 7,
+        });
+
+        yield unit;
+    };
+
+    let owned_argument_caught: bool = match consume owned_argument
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(owned_argument_caught, "owned-argument panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 7, "owned argument was not destroyed exactly once");
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let defaulted: Result<unit, PanicReport> = catch
+    {
+        call_with_panicking_default();
+
+        yield unit;
+    };
+
+    let default_caught: bool = match consume defaulted
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(default_caught, "default-provider panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 0, "target ran after its default provider panicked");
+
+    let overloaded: Result<PanickingNumber, PanicReport> = catch
+    {
+        let probe: CleanupProbe = CleanupProbe
+        {
+            digit = 8,
+        };
+
+        let left: PanickingNumber = PanickingNumber {};
+        let right: PanickingNumber = PanickingNumber {};
+
+        yield left + right;
+    };
+
+    let overloaded_caught: bool = match consume overloaded
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(overloaded_caught, "trait-dispatched operator panic was not caught");
+    assert(core.atomic.load<usize, 1>(&CLEANUP_ORDER) == 8, "trait-dispatched panic cleanup was not exact");
+
+    let mut source: usize = 1;
+    let owner: BorrowContext = BorrowContext
+    {
+        value = &mut source,
+    };
+
+    {
+        owner.value;
+    }
+
+    consume_borrow_context(owner);
+    source = 2;
+
+    assert(source == 2, "source borrow remained active after its owner was consumed");
+}
+
+internal func panic_with_owned_argument(pos probe: CleanupProbe)
+{
+    probe;
+
+    panic("owned argument panic");
+}
+
+internal func panicking_default() -> usize
+{
+    panic("default provider panic");
+}
+
+internal func later_default() -> usize
+{
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 8);
+
+    return 0;
+}
+
+internal func call_with_panicking_default(
+    first: usize = panicking_default(),
+    second: usize = later_default(),
+)
+{
+    first;
+    second;
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 9);
+}
+
+internal func consume_borrow_context(pos context: BorrowContext)
+{
+    context;
+}
+
+internal func panic_in_called_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 5,
+    };
+
+    panic("called-function panic");
+}
+
+internal func middle_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 2,
+    };
+
+    leaf_function();
+}
+
+internal func leaf_function()
+{
+    let probe: CleanupProbe = CleanupProbe
+    {
+        digit = 1,
+    };
+
+    panic("nested panic");
+}

@@ -634,12 +634,18 @@ impl Compilation {
             }
         };
 
-        Ok(CodegenCallableSignature::new(
+        let classified = CodegenCallableSignature::new(
             parameters,
             result,
             signature.abi(),
             signature.is_variadic(),
-        ))
+        );
+
+        if signature.has_panic_report_context() {
+            Ok(classified.with_panic_report_context())
+        } else {
+            Ok(classified)
+        }
     }
 
     pub(super) fn classify_codegen_parameter(

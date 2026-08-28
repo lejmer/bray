@@ -10,7 +10,7 @@ use inkwell::values::{FunctionValue, PointerValue, StructValue};
 use inkwell::{AddressSpace, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::super::symbol::apply_signature_call_attributes;
+use super::boundary::{invoke_static_boundary, mapped_instance_function};
 use super::host::StaticFinalizerCallbacks;
 use super::storage::declare_static_callback_with_type;
 
@@ -139,19 +139,27 @@ fn declare_static_finalizer_start<'context>(
                 .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
         };
 
-        let call = match symbol.signature().result() {
-            CodegenResultMapping::Void => builder.build_call(function, &[storage.into()], ""),
+        let (arguments, name) = match symbol.signature().result() {
+            CodegenResultMapping::Void => (vec![storage.into()], ""),
             CodegenResultMapping::Direct { .. } => {
-                builder.build_call(function, &[storage.into()], "static.finalize.value")
+                (vec![storage.into()], "static.finalize.value")
             }
             CodegenResultMapping::Indirect { .. } => {
-                builder.build_call(function, &[destination.into(), storage.into()], "")
+                (vec![destination.into(), storage.into()], "")
             }
-        }
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        };
 
-        call.set_call_convention(function.get_call_conventions());
-        apply_signature_call_attributes(call, symbol.signature(), types)?;
+        let call = invoke_static_boundary(
+            module,
+            mappings,
+            mapping.owner(),
+            &builder,
+            function,
+            symbol.signature(),
+            &arguments,
+            name,
+            types,
+        )?;
 
         if matches!(
             symbol.signature().result(),
@@ -365,21 +373,22 @@ fn declare_static_finalizer_resolver<'context>(
     let (allocation, allocation_signature) =
         mapped_instance_function(module, mappings, memory.allocation())?;
 
-    let allocation_call = builder
-        .build_call(
-            allocation,
-            &[
-                usize.const_int(error_layout.size(), false).into(),
-                usize
-                    .const_int(error_layout.alignment().get(), false)
-                    .into(),
-            ],
-            "static.finalize.incident.payload",
-        )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-    allocation_call.set_call_convention(allocation.get_call_conventions());
-    apply_signature_call_attributes(allocation_call, allocation_signature, types)?;
+    let allocation_call = invoke_static_boundary(
+        module,
+        mappings,
+        mapping.owner(),
+        &builder,
+        allocation,
+        allocation_signature,
+        &[
+            usize.const_int(error_layout.size(), false).into(),
+            usize
+                .const_int(error_layout.alignment().get(), false)
+                .into(),
+        ],
+        "static.finalize.incident.payload",
+        types,
+    )?;
 
     let payload = allocation_call
         .try_as_basic_value()
@@ -557,12 +566,17 @@ fn declare_static_incident_destroyer<'context>(
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let call = builder
-        .build_call(function, &[payload_pointer.into()], "")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-    call.set_call_convention(function.get_call_conventions());
-    apply_signature_call_attributes(call, symbol.signature(), types)?;
+    invoke_static_boundary(
+        module,
+        mappings,
+        mapping.owner(),
+        &builder,
+        function,
+        symbol.signature(),
+        &[payload_pointer.into()],
+        "",
+        types,
+    )?;
 
     let memory = mapping
         .finalization()
@@ -572,48 +586,27 @@ fn declare_static_incident_destroyer<'context>(
     let (deallocation, deallocation_signature) =
         mapped_instance_function(module, mappings, memory.deallocation())?;
 
-    let deallocation_call = builder
-        .build_call(
-            deallocation,
-            &[
-                payload_pointer.into(),
-                usize.const_int(payload_size, false).into(),
-                usize.const_int(payload_alignment, false).into(),
-            ],
-            "",
-        )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
-
-    deallocation_call.set_call_convention(deallocation.get_call_conventions());
-    apply_signature_call_attributes(deallocation_call, deallocation_signature, types)?;
+    invoke_static_boundary(
+        module,
+        mappings,
+        mapping.owner(),
+        &builder,
+        deallocation,
+        deallocation_signature,
+        &[
+            payload_pointer.into(),
+            usize.const_int(payload_size, false).into(),
+            usize.const_int(payload_alignment, false).into(),
+        ],
+        "",
+        types,
+    )?;
 
     builder
         .build_return(None)
         .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
     Ok(callback)
-}
-
-fn mapped_instance_function<'context, 'mappings>(
-    module: &Module<'context>,
-    mappings: &'mappings CodegenMappings,
-    instance: &bray_codegen::CodegenInstanceKey,
-) -> Result<
-    (
-        FunctionValue<'context>,
-        &'mappings bray_codegen::CodegenCallableSignature,
-    ),
-    CodegenFailure,
-> {
-    let symbol = mappings
-        .instance_symbol(instance)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    let function = module
-        .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    Ok((function, symbol.signature()))
 }
 
 fn static_incident_value<'context>(

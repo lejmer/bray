@@ -696,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_build_emits_one_native_product() {
+    fn synchronous_executable_build_requires_a_runtime_artifact() {
         let source = TemporaryFile::write(
             "application.bray",
             concat!(
@@ -738,26 +738,17 @@ mod tests {
             source.path().as_os_str().to_os_string(),
         ]);
 
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
         assert_eq!(
-            result.exit_code(),
-            ExitCode::SUCCESS,
-            "{:?}",
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::NativeProductPreparationFailed)
+                .count(),
+            1,
+            "{:#?}",
             result.diagnostics()
         );
-
-        assert!(result.diagnostics().is_empty());
-
-        let executable = bray_emitter::resolve_published_artifact(
-            &output,
-            &command_product("application"),
-            ArtifactKind::Executable,
-            0,
-        )
-        .unwrap_or_else(|error| panic!("published executable must resolve: {error:?}"));
-
-        assert!(executable.is_file());
-
-        assert_eq!(executable.parent(), Some(output.as_path()));
 
         std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));

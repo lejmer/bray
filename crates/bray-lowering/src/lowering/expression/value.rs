@@ -149,8 +149,16 @@ impl Lowerer<'_> {
     ) -> Result<LoweredOperands, LoweringError> {
         let mut operands = Vec::with_capacity(expressions.len());
 
-        for expression in expressions {
+        for (index, expression) in expressions.iter().enumerate() {
             let lowered = self.lower_expression(*expression, current)?;
+
+            let lowered = if self
+                .later_evaluation_may_check_call_panic(expressions[index + 1..].iter().copied())?
+            {
+                self.materialize_for_later_evaluation(*expression, lowered)?
+            } else {
+                lowered
+            };
 
             let Some(continuation) = lowered.block else {
                 return Ok(LoweredOperands::Terminated(lowered));

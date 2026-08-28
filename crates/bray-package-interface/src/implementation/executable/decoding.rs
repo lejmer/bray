@@ -1898,6 +1898,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 item: self.block_id()?,
                 exhausted: self.edge()?,
             }),
+            17 => Ok(MirTerminatorKind::CheckCallPanic {
+                completed: self.edge()?,
+                panicked: bray_ir::MirCallPanicEdge::new(self.block_id()?, self.ty()?),
+            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

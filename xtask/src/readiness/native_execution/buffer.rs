@@ -7,7 +7,8 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
-use super::core::{BuiltFixture, PRODUCT_NAME, STANDARD_MEMORY_FIXTURE, execute_product};
+use super::core::{BuiltFixture, execute_product};
+use super::fixtures::{PRODUCT_NAME, STANDARD_MEMORY_FIXTURE};
 
 const STANDARD_BUFFER_FIXTURES: &[&str] = &[
     "xtask/fixtures/native-execution/standard-raw-buffer.bray",

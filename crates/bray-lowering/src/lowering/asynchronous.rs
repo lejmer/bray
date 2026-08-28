@@ -116,7 +116,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: MirSourceAnchor,
         call: MirCall,
-    ) -> Result<MirOperand, LoweringError> {
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let task_operation = self
             .input
             .async_analysis()
@@ -170,7 +170,15 @@ impl Lowerer<'_> {
             },
         };
 
-        self.push_value_operation(expression, block, source, operation)
+        let result_type = self.expression_type(expression)?;
+
+        self.push_checked_value_operation(
+            expression,
+            block,
+            source,
+            operation,
+            result_type,
+        )
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {

@@ -1,5 +1,6 @@
 mod aggregate;
 mod call;
+mod call_arguments;
 mod callback;
 mod construction;
 mod control;
@@ -8,6 +9,7 @@ mod edge;
 mod effect;
 mod generator;
 mod memory;
+mod panic;
 mod place;
 mod range;
 mod scalar;

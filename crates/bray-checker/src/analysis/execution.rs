@@ -1,5 +1,9 @@
-use bray_bound_tree::{BoundAwaitExpression, BoundCallExpression, BoundExpressionId};
+use bray_bound_tree::{
+    BoundAwaitExpression, BoundCallExpression, BoundCallResult, BoundExpressionId,
+    SemanticSelection,
+};
 use bray_compiler_known::ImplementationHook;
+use bray_symbols::CallableAbi;
 
 use crate::CheckerRequestContext;
 
@@ -98,12 +102,37 @@ where
             return Some(Some(resume));
         }
 
+        if self.call_may_propagate_panic(id, hook) {
+            return Some(Some(self.push_propagating_call(id, current)));
+        }
+
         match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
             Some(kind) => self.push_task_operation(current, id, kind),
             None => self.push_bound(current, id.into()),
         }
 
         Some(Some(current))
+    }
+
+    fn call_may_propagate_panic(
+        &self,
+        expression: BoundExpressionId,
+        hook: Option<ImplementationHook>,
+    ) -> bool {
+        if hook.is_some() {
+            return false;
+        }
+
+        let Some(selections) = self.selections() else {
+            return true;
+        };
+
+        matches!(
+            selections.expression(expression),
+            Some(SemanticSelection::Call(selection))
+                if selection.abi() == CallableAbi::Bray
+                    && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
+        )
     }
 
     fn implementation_hook(

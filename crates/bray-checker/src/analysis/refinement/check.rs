@@ -17,8 +17,8 @@ use super::super::fixed_point::{
     FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point,
 };
 use super::super::model::{
-    AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
-    AnalysisScopeExitPhase, ControlFlowGraph,
+    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
+    AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use super::super::reachability::{ReachabilityResult, analyze_reachability};
 use super::set::RefinementSet;
@@ -330,6 +330,25 @@ fn transfer_operation(
         AnalysisOperationKind::Bound(node) => {
             universe.invalidate_for_operation(&mut state.refinements, node, storage);
             universe.finish_operation(&mut state.refinements, node);
+        }
+        AnalysisOperationKind::Call {
+            expression,
+            phase: AnalysisCallPhase::Attempt,
+        } => {
+            universe.invalidate_for_operation(
+                &mut state.refinements,
+                AnyBoundNodeId::Expression(expression),
+                storage,
+            );
+        }
+        AnalysisOperationKind::Call {
+            expression,
+            phase: AnalysisCallPhase::Completion,
+        } => {
+            universe.finish_operation(
+                &mut state.refinements,
+                AnyBoundNodeId::Expression(expression),
+            );
         }
         AnalysisOperationKind::Suspension { expression, .. }
         | AnalysisOperationKind::TaskOperation { expression, .. } => {

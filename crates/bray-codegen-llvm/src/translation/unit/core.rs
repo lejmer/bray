@@ -1,3 +1,4 @@
+use super::edge::{checked_call_operations, reachable_blocks};
 use super::support::{llvm, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
@@ -7,7 +8,8 @@ use bray_codegen::{
     CodegenTypeMapping,
 };
 use bray_ir::{
-    MirBlockId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
+    MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit,
+    MirValueId,
 };
 use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
@@ -199,10 +201,13 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) debug_scope: Option<DISubprogram<'context>>,
     pub(super) blocks: BTreeMap<MirBlockId, BasicBlock<'context>>,
     pub(super) reachable_blocks: BTreeSet<MirBlockId>,
+    pub(super) checked_call_operations: BTreeSet<MirOperationId>,
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
     pub(super) pending_moves: Vec<MirPlace>,
+    pub(super) panic_report_context: Option<PointerValue<'context>>,
+    pub(super) pending_call_panic_report_context: Option<PointerValue<'context>>,
     pub(super) host_root: Option<BasicValueEnum<'context>>,
     pub(super) host_result: Option<BasicValueEnum<'context>>,
     pub(super) host_status: Option<inkwell::values::IntValue<'context>>,
@@ -299,6 +304,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let blocks = create_blocks(context, function, unit);
 
         let reachable_blocks = reachable_blocks(unit);
+        let checked_call_operations = checked_call_operations(unit);
+
+        let panic_report_context =
+            super::panic::incoming_panic_report_context(function, signature)?;
 
         Ok(Self {
             module,
@@ -313,10 +322,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             debug_scope,
             blocks,
             reachable_blocks,
+            checked_call_operations,
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
             pending_moves: Vec::new(),
+            panic_report_context,
+            pending_call_panic_report_context: None,
             host_root: None,
             host_result: None,
             host_status: None,
@@ -357,6 +369,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let blocks = create_blocks(context, function, unit);
 
         let reachable_blocks = reachable_blocks(unit);
+        let checked_call_operations = checked_call_operations(unit);
 
         Ok(Self {
             module,
@@ -371,10 +384,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             debug_scope,
             blocks,
             reachable_blocks,
+            checked_call_operations,
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
             pending_moves: Vec::new(),
+            panic_report_context: None,
+            pending_call_panic_report_context: None,
             host_root: None,
             host_result: None,
             host_status: None,
@@ -755,7 +771,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 }
-
 fn create_blocks<'context>(
     context: &'context Context,
     function: FunctionValue<'context>,
@@ -769,26 +784,4 @@ fn create_blocks<'context>(
             (id, block)
         })
         .collect()
-}
-
-fn reachable_blocks(unit: &MirUnit) -> BTreeSet<MirBlockId> {
-    let mut reachable = BTreeSet::new();
-    let mut pending = vec![unit.entry()];
-
-    while let Some(block) = pending.pop() {
-        if !reachable.insert(block) {
-            continue;
-        }
-
-        let Some(block) = unit.block(block) else {
-            continue;
-        };
-
-        block
-            .terminator()
-            .kind()
-            .for_each_successor(|successor| pending.push(successor));
-    }
-
-    reachable
 }

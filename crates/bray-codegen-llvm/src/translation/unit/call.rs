@@ -1,12 +1,10 @@
-use std::collections::BTreeMap;
-
 use super::core::UnitTranslator;
-use super::support::{llvm, next_helper, parameter_type, pointer_value};
+use super::support::{llvm, parameter_type, pointer_value};
 use bray_codegen::{
     CodegenCallSite, CodegenCallableSignature, CodegenFailure, CodegenHelperMapping,
     CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
 };
-use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirHelperReference, MirTaskTerminalState};
+use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirTaskTerminalState};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue,
@@ -18,9 +16,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: bray_ir::MirOperationId,
         call: &MirCall,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let checks_call_panic = self.checked_call_operations.contains(&operation);
+
+        let checked_default_context = if checks_call_panic
+            && call
+                .arguments()
+                .iter()
+                .any(|argument| matches!(argument, MirCallArgument::Default { .. }))
+        {
+            Some(self.checked_call_panic_report_context()?)
+        } else {
+            None
+        };
+
         let helpers = self.operation_helpers(operation)?;
         let mut helpers = helpers.iter();
-        let semantic_arguments = self.evaluate_call_arguments(call, &mut helpers)?;
+
+        let evaluated =
+            self.evaluate_call_arguments(call, &mut helpers, checked_default_context)?;
+
+        let (semantic_arguments, checked_defaults) = evaluated.into_parts();
+
+        let semantic_arguments = semantic_arguments.as_slice();
 
         if helpers.next().is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -44,7 +61,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     return self
-                        .translate_intrinsic_call(intrinsic, operand_type, &semantic_arguments)
+                        .translate_intrinsic_call(intrinsic, operand_type, semantic_arguments)
                         .map(Some);
                 }
 
@@ -67,9 +84,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 // mutates translation state.
                 let signature = symbol.signature().clone();
 
-                self.invoke_function(function, &signature, &semantic_arguments, "call")
+                if call.may_propagate_panic() && checks_call_panic {
+                    if let Some(context) = checked_default_context {
+                        self.invoke_function_with_panic_report_context(
+                            function,
+                            &signature,
+                            semantic_arguments,
+                            "call",
+                            Some(context),
+                        )
+                    } else {
+                        self.invoke_checked_function(
+                            function,
+                            &signature,
+                            semantic_arguments,
+                            "call",
+                        )
+                    }
+                } else {
+                    self.invoke_function(function, &signature, semantic_arguments, "call")
+                }
             }
-            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, &semantic_arguments),
+            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
                 let callee_type = self.operand_type(callee)?;
 
@@ -89,15 +125,42 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let function_type = self.types.function_type(&signature)?;
 
-                self.invoke_indirect(
-                    function_type,
-                    pointer,
-                    &signature,
-                    &semantic_arguments,
-                    "call.indirect",
-                )
+                if call.may_propagate_panic() && checks_call_panic {
+                    if let Some(context) = checked_default_context {
+                        self.invoke_indirect_with_panic_report_context(
+                            function_type,
+                            pointer,
+                            &signature,
+                            semantic_arguments,
+                            "call.indirect",
+                            Some(context),
+                        )
+                    } else {
+                        self.invoke_checked_indirect(
+                            function_type,
+                            pointer,
+                            &signature,
+                            semantic_arguments,
+                            "call.indirect",
+                        )
+                    }
+                } else {
+                    self.invoke_indirect(
+                        function_type,
+                        pointer,
+                        &signature,
+                        semantic_arguments,
+                        "call.indirect",
+                    )
+                }
             }
         }?;
+
+        let result = if let Some(defaults) = checked_defaults {
+            self.finish_checked_default_evaluation(defaults, result)?
+        } else {
+            result
+        };
 
         if result.is_some() {
             return Ok(result);
@@ -128,75 +191,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = self.types.map(ty)?;
 
         Ok(Some(ty.const_zero()))
-    }
-
-    pub(super) fn evaluate_call_arguments<'mapping>(
-        &mut self,
-        call: &MirCall,
-        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
-    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
-        let mut receiver = None;
-        let mut parameters = BTreeMap::new();
-        let mut defaults = Vec::new();
-
-        for argument in call.arguments() {
-            match argument {
-                MirCallArgument::Receiver { value, .. } => {
-                    let value = self.operand(value)?;
-
-                    if receiver.replace(value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    }
-                }
-                MirCallArgument::Explicit { ordinal, value, .. } => {
-                    let value = self.operand(value)?;
-
-                    if parameters.insert(*ordinal, value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    }
-                }
-                MirCallArgument::Default {
-                    ordinal, provider, ..
-                } => defaults.push((*ordinal, *provider)),
-            }
-        }
-
-        for (ordinal, provider) in defaults {
-            let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
-
-            let mut preceding =
-                Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
-            preceding.extend(receiver);
-
-            preceding.extend(parameters.range(..ordinal).map(|(_, value)| *value));
-
-            let value = self
-                .invoke_helper(helper, &preceding)?
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            if parameters.insert(ordinal, value).is_some() {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-        }
-
-        let mut arguments = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
-        arguments.extend(receiver);
-
-        for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
-            if ordinal != expected {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-
-            arguments.push(value);
-        }
-
-        if arguments.len() != call.arguments().len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        Ok(arguments)
     }
 
     pub(super) fn invoke_runtime(
@@ -379,14 +373,71 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         semantic_arguments: &[BasicValueEnum<'context>],
         name: &str,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let panic_report_context = self.boundary_panic_report_context(signature)?;
+
+        let result = self.invoke_function_with_panic_report_context(
+            function,
+            signature,
+            semantic_arguments,
+            name,
+            panic_report_context,
+        )?;
+
+        if let Some(context) = panic_report_context {
+            self.propagate_boundary_call_panic(context)?;
+        }
+
+        Ok(result)
+    }
+
+    fn invoke_checked_function(
+        &mut self,
+        function: FunctionValue<'context>,
+        signature: &CodegenCallableSignature,
+        semantic_arguments: &[BasicValueEnum<'context>],
+        name: &str,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let panic_report_context = self.checked_panic_report_context(signature)?;
+
+        let result = self.invoke_function_with_panic_report_context(
+            function,
+            signature,
+            semantic_arguments,
+            name,
+            Some(panic_report_context),
+        )?;
+
+        if self
+            .pending_call_panic_report_context
+            .replace(panic_report_context)
+            .is_some()
+        {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        Ok(result)
+    }
+
+    pub(super) fn invoke_function_with_panic_report_context(
+        &mut self,
+        function: FunctionValue<'context>,
+        signature: &CodegenCallableSignature,
+        semantic_arguments: &[BasicValueEnum<'context>],
+        name: &str,
+        panic_report_context: Option<PointerValue<'context>>,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let mut arguments = Vec::new();
 
         if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let result_storage =
-            self.prepare_call_arguments(signature, semantic_arguments, &mut arguments)?;
+        let result_storage = self.prepare_call_arguments(
+            signature,
+            semantic_arguments,
+            &mut arguments,
+            panic_report_context,
+        )?;
 
         let call = llvm(self.builder.build_call(function, &arguments, name))?;
 
@@ -404,14 +455,75 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         semantic_arguments: &[BasicValueEnum<'context>],
         name: &str,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let panic_report_context = self.boundary_panic_report_context(signature)?;
+
+        let result = self.invoke_indirect_with_panic_report_context(
+            function_type,
+            function,
+            signature,
+            semantic_arguments,
+            name,
+            panic_report_context,
+        )?;
+
+        if let Some(context) = panic_report_context {
+            self.propagate_boundary_call_panic(context)?;
+        }
+
+        Ok(result)
+    }
+
+    fn invoke_checked_indirect(
+        &mut self,
+        function_type: inkwell::types::FunctionType<'context>,
+        function: PointerValue<'context>,
+        signature: &CodegenCallableSignature,
+        semantic_arguments: &[BasicValueEnum<'context>],
+        name: &str,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let panic_report_context = self.checked_panic_report_context(signature)?;
+
+        let result = self.invoke_indirect_with_panic_report_context(
+            function_type,
+            function,
+            signature,
+            semantic_arguments,
+            name,
+            Some(panic_report_context),
+        )?;
+
+        if self
+            .pending_call_panic_report_context
+            .replace(panic_report_context)
+            .is_some()
+        {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        Ok(result)
+    }
+
+    fn invoke_indirect_with_panic_report_context(
+        &mut self,
+        function_type: inkwell::types::FunctionType<'context>,
+        function: PointerValue<'context>,
+        signature: &CodegenCallableSignature,
+        semantic_arguments: &[BasicValueEnum<'context>],
+        name: &str,
+        panic_report_context: Option<PointerValue<'context>>,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let mut arguments = Vec::new();
 
         if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let result_storage =
-            self.prepare_call_arguments(signature, semantic_arguments, &mut arguments)?;
+        let result_storage = self.prepare_call_arguments(
+            signature,
+            semantic_arguments,
+            &mut arguments,
+            panic_report_context,
+        )?;
 
         let call =
             llvm(
@@ -434,12 +546,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         signature: &CodegenCallableSignature,
         semantic_arguments: &[BasicValueEnum<'context>],
         arguments: &mut Vec<BasicMetadataValueEnum<'context>>,
+        panic_report_context: Option<PointerValue<'context>>,
     ) -> Result<Option<(PointerValue<'context>, bray_symbols::TypeId)>, CodegenFailure> {
         let result_storage = match signature.result() {
             CodegenResultMapping::Indirect {
                 pointee, alignment, ..
             } => {
                 let storage = self.aligned_alloca(*pointee, alignment.get(), "call.result")?;
+
+                if signature.has_panic_report_context() {
+                    llvm(
+                        self.builder
+                            .build_store(storage, self.types.map(*pointee)?.const_zero()),
+                    )?;
+                }
 
                 arguments.push(storage.into());
 
@@ -468,7 +588,78 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             arguments.push((*argument).into());
         }
 
+        match (signature.has_panic_report_context(), panic_report_context) {
+            (true, Some(context)) => arguments.push(context.into()),
+            (true, None) => {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+            (false, Some(_)) => return Err(CodegenFailure::GeneratedModuleInvariant),
+            (false, None) => {}
+        }
+
         Ok(result_storage)
+    }
+
+    fn boundary_panic_report_context(
+        &mut self,
+        signature: &CodegenCallableSignature,
+    ) -> Result<Option<PointerValue<'context>>, CodegenFailure> {
+        if !signature.has_panic_report_context() {
+            return Ok(None);
+        }
+
+        self.allocate_panic_report_context().map(Some)
+    }
+
+    fn checked_panic_report_context(
+        &mut self,
+        signature: &CodegenCallableSignature,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        if !signature.has_panic_report_context() {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        match self.panic_report_context {
+            Some(context) => Ok(context),
+            None => self.allocate_panic_report_context(),
+        }
+    }
+
+    pub(super) fn allocate_panic_report_context(
+        &mut self,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());
+        let context = self.allocate_temporary(ty, "call.panic.report.context")?;
+
+        llvm(self.builder.build_store(context, ty.const_zero()))?;
+
+        Ok(context)
+    }
+
+    fn propagate_boundary_call_panic(
+        &mut self,
+        context: PointerValue<'context>,
+    ) -> Result<(), CodegenFailure> {
+        let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());
+
+        let (report, continued) = crate::translation::branch_on_pending_panic(
+            self.types.context(),
+            &self.builder,
+            ty,
+            context,
+        )?;
+
+        let runtime = bray_ir::MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+            self.unit.target().runtime_abi(),
+        );
+
+        self.invoke_runtime(runtime, &[report.into()])?;
+        llvm(self.builder.build_unreachable())?;
+
+        self.builder.position_at_end(continued);
+
+        Ok(())
     }
 
     pub(super) fn aligned_alloca(

@@ -4,7 +4,8 @@ use std::process::Command;
 
 use bray_target::NativeTarget;
 
-use super::core::{PRODUCT_NAME, native_output, product_output, standard_library_root};
+use super::core::{native_output, product_output, standard_library_root};
+use super::fixtures::PRODUCT_NAME;
 
 const HELLO_WORLD_FIXTURE: &str = "xtask/fixtures/native-execution/standard-hello-world.bray";
 const HELLO_WORLD_OUTPUT: &[u8] = b"Hello world!";

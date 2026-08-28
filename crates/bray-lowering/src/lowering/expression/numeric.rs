@@ -41,7 +41,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(*expression));
         };
 
-        let operand = self.convert_operand(
+        let (current, operand) = self.convert_operand(
             id,
             current,
             Self::retained_source(&source),

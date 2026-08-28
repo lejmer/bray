@@ -107,6 +107,7 @@ pub use selection::{
 pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    OwnerRetention,
     Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,
     StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageAlternative,
     StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageExitDecision, StorageFlow,

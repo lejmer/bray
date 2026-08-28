@@ -62,6 +62,33 @@ pub struct LiveAcrossSuspension {
     subject: BoundDependencySubject,
 }
 
+/// A subject whose lifetime is transferred into one exact owning call result.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct OwnerRetention {
+    expression: BoundExpressionId,
+    subject: BoundDependencySubject,
+}
+
+impl OwnerRetention {
+    /// Creates one owning-call retention decision.
+    pub const fn new(expression: BoundExpressionId, subject: BoundDependencySubject) -> Self {
+        Self {
+            expression,
+            subject,
+        }
+    }
+
+    /// Returns the call expression that transfers ownership.
+    pub const fn expression(self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns the subject retained by the call result.
+    pub const fn subject(self) -> BoundDependencySubject {
+        self.subject
+    }
+}
+
 impl LiveAcrossSuspension {
     /// Creates one suspension-boundary liveness decision.
     pub const fn new(await_expression: BoundExpressionId, subject: BoundDependencySubject) -> Self {
@@ -99,6 +126,7 @@ pub struct Liveness {
     last_uses: Arc<[LastUse]>,
     live_across_scopes: Arc<[LiveAcrossScope]>,
     live_across_suspensions: Arc<[LiveAcrossSuspension]>,
+    owner_retentions: Arc<[OwnerRetention]>,
     owner_retained_subjects: Arc<[BoundDependencySubject]>,
     is_recovered: bool,
 }
@@ -111,13 +139,17 @@ impl Liveness {
         last_uses: impl IntoIterator<Item = LastUse>,
         live_across_scopes: impl IntoIterator<Item = LiveAcrossScope>,
         live_across_suspensions: impl IntoIterator<Item = LiveAcrossSuspension>,
-        owner_retained_subjects: impl IntoIterator<Item = BoundDependencySubject>,
+        owner_retentions: impl IntoIterator<Item = OwnerRetention>,
         is_recovered: bool,
     ) -> Result<Self, LivenessBuildError> {
         let last_uses = sorted_unique_shared_slice(last_uses);
         let live_across_scopes = sorted_unique_shared_slice(live_across_scopes);
         let live_across_suspensions = sorted_unique_shared_slice(live_across_suspensions);
-        let owner_retained_subjects = sorted_unique_shared_slice(owner_retained_subjects);
+        let owner_retentions = sorted_unique_shared_slice(owner_retentions);
+
+        let owner_retained_subjects = sorted_unique_shared_slice(
+            owner_retentions.iter().map(|retention| retention.subject()),
+        );
 
         if last_uses
             .iter()
@@ -128,9 +160,12 @@ impl Liveness {
             || live_across_suspensions.iter().any(|entry| {
                 entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
             })
-            || owner_retained_subjects
+            || owner_retentions
                 .iter()
-                .any(|subject| !subject.is_valid_for(unit))
+                .any(|retention| {
+                    retention.expression().unit() != unit
+                        || !retention.subject().is_valid_for(unit)
+                })
         {
             return Err(LivenessBuildError::ForeignUnit);
         }
@@ -152,6 +187,7 @@ impl Liveness {
             last_uses,
             live_across_scopes,
             live_across_suspensions,
+            owner_retentions,
             owner_retained_subjects,
             is_recovered,
         })
@@ -185,6 +221,17 @@ impl Liveness {
     /// Returns normalized subjects whose lifetime is retained by an owning value.
     pub fn owner_retained_subjects(&self) -> &[BoundDependencySubject] {
         &self.owner_retained_subjects
+    }
+
+    /// Returns whether this exact call transfers the subject into an owning result.
+    pub fn is_owner_retained_by(
+        &self,
+        expression: BoundExpressionId,
+        subject: BoundDependencySubject,
+    ) -> bool {
+        self.owner_retentions
+            .binary_search(&OwnerRetention::new(expression, subject))
+            .is_ok()
     }
 
     /// Returns whether recovery prevented complete lifetime decisions.
@@ -229,7 +276,10 @@ impl Liveness {
 
 #[cfg(test)]
 mod tests {
-    use super::{LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, LivenessBuildError};
+    use super::{
+        LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, LivenessBuildError,
+        OwnerRetention,
+    };
     use crate::test_support::semantic_values;
     use crate::{
         BorrowCapabilityId, BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId,
@@ -255,7 +305,10 @@ mod tests {
             [last_use, last_use],
             [live_across_scope, live_across_scope],
             [live_across_suspension, live_across_suspension],
-            [subject, subject],
+            [
+                OwnerRetention::new(expression, subject),
+                OwnerRetention::new(expression, subject),
+            ],
             false,
         ) else {
             panic!("unit-local liveness decisions must be valid");
@@ -274,6 +327,7 @@ mod tests {
         assert!(liveness.is_live_across_suspension(expression, subject));
         assert_eq!(liveness.owner_retained_subjects(), &[subject]);
         assert!(liveness.is_owner_retained(subject));
+        assert!(liveness.is_owner_retained_by(expression, subject));
         assert!(!liveness.is_recovered());
     }
 

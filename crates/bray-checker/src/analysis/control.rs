@@ -102,7 +102,7 @@ where
             _ => {
                 let mut current = self.build_operands(expression.operands(), current)?;
 
-                self.push_bound(current, id.into());
+                current = self.push_source_operation(id, current);
 
                 for block in expression.blocks() {
                     current = self
@@ -128,9 +128,9 @@ where
 
         self.yield_regions.pop();
 
-        let mut current = completion?;
+        let current = completion?;
 
-        self.push_bound(current, id.into());
+        let mut current = self.push_source_operation(id, current);
 
         for block in expression.blocks() {
             current = self
@@ -285,7 +285,7 @@ where
     ) -> Option<Option<AnalysisBlockId>> {
         let current = self.build_operands(operands, current)?;
 
-        self.push_bound(current, id.into());
+        let current = self.push_source_operation(id, current);
 
         let iteration = self.push_block();
         let completion = self.push_block();
@@ -341,8 +341,7 @@ where
     ) -> Option<Option<AnalysisBlockId>> {
         let current = self.build_expression(expression.source(), current)?;
         let current = current.unwrap_or_else(|| self.push_block());
-
-        self.push_bound(current, id.into());
+        let current = self.push_source_operation(id, current);
 
         self.build_iteration(
             expression.pattern(),

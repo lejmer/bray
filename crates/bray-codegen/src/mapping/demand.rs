@@ -221,6 +221,9 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
             collect_cleanup_edge_values(edges.panicked(), demands);
             collect_cleanup_edge_values(edges.cancelled(), demands);
         }
+        MirTerminatorKind::CheckCallPanic { completed, .. } => {
+            collect_edge_values(completed, demands);
+        }
         MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
             collect_cleanup_edge_values(edge, demands);
         }

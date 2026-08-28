@@ -8,31 +8,17 @@ use super::buffer::{
     audit_standard_buffer, audit_standard_format, build_standard_library_fixtures,
     standard_library_compilation,
 };
+use super::fixtures::{
+    ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
+    ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, ENTRY_RESULT_FIXTURE, MEMORY_FIXTURE,
+    MEMORY_LAYOUT_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE,
+    STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TEXT_FIXTURE, STARTUP_FIXTURE,
+    SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
+};
 use super::hello::audit_standard_hello_world;
 use super::rejection::audit_rejections;
 use super::repeatable::audit_repeatable_fixture;
 use super::static_storage::audit_static_storage;
-
-const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
-const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
-const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
-const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
-const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-linux.s";
-const ASYNC_UNIT_FIXTURE: &str = "xtask/fixtures/native-execution/async-unit.bray";
-const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray";
-const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
-const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
-const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
-const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
-const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
-const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
-const ATOMIC_FIXTURE: &str = "xtask/fixtures/native-execution/atomic-operations.bray";
-const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layout.bray";
-pub(super) const STANDARD_MEMORY_FIXTURE: &str =
-    "xtask/fixtures/native-execution/standard-memory.bray";
-const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
-const TEXT_CURSOR_FIXTURE: &str = "xtask/fixtures/native-execution/standard-text-cursor.bray";
-pub(super) const PRODUCT_NAME: &str = "application";
 
 pub(super) struct BuiltFixture {
     output: tempfile::TempDir,
@@ -420,6 +406,13 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     for (name, fixture, expected, stderr, uses_standard_library) in [
         ("async unit", ASYNC_UNIT_FIXTURE, 0, None, false),
         ("async i32", ASYNC_I32_FIXTURE, 42, None, false),
+        (
+            "synchronous catch propagation",
+            SYNC_CATCH_PROPAGATION_FIXTURE,
+            0,
+            None,
+            false,
+        ),
         (
             "independently started tasks",
             ASYNC_TASKS_FIXTURE,

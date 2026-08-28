@@ -542,9 +542,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match initializer {
             MirFrameInitializer::Callable(call) => {
-                let arguments = self.evaluate_call_arguments(call, &mut helpers)?;
+                let arguments = self.evaluate_call_arguments(call, &mut helpers, None)?;
                 let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
-                let result = self.invoke_helper(helper, &arguments)?;
+                let result = self.invoke_helper(helper, arguments.values())?;
 
                 if helpers.next().is_some() {
                     return Err(CodegenFailure::GeneratedModuleInvariant);

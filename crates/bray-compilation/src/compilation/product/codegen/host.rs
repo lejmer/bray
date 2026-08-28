@@ -228,6 +228,13 @@ impl Compilation {
             runtime_roles.insert(RuntimeAbiRole::TestEntrySelection);
         }
 
+        if entries
+            .iter()
+            .any(|entry| entry.root() == RootExecution::Synchronous)
+        {
+            runtime_roles.insert(RuntimeAbiRole::PanicPropagation);
+        }
+
         let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
             || (has_exact_thread_statics
                 && entries
