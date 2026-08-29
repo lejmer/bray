@@ -96,13 +96,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match (result_type, result) {
             (Some(result_type), Some(result)) => {
-                let destination = llvm(self.builder.build_int_to_ptr(
-                    callback_destination_handle,
-                    self.types
-                        .context()
-                        .ptr_type(inkwell::AddressSpace::default()),
-                    "root.result.destination",
-                ))?;
+                let destination = llvm(
+                    self.builder.build_int_to_ptr(
+                        callback_destination_handle,
+                        self.types
+                            .context()
+                            .ptr_type(inkwell::AddressSpace::default()),
+                        "root.result.destination",
+                    ),
+                )?;
 
                 if result.get_type() != result_type {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -114,7 +116,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         }
 
-        let report = llvm(self.builder.build_load(usize, panic_report, "root.panic.report"))?;
+        let report = llvm(
+            self.builder
+                .build_load(usize, panic_report, "root.panic.report"),
+        )?;
+
         let report = int_value(report).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let cancelled = llvm(self.builder.build_int_compare(
@@ -136,14 +142,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .context()
             .append_basic_block(callback, "root.cancelled");
 
-        let panicked_block = self.types.context().append_basic_block(callback, "root.panicked");
+        let panicked_block = self
+            .types
+            .context()
+            .append_basic_block(callback, "root.panicked");
 
         let inspect_panic_block = self
             .types
             .context()
             .append_basic_block(callback, "root.inspect_panic");
 
-        let completed_block = self.types.context().append_basic_block(callback, "root.completed");
+        let completed_block = self
+            .types
+            .context()
+            .append_basic_block(callback, "root.completed");
 
         llvm(self.builder.build_conditional_branch(
             cancelled,
@@ -171,11 +183,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(inspect_panic_block);
 
-        llvm(self.builder.build_conditional_branch(
-            panicked,
-            panicked_block,
-            completed_block,
-        ))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(panicked, panicked_block, completed_block),
+        )?;
 
         self.builder.position_at_end(panicked_block);
 

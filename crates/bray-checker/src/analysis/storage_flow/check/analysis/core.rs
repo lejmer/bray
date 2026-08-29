@@ -3,8 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression,
-    BoundExpressionId,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
     StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow, StorageIdentity,
@@ -12,16 +11,16 @@ use bray_bound_tree::{
     StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
-    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
-    DiagnosticStorageRoot, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticStorageAccess,
+    DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
+    SeverityKind,
 };
 use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
+use crate::diagnostic::diagnostic_id;
 use crate::storage::StorageScopeOwners;
 use crate::unit::semantic_inputs_match;
-use crate::diagnostic::diagnostic_id;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -858,12 +857,12 @@ where
             kind,
             SeverityKind::Error,
         )
-            .with_primary_span(source.span())
-            .with_label(DiagnosticLabel::primary(
-                storage_diagnostic_label(kind),
-                source.span(),
-            ))
-            .with_arg(DiagnosticArg::storage_access(access_argument));
+        .with_primary_span(source.span())
+        .with_label(DiagnosticLabel::primary(
+            storage_diagnostic_label(kind),
+            source.span(),
+        ))
+        .with_arg(DiagnosticArg::storage_access(access_argument));
 
         if let Some(origin) = origin {
             diagnostic = self.with_operation_origins(diagnostic, source.span(), origin);

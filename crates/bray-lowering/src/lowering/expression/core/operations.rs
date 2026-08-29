@@ -325,10 +325,7 @@ impl Lowerer<'_> {
                     current,
                     Self::retained_source(&source),
                     MirCall::protocol(
-                        MirCallTarget::Direct(MirCallableReference::new(
-                            member,
-                            CallableAbi::Bray,
-                        )),
+                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
                         BoundCallResult::Immediate(self.expression_type(id)?),
                         [operand],
                         [],
@@ -434,8 +431,8 @@ impl Lowerer<'_> {
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         match selection {
             OperatorTarget::BuiltIn(_) => {
-                let operator = binary_operator(operator)
-                    .ok_or(LoweringError::UnsupportedOperator {
+                let operator =
+                    binary_operator(operator).ok_or(LoweringError::UnsupportedOperator {
                         expression: id,
                         operator,
                     })?;
@@ -503,10 +500,7 @@ impl Lowerer<'_> {
                     current,
                     Self::retained_source(&source),
                     MirCall::protocol(
-                        MirCallTarget::Direct(MirCallableReference::new(
-                            member,
-                            CallableAbi::Bray,
-                        )),
+                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
                         BoundCallResult::Immediate(result_type),
                         [left, right],
                         [],
@@ -855,14 +849,14 @@ impl Lowerer<'_> {
                         .receiver()
                         .map(bray_bound_tree::SelectedReceiver::expression)
                         .into_iter()
-                        .chain(selection.arguments().iter().filter_map(|argument| match argument {
-                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
-                            SelectedArgument::Default { .. } => None,
-                        }));
+                        .chain(selection.arguments().iter().filter_map(
+                            |argument| match argument {
+                                SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                                SelectedArgument::Default { .. } => None,
+                            },
+                        ));
 
-                    let callee = if self
-                        .later_evaluation_may_check_call_panic(later_expressions)?
-                    {
+                    let callee = if self.later_evaluation_may_check_call_panic(later_expressions)? {
                         self.materialize_for_later_evaluation(expression.callee(), callee)?
                     } else {
                         callee
@@ -892,12 +886,14 @@ impl Lowerer<'_> {
         if let Some(receiver) = selection.receiver() {
             let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
 
-            let later_expressions = selection.arguments().iter().filter_map(|argument| {
-                match argument {
-                    SelectedArgument::Explicit { expression, .. } => Some(*expression),
-                    SelectedArgument::Default { .. } => None,
-                }
-            });
+            let later_expressions =
+                selection
+                    .arguments()
+                    .iter()
+                    .filter_map(|argument| match argument {
+                        SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                        SelectedArgument::Default { .. } => None,
+                    });
 
             let lowered = if self.later_evaluation_may_check_call_panic(later_expressions)? {
                 self.materialize_typed_for_later_evaluation(
@@ -946,20 +942,20 @@ impl Lowerer<'_> {
                 } => {
                     let lowered = self.lower_expression(*expression, current)?;
 
-                    let later_expressions = selection.arguments()[index + 1..]
-                        .iter()
-                        .filter_map(|argument| match argument {
-                            SelectedArgument::Explicit { expression, .. } => Some(*expression),
-                            SelectedArgument::Default { .. } => None,
-                        });
+                    let later_expressions =
+                        selection.arguments()[index + 1..]
+                            .iter()
+                            .filter_map(|argument| match argument {
+                                SelectedArgument::Explicit { expression, .. } => Some(*expression),
+                                SelectedArgument::Default { .. } => None,
+                            });
 
-                    let lowered = if self
-                        .later_evaluation_may_check_call_panic(later_expressions)?
-                    {
-                        self.materialize_for_later_evaluation(*expression, lowered)?
-                    } else {
-                        lowered
-                    };
+                    let lowered =
+                        if self.later_evaluation_may_check_call_panic(later_expressions)? {
+                            self.materialize_for_later_evaluation(*expression, lowered)?
+                        } else {
+                            lowered
+                        };
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);
@@ -1137,13 +1133,7 @@ impl Lowerer<'_> {
         )?;
 
         if may_propagate_panic {
-            self.finish_typed_call_panic_check(
-                expression,
-                current,
-                &source,
-                &value,
-                result_type,
-            )
+            self.finish_typed_call_panic_check(expression, current, &source, &value, result_type)
         } else {
             Ok((current, value))
         }

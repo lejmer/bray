@@ -743,15 +743,13 @@ fn validate_async_analysis(
 
 fn scope_exit_plans_are_complete(storage_flow: &StorageFlow, analysis: &CheckedAsync) -> bool {
     storage_flow.exits().len() == analysis.scope_exits().len()
-        && storage_flow
-            .exits()
-            .iter()
-            .zip(analysis.scope_exits())
-            .all(|(storage_exit, async_exit)| {
+        && storage_flow.exits().iter().zip(analysis.scope_exits()).all(
+            |(storage_exit, async_exit)| {
                 async_exit.scope() == storage_exit.scope()
                     && async_exit.exit() == storage_exit.exit()
                     && async_exit.moved() == storage_exit.moved()
-            })
+            },
+        )
 }
 
 fn dependency_subject_exists(
@@ -948,9 +946,9 @@ mod tests {
         BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
         CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
         CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
-        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness,
-        PlannedBorrowCapability, StorageAccess, StorageAccessId, StorageAccessPurpose,
-        StorageAccessRoot, StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
+        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
+        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
         StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -1304,10 +1302,7 @@ mod tests {
 
             let block_expression = tree
                 .push_expression(BoundExpression::Block(BoundBlockExpression::new(
-                    origin,
-                    block,
-                    None,
-                    false,
+                    origin, block, None, false,
                 )))
                 .unwrap_or_else(|error| panic!("test block expression must fit: {error:?}"));
 

@@ -379,9 +379,7 @@ fn collect_liveness(
                 last_uses.extend(
                     effect
                         .uses()
-                        .filter(|subject| {
-                            !effect.defines(subject) && !state.contains(subject)
-                        })
+                        .filter(|subject| !effect.defines(subject) && !state.contains(subject))
                         .copied()
                         .map(|subject| LastUse::new(subject, operation.kind().node())),
                 );
@@ -415,12 +413,15 @@ fn collect_liveness(
         last_uses,
         live_across_scopes,
         live_across_suspensions,
-        effects.owner_dependencies.iter().flat_map(|(expression, subjects)| {
-            subjects
-                .iter()
-                .copied()
-                .map(|subject| bray_bound_tree::OwnerRetention::new(*expression, subject))
-        }),
+        effects
+            .owner_dependencies
+            .iter()
+            .flat_map(|(expression, subjects)| {
+                subjects
+                    .iter()
+                    .copied()
+                    .map(|subject| bray_bound_tree::OwnerRetention::new(*expression, subject))
+            }),
         is_recovered,
     )
 }

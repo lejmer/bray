@@ -423,7 +423,7 @@ impl Compilation {
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
             let name = BinarySymbolName::try_new(symbol)
-            .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
             return Ok(Some(NativeBoundaryMapping::Direct {
                 name,

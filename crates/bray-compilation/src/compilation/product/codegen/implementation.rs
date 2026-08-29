@@ -2034,11 +2034,9 @@ mod tests {
         let mut saw_product_local_symbol = false;
         let primary_product = test_product_identity();
 
-        let alternate_product = ProductIdentity::try_new(
-            primary_product.package().clone(),
-            "alternate-application",
-        )
-        .unwrap_or_else(|| panic!("alternate test product identity must validate"));
+        let alternate_product =
+            ProductIdentity::try_new(primary_product.package().clone(), "alternate-application")
+                .unwrap_or_else(|| panic!("alternate test product identity must validate"));
 
         for unit in units.iter() {
             let mappings = compilation
@@ -4203,7 +4201,10 @@ mod tests {
             })
         }));
 
-        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+        assert!(
+            plan.preservation_roots()
+                .any(|root| root.as_str() == symbol)
+        );
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -4251,7 +4252,10 @@ mod tests {
             })
         }));
 
-        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+        assert!(
+            plan.preservation_roots()
+                .any(|root| root.as_str() == symbol)
+        );
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -4279,11 +4283,9 @@ mod tests {
 
         let role = RuntimeAbiRole::RuntimeInitialization;
 
-        let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(
-            role,
-            "app.initialize",
-        )
-        .unwrap_or_else(|| panic!("runtime source binding must validate"));
+        let binding =
+            bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.initialize")
+                .unwrap_or_else(|| panic!("runtime source binding must validate"));
 
         let (backend, plan) =
             runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
@@ -4291,7 +4293,10 @@ mod tests {
         let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
             .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
 
-        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+        assert!(
+            plan.preservation_roots()
+                .any(|root| root.as_str() == symbol)
+        );
 
         assert!(plan.mappings().iter().any(|mappings| {
             mappings

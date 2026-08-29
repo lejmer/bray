@@ -4,6 +4,7 @@ mod bundle;
 mod command;
 mod compiler_known;
 mod dependency_audit;
+mod diagnostic_output;
 mod input_identity;
 mod json;
 mod link_map;

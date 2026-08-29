@@ -156,9 +156,7 @@ where
     }
 }
 
-const fn implementation_hook_preserves_synchronous_call(
-    hook: Option<ImplementationHook>,
-) -> bool {
+const fn implementation_hook_preserves_synchronous_call(hook: Option<ImplementationHook>) -> bool {
     matches!(hook, None | Some(ImplementationHook::NativeThreadStart))
 }
 

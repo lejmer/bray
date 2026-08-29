@@ -27,9 +27,7 @@ pub(super) const fn runtime_call_role(hook: Option<ImplementationHook>) -> Optio
         Some(ImplementationHook::NativeThreadPanicReporting) => {
             Some(RuntimeAbiRole::PanicReporting)
         }
-        Some(ImplementationHook::TaskEventCreation) => {
-            Some(RuntimeAbiRole::TaskEventCreation)
-        }
+        Some(ImplementationHook::TaskEventCreation) => Some(RuntimeAbiRole::TaskEventCreation),
         Some(ImplementationHook::TaskEventSignal) => Some(RuntimeAbiRole::TaskEventSignal),
         Some(ImplementationHook::TaskEventDestruction) => {
             Some(RuntimeAbiRole::TaskEventDestruction)
@@ -69,10 +67,7 @@ impl Lowerer<'_> {
 
                 Ok(Some(LoweredExpression::terminated(source)))
             }
-            Some(
-                hook @ (ImplementationHook::TaskYield
-                | ImplementationHook::TaskEventWait),
-            ) => {
+            Some(hook @ (ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)) => {
                 if self.input.unit_kind().protected_frame().is_none() {
                     return Err(LoweringError::AwaitOutsideProtectedFrame(expression));
                 }
@@ -80,11 +75,13 @@ impl Lowerer<'_> {
                 let mut current = current;
 
                 let payload = if hook == ImplementationHook::TaskEventWait {
-                    let [SelectedArgument::Explicit {
-                        expression: event,
-                        conversion,
-                        ..
-                    }] = selection.arguments()
+                    let [
+                        SelectedArgument::Explicit {
+                            expression: event,
+                            conversion,
+                            ..
+                        },
+                    ] = selection.arguments()
                     else {
                         return Err(LoweringError::MissingSemanticSelection(expression));
                     };

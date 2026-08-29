@@ -530,9 +530,7 @@ where
         let custom = custom_borrow_kind.is_some();
 
         let receiver_purpose = match kind {
-            BoundStructuredExpressionKind::NullablePropagation => {
-                Some(StorageAccessPurpose::Read)
-            }
+            BoundStructuredExpressionKind::NullablePropagation => Some(StorageAccessPurpose::Read),
             _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
         };
 

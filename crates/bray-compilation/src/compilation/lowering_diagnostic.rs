@@ -1,6 +1,8 @@
+use bray_bound_tree::AnyBoundNodeId;
 use bray_diagnostics::{
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
+    DiagnosticSourceConstructKind,
 };
 use bray_ir::MirUnitBuildError;
 use bray_lowering::{LoweringError, LoweringInputError};
@@ -14,22 +16,12 @@ pub(super) fn lowering_input_failure(
 
     let kind = match failure.cause() {
         LoweringInputError::ForeignInput { .. } => Kind::ForeignInput,
-        LoweringInputError::InputKindMismatch { .. } => {
-            Kind::InputKindMismatch
-        }
-        LoweringInputError::MissingSemanticSelection(_) => {
-            Kind::MissingSemanticSelection
-        }
-        LoweringInputError::MissingExpressionType(_) => {
-            Kind::MissingExpressionType
-        }
+        LoweringInputError::InputKindMismatch { .. } => Kind::InputKindMismatch,
+        LoweringInputError::MissingSemanticSelection(_) => Kind::MissingSemanticSelection,
+        LoweringInputError::MissingExpressionType(_) => Kind::MissingExpressionType,
         LoweringInputError::InvalidPatternInput => Kind::InvalidPatternInput,
-        LoweringInputError::InvalidInputContents(_) => {
-            Kind::InvalidInputContents
-        }
-        LoweringInputError::InvalidStorageOperation(_) => {
-            Kind::InvalidStorageOperation
-        }
+        LoweringInputError::InvalidInputContents(_) => Kind::InvalidInputContents,
+        LoweringInputError::InvalidStorageOperation(_) => Kind::InvalidStorageOperation,
         LoweringInputError::StorageOperationCountMismatch { expected, actual } => {
             Kind::StorageOperationCountMismatch {
                 expected: u64::try_from(*expected).unwrap_or(u64::MAX),
@@ -61,37 +53,25 @@ pub(super) fn lowering_failure(
 
     let kind = match failure.cause() {
         LoweringError::UnsupportedRoot(_) => Kind::UnsupportedRoot,
-        LoweringError::MissingBoundNode(_) => Kind::MissingBoundNode,
-        LoweringError::RecoveredBoundNode(_) => Kind::RecoveredBoundNode,
-        LoweringError::MissingExpressionType(_) => {
-            Kind::MissingExpressionType
+        LoweringError::MissingBoundNode(node) => Kind::MissingSourceNode(source_construct(*node)),
+        LoweringError::RecoveredBoundNode(node) => {
+            Kind::RecoveredSourceNode(source_construct(*node))
         }
-        LoweringError::AwaitOutsideProtectedFrame(_) => {
-            Kind::AwaitOutsideProtectedFrame
-        }
-        LoweringError::MissingSuspensionPoint(_) => {
-            Kind::MissingSuspensionPoint
-        }
+        LoweringError::MissingExpressionType(_) => Kind::MissingExpressionType,
+        LoweringError::AwaitOutsideProtectedFrame(_) => Kind::AwaitOutsideProtectedFrame,
+        LoweringError::MissingSuspensionPoint(_) => Kind::MissingSuspensionPoint,
         LoweringError::InvalidTaskOperation(_) => Kind::InvalidTaskOperation,
-        LoweringError::MissingCallableResultType => {
-            Kind::MissingCallableResultType
-        }
+        LoweringError::MissingCallableResultType => Kind::MissingCallableResultType,
         LoweringError::MissingLiteralValue(_) => Kind::MissingLiteralValue,
-        LoweringError::MissingSemanticSelection(_) => {
-            Kind::MissingSemanticSelection
-        }
+        LoweringError::MissingSemanticSelection(_) => Kind::MissingSemanticSelection,
         LoweringError::UnsupportedExpression(_) => Kind::UnsupportedExpression,
         LoweringError::UnsupportedPattern(_) => Kind::UnsupportedPattern,
         LoweringError::UnsupportedOperator { .. } => Kind::UnsupportedOperator,
         LoweringError::MissingStorageAccess(_) => Kind::MissingStorageAccess,
-        LoweringError::MissingStorageAccessRecord(_) => {
-            Kind::MissingStorageAccessRecord
-        }
+        LoweringError::MissingStorageAccessRecord(_) => Kind::MissingStorageAccessRecord,
         LoweringError::MissingCleanupPlan(_) => Kind::MissingCleanupPlan,
         LoweringError::MissingStorageIdentity(_) => Kind::MissingStorageIdentity,
-        LoweringError::MissingStorageIdentityRecord(_) => {
-            Kind::MissingStorageIdentityRecord
-        }
+        LoweringError::MissingStorageIdentityRecord(_) => Kind::MissingStorageIdentityRecord,
         LoweringError::MissingIterationStorage(_) => Kind::MissingIterationStorage,
         LoweringError::UnsupportedStorageAccess(_) => Kind::UnsupportedStorageAccess,
         LoweringError::MissingOperationResult(_) => Kind::MissingOperationResult,
@@ -102,6 +82,15 @@ pub(super) fn lowering_failure(
     };
 
     DiagnosticLoweringFailure::new(kind, failure.source())
+}
+
+const fn source_construct(node: AnyBoundNodeId) -> DiagnosticSourceConstructKind {
+    match node {
+        AnyBoundNodeId::Expression(_) => DiagnosticSourceConstructKind::Expression,
+        AnyBoundNodeId::Pattern(_) => DiagnosticSourceConstructKind::Pattern,
+        AnyBoundNodeId::Block(_) => DiagnosticSourceConstructKind::Block,
+        AnyBoundNodeId::CallableBody(_) => DiagnosticSourceConstructKind::CallableBody,
+    }
 }
 
 const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMirUnitBuildFailure {
@@ -151,9 +140,7 @@ const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMirUnitBuildFa
         MirUnitBuildError::DuplicateTerminator(_) => {
             DiagnosticMirUnitBuildFailure::DuplicateTerminator
         }
-        MirUnitBuildError::MissingTerminator(_) => {
-            DiagnosticMirUnitBuildFailure::MissingTerminator
-        }
+        MirUnitBuildError::MissingTerminator(_) => DiagnosticMirUnitBuildFailure::MissingTerminator,
         MirUnitBuildError::InvalidInlineAssemblyTerminator(_) => {
             DiagnosticMirUnitBuildFailure::InvalidInlineAssemblyTerminator
         }

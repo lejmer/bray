@@ -768,10 +768,10 @@ mod tests {
     use bray_symbols::{ExternalSymbolKey, PackageIdentity, ProductIdentity};
     use bray_target::TargetIdentity;
 
+    use super::super::evaluation::diagnostic_evaluation_failure;
     use super::{
         package_interface_export_failure_diagnostic, package_interface_fragment_failure_diagnostic,
     };
-    use super::super::evaluation::diagnostic_evaluation_failure;
     use crate::LocatedLoweringFailure;
     use crate::compilation::PackageInterfaceExportError;
     use crate::fact::FactQueryError;
@@ -811,15 +811,14 @@ mod tests {
         );
 
         assert_eq!(
-            diagnostic_evaluation_failure(&FactQueryError::Lowering(
-                LocatedLoweringFailure::new(LoweringError::InvalidFrameDescriptor, source),
-            )),
-            DiagnosticEmissionEvaluationFailure::Lowering(
-                DiagnosticLoweringFailure::new(
-                    DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
-                    source,
-                ),
-            )
+            diagnostic_evaluation_failure(&FactQueryError::Lowering(LocatedLoweringFailure::new(
+                LoweringError::InvalidFrameDescriptor,
+                source
+            ),)),
+            DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
+                DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                source,
+            ),)
         );
     }
 
@@ -833,9 +832,7 @@ mod tests {
         );
 
         let error = PackageInterfaceExportError::ConstantCallableEvaluation {
-            declaration: DiagnosticInterfaceSymbolIdentity::Package(
-                "example.package".to_owned(),
-            ),
+            declaration: DiagnosticInterfaceSymbolIdentity::Package("example.package".to_owned()),
             cause: FactQueryError::Lowering(LocatedLoweringFailure::new(
                 LoweringError::InvalidFrameDescriptor,
                 source,

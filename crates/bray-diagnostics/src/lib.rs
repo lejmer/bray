@@ -37,12 +37,12 @@ pub use argument::{
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure, DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
-    DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
-    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind,
+    DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
+    DiagnosticSourceConstructKind, DiagnosticStandardLibraryManifestProblem,
+    DiagnosticStandardLibraryOptimizationMetadataProblem, DiagnosticTargetRepresentation,
+    DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{

@@ -1,11 +1,9 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::bundle::{DirectoryPublicationError, NativeBuildOptionsError};
 use bray_emitter::ArtifactKind;
 use bray_target::TargetIdentity;
-use bray_tooling::{OutputFormat, write_diagnostics};
-
-use crate::bundle::{DirectoryPublicationError, NativeBuildOptionsError};
 
 #[derive(Debug)]
 pub(in crate::standard_library) enum BuildError {
@@ -119,30 +117,8 @@ fn diagnostic_failure_detail(
         return internal;
     }
 
-    let mut standard_output = Vec::new();
-    let mut standard_error = Vec::new();
-
-    if write_diagnostics(
-        diagnostics,
-        Some(sources),
-        OutputFormat::Text,
-        &mut standard_output,
-        &mut standard_error,
-    )
-    .is_err()
-    {
-        return internal;
-    }
-
-    let Ok(rendered) = String::from_utf8(standard_error) else {
-        return internal;
-    };
-
-    if rendered.is_empty() {
-        return internal;
-    }
-
-    format!("\n{}", rendered.trim_end())
+    crate::diagnostic_output::render_diagnostics(diagnostics, sources)
+        .map_or(internal, |rendered| format!("\n{rendered}"))
 }
 
 impl fmt::Display for BuildError {

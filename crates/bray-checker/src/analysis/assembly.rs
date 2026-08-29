@@ -2,8 +2,8 @@ use bray_bound_tree::{AnyBoundNodeId, BoundUnitId};
 
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 use super::model::{
-    AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
-    AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
+    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisExit,
+    AnalysisExitKind, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
     AnalysisScopeExitPhase, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
 

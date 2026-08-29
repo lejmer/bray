@@ -104,8 +104,8 @@ impl DiagnosticLoweringFailure {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticLoweringFailureKind {
     UnsupportedRoot,
-    MissingBoundNode,
-    RecoveredBoundNode,
+    MissingSourceNode(DiagnosticSourceConstructKind),
+    RecoveredSourceNode(DiagnosticSourceConstructKind),
     MissingExpressionType,
     AwaitOutsideProtectedFrame,
     MissingSuspensionPoint,
@@ -134,8 +134,8 @@ impl DiagnosticLoweringFailureKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::UnsupportedRoot => "code_production_declaration_without_executable_body",
-            Self::MissingBoundNode => "code_production_source_construct_unavailable",
-            Self::RecoveredBoundNode => "code_production_source_construct_has_prior_error",
+            Self::MissingSourceNode(kind) => kind.missing_key(),
+            Self::RecoveredSourceNode(kind) => kind.recovered_key(),
             Self::MissingExpressionType => "code_production_expression_type_unavailable",
             Self::AwaitOutsideProtectedFrame => "code_production_await_state_unavailable",
             Self::MissingSuspensionPoint => "code_production_await_resume_path_unavailable",
@@ -158,6 +158,35 @@ impl DiagnosticLoweringFailureKind {
             Self::SemanticValueUnavailable => "code_production_type_or_constant_unavailable",
             Self::InvalidFrameDescriptor => "code_production_resumable_state_conflict",
             Self::Mir(failure) => failure.as_str(),
+        }
+    }
+}
+
+/// The Bray syntax category associated with a compiler-owned source-node failure.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSourceConstructKind {
+    Expression,
+    Pattern,
+    Block,
+    CallableBody,
+}
+
+impl DiagnosticSourceConstructKind {
+    const fn missing_key(self) -> &'static str {
+        match self {
+            Self::Expression => "code_production_expression_unavailable",
+            Self::Pattern => "code_production_pattern_unavailable",
+            Self::Block => "code_production_block_unavailable",
+            Self::CallableBody => "code_production_callable_body_unavailable",
+        }
+    }
+
+    const fn recovered_key(self) -> &'static str {
+        match self {
+            Self::Expression => "code_production_expression_has_prior_error",
+            Self::Pattern => "code_production_pattern_has_prior_error",
+            Self::Block => "code_production_block_has_prior_error",
+            Self::CallableBody => "code_production_callable_body_has_prior_error",
         }
     }
 }

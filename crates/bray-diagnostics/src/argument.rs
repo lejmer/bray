@@ -23,10 +23,10 @@ pub use dependency::{DiagnosticDependencyRequirementKind, DiagnosticDependencySu
 pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode,
-    DiagnosticDebugOutputMode, DiagnosticEmissionArtifactOperation,
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticDebugOutputMode, DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure,
+    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
-    DiagnosticNativeProductFailureKind, DiagnosticProductKind,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,

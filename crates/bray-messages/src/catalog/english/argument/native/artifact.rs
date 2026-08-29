@@ -127,7 +127,7 @@ pub(crate) fn format_english_native_product_failure(
         }
         Kind::ReachabilityIncomplete => "native-code selection is incomplete",
         Kind::InstanceTemplateMismatch => {
-            "a compiled item does not match its checked program definition"
+            "an internal compiler error prevented Bray from compiling the selected declaration consistently"
         }
         Kind::InstanceTargetMismatch => "a compiled item does not match the selected target",
         Kind::InstanceDependencyTargetMismatch => {
@@ -229,16 +229,16 @@ fn format_english_lowering_input_failure(
 
     let prevented_operation = match failure.kind() {
         Failure::StorageOperationCountMismatch { expected, actual } => format!(
-            "reconciling the highlighted source construct's {actual} value accesses with the {expected} required by ownership analysis"
+            "reconciling the highlighted declaration's {actual} value accesses with the {expected} required by ownership analysis"
         ),
         Failure::LiteralTargetWidthMismatch { expected, actual } => format!(
             "generating target-correct code for the highlighted integer because it was interpreted as {actual} bits instead of the target's {expected} bits"
         ),
         Failure::ForeignInput => {
-            "generating executable code for the highlighted source construct because required analysis belongs to another declaration".to_owned()
+            "generating executable code for the highlighted declaration because required analysis belongs to another declaration".to_owned()
         }
         Failure::InputKindMismatch => {
-            "generating executable code for the highlighted source construct because required analysis describes a different kind of declaration".to_owned()
+            "generating executable code for the highlighted declaration because required analysis describes a different kind of declaration".to_owned()
         }
         Failure::MissingSemanticSelection => {
             "generating executable code for the highlighted expression because its selected callable or built-in behavior is unavailable".to_owned()
@@ -250,7 +250,7 @@ fn format_english_lowering_input_failure(
             "generating executable code for the highlighted pattern".to_owned()
         }
         Failure::InvalidInputContents => {
-            "generating executable code for the highlighted source construct because required analysis refers to another source construct".to_owned()
+            "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
         Failure::InvalidStorageOperation => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
@@ -269,20 +269,24 @@ fn format_english_lowering_input_failure(
     format!("an internal compiler error prevented Bray from {prevented_operation}")
 }
 
-fn format_english_lowering_failure(
-    failure: bray_diagnostics::DiagnosticLoweringFailure,
-) -> String {
+fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLoweringFailure) -> String {
     use bray_diagnostics::DiagnosticLoweringFailureKind as Failure;
 
     let prevented_operation = match failure.kind() {
         Failure::UnsupportedRoot => {
             "generating executable code for the highlighted declaration because it has no executable body"
         }
-        Failure::MissingBoundNode => {
-            "generating executable code for the highlighted source construct"
+        Failure::MissingSourceNode(kind) => {
+            return format!(
+                "an internal compiler error prevented Bray from generating executable code for the highlighted {}",
+                format_source_construct(kind),
+            );
         }
-        Failure::RecoveredBoundNode => {
-            "generating executable code for the highlighted source construct after an earlier error"
+        Failure::RecoveredSourceNode(kind) => {
+            return format!(
+                "an internal compiler error prevented Bray from generating executable code for the highlighted {} after an earlier error",
+                format_source_construct(kind),
+            );
         }
         Failure::MissingExpressionType => {
             "generating executable code for the highlighted expression because the type established for it is unavailable"
@@ -308,12 +312,8 @@ fn format_english_lowering_failure(
         Failure::UnsupportedExpression => {
             "generating executable code for the highlighted expression"
         }
-        Failure::UnsupportedPattern => {
-            "generating executable code for the highlighted pattern"
-        }
-        Failure::UnsupportedOperator => {
-            "generating executable code for the highlighted operator"
-        }
+        Failure::UnsupportedPattern => "generating executable code for the highlighted pattern",
+        Failure::UnsupportedOperator => "generating executable code for the highlighted operator",
         Failure::MissingStorageAccess => {
             "generating ownership-safe code for the highlighted expression because its value-access behavior is unavailable"
         }
@@ -327,7 +327,7 @@ fn format_english_lowering_failure(
             "generating ownership-safe code for the highlighted expression because the value it accesses is unavailable"
         }
         Failure::MissingStorageIdentityRecord => {
-            "generating ownership-safe code for the highlighted source construct because its associated value is unavailable"
+            "generating ownership-safe code for the highlighted declaration because one of its associated values is unavailable"
         }
         Failure::MissingIterationStorage => {
             "generating executable code for the highlighted iteration because its cursor or current value is unavailable"
@@ -339,10 +339,10 @@ fn format_english_lowering_failure(
             "generating the value required by the highlighted expression"
         }
         Failure::MissingRepresentation => {
-            "generating target-correct code for the highlighted source construct because its target representation is unavailable"
+            "generating target-correct code for the highlighted declaration because its target representation is unavailable"
         }
         Failure::SemanticValueUnavailable => {
-            "generating executable code for the highlighted source construct because a required type or constant value is unavailable"
+            "generating executable code for the highlighted declaration because a required type or constant value is unavailable"
         }
         Failure::InvalidFrameDescriptor => {
             "generating resumable code for the highlighted callable because its state-preservation requirements conflict"
@@ -351,6 +351,19 @@ fn format_english_lowering_failure(
     };
 
     format!("an internal compiler error prevented Bray from {prevented_operation}")
+}
+
+const fn format_source_construct(
+    kind: bray_diagnostics::DiagnosticSourceConstructKind,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticSourceConstructKind as Kind;
+
+    match kind {
+        Kind::Expression => "expression",
+        Kind::Pattern => "pattern",
+        Kind::Block => "block",
+        Kind::CallableBody => "callable body",
+    }
 }
 
 fn format_english_mir_unit_failure(
@@ -363,31 +376,31 @@ fn format_english_mir_unit_failure(
             "generating executable code associated with the highlighted source declaration"
         }
         Failure::IdentityCapacityExceeded => {
-            "generating executable code for the highlighted source construct because an internal capacity was exceeded"
+            "generating executable code for the highlighted declaration because an internal capacity was exceeded"
         }
         Failure::ForeignBlock
         | Failure::ForeignOperation
         | Failure::ForeignStorage
         | Failure::ForeignValue => {
-            "generating executable code for the highlighted source construct because required analysis belongs to another declaration"
+            "generating executable code for the highlighted declaration because required analysis belongs to another declaration"
         }
         Failure::MissingBlock | Failure::MissingOperation => {
-            "generating all instructions required by the highlighted source construct"
+            "generating all instructions required by the highlighted declaration"
         }
         Failure::MissingOperationResult => {
-            "generating a value required by the highlighted source construct"
+            "generating a value required by the highlighted declaration"
         }
         Failure::UnexpectedOperationResult => {
-            "generating valid executable code for the highlighted source construct because it unexpectedly produces a value"
+            "generating valid executable code for the highlighted declaration because it unexpectedly produces a value"
         }
         Failure::OperationResultTypeMismatch => {
-            "generating type-correct executable code for the highlighted source construct"
+            "generating type-correct executable code for the highlighted declaration"
         }
         Failure::InvalidAggregateOperation => {
-            "generating a valid aggregate value for the highlighted source construct"
+            "generating a valid aggregate value for the highlighted declaration"
         }
         Failure::InvalidMemoryOperation => {
-            "generating a type-correct read, write, move, or borrow for the highlighted source construct"
+            "generating a type-correct read, write, move, or borrow for the highlighted declaration"
         }
         Failure::InvalidAnonymousCallable => {
             "generating executable code for the highlighted anonymous callable"
@@ -401,20 +414,14 @@ fn format_english_mir_unit_failure(
         Failure::InvalidHostOperation => {
             "generating program startup or shutdown code for the selected product"
         }
-        Failure::InvalidHostSequence => {
-            "generating correctly ordered program shutdown code"
-        }
-        Failure::MissingStorage => {
-            "reserving memory required by the highlighted source construct"
-        }
-        Failure::MissingValue => {
-            "generating a value required by the highlighted source construct"
-        }
+        Failure::InvalidHostSequence => "generating correctly ordered program shutdown code",
+        Failure::MissingStorage => "reserving memory required by the highlighted declaration",
+        Failure::MissingValue => "generating a value required by the highlighted declaration",
         Failure::DuplicateTerminator => {
-            "generating a single outcome for each path through the highlighted source construct"
+            "generating a single outcome for each path through the highlighted declaration"
         }
         Failure::MissingTerminator => {
-            "generating an outcome for every path through the highlighted source construct"
+            "generating an outcome for every path through the highlighted declaration"
         }
         Failure::InvalidInlineAssemblyTerminator => {
             "generating type-correct branches for the highlighted inline assembly"
@@ -426,37 +433,31 @@ fn format_english_mir_unit_failure(
             "generating valid panic handling for the highlighted call"
         }
         Failure::EdgeArgumentCountMismatch => {
-            "passing the required number of values between paths through the highlighted source construct"
+            "passing the required number of values between paths through the highlighted declaration"
         }
         Failure::EdgeArgumentTypeMismatch => {
-            "passing type-correct values between paths through the highlighted source construct"
+            "passing type-correct values between paths through the highlighted declaration"
         }
-        Failure::DuplicateSwitchCase => {
-            "generating distinct cases for the highlighted branch"
-        }
-        Failure::CleanupTargetMismatch => {
-            "generating cleanup code for the highlighted scope"
-        }
+        Failure::DuplicateSwitchCase => "generating distinct cases for the highlighted branch",
+        Failure::CleanupTargetMismatch => "generating cleanup code for the highlighted scope",
         Failure::CleanupPhaseOrderViolation => {
             "generating correctly ordered cleanup code for the highlighted scope"
         }
         Failure::RuntimeRoleMismatch => {
-            "selecting the required runtime service for the highlighted source construct"
+            "selecting the required runtime service for the highlighted declaration"
         }
         Failure::RuntimeAbiVersionMismatch => {
             "selecting runtime services from one compatible runtime interface version"
         }
-        Failure::InvalidOperationBlock => {
-            "placing each instruction on a path where it can run"
-        }
+        Failure::InvalidOperationBlock => "placing each instruction on a path where it can run",
         Failure::StorageKindMismatch => {
-            "generating ownership-safe code for the highlighted source construct"
+            "generating ownership-safe code for the highlighted declaration"
         }
         Failure::StorageTypeMismatch => {
-            "generating a type-correct value access for the highlighted source construct"
+            "generating a type-correct value access for the highlighted declaration"
         }
         Failure::ValueDoesNotDominateUse => {
-            "generating code that produces each value before the highlighted source construct uses it"
+            "generating code that produces each value before the highlighted declaration uses it"
         }
         Failure::ProtectedFrameMismatch => {
             "generating resumable code for the highlighted asynchronous callable"

@@ -15,9 +15,7 @@ use super::evaluation::query_failure_diagnostics;
 use super::linking::{link_plan_failure_diagnostics, staging_failure_diagnostics};
 use super::model::ProductEmissionErrorKind;
 use super::planning::planning_failure_diagnostics;
-use super::terminal::{
-    codegen_failure_diagnostics, package_interface_failure_diagnostics,
-};
+use super::terminal::{codegen_failure_diagnostics, package_interface_failure_diagnostics};
 
 const fn package_interface_validation_error(
     kind: &ProductEmissionErrorKind,

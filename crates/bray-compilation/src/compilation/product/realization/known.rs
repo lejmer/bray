@@ -285,8 +285,7 @@ impl Compilation {
         mappings.insert(ty, mapping.clone());
 
         if !pending.contains(&pointee)
-            && let Err(error) =
-                self.codegen_type(pointee, target, cancellation, mappings, pending)
+            && let Err(error) = self.codegen_type(pointee, target, cancellation, mappings, pending)
         {
             mappings.remove(&ty);
 

@@ -292,9 +292,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
     })
 }
 
-fn fact_query_failure_kind(
-    error: &FactQueryError,
-) -> Option<DiagnosticNativeProductFailureKind> {
+fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativeProductFailureKind> {
     use DiagnosticNativeProductFailureKind as Kind;
 
     match error {
@@ -366,10 +364,9 @@ impl From<super::super::super::CodegenPreparationError> for NativeProductPlannin
 mod tests {
     use bray_checker::CheckerInfrastructureError;
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLoweringFailure,
-        DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-        DiagnosticLoweringInputFailureKind, DiagnosticNativeProductFailureKind,
-        DiagnosticLabelKind, DiagnosticNoteKind,
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
+        DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+        DiagnosticLoweringInputFailureKind, DiagnosticNativeProductFailureKind, DiagnosticNoteKind,
     };
     use bray_lowering::{LoweringError, LoweringInputError};
     use bray_messages::DiagnosticRenderer;
@@ -380,8 +377,8 @@ mod tests {
     use super::{
         NativeProductPlanningError, fact_query_failure_kind, native_product_preparation_diagnostic,
     };
-    use crate::fact::FactQueryError;
     use crate::LocatedLoweringFailure;
+    use crate::fact::FactQueryError;
 
     #[test]
     fn native_product_evaluation_failures_preserve_specific_reasons() {
@@ -527,12 +524,10 @@ mod tests {
         );
 
         let diagnostic = native_product_preparation_diagnostic(
-            DiagnosticNativeProductFailureKind::EvaluationLowering(
-                DiagnosticLoweringFailure::new(
-                    DiagnosticLoweringFailureKind::MissingSuspensionPoint,
-                    source,
-                ),
-            ),
+            DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
+                DiagnosticLoweringFailureKind::MissingSuspensionPoint,
+                source,
+            )),
             &product,
             "x86_64-pc-windows-msvc",
         );
@@ -561,6 +556,40 @@ mod tests {
         for forbidden in ["MIR", "lowering", "node", "frame descriptor", "terminator"] {
             assert!(!message.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn code_production_node_failures_name_the_highlighted_syntax_category() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let source = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let diagnostic = native_product_preparation_diagnostic(
+            DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
+                DiagnosticLoweringFailureKind::MissingSourceNode(
+                    bray_diagnostics::DiagnosticSourceConstructKind::Pattern,
+                ),
+                source,
+            )),
+            &product,
+            "x86_64-pc-windows-msvc",
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from generating executable code for the highlighted pattern"
+        );
+
+        assert!(!rendered.message().contains("node"));
     }
 
     #[test]
@@ -594,7 +623,7 @@ mod tests {
 
         assert_eq!(
             rendered.message(),
-            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from reconciling the highlighted source construct's 2 value accesses with the 3 required by ownership analysis"
+            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from reconciling the highlighted declaration's 2 value accesses with the 3 required by ownership analysis"
         );
 
         assert_eq!(diagnostic.primary_span(), Some(source));

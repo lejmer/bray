@@ -224,13 +224,8 @@ impl Lowerer<'_> {
             call = call.with_trait_dispatch(dispatch);
         }
 
-        let (block, value) = self.push_checked_call(
-            id,
-            block,
-            Self::retained_source(&source),
-            call,
-            result_type,
-        )?;
+        let (block, value) =
+            self.push_checked_call(id, block, Self::retained_source(&source), call, result_type)?;
 
         Ok(LoweredExpression::continuing(block, Some(value), source))
     }

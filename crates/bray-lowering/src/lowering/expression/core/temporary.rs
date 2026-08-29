@@ -27,23 +27,24 @@ impl Lowerer<'_> {
             let may_check = match self.input.semantic_selections().expression(expression) {
                 Some(SemanticSelection::Call(selection)) => {
                     selection.abi() == CallableAbi::Bray
-                        && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
+                        && matches!(
+                            selection.resolution().result(),
+                            BoundCallResult::Immediate(_)
+                        )
                         && selection.implementation_hook().is_none()
                 }
                 Some(SemanticSelection::Operation(operation)) => {
                     operation.may_propagate_synchronous_panic()
                 }
-                Some(SemanticSelection::Iteration(selection)) => {
-                    !matches!(
-                        self.input
+                Some(SemanticSelection::Iteration(selection)) => !matches!(
+                    self.input
                         .available_compiler_known_symbols()
                         .symbol_implementation(selection.iterate().definition().symbol()),
-                        Some(
-                            ImplementationHook::RangeSharedIterate
-                                | ImplementationHook::RangeMoveIterate
-                        )
+                    Some(
+                        ImplementationHook::RangeSharedIterate
+                            | ImplementationHook::RangeMoveIterate
                     )
-                }
+                ),
                 Some(
                     SemanticSelection::Reference(_)
                     | SemanticSelection::CallableReference(_)
@@ -122,12 +123,7 @@ impl Lowerer<'_> {
 
         let Some(temporary) = temporary else {
             if required {
-                return self.materialize_synthetic_temporary(
-                    current,
-                    lowered.source,
-                    value,
-                    ty,
-                );
+                return self.materialize_synthetic_temporary(current, lowered.source, value, ty);
             }
 
             return Ok(LoweredExpression::continuing(

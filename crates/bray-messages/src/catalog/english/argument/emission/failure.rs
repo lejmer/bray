@@ -23,9 +23,7 @@ pub(crate) fn format_english_emission_failure(
         Failure::Codegen(failure) => format_english_emission_codegen_failure(failure),
         Failure::Staging(failure) => format_english_emission_staging_failure(failure),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
-        Failure::Evaluation(failure) => {
-            format_english_emission_evaluation_failure(*failure)
-        }
+        Failure::Evaluation(failure) => format_english_emission_evaluation_failure(*failure),
         Failure::MissingContribution(artifact) => format!(
             "the required {} artifact #{} has no generated content",
             format_english_artifact_kind(artifact.kind()),

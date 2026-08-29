@@ -377,17 +377,12 @@ where
             Some(SemanticSelection::Operation(operation)) => {
                 operation.may_propagate_synchronous_panic()
             }
-            Some(SemanticSelection::Iteration(selection)) => {
-                !matches!(
-                    self.request
-                        .available_compiler_known_symbols()
-                        .symbol_implementation(selection.iterate().definition().symbol()),
-                    Some(
-                        ImplementationHook::RangeSharedIterate
-                            | ImplementationHook::RangeMoveIterate
-                    )
-                )
-            }
+            Some(SemanticSelection::Iteration(selection)) => !matches!(
+                self.request
+                    .available_compiler_known_symbols()
+                    .symbol_implementation(selection.iterate().definition().symbol()),
+                Some(ImplementationHook::RangeSharedIterate | ImplementationHook::RangeMoveIterate)
+            ),
             Some(
                 SemanticSelection::Reference(_)
                 | SemanticSelection::CallableReference(_)
@@ -1018,10 +1013,7 @@ mod tests {
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
-        for kind in [
-            AnalysisExitKind::NormalFallthrough,
-            AnalysisExitKind::Panic,
-        ] {
+        for kind in [AnalysisExitKind::NormalFallthrough, AnalysisExitKind::Panic] {
             assert!(graph.exits().iter().any(|exit| exit.kind() == kind));
         }
     }

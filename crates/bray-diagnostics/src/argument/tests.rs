@@ -1,15 +1,14 @@
 use std::collections::BTreeSet;
 use std::io::ErrorKind;
 
-use bray_syntax::SyntaxKind;
 use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+use bray_syntax::SyntaxKind;
 
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
-    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind,
-    DiagnosticNativeProductFailureKind,
+    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
+    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
 };
 
 #[test]

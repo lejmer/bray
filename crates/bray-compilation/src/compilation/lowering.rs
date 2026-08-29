@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundReferenceTarget, BoundSourceAnchor,
-    BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedExpressionTypes, StorageAccessId,
+    AnyBoundNodeId, BoundExpression, BoundReferenceTarget, BoundSourceAnchor, BoundUnit,
+    BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedExpressionTypes, StorageAccessId,
     StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_checker::ConstantReferenceResolution;
@@ -198,11 +198,8 @@ impl Compilation {
         }
 
         let mir = result.map_err(|error| {
-            let source = lowering_failure_source(
-                &error,
-                unit.result().value(),
-                storage.result().value(),
-            );
+            let source =
+                lowering_failure_source(&error, unit.result().value(), storage.result().value());
 
             FactQueryError::Lowering(LocatedLoweringFailure::new(error, source))
         })?;
@@ -374,10 +371,7 @@ impl Compilation {
     }
 }
 
-fn lowering_input_failure_source(
-    error: &LoweringInputError,
-    unit: &BoundUnit,
-) -> SourceSpan {
+fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -> SourceSpan {
     match error {
         LoweringInputError::MissingSemanticSelection(expression)
         | LoweringInputError::MissingExpressionType(expression)
@@ -459,9 +453,7 @@ fn node_source(unit: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
         }
         AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(|pattern| pattern.origin()),
         AnyBoundNodeId::Block(block) => view.block(block).map(|block| block.origin()),
-        AnyBoundNodeId::CallableBody(body) => {
-            view.callable_body(body).map(|body| body.origin())
-        }
+        AnyBoundNodeId::CallableBody(body) => view.callable_body(body).map(|body| body.origin()),
     }?;
 
     Some(source_span(origin.source_anchor()))

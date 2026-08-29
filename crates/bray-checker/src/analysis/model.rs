@@ -32,9 +32,7 @@ impl AnalysisOperationKind {
             Self::Bound(node) | Self::Recovery(node) => node,
             Self::Call { expression, .. }
             | Self::Suspension { expression, .. }
-            | Self::TaskOperation { expression, .. } => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            | Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }

@@ -2,9 +2,7 @@ use super::super::core::UnitTranslator;
 use super::super::support::{int_value, llvm, pointer_value};
 use bray_codegen::CodegenFailure;
 use bray_ir::{BoundUnitKey, MirHostOperation};
-use bray_runtime_interface::{
-    ProtectedFrameOperation, RootExecution, RuntimeRoleImplementation,
-};
+use bray_runtime_interface::{ProtectedFrameOperation, RootExecution, RuntimeRoleImplementation};
 use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
@@ -65,8 +63,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     let context = super::super::support::extract_value(&self.builder, inactive, 0)
                         .and_then(|value| {
-                            pointer_value(value)
-                                .ok_or(CodegenFailure::GeneratedModuleInvariant)
+                            pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
                         })?;
 
                     let context = llvm(self.builder.build_ptr_to_int(

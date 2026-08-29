@@ -1,13 +1,10 @@
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenInstanceKey, CodegenMappings,
-    CodegenSymbolKey,
+    CodegenCallableSignature, CodegenFailure, CodegenInstanceKey, CodegenMappings, CodegenSymbolKey,
 };
 use bray_ir::MirRuntimeReference;
 use inkwell::builder::Builder;
 use inkwell::module::Module;
-use inkwell::values::{
-    BasicMetadataValueEnum, CallSiteValue, FunctionValue, PointerValue,
-};
+use inkwell::values::{BasicMetadataValueEnum, CallSiteValue, FunctionValue, PointerValue};
 
 use super::super::LlvmTypeMappings;
 use super::super::symbol::apply_signature_call_attributes;
@@ -16,13 +13,7 @@ pub(super) fn mapped_instance_function<'context, 'mappings>(
     module: &Module<'context>,
     mappings: &'mappings CodegenMappings,
     instance: &CodegenInstanceKey,
-) -> Result<
-    (
-        FunctionValue<'context>,
-        &'mappings CodegenCallableSignature,
-    ),
-    CodegenFailure,
-> {
+) -> Result<(FunctionValue<'context>, &'mappings CodegenCallableSignature), CodegenFailure> {
     let symbol = mappings
         .instance_symbol(instance)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;

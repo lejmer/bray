@@ -32,11 +32,9 @@ pub(super) fn diagnostic_evaluation_failure(
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
-        FactQueryError::LoweringInput(error) => {
-            DiagnosticEmissionEvaluationFailure::LoweringInput(
-                super::super::super::lowering_diagnostic::lowering_input_failure(error),
-            )
-        }
+        FactQueryError::LoweringInput(error) => DiagnosticEmissionEvaluationFailure::LoweringInput(
+            super::super::super::lowering_diagnostic::lowering_input_failure(error),
+        ),
         FactQueryError::Lowering(error) => DiagnosticEmissionEvaluationFailure::Lowering(
             super::super::super::lowering_diagnostic::lowering_failure(error),
         ),
