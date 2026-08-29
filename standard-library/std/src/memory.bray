@@ -429,6 +429,25 @@ struct RawBuffer<T>
     }
 }
 
+trusted internal func uninit_buffer<T>(capacity: usize) -> Result<RawBuffer<Uninit<T>>, MemoryLayoutError>
+{
+    let mut storage: RawBuffer<Uninit<T>> = try trusted RawBuffer<Uninit<T>>(capacity = capacity);
+    let mut initialized: usize = 0;
+
+    while initialized < capacity
+    {
+        let slot_pointer: RawPointer<Uninit<T>> = trusted spare_pointer<Uninit<T>>(&mut storage);
+
+        trusted write<Uninit<T>>(slot_pointer, uninit<T>());
+
+        initialized += 1;
+
+        trusted set_initialized_count<Uninit<T>>(&mut storage, count = initialized);
+    }
+
+    return Ok(storage);
+}
+
 trusted internal func allocate_buffer<T>(capacity: usize, bytes: usize, align: usize) -> RawBuffer<T>
     uses(manual_alloc)
 {

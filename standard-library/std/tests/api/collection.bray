@@ -2,6 +2,13 @@ module bray.standard_library_tests.collection;
 
 using std.bytes;
 using std.collection;
+using std.collection.DequeElementIndex;
+using std.collection.DequeMoveCursorIterator;
+using std.collection.DequeMoveIterable;
+using std.collection.DequeReadCursorIterator;
+using std.collection.DequeReadIterable;
+using std.collection.DequeWriteCursorIterator;
+using std.collection.DequeWriteIterable;
 using std.collection.ListElementIndex;
 using std.collection.ListMoveIterable;
 using std.collection.ListReadIterable;
@@ -15,6 +22,7 @@ using std.iteration.EnumerateIterator;
 using std.iteration.SkipIterator;
 using std.iteration.TakeIterator;
 using std.memory;
+using std.testing;
 
 struct OwnedValue
 {
@@ -325,6 +333,310 @@ trusted func list_growth_preserves_zero_sized_values() -> Result<unit, std.memor
 
     assert(std.collection.length<unit>(&empty) == 5);
     assert(std.collection.capacity<unit>(&empty) == 8);
+
+    return Ok(unit);
+}
+
+@test
+trusted func deque_wraparound_growth_and_end_access() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut values: std.collection.Deque<i32> = try trusted std.collection.Deque<i32>(capacity = 4);
+
+    try trusted values.push_back(1);
+    try trusted values.push_back(2);
+    try trusted values.push_back(3);
+    try trusted values.push_back(4);
+
+    match trusted values.pop_front()
+    {
+        case ?value { assert(value == 1); }
+        case none { std.testing.fail(&"expected deque front"); }
+    }
+
+    match trusted values.pop_front()
+    {
+        case ?value { assert(value == 2); }
+        case none { std.testing.fail(&"expected deque front"); }
+    }
+
+    try trusted values.push_back(5);
+    try trusted values.push_back(6);
+    try trusted values.push_front(0);
+
+    let first_index: usize = 0;
+    let second_index: usize = 1;
+    let third_index: usize = 2;
+    let fourth_index: usize = 3;
+    let fifth_index: usize = 4;
+
+    assert(values.length() == 5);
+    assert(values.capacity() == 8);
+
+    {
+        assert(values[first_index] == 0);
+        assert(values[second_index] == 3);
+        assert(values[third_index] == 4);
+        assert(values[fourth_index] == 5);
+        assert(values[fifth_index] == 6);
+    }
+
+    match values.front_mut()
+    {
+        case ?value { value = 10; }
+        case none { std.testing.fail(&"expected mutable deque front"); }
+    }
+
+    match values.back_mut()
+    {
+        case ?value { value = 60; }
+        case none { std.testing.fail(&"expected mutable deque back"); }
+    }
+
+    match values.front()
+    {
+        case ?value { assert(value == 10); }
+        case none { std.testing.fail(&"expected deque front"); }
+    }
+
+    match values.back()
+    {
+        case ?value { assert(value == 60); }
+        case none { std.testing.fail(&"expected deque back"); }
+    }
+
+    try trusted values.shrink_to_fit();
+
+    assert(values.capacity() == 5);
+
+    {
+        assert(values[first_index] == 10);
+        assert(values[fifth_index] == 60);
+    }
+
+    trusted values.clear();
+
+    assert(values.is_empty());
+
+    return Ok(unit);
+}
+
+@test
+trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut values: std.collection.Deque<i32> = try trusted std.collection.Deque<i32>(capacity = 4);
+
+    try trusted values.push_back(1);
+    try trusted values.push_back(2);
+    try trusted values.push_back(3);
+    try trusted values.push_back(4);
+
+    let _: i32? = trusted values.pop_front();
+    let _: i32? = trusted values.pop_front();
+
+    try trusted values.push_back(5);
+    try trusted values.push_back(6);
+
+    {
+        let source: &std.collection.Deque<i32> = &values;
+        let cursor: std.collection.DequeReadCursor<i32> = source(Iterable).iterate();
+        let third: (&i32)? = std.iteration.nth<std.collection.DequeReadCursor<i32>>(cursor, index = 2);
+
+        match third
+        {
+            case ?value { assert(value == 5); }
+            case none { std.testing.fail(&"expected wrapped deque element"); }
+        }
+    }
+
+    {
+        let source: &mut std.collection.Deque<i32> = &mut values;
+        let mut cursor: std.collection.DequeWriteCursor<i32> = source(Iterable).iterate();
+        let first: (&mut i32)? = cursor(Iterator).next();
+
+        match consume first
+        {
+            case ?value { value = 30; }
+            case none { std.testing.fail(&"expected mutable wrapped deque element"); }
+        }
+    }
+
+    let cursor: std.collection.DequeMoveCursor<i32> = values(Iterable).iterate();
+    let second: i32? = std.iteration.nth<std.collection.DequeMoveCursor<i32>>(cursor, index = 1);
+
+    match consume second
+    {
+        case ?value { assert(value == 4); }
+        case none { std.testing.fail(&"expected owned wrapped deque element"); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut exact: std.collection.Deque<i32> = try trusted std.collection.Deque<i32>();
+
+    try trusted exact.reserve_exact(additional = 3);
+
+    assert(exact.capacity() == 3);
+
+    try trusted exact.shrink_to_fit();
+
+    assert(exact.capacity() == 0);
+
+    match exact.front()
+    {
+        case ?_ { std.testing.fail(&"expected empty deque front"); }
+        case none {}
+    }
+
+    match exact.back()
+    {
+        case ?_ { std.testing.fail(&"expected empty deque back"); }
+        case none {}
+    }
+
+    match trusted exact.pop_front()
+    {
+        case ?_ { std.testing.fail(&"expected empty front pop"); }
+        case none {}
+    }
+
+    match trusted exact.pop_back()
+    {
+        case ?_ { std.testing.fail(&"expected empty back pop"); }
+        case none {}
+    }
+
+    let first_bytes: [u8; 1] = [31];
+    let second_bytes: [u8; 1] = [47];
+    let mut owned: std.collection.Deque<OwnedValue> = try trusted std.collection.Deque<OwnedValue>(capacity = 1);
+
+    try trusted owned.push_front(
+        {
+            bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
+        }
+    );
+
+    try trusted owned.push_back(
+        {
+            bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
+        }
+    );
+
+    match consume trusted owned.pop_front()
+    {
+        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 31); }
+        case none { std.testing.fail(&"expected owned deque value"); }
+    }
+
+    match consume trusted owned.pop_back()
+    {
+        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 47); }
+        case none { std.testing.fail(&"expected owned deque value"); }
+    }
+
+    let mut empty: std.collection.Deque<unit> = try trusted std.collection.Deque<unit>();
+
+    try trusted empty.push_front(unit);
+    try trusted empty.push_back(unit);
+    try trusted empty.push_front(unit);
+    try trusted empty.push_back(unit);
+    try trusted empty.push_front(unit);
+
+    assert(empty.length() == 5);
+    assert(empty.capacity() == 8);
+
+    let _: std.memory.MemoryLayoutError = std.testing.assert_error<
+        std.collection.Deque<u64>,
+        std.memory.MemoryLayoutError
+    >(trusted std.collection.Deque<u64>(capacity = ~0));
+
+    let mut overflow: std.collection.Deque<u64> = try trusted std.collection.Deque<u64>();
+
+    let _: std.memory.MemoryLayoutError = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(
+        trusted overflow.reserve(additional = ~0)
+    );
+
+    return Ok(unit);
+}
+
+@test
+trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>();
+
+    try trusted stack.reserve(additional = 4);
+
+    assert(stack.capacity() == 4);
+
+    try trusted stack.push(1);
+    try trusted stack.push(2);
+
+    match stack.peek_mut()
+    {
+        case ?value { value = 20; }
+        case none { std.testing.fail(&"expected mutable stack top"); }
+    }
+
+    match stack.peek()
+    {
+        case ?value { assert(value == 20); }
+        case none { std.testing.fail(&"expected stack top"); }
+    }
+
+    match trusted stack.pop()
+    {
+        case ?value { assert(value == 20); }
+        case none { std.testing.fail(&"expected stack value"); }
+    }
+
+    let storage: std.collection.Deque<i32> = stack.into_deque();
+    let mut queue: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(storage);
+
+    try trusted queue.enqueue(3);
+    try trusted queue.enqueue(4);
+
+    match trusted queue.dequeue()
+    {
+        case ?value { assert(value == 1); }
+        case none { std.testing.fail(&"expected queue value"); }
+    }
+
+    match queue.peek()
+    {
+        case ?value { assert(value == 3); }
+        case none { std.testing.fail(&"expected queue front"); }
+    }
+
+    match queue.peek_mut()
+    {
+        case ?value { value = 30; }
+        case none { std.testing.fail(&"expected mutable queue front"); }
+    }
+
+    let remaining: std.collection.Deque<i32> = queue.into_deque();
+    let first_index: usize = 0;
+    let second_index: usize = 1;
+
+    {
+        assert(remaining.length() == 2);
+        assert(remaining[first_index] == 30);
+        assert(remaining[second_index] == 4);
+    }
+
+    let mut cleared: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(remaining);
+
+    trusted cleared.clear();
+
+    assert(cleared.is_empty());
+
+    match trusted cleared.dequeue()
+    {
+        case ?_ { std.testing.fail(&"expected cleared queue"); }
+        case none {}
+    }
 
     return Ok(unit);
 }

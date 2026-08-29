@@ -1,0 +1,75 @@
+module std.collection;
+
+struct Queue<T>
+{
+    internal mut storage: Deque<T>;
+
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let storage: Deque<T> = try trusted Deque<T>(capacity = capacity);
+
+        return Ok(
+            {
+                storage = storage,
+            }
+        );
+    }
+
+    construct from_deque(pos storage: Deque<T>) -> Self
+    {
+        return
+        {
+            storage = storage,
+        };
+    }
+
+    func length() -> usize
+    {
+        return self.storage.length();
+    }
+
+    func capacity() -> usize
+    {
+        return self.storage.capacity();
+    }
+
+    func is_empty() -> bool
+    {
+        return self.storage.is_empty();
+    }
+
+    func peek() -> (&T)?
+    {
+        return self.storage.front();
+    }
+
+    mut func peek_mut() -> (&mut T)?
+    {
+        return self.storage.front_mut();
+    }
+
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted self.storage.reserve(additional = additional);
+    }
+
+    trusted mut func enqueue(pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted self.storage.push_back(value);
+    }
+
+    trusted mut func dequeue() -> T?
+    {
+        return trusted self.storage.pop_front();
+    }
+
+    trusted mut func clear()
+    {
+        trusted self.storage.clear();
+    }
+
+    consume func into_deque() -> Deque<T>
+    {
+        return self.storage;
+    }
+}

@@ -426,6 +426,13 @@ back access, push and pop operations at either end, indexed access where its com
 management, and shared, mutable, and consuming iteration in logical sequence order. Its representation may wrap
 internally, but public views never expose uninitialized or out-of-order storage.
 
+Construction accepts an optional initial capacity. `length`, `capacity`, and `is_empty` observe the logical sequence;
+`front`, `back`, `front_mut`, and `back_mut` return `none` for an empty deque; and `push_front`, `push_back`, `pop_front`,
+`pop_back`, `reserve`, `reserve_exact`, `shrink_to_fit`, and `clear` preserve logical order across wrapped storage.
+Capacity arithmetic reports `MemoryLayoutError.SizeOverflow` rather than wrapping. Indexed access is constant time and
+uses logical positions, while shared, mutable, and consuming iteration is linear in that same order. Growth and
+normalization move every live element exactly once and never treat spare storage as an initialized `T`.
+
 ### Hash Collection Surface
 
 `std.collection.HashMap<Key, Value, Hasher>` and `std.collection.HashSet<Value, Hasher>` provide expected constant-time
@@ -449,6 +456,11 @@ and exclusive bounds explicitly and preserve ascending order unless the operatio
 Stack and queue types are narrow adapters over sequence storage when their restricted interfaces communicate a useful
 invariant. They do not duplicate storage engines solely to provide alternate names. Their public operations expose only
 the ordering policy that defines the adapter, while conversion to and from the underlying owning collection is explicit.
+
+`std.collection.Stack<T>` exposes `push`, `pop`, `peek`, and `peek_mut` with last-in-first-out ordering.
+`std.collection.Queue<T>` exposes `enqueue`, `dequeue`, `peek`, and `peek_mut` with first-in-first-out ordering. Both
+adapters expose `length`, `capacity`, `is_empty`, `reserve`, and `clear`, store one `Deque<T>` without an additional
+dispatch layer, and convert explicitly with `from_deque` and `into_deque`.
 
 ## Formatting
 

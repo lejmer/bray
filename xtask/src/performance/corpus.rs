@@ -32,7 +32,7 @@ pub(super) struct RetentionContract {
     pub forbidden_provenance: &'static [&'static str],
 }
 
-const NO_RETENTION_CONTRACT: RetentionContract = RetentionContract {
+pub(super) const NO_RETENTION_CONTRACT: RetentionContract = RetentionContract {
     required_symbols: &[],
     forbidden_symbols: &[],
     required_provenance: &[],
@@ -65,7 +65,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 16] = [
+pub(super) const WORKLOADS: [Workload; 17] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -154,6 +154,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             copied_bytes: 4_092,
         }),
     },
+    super::workloads::DEQUE_MIXED_ENDS,
     Workload {
         id: "borrowed_text",
         category: WorkloadCategory::CoreData,
@@ -799,6 +800,22 @@ mod tests {
         assert_eq!(1_u64 << additional_allocations, 4096 / 64);
         assert_eq!(large.allocated_bytes + 4, (small.allocated_bytes + 4) * 64);
         assert_eq!(large.copied_bytes + 4, (small.copied_bytes + 4) * 64);
+    }
+
+    #[test]
+    fn deque_workload_combines_wraparound_steady_state_and_growth() {
+        let workload = workload("deque_mixed_ends");
+        let storage = storage("deque_mixed_ends");
+
+        assert_eq!(workload.scale, 4096);
+        assert_eq!(workload.units, "mixed-end operations");
+        assert!(workload.source.contains("while round < 2048"));
+        assert!(workload.source.contains("values.pop_front()"));
+        assert!(workload.source.contains("values.pop_back()"));
+        assert!(workload.source.contains("values.capacity() == 128"));
+        assert_eq!(storage.allocation_count, 2);
+        assert_eq!(storage.allocated_bytes, 1_536);
+        assert_eq!(storage.copied_bytes, 0);
     }
 
     #[test]
