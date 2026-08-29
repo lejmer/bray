@@ -529,7 +529,13 @@ where
         let custom_borrow_kind = target.and_then(IndexTarget::custom_borrow_kind);
         let custom = custom_borrow_kind.is_some();
 
-        let receiver_purpose = custom_borrow_kind.map(StorageAccessPurpose::Borrow);
+        let receiver_purpose = match kind {
+            BoundStructuredExpressionKind::NullablePropagation => {
+                Some(StorageAccessPurpose::Read)
+            }
+            _ => custom_borrow_kind.map(StorageAccessPurpose::Borrow),
+        };
+
         let receiver_access = self.plan_expression(receiver, receiver_purpose)?;
 
         for selector in &operands[1..] {

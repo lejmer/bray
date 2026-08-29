@@ -81,8 +81,8 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidNativeLinkInput,
     EvaluationCycle,
     EvaluationInfrastructure,
-    EvaluationLoweringInput,
-    EvaluationLowering,
+    EvaluationLoweringInput(super::DiagnosticLoweringInputFailure),
+    EvaluationLowering(super::DiagnosticLoweringFailure),
     EvaluationConstantCallableBodyUnavailable,
     EvaluationConstantCallableRootUnavailable,
     EvaluationAtomicRepresentationTypeUnavailable,
@@ -164,8 +164,8 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidNativeLinkInput => "invalid_native_link_input",
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
-            Self::EvaluationLoweringInput => "evaluation_lowering_input",
-            Self::EvaluationLowering => "evaluation_lowering",
+            Self::EvaluationLoweringInput(failure) => failure.as_str(),
+            Self::EvaluationLowering(failure) => failure.as_str(),
             Self::EvaluationConstantCallableBodyUnavailable => {
                 "evaluation_constant_callable_body_unavailable"
             }

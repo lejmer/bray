@@ -35,6 +35,7 @@ pub use argument::{
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
     DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
+    DiagnosticLoweringFailure, DiagnosticLoweringInputFailure, DiagnosticMirUnitBuildFailure,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
     DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,

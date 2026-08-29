@@ -24,6 +24,7 @@ pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode,
     DiagnosticDebugOutputMode, DiagnosticEmissionArtifactOperation,
+    DiagnosticLoweringFailure, DiagnosticLoweringInputFailure, DiagnosticMirUnitBuildFailure,
     DiagnosticNativeProductFailureKind, DiagnosticProductKind,
 };
 pub use external::{

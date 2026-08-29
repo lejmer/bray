@@ -2188,6 +2188,86 @@ trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     #[test]
+    fn nullable_nested_scope_exit_publishes_its_cleanup_plan() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Probe
+{
+    destruct() {}
+}
+
+func main(pos value: i32?) -> i32?
+{
+    {
+        let probe: Probe = Probe {};
+        let unwrapped: i32 = value?;
+        let mut result: i32? = none;
+
+        result = unwrapped;
+
+        return result;
+    }
+}
+"#,
+        );
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("nullable unit must bind: {error:?}"));
+
+        assert!(bound.diagnostics().is_empty(), "{:#?}", bound.diagnostics());
+
+        let types = compilation
+            .expression_types(key.clone())
+            .unwrap_or_else(|error| panic!("nullable expressions must type: {error:?}"));
+
+        assert!(types.diagnostics().is_empty(), "{:#?}", types.diagnostics());
+
+        let patterns = compilation
+            .patterns(key.clone())
+            .unwrap_or_else(|error| panic!("nullable patterns must check: {error:?}"));
+
+        assert!(
+            patterns.diagnostics().is_empty(),
+            "{:#?}",
+            patterns.diagnostics()
+        );
+
+        let storage = compilation
+            .storage_plan(key.clone())
+            .unwrap_or_else(|error| panic!("nullable storage must plan: {error:?}"));
+
+        assert!(
+            storage.diagnostics().is_empty(),
+            "{:#?}",
+            storage.diagnostics()
+        );
+
+        compilation
+            .storage_flow(key.clone())
+            .unwrap_or_else(|error| panic!("nullable storage flow must publish: {error:?}"));
+
+        compilation
+            .async_analysis(key.clone())
+            .unwrap_or_else(|error| panic!("nullable cleanup plans must publish: {error:?}"));
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("nested nullable cleanup must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
+    }
+
+    #[test]
     fn checked_result_propagation_lowers_success_and_error_paths() {
         let compilation = compilation(RESULT_PROPAGATION_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);

@@ -27,8 +27,8 @@ pub(crate) const fn format_english_emission_evaluation_failure(
     match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler evaluation state became inconsistent",
-        Failure::LoweringInput => "the compiler detected inconsistent checked program information",
-        Failure::Lowering => "the compiler could not translate checked program information",
+        Failure::LoweringInput(failure) => format_english_lowering_input_failure(failure),
+        Failure::Lowering(failure) => format_english_lowering_failure(failure),
         Failure::ConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -76,10 +76,8 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
-        Kind::EvaluationLoweringInput => {
-            "the compiler detected inconsistent checked program information"
-        }
-        Kind::EvaluationLowering => "the compiler could not translate checked program information",
+        Kind::EvaluationLoweringInput(failure) => format_english_lowering_input_failure(failure),
+        Kind::EvaluationLowering(failure) => format_english_lowering_failure(failure),
         Kind::EvaluationConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -215,6 +213,146 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::CodegenMissingHelperInstance => "a required generated helper is missing",
         Kind::CodegenLayoutOverflow => "a required type layout exceeds the selected target",
         Kind::CodegenInvalidSymbolName => "a generated binary symbol name is not representable",
+    }
+}
+
+const fn format_english_lowering_input_failure(
+    failure: bray_diagnostics::DiagnosticLoweringInputFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticLoweringInputFailure as Failure;
+
+    match failure {
+        Failure::ForeignInput => "checked program information belongs to another program unit",
+        Failure::InputKindMismatch => {
+            "checked program information describes another program-unit category"
+        }
+        Failure::MissingSemanticSelection => {
+            "a checked expression has no selected semantic operation"
+        }
+        Failure::MissingExpressionType => "a checked expression has no final type",
+        Failure::InvalidPatternInput => "checked pattern information is inconsistent",
+        Failure::InvalidInputContents => "checked program information contains unknown identities",
+        Failure::InvalidStorageOperation => {
+            "a checked storage operation does not match its storage plan"
+        }
+        Failure::StorageOperationCountMismatch => {
+            "checked storage operations do not exactly cover the storage plan"
+        }
+        Failure::InvalidStorageExit => {
+            "a checked scope exit refers to unknown storage information"
+        }
+        Failure::LiteralTargetWidthMismatch => {
+            "a checked integer literal uses another target width"
+        }
+        Failure::ExecutableHostRequiresSyntheticInput => {
+            "an executable host was supplied through a source program unit"
+        }
+        Failure::CompileTimeUnitRequiresClassification => {
+            "a compile-time program unit reached executable translation"
+        }
+    }
+}
+
+const fn format_english_lowering_failure(
+    failure: bray_diagnostics::DiagnosticLoweringFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticLoweringFailure as Failure;
+
+    match failure {
+        Failure::UnsupportedRoot => "the program-unit root cannot be translated",
+        Failure::MissingBoundNode => "a required checked program node is missing",
+        Failure::RecoveredBoundNode => "an error-recovery node reached executable translation",
+        Failure::MissingExpressionType => "a checked expression has no final type",
+        Failure::AwaitOutsideProtectedFrame => {
+            "an await operation has no protected execution frame"
+        }
+        Failure::MissingSuspensionPoint => "an await operation has no suspension plan",
+        Failure::InvalidTaskOperation => "a task operation has an incompatible call shape",
+        Failure::MissingCallableResultType => "a callable has no checked result type",
+        Failure::MissingLiteralValue => "a checked literal has no canonical value",
+        Failure::MissingSemanticSelection => {
+            "a checked expression has no selected semantic operation"
+        }
+        Failure::UnsupportedExpression => "a checked expression cannot be translated",
+        Failure::UnsupportedPattern => "a checked pattern cannot be translated",
+        Failure::UnsupportedOperator => "a checked operator has no executable operation",
+        Failure::MissingStorageAccess => "an expression has no checked storage access",
+        Failure::MissingStorageAccessRecord => {
+            "a checked storage access is absent from the storage plan"
+        }
+        Failure::MissingCleanupPlan => "a checked scope exit has no cleanup plan",
+        Failure::MissingStorageIdentity => "a checked access reaches no storage identity",
+        Failure::MissingStorageIdentityRecord => {
+            "a checked storage identity is absent from the storage plan"
+        }
+        Failure::MissingIterationStorage => "an iteration has no checked cursor or element storage",
+        Failure::UnsupportedStorageAccess => "a checked storage path cannot be translated",
+        Failure::MissingOperationResult => "a value-producing operation has no result",
+        Failure::MissingRepresentation => {
+            "a required compiler-provided representation is unavailable"
+        }
+        Failure::SemanticValueUnavailable => "a checked semantic value is unavailable",
+        Failure::InvalidFrameDescriptor => "an execution frame description is inconsistent",
+        Failure::Mir(failure) => format_english_mir_unit_failure(failure),
+    }
+}
+
+const fn format_english_mir_unit_failure(
+    failure: bray_diagnostics::DiagnosticMirUnitBuildFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticMirUnitBuildFailure as Failure;
+
+    match failure {
+        Failure::SourceOriginMismatch => "generated source information belongs to another unit",
+        Failure::IdentityCapacityExceeded => "generated unit identity capacity was exceeded",
+        Failure::ForeignBlock => "a generated block belongs to another unit",
+        Failure::ForeignOperation => "a generated operation belongs to another unit",
+        Failure::ForeignStorage => "generated storage belongs to another unit",
+        Failure::ForeignValue => "a generated value belongs to another unit",
+        Failure::MissingBlock => "a referenced generated block is missing",
+        Failure::MissingOperation => "a referenced generated operation is missing",
+        Failure::MissingOperationResult => "a generated operation has no required result",
+        Failure::UnexpectedOperationResult => "a generated operation has an unexpected result",
+        Failure::OperationResultTypeMismatch => "a generated operation result has the wrong type",
+        Failure::InvalidAggregateOperation => "a generated aggregate operation is inconsistent",
+        Failure::InvalidMemoryOperation => "a generated memory operation is inconsistent",
+        Failure::InvalidAnonymousCallable => "a generated anonymous callable is inconsistent",
+        Failure::InvalidConstructionInput => "a generated construction input is inconsistent",
+        Failure::InvalidCall => "a generated call is inconsistent",
+        Failure::InvalidHostOperation => "a generated host operation is inconsistent",
+        Failure::InvalidHostSequence => "generated host operations have an invalid sequence",
+        Failure::MissingStorage => "a referenced generated storage allocation is missing",
+        Failure::MissingValue => "a referenced generated value is missing",
+        Failure::DuplicateTerminator => "a generated block has more than one terminator",
+        Failure::MissingTerminator => "a generated block has no terminator",
+        Failure::InvalidInlineAssemblyTerminator => {
+            "a generated inline-assembly branch is inconsistent"
+        }
+        Failure::InvalidSuspensionPayload => "a generated suspension payload is inconsistent",
+        Failure::InvalidCallPanicCheck => "a generated call panic check is inconsistent",
+        Failure::EdgeArgumentCountMismatch => "a generated edge supplies the wrong argument count",
+        Failure::EdgeArgumentTypeMismatch => "a generated edge supplies an argument of the wrong type",
+        Failure::DuplicateSwitchCase => "a generated switch contains a duplicate case",
+        Failure::CleanupTargetMismatch => "a generated cleanup edge targets the wrong cleanup phase",
+        Failure::CleanupPhaseOrderViolation => "generated cleanup phases have an invalid order",
+        Failure::RuntimeRoleMismatch => "a generated runtime operation uses the wrong runtime role",
+        Failure::RuntimeAbiVersionMismatch => {
+            "a generated runtime reference uses another runtime interface version"
+        }
+        Failure::InvalidOperationBlock => "a generated operation is not valid in its block",
+        Failure::StorageKindMismatch => "a generated operation uses storage of the wrong kind",
+        Failure::StorageTypeMismatch => "a generated storage operation uses incompatible types",
+        Failure::ValueDoesNotDominateUse => "a generated value is used outside its valid region",
+        Failure::ProtectedFrameMismatch => "a generated operation uses another protected frame",
+        Failure::MissingFrameDescriptor => "a protected program unit has no frame description",
+        Failure::DuplicateFrameDescriptor => {
+            "a protected program unit has more than one frame description"
+        }
+        Failure::UnexpectedFrameDescriptor => {
+            "an unprotected program unit has a frame description"
+        }
+        Failure::InvalidFrameStateEntry => "a protected frame state has an invalid entry block",
+        Failure::MissingFrameState => "a referenced protected frame state is missing",
     }
 }
 

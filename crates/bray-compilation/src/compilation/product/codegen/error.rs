@@ -289,8 +289,12 @@ const fn fact_query_failure_kind(
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
-        FactQueryError::LoweringInput(_) => Some(Kind::EvaluationLoweringInput),
-        FactQueryError::Lowering(_) => Some(Kind::EvaluationLowering),
+        FactQueryError::LoweringInput(error) => Some(Kind::EvaluationLoweringInput(
+            super::super::super::lowering_diagnostic::lowering_input_failure(error),
+        )),
+        FactQueryError::Lowering(error) => Some(Kind::EvaluationLowering(
+            super::super::super::lowering_diagnostic::lowering_failure(error),
+        )),
         FactQueryError::ConstantCallableBodyUnavailable => {
             Some(Kind::EvaluationConstantCallableBodyUnavailable)
         }
@@ -350,9 +354,10 @@ impl From<super::super::super::CodegenPreparationError> for NativeProductPlannin
 mod tests {
     use bray_checker::CheckerInfrastructureError;
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticNativeProductFailureKind,
-        DiagnosticNoteKind,
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLoweringFailure,
+        DiagnosticLoweringInputFailure, DiagnosticNativeProductFailureKind, DiagnosticNoteKind,
     };
+    use bray_lowering::{LoweringError, LoweringInputError};
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -401,6 +406,16 @@ mod tests {
             (
                 FactQueryError::ImportedExecutableTemplateMismatch,
                 Kind::EvaluationImportedExecutableTemplateMismatch,
+            ),
+            (
+                FactQueryError::LoweringInput(LoweringInputError::InvalidPatternInput),
+                Kind::EvaluationLoweringInput(
+                    DiagnosticLoweringInputFailure::InvalidPatternInput,
+                ),
+            ),
+            (
+                FactQueryError::Lowering(LoweringError::InvalidFrameDescriptor),
+                Kind::EvaluationLowering(DiagnosticLoweringFailure::InvalidFrameDescriptor),
             ),
         ];
 

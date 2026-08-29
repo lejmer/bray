@@ -743,8 +743,14 @@ fn diagnostic_evaluation_failure(error: &FactQueryError) -> DiagnosticEmissionEv
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
-        FactQueryError::LoweringInput(_) => DiagnosticEmissionEvaluationFailure::LoweringInput,
-        FactQueryError::Lowering(_) => DiagnosticEmissionEvaluationFailure::Lowering,
+        FactQueryError::LoweringInput(error) => {
+            DiagnosticEmissionEvaluationFailure::LoweringInput(
+                super::super::super::lowering_diagnostic::lowering_input_failure(error),
+            )
+        }
+        FactQueryError::Lowering(error) => DiagnosticEmissionEvaluationFailure::Lowering(
+            super::super::super::lowering_diagnostic::lowering_failure(error),
+        ),
         FactQueryError::ConstantCallableBodyUnavailable => {
             DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
         }
@@ -793,9 +799,11 @@ fn diagnostic_evaluation_failure(error: &FactQueryError) -> DiagnosticEmissionEv
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind, DiagnosticLabelKind,
+        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticInterfaceSymbolKind, DiagnosticLabelKind, DiagnosticLoweringFailure,
         DiagnosticNoteKind, DiagnosticRelatedLocationKind,
     };
+    use bray_lowering::LoweringError;
     use bray_messages::DiagnosticRenderer;
     use bray_package_interface::{InterfaceSemanticCommitError, InterfaceSemanticTableKind};
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
@@ -803,9 +811,11 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        package_interface_export_failure_diagnostic, package_interface_fragment_failure_diagnostic,
+        diagnostic_evaluation_failure, package_interface_export_failure_diagnostic,
+        package_interface_fragment_failure_diagnostic,
     };
     use crate::compilation::PackageInterfaceExportError;
+    use crate::fact::FactQueryError;
 
     fn identities() -> (ProductIdentity, TargetIdentity) {
         let package = PackageIdentity::try_new("example.package")
@@ -831,6 +841,18 @@ mod tests {
                 &target,
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn terminal_evaluation_failures_retain_the_lowering_cause() {
+        assert_eq!(
+            diagnostic_evaluation_failure(&FactQueryError::Lowering(
+                LoweringError::InvalidFrameDescriptor,
+            )),
+            DiagnosticEmissionEvaluationFailure::Lowering(
+                DiagnosticLoweringFailure::InvalidFrameDescriptor,
+            )
         );
     }
 

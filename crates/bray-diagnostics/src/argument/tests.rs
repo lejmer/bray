@@ -6,6 +6,7 @@ use bray_syntax::SyntaxKind;
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
+    DiagnosticLoweringFailure, DiagnosticLoweringInputFailure,
     DiagnosticNativeProductFailureKind,
 };
 
@@ -154,8 +155,8 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::InvalidNativeLinkInput,
         Kind::EvaluationCycle,
         Kind::EvaluationInfrastructure,
-        Kind::EvaluationLoweringInput,
-        Kind::EvaluationLowering,
+        Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::InvalidStorageExit),
+        Kind::EvaluationLowering(DiagnosticLoweringFailure::MissingCleanupPlan),
         Kind::SemanticContextFailure,
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,
