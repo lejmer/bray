@@ -1,5 +1,6 @@
 use bray_binder::SemanticUnitContextError;
 use bray_checker::CheckerInfrastructureError;
+use bray_lowering::{LoweringError, LoweringInputError};
 
 use super::CompilationFactKey;
 
@@ -105,6 +106,10 @@ pub enum FactQueryError {
     SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
     CheckerInfrastructure(CheckerInfrastructureError),
+    /// Checked lowering inputs violated the lowering boundary contract.
+    LoweringInput(LoweringInputError),
+    /// MIR lowering violated a checked semantic or MIR construction contract.
+    Lowering(LoweringError),
 }
 
 impl std::fmt::Display for FactQueryError {
@@ -145,6 +150,10 @@ impl std::fmt::Display for FactQueryError {
                     "semantic checking infrastructure failed: {error:?}"
                 )
             }
+            Self::LoweringInput(error) => {
+                write!(formatter, "lowering input validation failed: {error:?}")
+            }
+            Self::Lowering(error) => write!(formatter, "MIR lowering failed: {error:?}"),
         }
     }
 }

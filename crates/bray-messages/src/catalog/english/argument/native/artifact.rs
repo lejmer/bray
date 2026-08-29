@@ -27,6 +27,8 @@ pub(crate) const fn format_english_emission_evaluation_failure(
     match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler evaluation state became inconsistent",
+        Failure::LoweringInput => "the compiler detected inconsistent checked program information",
+        Failure::Lowering => "the compiler could not translate checked program information",
         Failure::ConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -74,6 +76,10 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationLoweringInput => {
+            "the compiler detected inconsistent checked program information"
+        }
+        Kind::EvaluationLowering => "the compiler could not translate checked program information",
         Kind::EvaluationConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }

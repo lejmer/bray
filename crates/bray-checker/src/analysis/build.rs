@@ -698,6 +698,9 @@ mod tests {
         BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind, BoundPatternMode,
         BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+        CheckedExpressionTypes, CheckedSemanticSelections, ConversionTarget, SelectedConversion,
+        SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+        SemanticSelectionEntry, StoragePlanBuilder,
     };
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_symbols::{
@@ -706,7 +709,9 @@ mod tests {
         TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
     };
 
-    use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+    use super::{
+        ControlFlowGraphBuildOutcome, build_control_flow_graph, build_storage_control_flow_graph,
+    };
     use crate::CheckerUnitView;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
@@ -1236,6 +1241,94 @@ mod tests {
                 | AnalysisEdgeKind::RunResultPanicked
                 | AnalysisEdgeKind::RunResultCancelled
         )));
+    }
+
+    #[test]
+    fn checked_result_propagation_drives_storage_flow_when_operand_representation_is_recovered() {
+        let key = callable_key();
+        let unit_id = BoundUnitId::new(24);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit_id);
+        let operand = push_error_expression(&mut builder, origin);
+
+        let propagation = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::ResultPropagation,
+                [operand],
+                [],
+                [],
+                Some(error_type()),
+                true,
+            )),
+        );
+
+        let inner = push_block(&mut builder, origin, [propagation]);
+
+        let inner_expression = push_expression(
+            &mut builder,
+            BoundExpression::Block(BoundBlockExpression::new(
+                origin,
+                inner,
+                Some(error_type()),
+                true,
+            )),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [inner_expression]);
+        let unit = callable_unit(&key, builder.finish(), root);
+        let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
+
+        let selections = CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                propagation,
+                SemanticSelection::Propagation(SelectedPropagation::Result {
+                    boundary: SelectedPropagationBoundary::Callable,
+                    result_type: error_type(),
+                    error_conversion: SelectedConversion::new(
+                        error_type(),
+                        error_type(),
+                        ConversionTarget::Identity,
+                    ),
+                }),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("propagation selection must validate: {error:?}"));
+
+        let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
+        let entry = callable_entry(&key);
+        let context = TestCheckerContext::new(false);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
+
+        let ControlFlowGraphBuildOutcome::Complete(graph) =
+            build_storage_control_flow_graph(request, &storage, &selections)
+        else {
+            panic!("checked storage graph construction must complete");
+        };
+
+        for edge in [
+            AnalysisEdgeKind::ResultSuccess,
+            AnalysisEdgeKind::ResultErrorPropagation,
+        ] {
+            assert!(
+                graph
+                    .edges()
+                    .iter()
+                    .any(|candidate| candidate.kind() == edge)
+            );
+        }
+
+        assert!(
+            graph
+                .exits()
+                .iter()
+                .any(|candidate| candidate.kind() == AnalysisExitKind::ResultErrorPropagation)
+        );
     }
 
     #[test]

@@ -6,7 +6,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_ir::MirUnitBuildError;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LoweringError {
     /// The bound unit root is not part of the synchronous lowering contract.
     UnsupportedRoot(BoundUnitRoot),

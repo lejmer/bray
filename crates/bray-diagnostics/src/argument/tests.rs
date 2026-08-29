@@ -154,6 +154,8 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::InvalidNativeLinkInput,
         Kind::EvaluationCycle,
         Kind::EvaluationInfrastructure,
+        Kind::EvaluationLoweringInput,
+        Kind::EvaluationLowering,
         Kind::SemanticContextFailure,
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,

@@ -743,6 +743,8 @@ fn diagnostic_evaluation_failure(error: &FactQueryError) -> DiagnosticEmissionEv
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
+        FactQueryError::LoweringInput(_) => DiagnosticEmissionEvaluationFailure::LoweringInput,
+        FactQueryError::Lowering(_) => DiagnosticEmissionEvaluationFailure::Lowering,
         FactQueryError::ConstantCallableBodyUnavailable => {
             DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
         }

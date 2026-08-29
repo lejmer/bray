@@ -347,6 +347,8 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
+    LoweringInput,
+    Lowering,
     ConstantCallableBodyUnavailable,
     ConstantCallableRootUnavailable,
     AtomicRepresentationTypeUnavailable,
@@ -634,6 +636,8 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::LoweringInput => "lowering_input",
+            Self::Lowering => "lowering",
             Self::ConstantCallableBodyUnavailable => "constant_callable_body_unavailable",
             Self::ConstantCallableRootUnavailable => "constant_callable_root_unavailable",
             Self::AtomicRepresentationTypeUnavailable => "atomic_representation_type_unavailable",

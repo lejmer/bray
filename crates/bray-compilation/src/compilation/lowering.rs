@@ -168,7 +168,7 @@ impl Compilation {
             target,
         )
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-        .unwrap_or_else(|error| panic!("checked lowering input is inconsistent: {error:?}"));
+        .map_err(FactQueryError::LoweringInput)?;
 
         let input = input.with_native_static_templates(&native_static_templates);
 
@@ -189,7 +189,7 @@ impl Compilation {
             span.finish(crate::profile::result_outcome(&result));
         }
 
-        let mir = result.unwrap_or_else(|error| panic!("checked MIR lowering failed: {error:?}"));
+        let mir = result.map_err(FactQueryError::Lowering)?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
             profile.record_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
@@ -2136,6 +2136,55 @@ func both_bounds(pos values: Values) -> i32
             .collect::<BTreeSet<_>>();
 
         assert_eq!(cleanup_storages.len(), 2, "{cleanup_places:?}");
+    }
+
+    #[test]
+    fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../standard-library/std/src/bytes/buffer.bray"),
+            include_str!("../../../../standard-library/std/src/collection/list.bray"),
+            include_str!("../../../../standard-library/std/src/collection/deque.bray"),
+            r#"module app;
+
+using std.collection;
+using std.bytes;
+using std.memory;
+
+struct Probe
+{
+    bytes: std.bytes.Buffer;
+}
+
+trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    {
+        let bytes: [u8; 1] = [7];
+        let mut values: std.collection.Deque<Probe> = try trusted std.collection.Deque<Probe>();
+
+        try trusted values.push_back(
+            {
+                bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
+            }
+        );
+    }
+
+    return Ok(unit);
+}
+"#,
+        ]);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("nested propagated cleanup must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
     }
 
     #[test]

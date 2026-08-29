@@ -289,6 +289,8 @@ const fn fact_query_failure_kind(
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::LoweringInput(_) => Some(Kind::EvaluationLoweringInput),
+        FactQueryError::Lowering(_) => Some(Kind::EvaluationLowering),
         FactQueryError::ConstantCallableBodyUnavailable => {
             Some(Kind::EvaluationConstantCallableBodyUnavailable)
         }

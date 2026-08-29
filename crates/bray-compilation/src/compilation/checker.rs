@@ -674,7 +674,9 @@ pub(in crate::compilation) fn query_error_with_fallback(
         | FactQueryError::InfrastructureFailure
         | FactQueryError::ConstantCallableBodyUnavailable
         | FactQueryError::ConstantCallableRootUnavailable
-        | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(fallback),
+        | FactQueryError::SemanticUnitContext(_)
+        | FactQueryError::LoweringInput(_)
+        | FactQueryError::Lowering(_) => CheckerQueryError::Infrastructure(fallback),
     }
 }
 

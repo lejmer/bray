@@ -31,6 +31,8 @@ pub(super) fn binder_error(error: FactQueryError) -> BindingQueryError {
         | FactQueryError::UninitInitializerResultUnavailable
         | FactQueryError::ImportedExecutableTemplateMismatch
         | FactQueryError::SemanticUnitContext(_)
-        | FactQueryError::CheckerInfrastructure(_) => BindingQueryError::DependencyUnavailable,
+        | FactQueryError::CheckerInfrastructure(_)
+        | FactQueryError::LoweringInput(_)
+        | FactQueryError::Lowering(_) => BindingQueryError::DependencyUnavailable,
     }
 }

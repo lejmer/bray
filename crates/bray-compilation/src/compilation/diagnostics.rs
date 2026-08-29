@@ -144,6 +144,12 @@ impl Compilation {
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
+            Err(FactQueryError::LoweringInput(error)) => {
+                panic!("lowering input validation failed: {error:?}")
+            }
+            Err(FactQueryError::Lowering(error)) => {
+                panic!("MIR lowering failed: {error:?}")
+            }
         }
     }
 
@@ -187,6 +193,12 @@ impl Compilation {
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("check diagnostic checker infrastructure failed: {error:?}")
+            }
+            Err(FactQueryError::LoweringInput(error)) => {
+                panic!("check diagnostic lowering input validation failed: {error:?}")
+            }
+            Err(FactQueryError::Lowering(error)) => {
+                panic!("check diagnostic MIR lowering failed: {error:?}")
             }
         }
     }
