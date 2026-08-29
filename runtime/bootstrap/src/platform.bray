@@ -12,7 +12,7 @@ internal static NATIVE_THREAD_STORAGE_STATE: core.atomic.Atomic<u32> = core.atom
 
 internal func begin_native_thread_storage_creation() -> bool
 {
-    let(_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+    let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
         &NATIVE_THREAD_STORAGE_STATE,
         expected = NATIVE_THREAD_STORAGE_EMPTY,
         desired = NATIVE_THREAD_STORAGE_PENDING,
@@ -44,7 +44,7 @@ internal func begin_native_thread_storage_destruction(pos key: u64) -> bool
         return false;
     }
 
-    let(_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+    let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
         &NATIVE_THREAD_STORAGE_STATE,
         expected = NATIVE_THREAD_STORAGE_READY,
         desired = NATIVE_THREAD_STORAGE_PENDING,

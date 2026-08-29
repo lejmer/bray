@@ -39,7 +39,7 @@ internal async func increment_with_compare_exchange(pos counter: &std.atomic.Ato
 
 internal func wait_for_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>))
 {
-    let(value, ready) = state;
+    let (value, ready) = state;
 
     std.atomic.store<u32>(ready, 1, order = std.atomic.StoreOrder.Release);
     std.atomic.notify_all<u32>(ready);
@@ -50,7 +50,7 @@ internal func wait_for_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.a
 
 internal func publish_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>))
 {
-    let(value, ready) = state;
+    let (value, ready) = state;
 
     while std.atomic.load<u32>(ready, order = std.atomic.LoadOrder.Acquire) == 0
     {

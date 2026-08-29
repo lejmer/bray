@@ -94,7 +94,8 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 {
     let _: usize = worker_capacity;
     let _: usize = timer_capacity;
-    let(_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+
+    let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
         &BOOTSTRAP_INITIALIZED,
         expected = INITIALIZATION_EMPTY,
         desired = INITIALIZATION_PENDING,
@@ -132,7 +133,7 @@ trusted internal func structured_shutdown() -> u32
         return STATUS_NOT_INITIALIZED;
     }
 
-    let(_, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
+    let (_, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
         &ATTACHMENT_GATE,
         expected = 0,
         desired = ATTACHMENT_GATE_CLOSING,
@@ -467,7 +468,7 @@ trusted internal func acquire_attachment_admission() -> bool
             trusted core.target.abort();
         }
 
-        let(observed, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
+        let (observed, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
             &ATTACHMENT_GATE,
             expected = gate,
             desired = gate + 1,
