@@ -14,8 +14,8 @@ use bray_runtime_model::RuntimeCapability;
 
 use crate::{
     CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    JoinWaitRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
-    RuntimeEventRegistration,
+    JoinWaitRegistration, RuntimeEventRegistration, Scheduler, SchedulerLimits, TaskControlBlock,
+    TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;

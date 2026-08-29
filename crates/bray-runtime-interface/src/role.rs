@@ -77,6 +77,8 @@ pub enum RuntimeAbiRole {
     RootCompletionResolution,
     /// Report and resolve one root panic payload.
     PanicReporting,
+    /// Destroy one handled panic report without reporting it.
+    PanicReportDestruction,
     /// Report one recoverable entrypoint failure value before host resolution.
     EntryFailureReporting,
     /// Select the catalog entry admitted by the test runner.
@@ -117,7 +119,7 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 54] = [
+    pub const ALL: [Self; 55] = [
         Self::RuntimeInitialization,
         Self::RootExecution,
         Self::SynchronousRootExecution,
@@ -154,6 +156,7 @@ impl RuntimeAbiRole {
         Self::RootTerminalObservation,
         Self::RootCompletionResolution,
         Self::PanicReporting,
+        Self::PanicReportDestruction,
         Self::EntryFailureReporting,
         Self::TestEntrySelection,
         Self::StructuredShutdown,
@@ -224,6 +227,7 @@ impl RuntimeAbiRole {
             Self::RootTerminalObservation => "root_terminal_observation",
             Self::RootCompletionResolution => "root_completion_resolution",
             Self::PanicReporting => "panic_reporting",
+            Self::PanicReportDestruction => "panic_report_destruction",
             Self::EntryFailureReporting => "entry_failure_reporting",
             Self::TestEntrySelection => "test_entry_selection",
             Self::StructuredShutdown => "structured_shutdown",
@@ -306,6 +310,8 @@ pub enum RuntimeRoleContractEffect {
     ReleaseRootCompletion,
     /// Report and destroy one owned panic report.
     ReportPanic,
+    /// Destroy one handled panic report without reporting it.
+    DestroyPanicReport,
     /// Report one borrowed recoverable entry failure value.
     ReportEntryFailure,
     /// Select one admitted test entry from the runner command.
@@ -486,9 +492,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         }
         RuntimeAbiRole::NativeThreadPanicReportRecovery => &[Effect::AcquireTerminalState],
         RuntimeAbiRole::TaskEventCreation => &[Effect::CreateTaskEvent],
-        RuntimeAbiRole::TaskEventSignal => {
-            &[Effect::SignalTaskEvent, Effect::EstablishVisibility]
-        }
+        RuntimeAbiRole::TaskEventSignal => &[Effect::SignalTaskEvent, Effect::EstablishVisibility],
         RuntimeAbiRole::TaskEventDestruction => &[Effect::ReleaseTaskEvent],
         RuntimeAbiRole::ThreadAttachmentIdentity => &[Effect::ObserveThreadAttachment],
         RuntimeAbiRole::ThreadStaticCleanupRegistration => &[Effect::RegisterThreadCleanup],
@@ -526,6 +530,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         }
         RuntimeAbiRole::RootCompletionResolution => &[Effect::ReleaseRootCompletion],
         RuntimeAbiRole::PanicReporting => &[Effect::ReportPanic],
+        RuntimeAbiRole::PanicReportDestruction => &[Effect::DestroyPanicReport],
         RuntimeAbiRole::EntryFailureReporting => &[Effect::ReportEntryFailure],
         RuntimeAbiRole::TestEntrySelection => &[Effect::SelectTestEntry],
         RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],

@@ -123,6 +123,10 @@ struct InactiveFrame {
 struct ProtectedFrameTransfer(usize);
 
 unsafe extern "C" {
+    safe fn bray_runtime_initialization(
+        worker_capacity: usize,
+        timer_capacity: usize,
+    ) -> Status;
     safe fn bray_runtime_root_execution(
         frame: ProtectedFrameTransfer,
         configuration: Configuration,
@@ -142,6 +146,7 @@ unsafe extern "C" {
         message_length: usize,
     ) -> usize;
     safe fn bray_runtime_panic_reporting(payload: usize) -> Status;
+    safe fn bray_runtime_panic_report_destruction(payload: usize) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
     safe fn bray_runtime_wake(task: TaskHandle, state: u32) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
@@ -235,22 +240,26 @@ extern "C-unwind" fn suspend_then_fail(_: usize) -> FrameProgress {
 }
 
 extern "C-unwind" fn panic_frame(_: usize) -> FrameProgress {
-    const MESSAGE: &[u8] = b"runtime smoke panic";
-
     FrameProgress {
         kind: FrameProgressKind(3),
         state: 0,
-        payload: bray_runtime_panic_report_construction(
-            PanicCause::MESSAGE,
-            1,
-            0,
-            0,
-            1,
-            0,
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
-        ),
+        payload: panic_report(),
     }
+}
+
+fn panic_report() -> usize {
+    const MESSAGE: &[u8] = b"runtime smoke panic";
+
+    bray_runtime_panic_report_construction(
+        PanicCause::MESSAGE,
+        1,
+        0,
+        0,
+        1,
+        0,
+        MESSAGE.as_ptr(),
+        MESSAGE.len(),
+    )
 }
 
 extern "C-unwind" fn ignore_action(_: usize) {}
@@ -303,6 +312,8 @@ fn protected_frame(
 }
 
 fn start_root(frame: ProtectedFrame) -> RootHandle {
+    assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
+
     let transfer = ProtectedFrameTransfer(&frame as *const ProtectedFrame as usize);
 
     let start = bray_runtime_root_execution(
@@ -358,6 +369,7 @@ fn main() {
 
     assert!(outcome.state == RunState::PANICKED);
     assert!(bray_runtime_panic_reporting(outcome.payload) == Status::SUCCESS);
+    assert!(bray_runtime_panic_report_destruction(panic_report()) == Status::SUCCESS);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
@@ -404,6 +416,10 @@ fn main() {
             (&raw const failure).addr(),
             size_of::<i32>(),
         ) == Status::SUCCESS
+    );
+
+    assert!(
+        bray_runtime_initialization(8, 8) == Status::SUCCESS
     );
 
     assert!(

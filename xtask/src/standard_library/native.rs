@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 120;
+const API_TEST_COUNT: usize = 123;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -359,9 +359,7 @@ fn require_concurrency_selection(
     {
         return Err(BuildError::conformance(
             "native concurrency",
-            format!(
-                "the {identity_fragment} filter did not select exactly {expected} fixtures"
-            ),
+            format!("the {identity_fragment} filter did not select exactly {expected} fixtures"),
         ));
     }
 

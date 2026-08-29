@@ -85,8 +85,7 @@ pub(crate) fn uses_indirect_argument(
     uses_microsoft_x64_abi(target)
         && matches!(
             (role, index),
-            (RuntimeAbiRole::RootExecution, 1)
-                | (RuntimeAbiRole::AwaitedFrameComposition, 0)
+            (RuntimeAbiRole::RootExecution, 1) | (RuntimeAbiRole::AwaitedFrameComposition, 0)
         )
 }
 
@@ -620,7 +619,7 @@ fn runtime_function_type<'context>(
                 .i32_type()
                 .fn_type(&[context.i64_type().into()], false),
         ),
-        RuntimeAbiRole::PanicReporting => Some(
+        RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction => Some(
             context
                 .i32_type()
                 .fn_type(&[pointer_integer_type(context, target).into()], false),

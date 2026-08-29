@@ -8,6 +8,7 @@ use super::super::super::foreign::{AbiField, abi_type_matches};
 use crate::fact::{CancellationToken, FactQueryError};
 
 const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
+const USIZE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarUsize);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
@@ -21,8 +22,7 @@ impl Compilation {
     ) -> Result<Option<CodegenCallableSignature>, FactQueryError> {
         let signature = match role {
             RuntimeAbiRole::RuntimeInitialization => {
-                let capacity =
-                    self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+                let capacity = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
 
                 let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
 
@@ -68,6 +68,24 @@ impl Compilation {
                     false,
                 )
             }
+            RuntimeAbiRole::NativeThreadExecution => {
+                let pointer = self.codegen_opaque_pointer_type()?;
+                let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+                CodegenCallableSignature::new(
+                    [
+                        CodegenParameterMapping::direct(pointer, None, []),
+                        CodegenParameterMapping::direct(address, None, []),
+                        CodegenParameterMapping::direct(pointer, None, []),
+                        CodegenParameterMapping::direct(address, None, []),
+                        CodegenParameterMapping::direct(pointer, None, []),
+                    ],
+                    CodegenResultMapping::direct(status, None, []),
+                    CallableAbi::C,
+                    false,
+                )
+            }
             _ => return Ok(None),
         };
 
@@ -81,32 +99,45 @@ pub(super) fn runtime_source_signature_matches(
     signature: &CodegenCallableSignature,
     cancellation: &CancellationToken,
 ) -> Result<Option<bool>, FactQueryError> {
-    let contract = match role {
-        RuntimeAbiRole::RuntimeInitialization => (&[USIZE, USIZE][..], Some(&U32)),
-        RuntimeAbiRole::SynchronousRootExecution
-        | RuntimeAbiRole::ForeignCallbackExecution => {
-            (&[BYTE_POINTER, USIZE][..], Some(&RUN_OUTCOME))
+    let (parameters, result, abi) = match role {
+        RuntimeAbiRole::RuntimeInitialization => (&[USIZE, USIZE][..], Some(&U32), CallableAbi::C),
+        RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => (
+            &[BYTE_POINTER, USIZE][..],
+            Some(&RUN_OUTCOME),
+            CallableAbi::C,
+        ),
+        RuntimeAbiRole::NativeThreadExecution => (
+            &[BYTE_POINTER, USIZE, BYTE_POINTER, USIZE, USIZE_POINTER][..],
+            Some(&U32),
+            CallableAbi::C,
+        ),
+        RuntimeAbiRole::ThreadAttachmentIdentity => {
+            (&[BYTE_POINTER][..], Some(&U64), CallableAbi::C)
         }
-        RuntimeAbiRole::ThreadAttachmentIdentity => (&[BYTE_POINTER][..], Some(&U64)),
-        RuntimeAbiRole::ThreadStaticCleanupRegistration => (&[BYTE_POINTER][..], Some(&U32)),
-        RuntimeAbiRole::PanicReporting => (&[USIZE][..], Some(&U32)),
-        RuntimeAbiRole::StructuredShutdown => (&[][..], Some(&U32)),
+        RuntimeAbiRole::ThreadStaticCleanupRegistration => {
+            (&[BYTE_POINTER][..], Some(&U32), CallableAbi::C)
+        }
+        RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction => {
+            (&[USIZE][..], Some(&U32), CallableAbi::C)
+        }
+        RuntimeAbiRole::StructuredShutdown => (&[][..], Some(&U32), CallableAbi::C),
         RuntimeAbiRole::PanicReportConstruction => (
             &[U32, U32, U32, U32, U32, U64, BYTE_POINTER, USIZE][..],
             Some(&USIZE),
+            CallableAbi::C,
         ),
         _ => return Ok(None),
     };
 
-    if signature.abi() != CallableAbi::C
+    if signature.abi() != abi
         || signature.is_variadic()
         || signature.has_panic_report_context()
-        || signature.parameters().len() != contract.0.len()
+        || signature.parameters().len() != parameters.len()
     {
         return Ok(Some(false));
     }
 
-    for (parameter, expected) in signature.parameters().iter().zip(contract.0) {
+    for (parameter, expected) in signature.parameters().iter().zip(parameters) {
         let CodegenParameterMapping::Direct {
             ty,
             extension: None,
@@ -116,15 +147,16 @@ pub(super) fn runtime_source_signature_matches(
             return Ok(Some(false));
         };
 
-        if !attributes.is_empty()
-            || !abi_type_matches(compilation, *ty, expected, cancellation)?
-        {
+        if !attributes.is_empty() || !abi_type_matches(compilation, *ty, expected, cancellation)? {
             return Ok(Some(false));
         }
     }
 
-    let Some(expected_result) = contract.1 else {
-        return Ok(Some(matches!(signature.result(), CodegenResultMapping::Void)));
+    let Some(expected_result) = result else {
+        return Ok(Some(matches!(
+            signature.result(),
+            CodegenResultMapping::Void
+        )));
     };
 
     let CodegenResultMapping::Direct {
@@ -137,8 +169,7 @@ pub(super) fn runtime_source_signature_matches(
     };
 
     Ok(Some(
-        attributes.is_empty()
-            && abi_type_matches(compilation, *ty, expected_result, cancellation)?,
+        attributes.is_empty() && abi_type_matches(compilation, *ty, expected_result, cancellation)?,
     ))
 }
 
@@ -150,9 +181,9 @@ mod tests {
     use bray_symbols::{CallableAbi, NamedTypeSymbolId, SymbolOrigin};
 
     use super::runtime_source_signature_matches;
+    use crate::CancellationToken;
     use crate::compilation::substitution::named_type;
     use crate::test_support::compilation;
-    use crate::CancellationToken;
 
     #[test]
     fn callback_boundary_roles_accept_the_structural_c_run_outcome() {

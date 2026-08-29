@@ -18,6 +18,7 @@ use super::directive::{
     validate_foreign_import_requirements,
 };
 use super::platform::platform_service_role;
+use super::runtime::runtime_import_role;
 use super::validation::validate_platform_service_surface;
 use super::validation::{callable_surface, validate_callable_surface};
 use crate::compilation::binder::binding_query_error;
@@ -109,18 +110,25 @@ impl Compilation {
 
         let is_extern = syntax.function_modifiers().extern_token().is_some();
         let platform_role = platform_service_role(self, function)?;
+        let runtime_role = runtime_import_role(self, function, cancellation)?;
 
-        let direction = match (platform_role, is_extern, symbol_directive.is_some()) {
-            (Some(_), true, _) => Some(ForeignCallableDirection::Import),
-            (Some(_), false, _) => None,
-            (None, true, _) => Some(ForeignCallableDirection::Import),
-            (None, false, true) => Some(ForeignCallableDirection::Export),
-            (None, false, false) => None,
+        let direction = match (
+            platform_role,
+            runtime_role,
+            is_extern,
+            symbol_directive.is_some(),
+        ) {
+            (Some(_), _, true, _) | (_, Some(_), true, _) => Some(ForeignCallableDirection::Import),
+            (Some(_), _, false, _) | (_, Some(_), false, _) => None,
+            (None, None, true, _) => Some(ForeignCallableDirection::Import),
+            (None, None, false, true) => Some(ForeignCallableDirection::Export),
+            (None, None, false, false) => None,
         };
 
         if abi == CallableAbi::Bray
             && direction != Some(ForeignCallableDirection::Import)
             && platform_role.is_none()
+            && runtime_role.is_none()
         {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         }
@@ -131,6 +139,7 @@ impl Compilation {
             anchor,
             &syntax,
             &callable,
+            runtime_role,
             cancellation,
             &mut diagnostics,
         )?;
@@ -154,15 +163,18 @@ impl Compilation {
             return Ok(Arc::new(DiagnosticResult::new(None, diagnostics)));
         }
 
-        let symbol = match (platform_role, symbol_directive) {
-            (Some(role), _) => NonEmptySharedStr::try_new(
+        let symbol = match (platform_role, runtime_role, symbol_directive) {
+            (Some(role), _, _) => NonEmptySharedStr::try_new(
                 bray_runtime_interface::native_platform_service_role_symbol(role),
             )
             .map(NativeSymbolContract::required_name),
-            (None, Some(directive)) => {
+            (None, Some(role), _) => bray_runtime_interface::native_runtime_role_symbol(role)
+                .and_then(NonEmptySharedStr::try_new)
+                .map(NativeSymbolContract::required_name),
+            (None, None, Some(directive)) => {
                 foreign_symbol_contract(self, directive, cancellation, &mut diagnostics)?
             }
-            (None, None) => {
+            (None, None, None) => {
                 diagnostics.add(missing_directive(anchor, SyntaxKind::SymbolDirective));
 
                 None
@@ -188,7 +200,10 @@ impl Compilation {
             diagnostics.add(invalid_symbol_policy(anchor, "binding"));
         }
 
-        let links = if direction == ForeignCallableDirection::Import && platform_role.is_none() {
+        let links = if direction == ForeignCallableDirection::Import
+            && platform_role.is_none()
+            && runtime_role.is_none()
+        {
             foreign_link_requirements(
                 self,
                 function.into(),
@@ -200,7 +215,11 @@ impl Compilation {
             Vec::new()
         };
 
-        if abi != CallableAbi::Bray && direction == ForeignCallableDirection::Import {
+        if abi != CallableAbi::Bray
+            && direction == ForeignCallableDirection::Import
+            && platform_role.is_none()
+            && runtime_role.is_none()
+        {
             let contracts = binding_context
                 .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
                     function.into(),

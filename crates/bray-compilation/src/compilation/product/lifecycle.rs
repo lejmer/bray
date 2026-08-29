@@ -355,26 +355,25 @@ impl Compilation {
     ) -> Option<CodegenLifecycleNeeds> {
         let role = super::super::foreign::compiler_known_representation(self, definition)?;
 
-        if super::super::representation::target_scalar(role).is_some()
-            || matches!(
-                role,
-                RepresentationRole::Atomic
-                    | RepresentationRole::Unit
-                    | RepresentationRole::Never
-                    | RepresentationRole::RawPointer
-                    | RepresentationRole::DevicePointer
-                    | RepresentationRole::Uninit
-                    | RepresentationRole::Future
-            )
-        {
-            return Some(CodegenLifecycleNeeds::NONE);
-        }
-
         match role {
-            RepresentationRole::String => Some(
+            RepresentationRole::String | RepresentationRole::PanicReport => Some(
                 CodegenLifecycleNeeds::DESTROY.with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             ),
             RepresentationRole::Task => Some(CodegenLifecycleNeeds::ALL),
+            _ if super::super::representation::target_scalar(role).is_some()
+                || matches!(
+                    role,
+                    RepresentationRole::Atomic
+                        | RepresentationRole::Unit
+                        | RepresentationRole::Never
+                        | RepresentationRole::RawPointer
+                        | RepresentationRole::DevicePointer
+                        | RepresentationRole::Uninit
+                        | RepresentationRole::Future
+                ) =>
+            {
+                Some(CodegenLifecycleNeeds::NONE)
+            }
             _ => None,
         }
     }
@@ -449,8 +448,9 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use bray_compiler_known::RepresentationRole;
     use bray_ir::{MirCleanupPhase, MirHelperReference};
-    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin};
+    use bray_symbols::{NamedTypeSymbolId, StructSymbolId, SymbolOrigin};
 
     use super::CodegenLifecycleNeeds;
     use crate::CancellationToken;
@@ -473,6 +473,57 @@ mod tests {
             CodegenLifecycleNeeds::represented(CodegenLifecycleNeeds::TASK_CANCELLATION);
 
         assert_eq!(represented, CodegenLifecycleNeeds::TASK_CANCELLATION);
+    }
+
+    #[test]
+    fn panic_reports_require_destruction_and_lifecycle_resolution() {
+        let compilation = compilation("module app; func main() {}");
+
+        let definition = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(RepresentationRole::PanicReport)
+            .expect("panic report definition must resolve");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let report = named_type(values, NamedTypeSymbolId::Struct(definition))
+            .expect("panic report representation must resolve");
+
+        let cancellation = CancellationToken::new();
+
+        for reference in [
+            MirHelperReference::Destroy(report),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty: report,
+            },
+        ] {
+            assert!(
+                !compilation
+                    .codegen_lifecycle_is_trivial(&reference, &cancellation)
+                    .unwrap_or_else(|error| panic!(
+                        "panic report lifecycle must resolve: {error:?}"
+                    ))
+            );
+        }
+
+        for reference in [
+            MirHelperReference::Finalize(report),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: report,
+            },
+        ] {
+            assert!(
+                compilation
+                    .codegen_lifecycle_is_trivial(&reference, &cancellation)
+                    .unwrap_or_else(|error| panic!(
+                        "panic report lifecycle must resolve: {error:?}"
+                    ))
+            );
+        }
     }
 
     #[test]

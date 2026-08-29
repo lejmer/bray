@@ -1,14 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bray_compilation::{
-    CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
-};
+use bray_base::NonEmptySharedStr;
+use bray_compilation::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 use bray_runtime_interface::{
     PlatformServiceBinding, PlatformServiceRole, RuntimeAbiRole, RuntimeRoleSourceBinding,
 };
 use bray_standard_library::StandardLibraryRoot;
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_symbols::{
+    NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity, ProductKind,
+};
 use bray_target::NativeTarget;
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
@@ -35,8 +36,11 @@ const PLATFORM_BINDINGS: [(PlatformServiceRole, &str); 4] = [
     ),
 ];
 
-const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 8] = [
-    (RuntimeAbiRole::RuntimeInitialization, "runtime_initialization"),
+const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 10] = [
+    (
+        RuntimeAbiRole::RuntimeInitialization,
+        "runtime_initialization",
+    ),
     (
         RuntimeAbiRole::SynchronousRootExecution,
         "synchronous_root_execution",
@@ -44,6 +48,10 @@ const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 8] = [
     (
         RuntimeAbiRole::ForeignCallbackExecution,
         "foreign_callback_execution",
+    ),
+    (
+        RuntimeAbiRole::NativeThreadExecution,
+        "native_thread_execution",
     ),
     (
         RuntimeAbiRole::ThreadAttachmentIdentity,
@@ -54,6 +62,10 @@ const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 8] = [
         "register_thread_cleanup",
     ),
     (RuntimeAbiRole::PanicReporting, "panic_reporting"),
+    (
+        RuntimeAbiRole::PanicReportDestruction,
+        "panic_report_destruction",
+    ),
     (RuntimeAbiRole::StructuredShutdown, "structured_shutdown"),
     (
         RuntimeAbiRole::PanicReportConstruction,
@@ -61,11 +73,24 @@ const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 8] = [
     ),
 ];
 
-pub(super) fn build(
-    root: &Path,
-    target: NativeTarget,
-    destination: &Path,
-) -> Result<(), String> {
+pub(super) const RUNTIME_ROLES: [RuntimeAbiRole; 10] = [
+    RuntimeAbiRole::RuntimeInitialization,
+    RuntimeAbiRole::SynchronousRootExecution,
+    RuntimeAbiRole::ForeignCallbackExecution,
+    RuntimeAbiRole::NativeThreadExecution,
+    RuntimeAbiRole::ThreadAttachmentIdentity,
+    RuntimeAbiRole::ThreadStaticCleanupRegistration,
+    RuntimeAbiRole::PanicReporting,
+    RuntimeAbiRole::PanicReportDestruction,
+    RuntimeAbiRole::StructuredShutdown,
+    RuntimeAbiRole::PanicReportConstruction,
+];
+
+pub(super) fn owns_runtime_role(role: RuntimeAbiRole) -> bool {
+    RUNTIME_ROLES.contains(&role)
+}
+
+pub(super) fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
     let support = tempfile::Builder::new()
         .prefix("bray-runtime-bootstrap-")
         .tempdir()
@@ -96,15 +121,23 @@ pub(super) fn build(
 
     let selected = SelectedTarget::for_native(target);
 
-    let native_links = crate::standard_library::native_links(selected.profile().identity())
+    let mut native_links = crate::standard_library::native_links(selected.profile().identity())
         .map_err(|error| format!("could not load bootstrap native link inputs: {error}"))?;
 
-    let options = CompilationOptions::new(
-        WorkerBudget::default(),
-        ProductKind::Library,
-        selected,
-    )
-    .with_native_link_inputs(native_links);
+    native_links.push(NativeLinkRequirement::new(
+        NonEmptySharedStr::try_new("bray_runtime_host")
+            .unwrap_or_else(|| unreachable!("the native library name is non-empty")),
+        NativeLinkKind::System,
+    ));
+
+    native_links.push(NativeLinkRequirement::new(
+        NonEmptySharedStr::try_new("bray_runtime_callback")
+            .unwrap_or_else(|| unreachable!("the native library name is non-empty")),
+        NativeLinkKind::System,
+    ));
+
+    let options = CompilationOptions::new(WorkerBudget::default(), ProductKind::Library, selected)
+        .with_native_link_inputs(native_links);
 
     let standard_library = StandardLibraryRoot::try_new(&standard_library)
         .ok_or_else(|| "bootstrap standard-library root is invalid".to_owned())?;
@@ -120,9 +153,11 @@ pub(super) fn build(
     let diagnostics = compilation.check_diagnostics();
 
     if !diagnostics.is_empty() {
-        return Err(format!(
-            "bootstrap source did not type-check: {diagnostics:?}"
-        ));
+        let detail =
+            crate::diagnostic_output::render_diagnostics(diagnostics, compilation.sources())
+                .unwrap_or_else(|| "the bootstrap diagnostics could not be rendered".to_owned());
+
+        return Err(format!("bootstrap source did not type-check:\n{detail}"));
     }
 
     let emission = support.path().join("emission");
@@ -130,12 +165,8 @@ pub(super) fn build(
     fs::create_dir_all(&emission)
         .map_err(|error| format!("could not create bootstrap emission directory: {error}"))?;
 
-    let archive = crate::native_product::emit_static_library(
-        &compilation,
-        product,
-        target,
-        &emission,
-    )?;
+    let archive =
+        crate::native_product::emit_static_library(&compilation, product, target, &emission)?;
 
     fs::copy(&archive, destination).map_err(|error| {
         format!(
@@ -159,7 +190,11 @@ fn source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    paths.retain(|path| path.extension().is_some_and(|extension| extension == "bray"));
+    paths.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "bray")
+    });
+
     paths.sort();
 
     if paths.is_empty() {

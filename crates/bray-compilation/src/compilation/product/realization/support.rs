@@ -807,7 +807,7 @@ mod tests {
     };
     use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_ir::{
-        MirBlockKind, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
+        MirBlockKind, MirCallTarget, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
         MirHelperReference, MirOperationKind, MirProjectionKind, MirRuntimeReference,
         MirTerminatorKind, MirUnit, MirUnitId,
     };
@@ -1200,6 +1200,40 @@ mod tests {
                 Some(MirProjectionKind::TupleField(actual)) if *actual == field
             ));
         }
+    }
+
+    #[test]
+    fn generated_panic_report_destruction_uses_the_non_reporting_runtime_role() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let report = compilation
+            .compiler_known_type(RepresentationRole::PanicReport)
+            .expect("panic report representation must resolve");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(report),
+            78,
+        );
+
+        let runtime_roles = generated.operations().iter().filter_map(|operation| {
+            let MirOperationKind::Call(call) = operation.kind() else {
+                return None;
+            };
+
+            let MirCallTarget::Runtime(runtime) = call.target() else {
+                return None;
+            };
+
+            Some(runtime.role())
+        });
+
+        assert_eq!(
+            runtime_roles.collect::<Vec<_>>(),
+            [RuntimeAbiRole::PanicReportDestruction]
+        );
     }
 
     #[test]
@@ -1723,12 +1757,8 @@ mod tests {
     }
 
     #[test]
-    fn panic_reporting_runtime_helper_transfers_a_report_and_returns_status() {
+    fn panic_report_transfer_runtime_helpers_use_the_owned_report_and_status_types() {
         let compilation = compilation("module app; func main() {}");
-
-        let signature = compilation
-            .codegen_runtime_signature(RuntimeAbiRole::PanicReporting)
-            .expect("panic reporting signature must realize");
 
         let report = compilation
             .codegen_representation_type(RepresentationRole::PanicReport)
@@ -1738,15 +1768,24 @@ mod tests {
             .codegen_representation_type(RepresentationRole::ScalarU32)
             .expect("status representation must realize");
 
-        assert_eq!(
-            signature.parameters(),
-            [CodegenParameterMapping::direct(report, None, [])]
-        );
+        for role in [
+            RuntimeAbiRole::PanicReporting,
+            RuntimeAbiRole::PanicReportDestruction,
+        ] {
+            let signature = compilation
+                .codegen_runtime_signature(role)
+                .unwrap_or_else(|error| panic!("{role:?} signature must realize: {error:?}"));
 
-        assert_eq!(
-            signature.result(),
-            &CodegenResultMapping::direct(status, None, [])
-        );
+            assert_eq!(
+                signature.parameters(),
+                [CodegenParameterMapping::direct(report, None, [])]
+            );
+
+            assert_eq!(
+                signature.result(),
+                &CodegenResultMapping::direct(status, None, [])
+            );
+        }
     }
 
     #[test]

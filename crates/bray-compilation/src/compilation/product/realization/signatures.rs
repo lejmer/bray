@@ -8,9 +8,8 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableParameterSignature,
     CallableSignature, CallableSignatureQuery, ImplementationSymbolId, ReceiverParameterSignature,
-    RuntimeDefaultProviderInput, SelfTypeContext, StructFieldDefaultQuery,
-    StructFieldDefaultValue, SymbolQueryRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
+    RuntimeDefaultProviderInput, SelfTypeContext, StructFieldDefaultQuery, StructFieldDefaultValue,
+    SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultQuery,
 };
 
@@ -578,7 +577,7 @@ impl Compilation {
                     CodegenParameterMapping::direct(pointer, None, []),
                 ],
                 CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
+                CallableAbi::C,
                 false,
             ));
         }
@@ -620,7 +619,10 @@ impl Compilation {
             ));
         }
 
-        if role == RuntimeAbiRole::PanicReporting {
+        if matches!(
+            role,
+            RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction
+        ) {
             let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
             let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
 
@@ -715,6 +717,7 @@ impl Compilation {
             | RuntimeAbiRole::RootTerminalObservation
             | RuntimeAbiRole::RootCompletionResolution
             | RuntimeAbiRole::PanicReporting
+            | RuntimeAbiRole::PanicReportDestruction
             | RuntimeAbiRole::EntryFailureReporting
             | RuntimeAbiRole::TestEntrySelection
             | RuntimeAbiRole::StructuredShutdown
@@ -770,5 +773,4 @@ impl Compilation {
             false,
         ))
     }
-
 }

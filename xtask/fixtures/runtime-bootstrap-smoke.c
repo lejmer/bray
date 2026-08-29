@@ -54,6 +54,94 @@ typedef struct ShutdownRace {
 } ShutdownRace;
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
+static uint32_t substrate_initialized;
+
+uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity) {
+    (void)worker_capacity;
+    (void)timer_capacity;
+
+    if (substrate_initialized != 0) {
+        return 2;
+    }
+
+    substrate_initialized = 1;
+    return 0;
+}
+
+uint32_t bray_runtime_substrate_shutdown(void) {
+    if (substrate_initialized == 0) {
+        return 1;
+    }
+
+    substrate_initialized = 0;
+    return 0;
+}
+
+typedef void (*SynchronousCallback)(uintptr_t context, RunOutcome *outcome);
+
+RunOutcome bray_runtime_substrate_synchronous_root_execution(
+    void *callback,
+    uintptr_t context,
+    void (*cleanup)(void)
+) {
+    RunOutcome outcome = {3, 4};
+    ((SynchronousCallback)callback)(context, &outcome);
+    cleanup();
+    return outcome;
+}
+
+RunOutcome bray_runtime_substrate_foreign_callback_execution(
+    void *callback,
+    uintptr_t context,
+    void (*cleanup)(void)
+) {
+    RunOutcome outcome = {3, 4};
+    ((SynchronousCallback)callback)(context, &outcome);
+    cleanup();
+    return outcome;
+}
+
+uint32_t bray_runtime_substrate_native_thread_execution(
+    void *operation,
+    uintptr_t context,
+    void *cancellation,
+    uintptr_t cancellation_context,
+    uintptr_t *panic_payload,
+    void (*cleanup)(void)
+) {
+    (void)operation;
+    (void)context;
+    (void)cancellation;
+    (void)cancellation_context;
+    *panic_payload = 0;
+    cleanup();
+    return 0;
+}
+
+uint32_t bray_runtime_substrate_panic_reporting(
+    uint32_t cause,
+    uint32_t source_present,
+    uint32_t source_identity,
+    uint32_t source_start,
+    uint32_t source_end,
+    uint64_t source_version,
+    const uint8_t *message,
+    uintptr_t message_length
+) {
+    (void)source_identity;
+    (void)source_version;
+
+    if (cause > 2 || source_present > 1 || source_start > source_end) {
+        return 3;
+    }
+
+    if (message == NULL && message_length != 0) {
+        return 3;
+    }
+
+    return 0;
+}
+
 extern RunOutcome bray_runtime_synchronous_root_execution(void *callback, uintptr_t context);
 extern RunOutcome bray_runtime_foreign_callback_execution(void *callback, uintptr_t context);
 extern uint64_t bray_runtime_thread_attachment_identity(void *descriptor);
@@ -69,6 +157,7 @@ extern uintptr_t bray_runtime_panic_report_construction(
     uintptr_t message_length
 );
 extern uint32_t bray_runtime_panic_reporting(uintptr_t report);
+extern uint32_t bray_runtime_panic_report_destruction(uintptr_t report);
 extern uint32_t bray_runtime_structured_shutdown(void);
 extern uint64_t bray_runtime_bootstrap_thread_static_probe(void);
 extern uint64_t bray_runtime_bootstrap_thread_static_cleanup_observation(void);
@@ -283,13 +372,17 @@ int main(void) {
         return 5;
     }
 
+    if (bray_runtime_panic_report_destruction(panic_report()) != 0) {
+        return 6;
+    }
+
     RunOutcome foreign = bray_runtime_foreign_callback_execution(
         (void *)&completed_callback,
         73
     );
 
     if (foreign.state != 0 || foreign.payload != 73) {
-        return 6;
+        return 7;
     }
 
 #if defined(_WIN32)

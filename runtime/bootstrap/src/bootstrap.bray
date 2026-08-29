@@ -17,6 +17,7 @@ internal const RUN_RUNTIME_FAILURE: u32 = 3;
 internal const INITIALIZATION_EMPTY: u32 = 0;
 internal const INITIALIZATION_PENDING: u32 = 1;
 internal const INITIALIZATION_READY: u32 = 2;
+internal const INITIALIZATION_CLOSED: u32 = 3;
 
 internal const ATTACHMENT_ACTIVE: u32 = 0;
 internal const ATTACHMENT_CLEANING: u32 = 1;
@@ -42,8 +43,8 @@ internal struct RunOutcome
     payload: usize;
 }
 
-internal callable SynchronousCallback = @abi(c)
-trusted func(pos context: usize, pos outcome: RawPointer<RunOutcome>);
+internal callable SubstrateCleanup = @abi(c)
+trusted func();
 
 internal callable ThreadStorageDestructor = @abi(c)
 trusted func(pos value: RawPointer<u8>);
@@ -80,6 +81,8 @@ internal static BOOTSTRAP_KEY: core.atomic.Atomic<u64> = core.atomic.initialize<
 
 internal static BOOTSTRAP_INITIALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
+internal static SUBSTRATE_INITIALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
 internal static NEXT_ATTACHMENT_IDENTITY: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(1);
 
 internal static ATTACHMENT_GATE: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
@@ -90,13 +93,15 @@ internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initiali
 
 @abi(c)
 trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
-    uses(layout_reinterpret)
+    uses(foreign_call)
 {
-    let _: usize = worker_capacity;
-    let _: usize = timer_capacity;
+    if trusted ensure_bootstrap_initialized(reopen = true) != STATUS_SUCCESS
+    {
+        return STATUS_RUNTIME_FAILURE;
+    }
 
     let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
-        &BOOTSTRAP_INITIALIZED,
+        &SUBSTRATE_INITIALIZED,
         expected = INITIALIZATION_EMPTY,
         desired = INITIALIZATION_PENDING,
     );
@@ -104,6 +109,55 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
     if !acquired
     {
         return STATUS_ALREADY_INITIALIZED;
+    }
+
+    let substrate_status: u32 = trusted substrate_initialization(worker_capacity, timer_capacity);
+
+    if substrate_status != STATUS_SUCCESS
+    {
+        core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_EMPTY);
+
+        return substrate_status;
+    }
+
+    core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_READY);
+
+    return STATUS_SUCCESS;
+}
+
+trusted internal func ensure_bootstrap_initialized(pos reopen: bool) -> u32
+    uses(layout_reinterpret)
+{
+    let state: u32 = core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED);
+
+    if state == INITIALIZATION_READY
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if state == INITIALIZATION_CLOSED && !reopen
+    {
+        return STATUS_NOT_INITIALIZED;
+    }
+
+    let expected: u32 = if state == INITIALIZATION_CLOSED
+    {
+        yield INITIALIZATION_CLOSED;
+    }
+    else
+    {
+        yield INITIALIZATION_EMPTY;
+    };
+
+    let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
+        &BOOTSTRAP_INITIALIZED,
+        expected = expected,
+        desired = INITIALIZATION_PENDING,
+    );
+
+    if !acquired
+    {
+        return STATUS_RUNTIME_FAILURE;
     }
 
     let destructor: ThreadStorageDestructor = thread_exit_cleanup;
@@ -128,9 +182,23 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 @abi(c)
 trusted internal func structured_shutdown() -> u32
 {
-    if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
+    let initialization: u32 = core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED);
+
+    if initialization == INITIALIZATION_CLOSED
     {
         return STATUS_NOT_INITIALIZED;
+    }
+
+    if initialization == INITIALIZATION_EMPTY
+    {
+        let status: u32 = trusted finish_substrate_shutdown(allow_not_initialized = false);
+
+        if status == STATUS_SUCCESS
+        {
+            core.atomic.store<u32, 2>(&BOOTSTRAP_INITIALIZED, value = INITIALIZATION_CLOSED);
+        }
+
+        return status;
     }
 
     let (_, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
@@ -162,11 +230,41 @@ trusted internal func structured_shutdown() -> u32
     }
 
     core.atomic.store<u64, 2>(&BOOTSTRAP_KEY, value = 0);
-    core.atomic.store<u32, 2>(&BOOTSTRAP_INITIALIZED, value = INITIALIZATION_EMPTY);
+    core.atomic.store<u32, 2>(&BOOTSTRAP_INITIALIZED, value = INITIALIZATION_CLOSED);
     core.atomic.store<u64, 2>(&ATTACHMENT_GATE, value = 0);
 
-    return STATUS_SUCCESS;
+    return trusted finish_substrate_shutdown(allow_not_initialized = true);
 }
+
+trusted internal func finish_substrate_shutdown(pos allow_not_initialized: bool) -> u32
+    uses(foreign_call)
+{
+    let status: u32 = trusted substrate_shutdown();
+
+    core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_EMPTY);
+
+    if status == STATUS_NOT_INITIALIZED && allow_not_initialized
+    {
+        return STATUS_SUCCESS;
+    }
+
+    return status;
+}
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_initialization")
+@abi(c)
+extern trusted internal func substrate_initialization(
+    pos worker_capacity: usize,
+    pos timer_capacity: usize,
+) -> u32
+    uses(foreign_call);
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_shutdown")
+@abi(c)
+extern trusted internal func substrate_shutdown() -> u32
+    uses(foreign_call);
 
 @abi(c)
 trusted internal func thread_attachment_identity(pos descriptor: RawPointer<u8>) -> u64
@@ -190,130 +288,46 @@ trusted internal func thread_attachment_identity(pos descriptor: RawPointer<u8>)
 }
 
 @abi(c)
-trusted internal func synchronous_root_execution(
-    pos callback: RawPointer<u8>,
+trusted internal func native_thread_execution(
+    pos operation: RawPointer<u8>,
     pos context: usize,
-) -> RunOutcome
+    pos cancellation: RawPointer<u8>,
+    pos cancellation_context: usize,
+    pos panic_payload: RawPointer<usize>,
+) -> u32
+    uses(foreign_call)
 {
-    return trusted execute_callback(callback, context);
-}
+    let state: RawPointer<AttachmentState> = trusted attach(std.memory.null<u8>());
 
-@abi(c)
-trusted internal func foreign_callback_execution(
-    pos callback: RawPointer<u8>,
-    pos context: usize,
-) -> RunOutcome
-{
-    return trusted execute_callback(callback, context);
-}
-
-@abi(c)
-trusted internal func panic_report_construction(
-    pos cause: u32,
-    pos source_present: u32,
-    pos source_identity: u32,
-    pos source_start: u32,
-    pos source_end: u32,
-    pos source_version: u64,
-    pos message: RawPointer<u8>,
-    pos message_length: usize,
-) -> usize
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
-        trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
-    )
-    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
-{
-    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
+    if std.memory.is_null<AttachmentState>(state)
     {
-        trusted core.target.abort();
+        return RUN_RUNTIME_FAILURE;
     }
 
-    let message_copy: RawPointer<u8> = if message_length == 0
-    {
-        yield std.memory.null<u8>();
-    }
-    else
-    {
-        let copy: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(message_length, align = 1);
-
-        if std.memory.is_null<u8>(copy)
-        {
-            trusted core.target.abort();
-        }
-
-        trusted internal std.memory.byte_buffer_copy(message, destination = copy, count = message_length);
-
-        yield copy;
-    };
-
-    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
-    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
-        bytes,
-        align = std.memory.align_of<PanicReportData>()
+    let outcome: u32 = trusted substrate_native_thread_execution(
+        operation,
+        context = context,
+        cancellation = cancellation,
+        cancellation_context = cancellation_context,
+        panic_payload = panic_payload,
+        cleanup = trusted substrate_native_thread_cleanup_pointer(),
     );
 
-    if std.memory.is_null<u8>(allocation)
-    {
-        if !std.memory.is_null<u8>(message_copy)
-        {
-            trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
-                message_copy,
-                bytes = message_length,
-                align = ONE_USIZE,
-            );
-        }
-
-        trusted core.target.abort();
-    }
-
-    let report: RawPointer<PanicReportData> = trusted std.memory.reinterpret<PanicReportData, u8>(allocation);
-
-    trusted write_opaque<PanicReportData>(
-        report,
-        {
-            cause = cause,
-            source_present = source_present,
-            source_identity = source_identity,
-            source_start = source_start,
-            source_end = source_end,
-            source_version = source_version,
-            message = message_copy,
-            message_length = message_length,
-        }
-    );
-
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
-
-    return trusted core.target.expose_address<PanicReportData>(report);
+    return outcome;
 }
 
+@link(name = "bray_runtime_callback", kind = system)
+@symbol(name = "bray_runtime_substrate_native_thread_execution")
 @abi(c)
-trusted internal func panic_reporting(pos payload: usize) -> u32
-{
-    if payload == 0
-    {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
-    let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
-
-    if !std.memory.is_null<u8>(value.message)
-    {
-        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
-            value.message,
-            bytes = value.message_length,
-            align = ONE_USIZE,
-        );
-    }
-
-    trusted internal bray.runtime.bootstrap.heap.deallocate<PanicReportData>(report);
-
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
-
-    return STATUS_SUCCESS;
-}
+extern trusted internal func substrate_native_thread_execution(
+    pos operation: RawPointer<u8>,
+    pos context: usize,
+    pos cancellation: RawPointer<u8>,
+    pos cancellation_context: usize,
+    pos panic_payload: RawPointer<usize>,
+    pos cleanup: RawPointer<u8>,
+) -> u32
+    uses(foreign_call);
 
 @abi(c)
 trusted internal func thread_exit_cleanup(pos value: RawPointer<u8>)
@@ -323,29 +337,56 @@ trusted internal func thread_exit_cleanup(pos value: RawPointer<u8>)
     trusted finish_attachment(pointer);
 }
 
-trusted internal func execute_callback(pos callback: RawPointer<u8>, pos context: usize) -> RunOutcome
-    uses(layout_reinterpret)
+trusted internal func prepare_substrate_callback(pos callback: RawPointer<u8>) -> u32
 {
     if std.memory.is_null<u8>(callback)
     {
-        return { state = RUN_RUNTIME_FAILURE, payload = STATUS_INVALID_ARGUMENT as usize };
+        return STATUS_INVALID_ARGUMENT;
     }
 
     let state: RawPointer<AttachmentState> = trusted attach(std.memory.null<u8>());
 
     if std.memory.is_null<AttachmentState>(state)
     {
-        return { state = RUN_RUNTIME_FAILURE, payload = STATUS_RUNTIME_FAILURE as usize };
+        return STATUS_RUNTIME_FAILURE;
     }
 
-    let mut outcome: RunOutcome = { state = RUN_RUNTIME_FAILURE, payload = STATUS_RUNTIME_FAILURE as usize };
-    let callback_pointer: RawPointer<SynchronousCallback> = trusted std.memory.reinterpret<SynchronousCallback, u8>(callback);
-    let operation: SynchronousCallback = trusted std.memory.callable_from_pointer(callback_pointer);
+    return STATUS_SUCCESS;
+}
 
-    trusted operation(context, std.memory.address_of_mut<RunOutcome>(&mut outcome));
+@abi(c)
+trusted internal func substrate_thread_cleanup_callback()
+{
     trusted detach();
+}
 
-    return outcome;
+@abi(c)
+trusted internal func substrate_native_thread_cleanup_callback()
+{
+    let state: RawPointer<AttachmentState> = trusted load_attachment();
+
+    if !std.memory.is_null<AttachmentState>(state)
+    {
+        trusted finish_attachment(state);
+    }
+}
+
+trusted internal func substrate_cleanup_pointer() -> RawPointer<u8>
+    uses(layout_reinterpret)
+{
+    let cleanup: SubstrateCleanup = substrate_thread_cleanup_callback;
+    let pointer: RawPointer<SubstrateCleanup> = trusted std.memory.pointer_from_callable(cleanup);
+
+    return trusted std.memory.reinterpret<u8, SubstrateCleanup>(pointer);
+}
+
+trusted internal func substrate_native_thread_cleanup_pointer() -> RawPointer<u8>
+    uses(layout_reinterpret)
+{
+    let cleanup: SubstrateCleanup = substrate_native_thread_cleanup_callback;
+    let pointer: RawPointer<SubstrateCleanup> = trusted std.memory.pointer_from_callable(cleanup);
+
+    return trusted std.memory.reinterpret<u8, SubstrateCleanup>(pointer);
 }
 
 trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<AttachmentState>
@@ -361,7 +402,7 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
     )
     uses(intrinsic, layout_reinterpret)
 {
-    if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
+    if trusted ensure_bootstrap_initialized(reopen = false) != STATUS_SUCCESS
     {
         return std.memory.null<AttachmentState>();
     }

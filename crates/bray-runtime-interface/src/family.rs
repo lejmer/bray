@@ -76,9 +76,7 @@ impl PlatformServiceRole {
             | Self::ThreadStorageCreate
             | Self::ThreadStorageLoad
             | Self::ThreadStorageStore
-            | Self::ThreadStorageDestroy => {
-                PlatformServiceFamily::Thread
-            }
+            | Self::ThreadStorageDestroy => PlatformServiceFamily::Thread,
             Self::TimeDateValidate
             | Self::TimeDateAdd
             | Self::TimeZoneLoad

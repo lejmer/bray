@@ -81,6 +81,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
     anchor: bray_declarations::SyntaxAnchor,
     syntax: &FunctionDeclarationSyntax,
     callable: &CallableBoundarySurface,
+    runtime_role: Option<bray_runtime_interface::RuntimeAbiRole>,
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<(), FactQueryError> {
@@ -137,7 +138,13 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         );
     }
 
-    for parameter in &callable.parameters {
+    for (ordinal, parameter) in callable.parameters.iter().enumerate() {
+        if runtime_role == Some(bray_runtime_interface::RuntimeAbiRole::NativeThreadExecution)
+            && ordinal == 0
+        {
+            continue;
+        }
+
         validate_foreign_type(
             compilation,
             parameter,
@@ -163,7 +170,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         .source(anchor.source_id())
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let parameters = callable
+    let mut parameters = callable
         .parameters
         .iter()
         .map(|parameter| target_abi_value(compilation, parameter, cancellation))
@@ -171,6 +178,12 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
+
+    if runtime_role == Some(bray_runtime_interface::RuntimeAbiRole::NativeThreadExecution)
+        && let Some(operation) = parameters.first_mut()
+    {
+        *operation = bray_checker::TargetAbiValue::RawPointer;
+    }
 
     let result = if is_unit_template(compilation, &callable.result)? {
         None

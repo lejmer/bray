@@ -232,11 +232,11 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
     let entry: Entry<State, T> = work.entry;
     let state: State = work.state;
     let value: T = entry(state);
+
     let storage: &mut ThreadStorage<T> = trusted internal transferred_value<ThreadStorage<T>>(storage_pointer);
     let _: &mut T = std.memory.uninit_write<T>(&mut storage.result, value);
 }
 
-@abi(c)
 trusted internal func execute_native_thread_operation(pos context: usize)
     requires(blocking_execution(), compute_execution())
     uses(intrinsic)
@@ -305,13 +305,7 @@ trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
     let pointer: RawPointer<NativeThreadStart> = trusted std.memory.reinterpret<NativeThreadStart, u8>(context);
     let native_start: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(pointer);
 
-    let operation_callback: NativeThreadOperation = execute_native_thread_operation;
-
-    let operation_pointer: RawPointer<NativeThreadOperation> = trusted std.memory.pointer_from_callable(
-        operation_callback
-    );
-
-    let operation: RawPointer<u8> = trusted std.memory.reinterpret<u8, NativeThreadOperation>(operation_pointer);
+    let operation: ThreadOperation = execute_native_thread_operation;
 
     let operation_context: usize = trusted core.target.expose_address<NativeThreadStart>(
         std.memory.address_of<NativeThreadStart>(&native_start)

@@ -13,7 +13,15 @@ func testing_result_assertions_return_the_selected_payload()
 }
 
 @test
-func testing_run_result_assertions_accept_the_selected_state()
+func testing_completed_assertion_returns_the_selected_payload()
+{
+    let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(43));
+
+    assert(completed == 43);
+}
+
+@test
+func testing_panicked_assertion_returns_the_selected_report()
 {
     let caught_for_panicked: Result<unit, PanicReport> = catch
     {
@@ -22,6 +30,15 @@ func testing_run_result_assertions_accept_the_selected_state()
         yield unit;
     };
 
+    let panicked_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_panicked);
+    let returned_report: PanicReport = std.testing.assert_panicked<unit>(RunResult.Panicked(panicked_report));
+
+    returned_report;
+}
+
+@test
+func testing_not_completed_assertion_accepts_a_panicked_run()
+{
     let caught_for_not_completed: Result<unit, PanicReport> = catch
     {
         panic("expected panic");
@@ -29,15 +46,14 @@ func testing_run_result_assertions_accept_the_selected_state()
         yield unit;
     };
 
-    let panicked_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_panicked);
     let not_completed_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_not_completed);
-    let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(43));
-
-    let _: PanicReport = std.testing.assert_panicked<unit>(RunResult.Panicked(panicked_report));
 
     std.testing.assert_not_completed<unit>(RunResult.Panicked(not_completed_report));
+}
+
+@test
+func testing_cancelled_assertions_accept_a_cancelled_run()
+{
     std.testing.assert_cancelled<unit>(RunResult.Cancelled);
     std.testing.assert_not_completed<unit>(RunResult.Cancelled);
-
-    assert(completed == 43);
 }

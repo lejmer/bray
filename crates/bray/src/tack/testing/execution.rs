@@ -15,7 +15,9 @@ use bray_diagnostics::{
     DiagnosticProjectSelectionProblem, DiagnosticTestExecutionPlanProblem,
     DiagnosticTestSchedulingProblem,
 };
-use bray_platform::{NativeChildProcess, NativePipeWriter, NativeProcessCommand, NativeStdio};
+use bray_platform::{
+    NativeChildProcess, NativeExitStatus, NativePipeWriter, NativeProcessCommand, NativeStdio,
+};
 use bray_test_protocol::{
     CapturedStream, TestAdmission, TestAdmissionSchedule, TestBatchRequest, TestCaptureLimits,
     TestCapturePolicy, TestCatalogEntryId, TestCommandReport, TestDuration, TestExecutionMode,
@@ -403,7 +405,7 @@ fn run_host(
     );
 
     let result = match run_host_process(workspace_root, location, command, &result_path) {
-        Ok(HostProcessCompletion::Completed) => fs::read(&result_path)
+        Ok(HostProcessCompletion::Completed(status)) => fs::read(&result_path)
             .map_err(|_| ())
             .and_then(|bytes| read_host_result(&mut bytes.as_slice()).map_err(|_| ()))
             .and_then(|result| {
@@ -416,7 +418,7 @@ fn run_host(
                 }
             })
             .map(|result| result.into_invocation_result(admission.invocation().identity().clone()))
-            .unwrap_or_else(|()| infrastructure_result(admission)),
+            .unwrap_or_else(|()| infrastructure_result_after_exit(admission, status)),
         Ok(HostProcessCompletion::ForcedTermination) => forced_termination_result(admission),
         Err(()) => infrastructure_result(admission),
     };
@@ -467,8 +469,8 @@ fn run_host_process(
     let mut cancellation_deadline = None;
 
     loop {
-        if child.try_wait()?.is_some() {
-            return Ok(HostProcessCompletion::Completed);
+        if let Some(status) = child.try_wait()? {
+            return Ok(HostProcessCompletion::Completed(status));
         }
 
         if cancellation_deadline.is_none() && COMMAND_CANCELLED.load(Ordering::Acquire) {
@@ -536,12 +538,31 @@ impl Drop for ReapedChild {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HostProcessCompletion {
-    Completed,
+    Completed(NativeExitStatus),
     ForcedTermination,
 }
 
 fn infrastructure_result(admission: &TestAdmission) -> TestInvocationResult {
     infrastructure_result_with_kind(admission, TestInfrastructureFailureKind::Host)
+}
+
+fn infrastructure_result_after_exit(
+    admission: &TestAdmission,
+    status: NativeExitStatus,
+) -> TestInvocationResult {
+    let detail_code = status
+        .code()
+        .map(|code| u64::from(u32::from_ne_bytes(code.to_ne_bytes())));
+
+    TestInvocationResult::after_cleanup(
+        admission.invocation().identity().clone(),
+        TestOutcome::InfrastructureFailed(TestInfrastructureFailure::new(
+            TestInfrastructureFailureKind::Host,
+            detail_code,
+        )),
+        empty_stream(admission.invocation().capture()),
+        empty_stream(admission.invocation().capture()),
+    )
 }
 
 fn forced_termination_result(admission: &TestAdmission) -> TestInvocationResult {

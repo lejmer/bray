@@ -391,6 +391,36 @@ fn metadata(
         };
 
         let common_identity = component_identity(target, purpose, "common")?;
+        let mut bootstrap_dependencies = vec![common_identity.clone()];
+
+        match purpose {
+            RuntimeArtifactPurpose::Product => {
+                bootstrap_dependencies.push(component_identity(target, purpose, "host")?);
+                bootstrap_dependencies.push(component_identity(target, purpose, "callback")?);
+                bootstrap_dependencies.push(component_identity(target, purpose, "cancellation")?);
+            }
+            RuntimeArtifactPurpose::TestRunner => {
+                bootstrap_dependencies.push(component_identity(target, purpose, "test_host")?);
+            }
+        }
+
+        metadata_components.push(
+            component_metadata(
+                target,
+                purpose,
+                component(components, RuntimeArchiveKind::Bootstrap)?,
+                "bootstrap",
+                super::bootstrap::RUNTIME_ROLES,
+                [],
+            )?
+            .with_platform_services(
+                RuntimeArchiveKind::Bootstrap
+                    .platform_services()
+                    .iter()
+                    .copied(),
+            )
+            .with_dependencies(bootstrap_dependencies),
+        );
 
         metadata_components.push(
             component_metadata(
@@ -433,7 +463,10 @@ fn metadata(
                     .role_bindings()
                     .iter()
                     .map(RuntimeRoleBinding::role)
-                    .filter(|role| runtime_role_archive(*role) == Some(kind));
+                    .filter(|role| {
+                        !super::bootstrap::owns_runtime_role(*role)
+                            && runtime_role_archive(*role) == Some(kind)
+                    });
 
                 metadata_components.push(
                     component_metadata(
@@ -453,7 +486,8 @@ fn metadata(
             let roles = contract
                 .role_bindings()
                 .iter()
-                .map(RuntimeRoleBinding::role);
+                .map(RuntimeRoleBinding::role)
+                .filter(|role| !super::bootstrap::owns_runtime_role(*role));
 
             metadata_components.push(
                 component_metadata(
@@ -544,6 +578,7 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
         | RuntimeAbiRole::RootTerminalObservation
         | RuntimeAbiRole::RootCompletionResolution
         | RuntimeAbiRole::PanicReporting
+        | RuntimeAbiRole::PanicReportDestruction
         | RuntimeAbiRole::EntryFailureReporting
         | RuntimeAbiRole::StructuredShutdown
         | RuntimeAbiRole::PanicReportConstruction
@@ -948,10 +983,16 @@ impl fmt::Display for CommandError {
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
             Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
             Self::SmokeExecution { name, error } => {
-                write!(formatter, "could not run {name} runtime smoke executable: {error}")
+                write!(
+                    formatter,
+                    "could not run {name} runtime smoke executable: {error}"
+                )
             }
             Self::SmokeExecutionFailed { name, status } => {
-                write!(formatter, "{name} runtime smoke execution failed with {status}")
+                write!(
+                    formatter,
+                    "{name} runtime smoke execution failed with {status}"
+                )
             }
             Self::BootstrapSmokeLinkFailed => {
                 formatter.write_str("bootstrap runtime smoke link failed")
@@ -963,7 +1004,10 @@ impl fmt::Display for CommandError {
                 )
             }
             Self::BootstrapSmokeExecutionFailed(status) => {
-                write!(formatter, "bootstrap runtime smoke execution failed with {status}")
+                write!(
+                    formatter,
+                    "bootstrap runtime smoke execution failed with {status}"
+                )
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")
@@ -1075,7 +1119,7 @@ mod tests {
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 10);
+            assert_eq!(first.components().len(), 12);
 
             let common = first
                 .components()
@@ -1104,12 +1148,55 @@ mod tests {
 
             let callback_roles = RuntimeAbiRole::ALL
                 .into_iter()
-                .filter(|role| runtime_role_archive(*role) == Some(RuntimeArchiveKind::Callback))
+                .filter(|role| {
+                    !super::super::bootstrap::owns_runtime_role(*role)
+                        && runtime_role_archive(*role) == Some(RuntimeArchiveKind::Callback)
+                })
                 .collect::<Vec<_>>();
 
             assert_eq!(callback.roles(), callback_roles);
 
             assert_eq!(callback.dependencies(), [common.identity().clone()]);
+
+            let bootstrap = first
+                .components()
+                .iter()
+                .find(|component| component.identity().as_str().ends_with("product.bootstrap"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain bootstrap support"));
+
+            assert_eq!(bootstrap.roles(), super::super::bootstrap::RUNTIME_ROLES);
+
+            assert_eq!(
+                bootstrap.platform_services(),
+                RuntimeArchiveKind::Bootstrap.platform_services()
+            );
+
+            assert!(
+                bootstrap
+                    .dependencies()
+                    .contains(&common.identity().clone())
+            );
+
+            assert!(
+                bootstrap
+                    .dependencies()
+                    .iter()
+                    .any(|dependency| dependency.as_str().ends_with("product.host"))
+            );
+
+            assert!(
+                bootstrap
+                    .dependencies()
+                    .iter()
+                    .any(|dependency| dependency.as_str().ends_with("product.callback"))
+            );
+
+            assert!(
+                bootstrap
+                    .dependencies()
+                    .iter()
+                    .any(|dependency| dependency.as_str().ends_with("product.cancellation"))
+            );
 
             let has_synchronization = common
                 .native_links()
@@ -1207,6 +1294,7 @@ mod tests {
                 RuntimeAbiRole::RootTerminalObservation,
                 RuntimeAbiRole::RootCompletionResolution,
                 RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicReportDestruction,
                 RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::TestEntrySelection,
                 RuntimeAbiRole::StructuredShutdown,

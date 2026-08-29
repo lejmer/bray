@@ -22,7 +22,9 @@ pub(super) fn smoke_test(
     let archives = component_archives(
         package,
         &[
+            RuntimeArchiveKind::Bootstrap,
             RuntimeArchiveKind::Host,
+            RuntimeArchiveKind::Callback,
             RuntimeArchiveKind::Scheduler,
             RuntimeArchiveKind::Cancellation,
             RuntimeArchiveKind::Event,
@@ -39,12 +41,13 @@ pub(super) fn smoke_test(
         None,
     )?;
 
-    let output = Command::new(&executable)
-        .output()
-        .map_err(|error| CommandError::SmokeExecution {
-            name: "asynchronous",
-            error,
-        })?;
+    let output =
+        Command::new(&executable)
+            .output()
+            .map_err(|error| CommandError::SmokeExecution {
+                name: "asynchronous",
+                error,
+            })?;
 
     if !output.status.success() {
         return Err(CommandError::SmokeExecutionFailed {
@@ -63,7 +66,13 @@ pub(super) fn smoke_test(
 
     let synchronous_archives = component_archives(
         package,
-        &[RuntimeArchiveKind::Host, RuntimeArchiveKind::Common],
+        &[
+            RuntimeArchiveKind::Bootstrap,
+            RuntimeArchiveKind::Host,
+            RuntimeArchiveKind::Callback,
+            RuntimeArchiveKind::Cancellation,
+            RuntimeArchiveKind::Common,
+        ],
     )?;
 
     let executable = compile_smoke(
@@ -75,12 +84,13 @@ pub(super) fn smoke_test(
         Some(&map),
     )?;
 
-    let status = Command::new(&executable)
-        .status()
-        .map_err(|error| CommandError::SmokeExecution {
-            name: "synchronous",
-            error,
-        })?;
+    let status =
+        Command::new(&executable)
+            .status()
+            .map_err(|error| CommandError::SmokeExecution {
+                name: "synchronous",
+                error,
+            })?;
 
     if !status.success() {
         return Err(CommandError::SmokeExecutionFailed {
@@ -136,10 +146,9 @@ fn compile_bootstrap_smoke(
     fs::write(&source, BOOTSTRAP_SMOKE_SOURCE)
         .map_err(|error| CommandError::write(&source, error))?;
 
-    let compiler = bray_tooling::llvm_tool_path(
-        bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
-    )
-    .map_err(CommandError::NativeCompilerToolUnavailable)?;
+    let compiler =
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
+            .map_err(CommandError::NativeCompilerToolUnavailable)?;
 
     let mut command = Command::new(compiler);
 
@@ -151,10 +160,14 @@ fn compile_bootstrap_smoke(
 
     match target.object_format() {
         bray_target::ObjectFormat::Coff => {
-            command.arg("-Xlinker").arg(linker_map_argument(target, map)?);
+            command
+                .arg("-Xlinker")
+                .arg(linker_map_argument(target, map)?);
         }
         bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::MachO => {
-            command.arg("-pthread").arg(linker_map_argument(target, map)?);
+            command
+                .arg("-pthread")
+                .arg(linker_map_argument(target, map)?);
         }
         bray_target::ObjectFormat::WebAssembly | bray_target::ObjectFormat::Xcoff => {
             return Err(CommandError::HostTarget);
@@ -256,7 +269,6 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
     let required = [bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL];
 
     let forbidden = [
-        bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
         bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::TASK_ALLOCATION_SYMBOL,
         bray_runtime_abi::TASK_START_SYMBOL,
@@ -344,11 +356,7 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn audit_link_symbols(
-    contents: &str,
-    required: &[&str],
-    forbidden: &[&str],
-) -> Result<(), String> {
+fn audit_link_symbols(contents: &str, required: &[&str], forbidden: &[&str]) -> Result<(), String> {
     if let Some(symbol) = required
         .iter()
         .find(|symbol| !crate::link_map::contains_symbol(contents, symbol))
@@ -402,6 +410,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::RUNTIME_INITIALIZATION_SYMBOL,
                     bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
+                    bray_runtime_abi::NATIVE_THREAD_EXECUTION_SYMBOL,
                     bray_runtime_abi::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
                     bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
                     bray_runtime_abi::PANIC_REPORTING_SYMBOL,
@@ -418,8 +427,8 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
             ),
             RuntimeArchiveKind::Host => (
                 &[
-                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
+                    "bray_runtime_substrate_initialization",
+                    "bray_runtime_substrate_shutdown",
                 ],
                 &[
                     "bray_runtime_memory_",
@@ -427,15 +436,24 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     "bray_runtime_character_",
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TASK_START_SYMBOL,
+                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
+                    bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
                     "bray_platform_standard_",
                 ],
             ),
             RuntimeArchiveKind::Callback => (
-                &[bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL],
+                &[
+                    "bray_runtime_substrate_panic_reporting",
+                    "bray_runtime_substrate_synchronous_root_execution",
+                    "bray_runtime_substrate_foreign_callback_execution",
+                    "bray_runtime_substrate_native_thread_execution",
+                ],
                 &[
                     bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
+                    bray_runtime_abi::NATIVE_THREAD_EXECUTION_SYMBOL,
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
                     "bray_runtime_memory_",

@@ -1,0 +1,162 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+@abi(c)
+trusted internal func panic_report_construction(
+    pos cause: u32,
+    pos source_present: u32,
+    pos source_identity: u32,
+    pos source_start: u32,
+    pos source_end: u32,
+    pos source_version: u64,
+    pos message: RawPointer<u8>,
+    pos message_length: usize,
+) -> usize
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
+        trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
+    )
+    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
+{
+    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
+    {
+        trusted core.target.abort();
+    }
+
+    let message_copy: RawPointer<u8> = if message_length == 0
+    {
+        yield std.memory.null<u8>();
+    }
+    else
+    {
+        let copy: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(message_length, align = 1);
+
+        if std.memory.is_null<u8>(copy)
+        {
+            trusted core.target.abort();
+        }
+
+        trusted internal std.memory.byte_buffer_copy(message, destination = copy, count = message_length);
+
+        yield copy;
+    };
+
+    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
+    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
+        bytes,
+        align = std.memory.align_of<PanicReportData>()
+    );
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        if !std.memory.is_null<u8>(message_copy)
+        {
+            trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
+                message_copy,
+                bytes = message_length,
+                align = ONE_USIZE,
+            );
+        }
+
+        trusted core.target.abort();
+    }
+
+    let report: RawPointer<PanicReportData> = trusted std.memory.reinterpret<PanicReportData, u8>(allocation);
+
+    trusted write_opaque<PanicReportData>(
+        report,
+        {
+            cause = cause,
+            source_present = source_present,
+            source_identity = source_identity,
+            source_start = source_start,
+            source_end = source_end,
+            source_version = source_version,
+            message = message_copy,
+            message_length = message_length,
+        }
+    );
+
+    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
+
+    return trusted core.target.expose_address<PanicReportData>(report);
+}
+
+@abi(c)
+trusted internal func panic_reporting(pos payload: usize) -> u32
+    uses(foreign_call)
+{
+    if payload == 0
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
+    let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+    let report_status: u32 = trusted substrate_panic_reporting(
+        value.cause,
+        source_present = value.source_present,
+        source_identity = value.source_identity,
+        source_start = value.source_start,
+        source_end = value.source_end,
+        source_version = value.source_version,
+        message = value.message,
+        message_length = value.message_length,
+    );
+
+    let destruction_status: u32 = trusted destroy_panic_report(payload);
+
+    if report_status != STATUS_SUCCESS
+    {
+        return report_status;
+    }
+
+    return destruction_status;
+}
+
+@abi(c)
+trusted internal func panic_report_destruction(pos payload: usize) -> u32
+{
+    return trusted destroy_panic_report(payload);
+}
+
+trusted internal func destroy_panic_report(pos payload: usize) -> u32
+{
+    if payload == 0
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
+    let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+
+    if !std.memory.is_null<u8>(value.message)
+    {
+        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
+            value.message,
+            bytes = value.message_length,
+            align = ONE_USIZE,
+        );
+    }
+
+    trusted internal bray.runtime.bootstrap.heap.deallocate<PanicReportData>(report);
+
+    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
+
+    return STATUS_SUCCESS;
+}
+
+@link(name = "bray_runtime_callback", kind = system)
+@symbol(name = "bray_runtime_substrate_panic_reporting")
+@abi(c)
+extern trusted internal func substrate_panic_reporting(
+    pos cause: u32,
+    pos source_present: u32,
+    pos source_identity: u32,
+    pos source_start: u32,
+    pos source_end: u32,
+    pos source_version: u64,
+    pos message: RawPointer<u8>,
+    pos message_length: usize,
+) -> u32
+    uses(foreign_call);
