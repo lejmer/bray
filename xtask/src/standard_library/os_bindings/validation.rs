@@ -63,7 +63,7 @@ fn validate_target(target: &TargetDescription) -> Result<(), String> {
         ));
     }
 
-    validate_unique_names(
+    validate_unique_names_preserving_order(
         &target.target,
         "header",
         target.sdk.headers.iter().map(String::as_str),
@@ -251,6 +251,22 @@ fn validate_unique_names<'a>(
     Ok(())
 }
 
+fn validate_unique_names_preserving_order<'a>(
+    target: &str,
+    category: &str,
+    names: impl Iterator<Item = &'a str>,
+) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+
+    for name in names {
+        if !seen.insert(name) {
+            return Err(format!("{target} {category} entry {name} is repeated"));
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_links(target: &TargetDescription) -> Result<(), String> {
     let links = target
         .links
@@ -277,6 +293,30 @@ fn validate_links(target: &TargetDescription) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn header_validation_preserves_dependency_order_and_rejects_exact_duplicates() {
+        assert!(
+            super::validate_unique_names_preserving_order(
+                "x86_64-pc-windows-msvc",
+                "header",
+                ["windows.h", "bcrypt.h"].into_iter(),
+            )
+            .is_ok()
+        );
+
+        assert_eq!(
+            super::validate_unique_names_preserving_order(
+                "x86_64-pc-windows-msvc",
+                "header",
+                ["windows.h", "windows.h"].into_iter(),
+            ),
+            Err("x86_64-pc-windows-msvc header entry windows.h is repeated".to_owned(),)
+        );
+    }
 }
 
 fn validate_types(target: &TargetDescription) -> Result<(), String> {

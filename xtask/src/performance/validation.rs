@@ -11,9 +11,10 @@ use super::corpus::{
     CALIBRATION_TARGET_NANOSECONDS, WORKLOADS,
 };
 use super::model::{
-    ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT,
-    MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT, Observation, PeerLanguage,
-    PerformanceReport, RetainedInput, SCHEMA_REVISION, WorkloadBatching,
+    ArtifactKind, ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT,
+    MAX_PLATFORM_OPERATION_COUNT, MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT,
+    Observation, PeerLanguage, PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION,
+    WorkloadBatching,
 };
 
 const MINIMUM_BATCH_INTERVAL_NANOSECONDS: u64 = 10_000_000;
@@ -242,7 +243,7 @@ fn validate_workload(
         }
 
         validate_artifact(artifact)?;
-        validate_runtime_dependencies(artifact, target.object_format())?;
+        validate_runtime_dependencies(artifact, target)?;
     }
 
     validate_observation(&workload.observations.allocation_count)?;
@@ -501,7 +502,7 @@ fn validate_peers(
         }
 
         validate_artifact(&report.artifacts[0])?;
-        validate_runtime_dependencies(&report.artifacts[0], target.object_format())?;
+        validate_runtime_dependencies(&report.artifacts[0], target)?;
         validate_unavailable_peer_observations(&report.observations)?;
     }
 
@@ -543,30 +544,41 @@ fn validate_workload_compilation(
 
 fn validate_runtime_dependencies(
     artifact: &ArtifactReport,
+    target: NativeTarget,
+) -> Result<(), String> {
+    match super::peer::runtime_linkage(target)? {
+        RuntimeLinkage::StaticApplicationRuntime => {
+            validate_static_runtime_dependencies(artifact, target.object_format())
+        }
+        RuntimeLinkage::DynamicApplicationRuntime => validate_dynamic_windows_crt(artifact),
+    }
+}
+
+fn validate_static_runtime_dependencies(
+    artifact: &ArtifactReport,
     object_format: ObjectFormat,
 ) -> Result<(), String> {
+    if artifact.dependencies.dynamic_libraries.omitted_count != 0 {
+        return Err(format!(
+            "{:?} artifact omits dependencies required to prove static runtime linkage",
+            artifact.kind
+        ));
+    }
+
     let has_dynamic_runtime =
         artifact
             .dependencies
             .dynamic_libraries
             .entries
             .iter()
-            .any(|library| {
-                let library = library.to_ascii_lowercase();
+            .any(|library| match object_format {
+                ObjectFormat::Coff => crate::windows_crt::is_dynamic_library(library),
+                ObjectFormat::Elf => {
+                    let library = library.to_ascii_lowercase();
 
-                match object_format {
-                    ObjectFormat::Coff => {
-                        library.starts_with("api-ms-win-crt-")
-                            || library.starts_with("msvcp")
-                            || library.starts_with("msvcr")
-                            || library.starts_with("vcruntime")
-                            || library == "ucrtbase.dll"
-                    }
-                    ObjectFormat::Elf => {
-                        library.starts_with("libstdc++.") || library.starts_with("libgcc_s.")
-                    }
-                    ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff => true,
+                    library.starts_with("libstdc++.") || library.starts_with("libgcc_s.")
                 }
+                ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff => true,
             });
 
     if has_dynamic_runtime {
@@ -577,6 +589,67 @@ fn validate_runtime_dependencies(
     }
 
     Ok(())
+}
+
+fn validate_dynamic_windows_crt(artifact: &ArtifactReport) -> Result<(), String> {
+    if artifact.dependencies.static_archives.omitted_count != 0
+        || artifact.dependencies.static_inputs.omitted_count != 0
+        || (artifact.kind == ArtifactKind::Executable
+            && artifact.dependencies.dynamic_libraries.omitted_count != 0)
+    {
+        return Err(format!(
+            "{} '{}' omits dependencies required to prove dynamic Windows CRT linkage",
+            artifact_kind_name(artifact.kind),
+            artifact.path,
+        ));
+    }
+
+    let static_runtime = artifact
+        .dependencies
+        .static_archives
+        .entries
+        .iter()
+        .map(String::as_str)
+        .chain(
+            artifact
+                .dependencies
+                .static_inputs
+                .entries
+                .iter()
+                .map(|input| input.artifact.as_str()),
+        )
+        .find(|library| crate::windows_crt::is_static_library(library));
+
+    if let Some(library) = static_runtime {
+        return Err(format!(
+            "{} '{}' retains static Windows CRT input {library}",
+            artifact_kind_name(artifact.kind),
+            artifact.path,
+        ));
+    }
+
+    if artifact.kind == ArtifactKind::Executable
+        && !artifact
+            .dependencies
+            .dynamic_libraries
+            .entries
+            .iter()
+            .any(|library| crate::windows_crt::is_dynamic_library(library))
+    {
+        return Err(format!(
+            "executable '{}' does not import the dynamic Windows CRT",
+            artifact.path,
+        ));
+    }
+
+    Ok(())
+}
+
+const fn artifact_kind_name(kind: ArtifactKind) -> &'static str {
+    match kind {
+        ArtifactKind::Executable => "executable",
+        ArtifactKind::RelocatableObject => "relocatable object",
+    }
 }
 
 fn validate_unavailable_peer_observations(

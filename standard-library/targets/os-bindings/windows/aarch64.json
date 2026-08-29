@@ -15,9 +15,12 @@
           "revision": "14.44.35207"
         },
         "headers": [
+          "errno.h",
           "malloc.h",
-          "shellapi.h",
-          "windows.h"
+          "process.h",
+          "windows.h",
+          "bcrypt.h",
+          "shellapi.h"
         ],
         "probe_definitions": [
           "WIN32_LEAN_AND_MEAN 1",
@@ -328,6 +331,20 @@
       ],
       "callbacks": [
         {
+          "name": "BeginThreadRoutine",
+          "native": "_beginthreadex_proc_type",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            }
+          ],
+          "result": "u32",
+          "native_result": "unsigned"
+        },
+        {
           "name": "ThreadStartRoutine",
           "native": "LPTHREAD_START_ROUTINE",
           "abi": "system",
@@ -365,6 +382,54 @@
         }
       ],
       "functions": [
+        {
+          "name": "begin_thread_ex",
+          "native": "_beginthreadex",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "security",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "stack_size",
+              "type": "u32",
+              "native_type": "unsigned"
+            },
+            {
+              "name": "entry",
+              "type": "RawPointer<u8>",
+              "native_type": "_beginthreadex_proc_type"
+            },
+            {
+              "name": "context",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            },
+            {
+              "name": "creation_flags",
+              "type": "u32",
+              "native_type": "unsigned"
+            },
+            {
+              "name": "thread_identifier",
+              "type": "RawPointer<u32>",
+              "native_type": "unsigned *"
+            }
+          ],
+          "result": "usize",
+          "native_result": "uintptr_t",
+          "link": "ucrt",
+          "error_state": "returns zero and records ERRNO state",
+          "ownership": "success returns one caller-owned thread handle",
+          "initialization": "success initializes the thread identifier when supplied",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
         {
           "name": "bcrypt_gen_random",
           "native": "BCryptGenRandom",
@@ -464,6 +529,26 @@
           "error_state": "returns null and records GetLastError state",
           "ownership": "success returns one caller-owned thread handle",
           "initialization": "success initializes the thread identifier when supplied",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "errno_location",
+          "native": "_errno",
+          "abi": "c",
+          "parameters": [],
+          "result": "RawPointer<i32>",
+          "native_result": "int *",
+          "link": "ucrt",
+          "ownership": "the C runtime owns the current native thread storage",
+          "ensures": [
+            "trusted core.memory.valid_read<i32>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<i32>(pointer = result)",
+            "trusted core.memory.initialized_as<i32>(pointer = result)"
+          ],
           "dependencies": [
             "foreign_call",
             "native_thread",

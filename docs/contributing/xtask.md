@@ -274,12 +274,14 @@ measured intervals, and the adjusted picosecond duration for one workload execut
 artifacts use that same selected count. Production executable size and process duration continue to measure ordinary
 single-execution artifacts.
 
-All three production executables use static application and language runtimes. On Windows this means the static MSVC
-runtime for Bray, Rust, and C++. Target operating-system libraries may remain dynamic. The report records the policy and
-exact compiler flags, then validates the produced dependency lists to reject application-runtime DLLs. Linux peers embed
-their language runtimes while using target system libraries. Mach-O comparison is rejected until the C++ peer can
-provide the same runtime model. Rust and C++ memory-work observations remain unavailable until equally attributed
-measurement support exists for all three languages.
+Windows production executables use the system MSVC and UCRT DLLs. Bray runtime archives and C dependencies explicitly
+disable static CRT selection, the standard-library platform bindings use UCRT import libraries, and Rust and C++ peers
+select the same dynamic policy. This avoids relying on CRT startup and thread-local initialization that Bray's private
+executable entry does not run. The report records the policy and exact compiler flags, then validates PE imports and
+linker-map inputs to reject retained static CRT archives. Linux peers embed their language runtimes while using target
+system libraries. Mach-O comparison is rejected until the C++ peer can provide the same runtime model. Rust and C++
+memory-work observations remain unavailable until equally attributed measurement support exists for all three
+languages.
 
 The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines,
 formatting, stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access.

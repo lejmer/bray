@@ -245,6 +245,90 @@ fn reports_round_trip_with_explicit_unavailable_observations() {
 }
 
 #[test]
+fn windows_runtime_validation_accepts_crt_imports_and_rejects_static_crt_archives() {
+    let valid = report("corpus", 101, 2);
+
+    super::validation::validate(&valid)
+        .unwrap_or_else(|error| panic!("dynamic Windows CRT imports must validate: {error}"));
+
+    let mut with_object = report("corpus", 101, 2);
+    let mut object = with_object.workloads[0].artifacts[0].clone();
+
+    object.kind = ArtifactKind::RelocatableObject;
+    object.path = "application.obj".to_owned();
+    object.dependencies.dynamic_libraries.entries.clear();
+    object.linker_map = None;
+    with_object.workloads[0].artifacts.push(object);
+
+    super::validation::validate(&with_object).unwrap_or_else(|error| {
+        panic!("relocatable objects cannot be required to contain PE imports: {error}")
+    });
+
+    let mut mixed = valid;
+
+    mixed.workloads[0].artifacts[0]
+        .dependencies
+        .static_archives
+        .entries
+        .insert(0, "libcmt.lib".to_owned());
+
+    let error = super::validation::validate(&mixed)
+        .expect_err("static Windows CRT archives must violate the dynamic runtime contract");
+
+    assert!(error.contains("retains static Windows CRT input libcmt.lib"));
+
+    let mut incomplete = report("corpus", 101, 2);
+
+    incomplete.workloads[0].artifacts[0]
+        .dependencies
+        .dynamic_libraries
+        .omitted_count = 1;
+
+    let error = super::validation::validate(&incomplete)
+        .expect_err("incomplete PE imports cannot prove the dynamic runtime contract");
+
+    assert!(error.contains("omits dependencies required to prove dynamic Windows CRT linkage"));
+
+    let mut missing_import = report("corpus", 101, 2);
+
+    missing_import.workloads[0].artifacts[0]
+        .dependencies
+        .dynamic_libraries
+        .entries = vec!["kernel32.dll".to_owned()];
+
+    let error = super::validation::validate(&missing_import)
+        .expect_err("a dynamic runtime report must identify its CRT import");
+
+    assert!(error.contains("does not import the dynamic Windows CRT"));
+}
+
+#[test]
+fn comparison_attributes_dynamic_windows_runtime_dependency_changes() {
+    let baseline = report("corpus", 102, 4);
+    let mut candidate = report("corpus", 102, 4);
+
+    let dynamic_libraries = &mut candidate.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+        .artifacts[0]
+        .dependencies
+        .dynamic_libraries
+        .entries;
+
+    dynamic_libraries.clear();
+    dynamic_libraries.push("VCRUNTIME140.dll".to_owned());
+
+    let comparison = compare(&baseline, &candidate)
+        .unwrap_or_else(|error| panic!("valid dynamic CRT dependencies must compare: {error}"));
+
+    let artifact = &comparison.workloads[0].peers[&PeerLanguage::Rust].artifacts[0];
+
+    assert_eq!(artifact.added_dynamic_libraries, ["VCRUNTIME140.dll"]);
+    assert_eq!(artifact.removed_dynamic_libraries, ["ucrtbase.dll"]);
+}
+
+#[test]
 fn compilation_reuse_excludes_application_owned_objects() {
     let mut report = report("corpus", 101, 2);
 
@@ -639,22 +723,6 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
     *selected_inner_iterations = 50_000_000;
 
     assert!(compare(&baseline, &inconsistent_calibration).is_err());
-
-    let mut dynamic_dependency = report("corpus", 102, 4);
-
-    let dynamic_libraries = &mut dynamic_dependency.workloads[0]
-        .peers
-        .get_mut(&PeerLanguage::Rust)
-        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
-        .artifacts[0]
-        .dependencies
-        .dynamic_libraries
-        .entries;
-
-    dynamic_libraries.clear();
-    dynamic_libraries.push("VCRUNTIME140.dll".to_owned());
-
-    assert!(compare(&baseline, &dynamic_dependency).is_err());
 }
 
 #[test]
@@ -866,7 +934,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 dependencies: ArtifactDependencies {
                     static_archives: bounded(vec!["peer-runtime.lib".to_owned()]),
                     static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
-                    dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
+                    dynamic_libraries: bounded(vec!["ucrtbase.dll".to_owned()]),
                 },
                 linker_map: None,
             }],
@@ -997,7 +1065,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             compiler_version: "compiler".to_owned(),
             source_revision: "revision".to_owned(),
             llvm_version: "llvm".to_owned(),
-            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
+            runtime_linkage: RuntimeLinkage::DynamicApplicationRuntime,
             warmup_iterations: 2,
             sample_iterations: 3,
             timer_resolution_nanoseconds: 100,
@@ -1041,7 +1109,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 dependencies: ArtifactDependencies {
                     static_archives: bounded(vec!["runtime.lib".to_owned()]),
                     static_inputs: bounded(vec![retained("runtime.lib", "startup.o")]),
-                    dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
+                    dynamic_libraries: bounded(vec!["ucrtbase.dll".to_owned()]),
                 },
                 linker_map: Some(linker_map()),
             }],

@@ -254,6 +254,9 @@ const fn runtime_linkage(linkage: RuntimeLinkage) -> &'static str {
         RuntimeLinkage::StaticApplicationRuntime => {
             "application and language runtimes linked into each executable"
         }
+        RuntimeLinkage::DynamicApplicationRuntime => {
+            "application runtime loaded from the target system"
+        }
     }
 }
 
