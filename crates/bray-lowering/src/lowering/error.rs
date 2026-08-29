@@ -33,7 +33,10 @@ pub enum LoweringError {
     /// The synchronous lowering core does not yet cover this binding pattern.
     UnsupportedPattern(BoundPatternId),
     /// An operator selected for the synchronous core has no MIR operation.
-    UnsupportedOperator(BoundOperator),
+    UnsupportedOperator {
+        expression: BoundExpressionId,
+        operator: BoundOperator,
+    },
     /// An expression has no checked storage access.
     MissingStorageAccess(BoundExpressionId),
     /// A checked storage access is absent from the canonical plan.

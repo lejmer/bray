@@ -16,8 +16,9 @@ use bray_compiler_known::ImplementationHook;
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
+    DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+    DiagnosticInterfaceSymbolReference, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
@@ -57,6 +58,31 @@ pub(super) fn labeled_source_diagnostic(
     let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
 
     source_diagnostic(anchor, kind).with_label(DiagnosticLabel::primary(label, span))
+}
+
+pub(super) fn with_compiler_defect_source(
+    diagnostic: Diagnostic,
+    source: SourceSpan,
+) -> Diagnostic {
+    diagnostic
+        .with_primary_span(source)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::CompilerDefectSource,
+            source,
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        ))
+}
+
+pub(super) const fn code_production_failure_source(
+    failure: DiagnosticEmissionEvaluationFailure,
+) -> Option<SourceSpan> {
+    match failure {
+        DiagnosticEmissionEvaluationFailure::LoweringInput(failure) => Some(failure.source()),
+        DiagnosticEmissionEvaluationFailure::Lowering(failure) => Some(failure.source()),
+        _ => None,
+    }
 }
 
 pub(super) const fn diagnostic_product_kind(kind: ProductKind) -> DiagnosticProductKind {

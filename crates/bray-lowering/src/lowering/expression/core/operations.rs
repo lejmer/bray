@@ -270,7 +270,12 @@ impl Lowerer<'_> {
                     BoundOperator::Subtract => MirUnaryOperator::Negate,
                     BoundOperator::LogicalNot => MirUnaryOperator::Not,
                     BoundOperator::BitwiseNot => MirUnaryOperator::BitwiseNot,
-                    _ => return Err(LoweringError::UnsupportedOperator(operator)),
+                    _ => {
+                        return Err(LoweringError::UnsupportedOperator {
+                            expression: id,
+                            operator,
+                        });
+                    }
                 };
 
                 let value = self.push_value_operation(
@@ -310,7 +315,10 @@ impl Lowerer<'_> {
             } => {
                 let intrinsic = unary_operator(operator)
                     .map(MirCallIntrinsic::Unary)
-                    .ok_or(LoweringError::UnsupportedOperator(operator))?;
+                    .ok_or(LoweringError::UnsupportedOperator {
+                        expression: id,
+                        operator,
+                    })?;
 
                 self.push_checked_call(
                     id,
@@ -427,7 +435,10 @@ impl Lowerer<'_> {
         match selection {
             OperatorTarget::BuiltIn(_) => {
                 let operator = binary_operator(operator)
-                    .ok_or(LoweringError::UnsupportedOperator(operator))?;
+                    .ok_or(LoweringError::UnsupportedOperator {
+                        expression: id,
+                        operator,
+                    })?;
 
                 let value = self.push_typed_value_operation(
                     id,
@@ -482,7 +493,10 @@ impl Lowerer<'_> {
 
                 let intrinsic = binary_operator(intrinsic_operator)
                     .map(MirCallIntrinsic::Binary)
-                    .ok_or(LoweringError::UnsupportedOperator(operator))?;
+                    .ok_or(LoweringError::UnsupportedOperator {
+                        expression: id,
+                        operator,
+                    })?;
 
                 let (current, value) = self.push_checked_call(
                     id,
@@ -576,7 +590,12 @@ impl Lowerer<'_> {
             BoundOperator::LessEqual => (representation.greater_variant, false),
             BoundOperator::Greater => (representation.greater_variant, true),
             BoundOperator::GreaterEqual => (representation.less_variant, false),
-            _ => return Err(LoweringError::UnsupportedOperator(operator)),
+            _ => {
+                return Err(LoweringError::UnsupportedOperator {
+                    expression,
+                    operator,
+                });
+            }
         };
 
         self.builder.set_terminator(

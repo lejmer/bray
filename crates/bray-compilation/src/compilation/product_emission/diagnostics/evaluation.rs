@@ -1,0 +1,86 @@
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
+};
+use bray_symbols::ProductIdentity;
+use bray_target::TargetIdentity;
+
+use super::common::emission_failure_diagnostics;
+use crate::fact::FactQueryError;
+
+pub(super) fn query_failure_diagnostics(
+    error: &FactQueryError,
+    product: &ProductIdentity,
+    target: &TargetIdentity,
+) -> DiagnosticBag {
+    if matches!(error, FactQueryError::Cancelled) {
+        return DiagnosticBag::new();
+    }
+
+    emission_failure_diagnostics(
+        DiagnosticEmissionFailure::Evaluation(diagnostic_evaluation_failure(error)),
+        product,
+        target,
+    )
+}
+
+pub(super) fn diagnostic_evaluation_failure(
+    error: &FactQueryError,
+) -> DiagnosticEmissionEvaluationFailure {
+    match error {
+        FactQueryError::Cancelled => unreachable!("cancelled queries do not produce diagnostics"),
+        FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
+        FactQueryError::InfrastructureFailure => {
+            DiagnosticEmissionEvaluationFailure::Infrastructure
+        }
+        FactQueryError::LoweringInput(error) => {
+            DiagnosticEmissionEvaluationFailure::LoweringInput(
+                super::super::super::lowering_diagnostic::lowering_input_failure(error),
+            )
+        }
+        FactQueryError::Lowering(error) => DiagnosticEmissionEvaluationFailure::Lowering(
+            super::super::super::lowering_diagnostic::lowering_failure(error),
+        ),
+        FactQueryError::ConstantCallableBodyUnavailable => {
+            DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
+        }
+        FactQueryError::ConstantCallableRootUnavailable => {
+            DiagnosticEmissionEvaluationFailure::ConstantCallableRootUnavailable
+        }
+        FactQueryError::AtomicInitializerArgumentUnavailable => {
+            DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
+        }
+        FactQueryError::AtomicInitializerResultUnavailable => {
+            DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+        }
+        FactQueryError::UninitInitializerResultUnavailable => {
+            DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
+        }
+        FactQueryError::ImportedExecutableTemplateMismatch => {
+            DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
+        }
+        FactQueryError::SemanticUnitContext(_) => {
+            DiagnosticEmissionEvaluationFailure::SemanticContext
+        }
+        FactQueryError::CheckerInfrastructure(error) => match error {
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicRepresentationArgumentsUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
+                DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
+                DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
+            }
+            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
+                DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
+            }
+            _ => DiagnosticEmissionEvaluationFailure::CheckerInfrastructure,
+        },
+    }
+}

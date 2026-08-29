@@ -19,6 +19,7 @@ use super::common::{
     codegen_unit_identity, diagnostic_backend_artifact, emission_failure_diagnostic,
     emission_failure_diagnostics,
 };
+use super::evaluation::{diagnostic_evaluation_failure, query_failure_diagnostics};
 use super::model::ProductEmissionErrorKind;
 use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
 use crate::compilation::product::{
@@ -214,11 +215,14 @@ fn package_interface_export_failure_diagnostic(
             target,
         ),
         PackageInterfaceExportError::ConstantCallableEvaluation { declaration, cause } => {
-            package_failure_diagnostic(
+            let cause = diagnostic_evaluation_failure(cause);
+
+            package_evaluation_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::ConstantCallableEvaluation {
                     declaration: declaration.clone(),
-                    cause: diagnostic_evaluation_failure(cause),
+                    cause,
                 },
+                cause,
                 product,
                 target,
             )
@@ -326,9 +330,39 @@ fn package_compiler_defect_diagnostic(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> Diagnostic {
-    package_failure_diagnostic(failure, product, target).with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
-    ))
+    let source = match &failure {
+        DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure { cause, .. } => {
+            crate::compilation::diagnostics::code_production_failure_source(*cause)
+        }
+        _ => None,
+    };
+
+    let diagnostic = package_failure_diagnostic(failure, product, target);
+
+    match source {
+        Some(source) => {
+            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
+        }
+        None => diagnostic.with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        )),
+    }
+}
+
+fn package_evaluation_failure_diagnostic(
+    failure: DiagnosticPackageInterfaceFailure,
+    cause: DiagnosticEmissionEvaluationFailure,
+    product: &ProductIdentity,
+    target: &TargetIdentity,
+) -> Diagnostic {
+    let diagnostic = package_failure_diagnostic(failure, product, target);
+
+    match crate::compilation::diagnostics::code_production_failure_source(cause) {
+        Some(source) => {
+            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
+        }
+        None => diagnostic,
+    }
 }
 
 fn with_duplicate_declaration_locations(
@@ -720,88 +754,12 @@ fn relationship_failure(
     }
 }
 
-pub(super) fn query_failure_diagnostics(
-    error: &FactQueryError,
-    product: &ProductIdentity,
-    target: &TargetIdentity,
-) -> DiagnosticBag {
-    if matches!(error, FactQueryError::Cancelled) {
-        return DiagnosticBag::new();
-    }
-
-    emission_failure_diagnostics(
-        DiagnosticEmissionFailure::Evaluation(diagnostic_evaluation_failure(error)),
-        product,
-        target,
-    )
-}
-
-fn diagnostic_evaluation_failure(error: &FactQueryError) -> DiagnosticEmissionEvaluationFailure {
-    match error {
-        FactQueryError::Cancelled => unreachable!("cancelled queries do not produce diagnostics"),
-        FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
-        FactQueryError::InfrastructureFailure => {
-            DiagnosticEmissionEvaluationFailure::Infrastructure
-        }
-        FactQueryError::LoweringInput(error) => {
-            DiagnosticEmissionEvaluationFailure::LoweringInput(
-                super::super::super::lowering_diagnostic::lowering_input_failure(error),
-            )
-        }
-        FactQueryError::Lowering(error) => DiagnosticEmissionEvaluationFailure::Lowering(
-            super::super::super::lowering_diagnostic::lowering_failure(error),
-        ),
-        FactQueryError::ConstantCallableBodyUnavailable => {
-            DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
-        }
-        FactQueryError::ConstantCallableRootUnavailable => {
-            DiagnosticEmissionEvaluationFailure::ConstantCallableRootUnavailable
-        }
-        FactQueryError::AtomicInitializerArgumentUnavailable => {
-            DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
-        }
-        FactQueryError::AtomicInitializerResultUnavailable => {
-            DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
-        }
-        FactQueryError::UninitInitializerResultUnavailable => {
-            DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
-        }
-        FactQueryError::ImportedExecutableTemplateMismatch => {
-            DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
-        }
-        FactQueryError::SemanticUnitContext(_) => {
-            DiagnosticEmissionEvaluationFailure::SemanticContext
-        }
-        FactQueryError::CheckerInfrastructure(error) => match error {
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicRepresentationArgumentsUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
-                DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
-                DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
-                DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
-            }
-            _ => DiagnosticEmissionEvaluationFailure::CheckerInfrastructure,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
         DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
         DiagnosticInterfaceSymbolKind, DiagnosticLabelKind, DiagnosticLoweringFailure,
-        DiagnosticNoteKind, DiagnosticRelatedLocationKind,
+        DiagnosticLoweringFailureKind, DiagnosticNoteKind, DiagnosticRelatedLocationKind,
     };
     use bray_lowering::LoweringError;
     use bray_messages::DiagnosticRenderer;
@@ -811,9 +769,10 @@ mod tests {
     use bray_target::TargetIdentity;
 
     use super::{
-        diagnostic_evaluation_failure, package_interface_export_failure_diagnostic,
-        package_interface_fragment_failure_diagnostic,
+        package_interface_export_failure_diagnostic, package_interface_fragment_failure_diagnostic,
     };
+    use super::super::evaluation::diagnostic_evaluation_failure;
+    use crate::LocatedLoweringFailure;
     use crate::compilation::PackageInterfaceExportError;
     use crate::fact::FactQueryError;
 
@@ -846,14 +805,64 @@ mod tests {
 
     #[test]
     fn terminal_evaluation_failures_retain_the_lowering_cause() {
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
         assert_eq!(
             diagnostic_evaluation_failure(&FactQueryError::Lowering(
-                LoweringError::InvalidFrameDescriptor,
+                LocatedLoweringFailure::new(LoweringError::InvalidFrameDescriptor, source),
             )),
             DiagnosticEmissionEvaluationFailure::Lowering(
-                DiagnosticLoweringFailure::InvalidFrameDescriptor,
+                DiagnosticLoweringFailure::new(
+                    DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                    source,
+                ),
             )
         );
+    }
+
+    #[test]
+    fn package_evaluation_code_production_failures_retain_source_context() {
+        let (product, target) = identities();
+
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let error = PackageInterfaceExportError::ConstantCallableEvaluation {
+            declaration: DiagnosticInterfaceSymbolIdentity::Package(
+                "example.package".to_owned(),
+            ),
+            cause: FactQueryError::Lowering(LocatedLoweringFailure::new(
+                LoweringError::InvalidFrameDescriptor,
+                source,
+            )),
+        };
+
+        let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
+            .unwrap_or_else(|| panic!("package evaluation failure must diagnose"));
+
+        assert_eq!(diagnostic.primary_span(), Some(source));
+
+        assert!(diagnostic.labels().iter().any(|label| {
+            label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
+        }));
+
+        assert!(
+            diagnostic
+                .notes()
+                .iter()
+                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().contains(
+            "an internal compiler error prevented Bray from generating resumable code for the highlighted callable"
+        ));
     }
 
     #[test]

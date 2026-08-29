@@ -8,6 +8,7 @@ pub use backend::{
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
 };
 pub use lowering::{
-    DiagnosticLoweringFailure, DiagnosticLoweringInputFailure, DiagnosticMirUnitBuildFailure,
+    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
 };
 pub use product::{DiagnosticNativeProductFailureKind, DiagnosticProductKind};

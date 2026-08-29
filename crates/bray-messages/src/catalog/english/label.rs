@@ -198,6 +198,9 @@ const INVALID_TRUSTED_CAPABILITY_REQUIREMENT: &[MessageTemplatePart] =
 
 const CONFLICTING_MODULE_DECLARATION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("conflicting module declaration")];
+const COMPILER_DEFECT_SOURCE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "the internal compiler error occurred while compiling this source construct",
+)];
 
 pub(crate) const fn style(style: DiagnosticLabelStyle) -> &'static str {
     match style {
@@ -323,5 +326,6 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::ConflictingModuleDeclaration => {
             MessageTemplate::new(CONFLICTING_MODULE_DECLARATION)
         }
+        DiagnosticLabelKind::CompilerDefectSource => MessageTemplate::new(COMPILER_DEFECT_SOURCE),
     }
 }

@@ -1,6 +1,36 @@
+use bray_source::SourceSpan;
+
+/// A lowering-input contract failure and the affected Bray source construct.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticLoweringInputFailure {
+    kind: DiagnosticLoweringInputFailureKind,
+    source: SourceSpan,
+}
+
+impl DiagnosticLoweringInputFailure {
+    pub const fn new(kind: DiagnosticLoweringInputFailureKind, source: SourceSpan) -> Self {
+        Self { kind, source }
+    }
+
+    /// Returns the exact failure category.
+    pub const fn kind(self) -> DiagnosticLoweringInputFailureKind {
+        self.kind
+    }
+
+    /// Returns the closest Bray source construct affected by the failure.
+    pub const fn source(self) -> SourceSpan {
+        self.source
+    }
+
+    /// Returns the stable machine key for this contract failure.
+    pub const fn as_str(self) -> &'static str {
+        self.kind.as_str()
+    }
+}
+
 /// Exact lowering-input contract failure retained at a diagnostic boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticLoweringInputFailure {
+pub enum DiagnosticLoweringInputFailureKind {
     ForeignInput,
     InputKindMismatch,
     MissingSemanticSelection,
@@ -8,42 +38,71 @@ pub enum DiagnosticLoweringInputFailure {
     InvalidPatternInput,
     InvalidInputContents,
     InvalidStorageOperation,
-    StorageOperationCountMismatch,
+    StorageOperationCountMismatch { expected: u64, actual: u64 },
     InvalidStorageExit,
-    LiteralTargetWidthMismatch,
+    LiteralTargetWidthMismatch { expected: u16, actual: u16 },
     ExecutableHostRequiresSyntheticInput,
     CompileTimeUnitRequiresClassification,
 }
 
-impl DiagnosticLoweringInputFailure {
-    /// Returns the stable machine key for this contract failure.
+impl DiagnosticLoweringInputFailureKind {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ForeignInput => "lowering_input_foreign_input",
-            Self::InputKindMismatch => "lowering_input_kind_mismatch",
-            Self::MissingSemanticSelection => "lowering_input_missing_semantic_selection",
-            Self::MissingExpressionType => "lowering_input_missing_expression_type",
-            Self::InvalidPatternInput => "lowering_input_invalid_pattern_input",
-            Self::InvalidInputContents => "lowering_input_invalid_contents",
-            Self::InvalidStorageOperation => "lowering_input_invalid_storage_operation",
-            Self::StorageOperationCountMismatch => {
-                "lowering_input_storage_operation_count_mismatch"
+            Self::ForeignInput => "code_production_input_foreign_declaration",
+            Self::InputKindMismatch => "code_production_input_declaration_kind_mismatch",
+            Self::MissingSemanticSelection => "code_production_input_missing_behavior",
+            Self::MissingExpressionType => "code_production_input_missing_expression_type",
+            Self::InvalidPatternInput => "code_production_input_invalid_pattern",
+            Self::InvalidInputContents => "code_production_input_foreign_source_construct",
+            Self::InvalidStorageOperation => "code_production_input_invalid_value_access",
+            Self::StorageOperationCountMismatch { .. } => {
+                "code_production_input_value_access_count_mismatch"
             }
-            Self::InvalidStorageExit => "lowering_input_invalid_storage_exit",
-            Self::LiteralTargetWidthMismatch => "lowering_input_literal_target_width_mismatch",
+            Self::InvalidStorageExit => "code_production_input_invalid_scope_cleanup",
+            Self::LiteralTargetWidthMismatch { .. } => {
+                "code_production_input_integer_target_width_mismatch"
+            }
             Self::ExecutableHostRequiresSyntheticInput => {
-                "lowering_input_executable_host_requires_synthetic_input"
+                "code_production_input_program_startup_source_mismatch"
             }
             Self::CompileTimeUnitRequiresClassification => {
-                "lowering_input_compile_time_unit_requires_classification"
+                "code_production_input_declaration_classification_missing"
             }
         }
     }
 }
 
-/// Exact checked-HIR or MIR construction failure retained at a diagnostic boundary.
+/// A compiler code-production failure and the affected Bray source construct.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticLoweringFailure {
+pub struct DiagnosticLoweringFailure {
+    kind: DiagnosticLoweringFailureKind,
+    source: SourceSpan,
+}
+
+impl DiagnosticLoweringFailure {
+    pub const fn new(kind: DiagnosticLoweringFailureKind, source: SourceSpan) -> Self {
+        Self { kind, source }
+    }
+
+    /// Returns the exact failure category.
+    pub const fn kind(self) -> DiagnosticLoweringFailureKind {
+        self.kind
+    }
+
+    /// Returns the closest Bray source construct affected by the failure.
+    pub const fn source(self) -> SourceSpan {
+        self.source
+    }
+
+    /// Returns the stable machine key for this lowering failure.
+    pub const fn as_str(self) -> &'static str {
+        self.kind.as_str()
+    }
+}
+
+/// Exact compiler code-production failure retained at a diagnostic boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticLoweringFailureKind {
     UnsupportedRoot,
     MissingBoundNode,
     RecoveredBoundNode,
@@ -71,40 +130,39 @@ pub enum DiagnosticLoweringFailure {
     Mir(DiagnosticMirUnitBuildFailure),
 }
 
-impl DiagnosticLoweringFailure {
-    /// Returns the stable machine key for this lowering failure.
+impl DiagnosticLoweringFailureKind {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::UnsupportedRoot => "lowering_unsupported_root",
-            Self::MissingBoundNode => "lowering_missing_bound_node",
-            Self::RecoveredBoundNode => "lowering_recovered_bound_node",
-            Self::MissingExpressionType => "lowering_missing_expression_type",
-            Self::AwaitOutsideProtectedFrame => "lowering_await_outside_protected_frame",
-            Self::MissingSuspensionPoint => "lowering_missing_suspension_point",
-            Self::InvalidTaskOperation => "lowering_invalid_task_operation",
-            Self::MissingCallableResultType => "lowering_missing_callable_result_type",
-            Self::MissingLiteralValue => "lowering_missing_literal_value",
-            Self::MissingSemanticSelection => "lowering_missing_semantic_selection",
-            Self::UnsupportedExpression => "lowering_unsupported_expression",
-            Self::UnsupportedPattern => "lowering_unsupported_pattern",
-            Self::UnsupportedOperator => "lowering_unsupported_operator",
-            Self::MissingStorageAccess => "lowering_missing_storage_access",
-            Self::MissingStorageAccessRecord => "lowering_missing_storage_access_record",
-            Self::MissingCleanupPlan => "lowering_missing_cleanup_plan",
-            Self::MissingStorageIdentity => "lowering_missing_storage_identity",
-            Self::MissingStorageIdentityRecord => "lowering_missing_storage_identity_record",
-            Self::MissingIterationStorage => "lowering_missing_iteration_storage",
-            Self::UnsupportedStorageAccess => "lowering_unsupported_storage_access",
-            Self::MissingOperationResult => "lowering_missing_operation_result",
-            Self::MissingRepresentation => "lowering_missing_representation",
-            Self::SemanticValueUnavailable => "lowering_semantic_value_unavailable",
-            Self::InvalidFrameDescriptor => "lowering_invalid_frame_descriptor",
+            Self::UnsupportedRoot => "code_production_declaration_without_executable_body",
+            Self::MissingBoundNode => "code_production_source_construct_unavailable",
+            Self::RecoveredBoundNode => "code_production_source_construct_has_prior_error",
+            Self::MissingExpressionType => "code_production_expression_type_unavailable",
+            Self::AwaitOutsideProtectedFrame => "code_production_await_state_unavailable",
+            Self::MissingSuspensionPoint => "code_production_await_resume_path_unavailable",
+            Self::InvalidTaskOperation => "code_production_task_call_type_mismatch",
+            Self::MissingCallableResultType => "code_production_callable_result_type_unavailable",
+            Self::MissingLiteralValue => "code_production_literal_value_unavailable",
+            Self::MissingSemanticSelection => "code_production_expression_behavior_unavailable",
+            Self::UnsupportedExpression => "code_production_expression_unsupported",
+            Self::UnsupportedPattern => "code_production_pattern_unsupported",
+            Self::UnsupportedOperator => "code_production_operator_unsupported",
+            Self::MissingStorageAccess => "code_production_value_access_unavailable",
+            Self::MissingStorageAccessRecord => "code_production_value_access_record_unavailable",
+            Self::MissingCleanupPlan => "code_production_scope_cleanup_unavailable",
+            Self::MissingStorageIdentity => "code_production_accessed_value_unavailable",
+            Self::MissingStorageIdentityRecord => "code_production_value_record_unavailable",
+            Self::MissingIterationStorage => "code_production_iteration_state_unavailable",
+            Self::UnsupportedStorageAccess => "code_production_value_access_unsupported",
+            Self::MissingOperationResult => "code_production_expression_value_unavailable",
+            Self::MissingRepresentation => "code_production_target_representation_unavailable",
+            Self::SemanticValueUnavailable => "code_production_type_or_constant_unavailable",
+            Self::InvalidFrameDescriptor => "code_production_resumable_state_conflict",
             Self::Mir(failure) => failure.as_str(),
         }
     }
 }
 
-/// Exact MIR unit construction failure retained through lowering diagnostics.
+/// Exact executable-code construction failure retained through lowering diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticMirUnitBuildFailure {
     SourceOriginMismatch,
@@ -152,51 +210,52 @@ pub enum DiagnosticMirUnitBuildFailure {
 }
 
 impl DiagnosticMirUnitBuildFailure {
-    /// Returns the stable machine key for this MIR construction failure.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::SourceOriginMismatch => "mir_source_origin_mismatch",
-            Self::IdentityCapacityExceeded => "mir_identity_capacity_exceeded",
-            Self::ForeignBlock => "mir_foreign_block",
-            Self::ForeignOperation => "mir_foreign_operation",
-            Self::ForeignStorage => "mir_foreign_storage",
-            Self::ForeignValue => "mir_foreign_value",
-            Self::MissingBlock => "mir_missing_block",
-            Self::MissingOperation => "mir_missing_operation",
-            Self::MissingOperationResult => "mir_missing_operation_result",
-            Self::UnexpectedOperationResult => "mir_unexpected_operation_result",
-            Self::OperationResultTypeMismatch => "mir_operation_result_type_mismatch",
-            Self::InvalidAggregateOperation => "mir_invalid_aggregate_operation",
-            Self::InvalidMemoryOperation => "mir_invalid_memory_operation",
-            Self::InvalidAnonymousCallable => "mir_invalid_anonymous_callable",
-            Self::InvalidConstructionInput => "mir_invalid_construction_input",
-            Self::InvalidCall => "mir_invalid_call",
-            Self::InvalidHostOperation => "mir_invalid_host_operation",
-            Self::InvalidHostSequence => "mir_invalid_host_sequence",
-            Self::MissingStorage => "mir_missing_storage",
-            Self::MissingValue => "mir_missing_value",
-            Self::DuplicateTerminator => "mir_duplicate_terminator",
-            Self::MissingTerminator => "mir_missing_terminator",
-            Self::InvalidInlineAssemblyTerminator => "mir_invalid_inline_assembly_terminator",
-            Self::InvalidSuspensionPayload => "mir_invalid_suspension_payload",
-            Self::InvalidCallPanicCheck => "mir_invalid_call_panic_check",
-            Self::EdgeArgumentCountMismatch => "mir_edge_argument_count_mismatch",
-            Self::EdgeArgumentTypeMismatch => "mir_edge_argument_type_mismatch",
-            Self::DuplicateSwitchCase => "mir_duplicate_switch_case",
-            Self::CleanupTargetMismatch => "mir_cleanup_target_mismatch",
-            Self::CleanupPhaseOrderViolation => "mir_cleanup_phase_order_violation",
-            Self::RuntimeRoleMismatch => "mir_runtime_role_mismatch",
-            Self::RuntimeAbiVersionMismatch => "mir_runtime_abi_version_mismatch",
-            Self::InvalidOperationBlock => "mir_invalid_operation_block",
-            Self::StorageKindMismatch => "mir_storage_kind_mismatch",
-            Self::StorageTypeMismatch => "mir_storage_type_mismatch",
-            Self::ValueDoesNotDominateUse => "mir_value_does_not_dominate_use",
-            Self::ProtectedFrameMismatch => "mir_protected_frame_mismatch",
-            Self::MissingFrameDescriptor => "mir_missing_frame_descriptor",
-            Self::DuplicateFrameDescriptor => "mir_duplicate_frame_descriptor",
-            Self::UnexpectedFrameDescriptor => "mir_unexpected_frame_descriptor",
-            Self::InvalidFrameStateEntry => "mir_invalid_frame_state_entry",
-            Self::MissingFrameState => "mir_missing_frame_state",
+            Self::SourceOriginMismatch => "executable_code_source_declaration_mismatch",
+            Self::IdentityCapacityExceeded => "executable_code_capacity_exceeded",
+            Self::ForeignBlock => "executable_code_foreign_path",
+            Self::ForeignOperation => "executable_code_foreign_instruction",
+            Self::ForeignStorage => "executable_code_foreign_memory",
+            Self::ForeignValue => "executable_code_foreign_value",
+            Self::MissingBlock => "executable_code_missing_path",
+            Self::MissingOperation => "executable_code_missing_instruction",
+            Self::MissingOperationResult => "executable_code_missing_instruction_value",
+            Self::UnexpectedOperationResult => "executable_code_unexpected_value",
+            Self::OperationResultTypeMismatch => "executable_code_value_type_mismatch",
+            Self::InvalidAggregateOperation => "executable_code_aggregate_value_mismatch",
+            Self::InvalidMemoryOperation => "executable_code_value_access_mismatch",
+            Self::InvalidAnonymousCallable => "executable_code_invalid_anonymous_callable",
+            Self::InvalidConstructionInput => "executable_code_construction_value_mismatch",
+            Self::InvalidCall => "executable_code_invalid_call",
+            Self::InvalidHostOperation => "executable_code_program_lifecycle_mismatch",
+            Self::InvalidHostSequence => "executable_code_program_shutdown_order",
+            Self::MissingStorage => "executable_code_missing_memory",
+            Self::MissingValue => "executable_code_missing_value",
+            Self::DuplicateTerminator => "executable_code_multiple_path_outcomes",
+            Self::MissingTerminator => "executable_code_missing_path_outcome",
+            Self::InvalidInlineAssemblyTerminator => {
+                "executable_code_inline_assembly_branch_mismatch"
+            }
+            Self::InvalidSuspensionPayload => "executable_code_suspension_value_mismatch",
+            Self::InvalidCallPanicCheck => "executable_code_call_panic_handling_mismatch",
+            Self::EdgeArgumentCountMismatch => "executable_code_path_value_count_mismatch",
+            Self::EdgeArgumentTypeMismatch => "executable_code_path_value_type_mismatch",
+            Self::DuplicateSwitchCase => "executable_code_duplicate_branch_case",
+            Self::CleanupTargetMismatch => "executable_code_cleanup_stage_mismatch",
+            Self::CleanupPhaseOrderViolation => "executable_code_cleanup_order",
+            Self::RuntimeRoleMismatch => "executable_code_runtime_service_mismatch",
+            Self::RuntimeAbiVersionMismatch => "executable_code_runtime_interface_mismatch",
+            Self::InvalidOperationBlock => "executable_code_instruction_path_mismatch",
+            Self::StorageKindMismatch => "executable_code_ownership_role_mismatch",
+            Self::StorageTypeMismatch => "executable_code_value_access_type_mismatch",
+            Self::ValueDoesNotDominateUse => "executable_code_value_used_before_production",
+            Self::ProtectedFrameMismatch => "executable_code_async_callable_state_mismatch",
+            Self::MissingFrameDescriptor => "executable_code_missing_resumable_state_layout",
+            Self::DuplicateFrameDescriptor => "executable_code_conflicting_resumable_state_layouts",
+            Self::UnexpectedFrameDescriptor => "executable_code_unexpected_resumable_state_layout",
+            Self::InvalidFrameStateEntry => "executable_code_invalid_resume_point",
+            Self::MissingFrameState => "executable_code_missing_resume_point",
         }
     }
 }

@@ -128,6 +128,18 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     .with_arg(DiagnosticArg::native_product_failure_kind(failure));
 
     match failure {
+        DiagnosticNativeProductFailureKind::EvaluationLoweringInput(failure) => {
+            super::super::super::diagnostics::with_compiler_defect_source(
+                diagnostic,
+                failure.source(),
+            )
+        }
+        DiagnosticNativeProductFailureKind::EvaluationLowering(failure) => {
+            super::super::super::diagnostics::with_compiler_defect_source(
+                diagnostic,
+                failure.source(),
+            )
+        }
         DiagnosticNativeProductFailureKind::CodegenMirUnavailable => diagnostic.with_note(
             DiagnosticNote::new(DiagnosticNoteKind::NativeProductPreparationRecovery),
         ),
@@ -280,7 +292,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
     })
 }
 
-const fn fact_query_failure_kind(
+fn fact_query_failure_kind(
     error: &FactQueryError,
 ) -> Option<DiagnosticNativeProductFailureKind> {
     use DiagnosticNativeProductFailureKind as Kind;
@@ -355,9 +367,13 @@ mod tests {
     use bray_checker::CheckerInfrastructureError;
     use bray_diagnostics::{
         DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLoweringFailure,
-        DiagnosticLoweringInputFailure, DiagnosticNativeProductFailureKind, DiagnosticNoteKind,
+        DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+        DiagnosticLoweringInputFailureKind, DiagnosticNativeProductFailureKind,
+        DiagnosticLabelKind, DiagnosticNoteKind,
     };
     use bray_lowering::{LoweringError, LoweringInputError};
+    use bray_messages::DiagnosticRenderer;
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -365,10 +381,16 @@ mod tests {
         NativeProductPlanningError, fact_query_failure_kind, native_product_preparation_diagnostic,
     };
     use crate::fact::FactQueryError;
+    use crate::LocatedLoweringFailure;
 
     #[test]
     fn native_product_evaluation_failures_preserve_specific_reasons() {
         use DiagnosticNativeProductFailureKind as Kind;
+
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
 
         let cases = [
             (
@@ -408,14 +430,24 @@ mod tests {
                 Kind::EvaluationImportedExecutableTemplateMismatch,
             ),
             (
-                FactQueryError::LoweringInput(LoweringInputError::InvalidPatternInput),
-                Kind::EvaluationLoweringInput(
-                    DiagnosticLoweringInputFailure::InvalidPatternInput,
-                ),
+                FactQueryError::LoweringInput(LocatedLoweringFailure::new(
+                    LoweringInputError::InvalidPatternInput,
+                    source,
+                )),
+                Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
+                    DiagnosticLoweringInputFailureKind::InvalidPatternInput,
+                    source,
+                )),
             ),
             (
-                FactQueryError::Lowering(LoweringError::InvalidFrameDescriptor),
-                Kind::EvaluationLowering(DiagnosticLoweringFailure::InvalidFrameDescriptor),
+                FactQueryError::Lowering(LocatedLoweringFailure::new(
+                    LoweringError::InvalidFrameDescriptor,
+                    source,
+                )),
+                Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
+                    DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                    source,
+                )),
             ),
         ];
 
@@ -478,6 +510,100 @@ mod tests {
         assert_eq!(
             diagnostic.notes()[0].kind(),
             DiagnosticNoteKind::NativeProductPreparationRecovery
+        );
+    }
+
+    #[test]
+    fn compiler_owned_code_production_failures_are_explicit_and_source_anchored() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let source = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let diagnostic = native_product_preparation_diagnostic(
+            DiagnosticNativeProductFailureKind::EvaluationLowering(
+                DiagnosticLoweringFailure::new(
+                    DiagnosticLoweringFailureKind::MissingSuspensionPoint,
+                    source,
+                ),
+            ),
+            &product,
+            "x86_64-pc-windows-msvc",
+        );
+
+        assert_eq!(diagnostic.primary_span(), Some(source));
+
+        assert!(diagnostic.labels().iter().any(|label| {
+            label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
+        }));
+
+        assert!(
+            diagnostic
+                .notes()
+                .iter()
+                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+        let message = rendered.message();
+
+        assert_eq!(
+            message,
+            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from generating a valid resume path for the highlighted `await` expression"
+        );
+
+        for forbidden in ["MIR", "lowering", "node", "frame descriptor", "terminator"] {
+            assert!(!message.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn code_production_input_failures_retain_explanatory_values() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let source = SourceSpan::new(
+            SourceId::new(1),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let diagnostic = native_product_preparation_diagnostic(
+            DiagnosticNativeProductFailureKind::EvaluationLoweringInput(
+                DiagnosticLoweringInputFailure::new(
+                    DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
+                        expected: 3,
+                        actual: 2,
+                    },
+                    source,
+                ),
+            ),
+            &product,
+            "x86_64-pc-windows-msvc",
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from reconciling the highlighted source construct's 2 value accesses with the 3 required by ownership analysis"
+        );
+
+        assert_eq!(diagnostic.primary_span(), Some(source));
+
+        assert!(
+            diagnostic
+                .notes()
+                .iter()
+                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
         );
     }
 }

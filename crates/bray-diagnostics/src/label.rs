@@ -181,6 +181,8 @@ pub enum DiagnosticLabelKind {
     InvalidTrustedCapabilityRequirement,
     /// Label for a split module declaration with a conflicting surface.
     ConflictingModuleDeclaration,
+    /// Label for the Bray source construct affected by a compiler defect.
+    CompilerDefectSource,
 }
 
 impl DiagnosticLabelKind {
@@ -246,6 +248,7 @@ impl DiagnosticLabelKind {
             Self::InvalidAsyncOperation => "invalid_async_operation",
             Self::InvalidTrustedCapabilityRequirement => "invalid_trusted_capability_requirement",
             Self::ConflictingModuleDeclaration => "conflicting_module_declaration",
+            Self::CompilerDefectSource => "compiler_defect_source",
         }
     }
 }
