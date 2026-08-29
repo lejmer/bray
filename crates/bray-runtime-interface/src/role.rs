@@ -5,6 +5,8 @@ use crate::BinarySymbolName;
 /// Closed binary execution ABI role understood by lowering, backends, and product hosts.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeAbiRole {
+    /// Initialize one loaded runtime artifact instance before product entry.
+    RuntimeInitialization,
     /// Begin and own the executable root run.
     RootExecution,
     /// Execute one synchronous entry callback behind the product panic boundary.
@@ -115,7 +117,8 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 53] = [
+    pub const ALL: [Self; 54] = [
+        Self::RuntimeInitialization,
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::ForeignCallbackExecution,
@@ -185,6 +188,7 @@ impl RuntimeAbiRole {
     /// Returns this role's stable textual name.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::RuntimeInitialization => "runtime_initialization",
             Self::RootExecution => "root_execution",
             Self::SynchronousRootExecution => "synchronous_root_execution",
             Self::ForeignCallbackExecution => "foreign_callback_execution",
@@ -252,9 +256,18 @@ impl RuntimeAbiRole {
     }
 }
 
+/// One build-authorized association between a Bray declaration and a private runtime role.
+///
+/// Runtime artifact tooling supplies these bindings directly to the compiler. Package manifests
+/// cannot declare them, so an ordinary package cannot acquire runtime authority by spelling a
+/// matching declaration or binary symbol.
+pub type RuntimeRoleSourceBinding = crate::SourceRoleBinding<RuntimeAbiRole>;
+
 /// Semantic effect fixed by one closed private ABI role.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeRoleContractEffect {
+    /// Initialize one loaded runtime artifact instance.
+    InitializeRuntime,
     /// Establish a new root run owned by the product host.
     EstablishRootRun,
     /// Transfer ownership of a protected frame.
@@ -455,6 +468,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
     use RuntimeRoleContractEffect as Effect;
 
     match role {
+        RuntimeAbiRole::RuntimeInitialization => &[Effect::InitializeRuntime],
         RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun, Effect::TransferFrame],
         RuntimeAbiRole::SynchronousRootExecution => {
             &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]

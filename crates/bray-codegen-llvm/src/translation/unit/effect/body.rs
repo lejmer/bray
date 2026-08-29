@@ -196,6 +196,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let source = self.native_source_anchor(operation)?;
 
+        let source_fields = (0..5)
+            .map(|index| extract_value(&self.builder, source, index))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let message_fields = (0..2)
+            .map(|index| extract_value(&self.builder, message, index))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let helpers = self.operation_helpers(operation)?;
 
         let [helper] = helpers.as_slice() else {
@@ -214,7 +222,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        self.invoke_native_runtime(*runtime, &[cause, source, message])
+        let arguments = std::iter::once(cause)
+            .chain(source_fields)
+            .chain(message_fields)
+            .collect::<Vec<_>>();
+
+        self.invoke_native_runtime(*runtime, &arguments)
     }
 
     fn native_source_anchor(

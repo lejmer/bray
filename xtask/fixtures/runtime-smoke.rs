@@ -58,23 +58,6 @@ impl PanicCause {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct SourceAnchor {
-    present: u32,
-    source: u32,
-    start: u32,
-    end: u32,
-    version: u64,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct StringView {
-    data: *const u8,
-    length: usize,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
 struct TaskAllocation {
     status: Status,
     task: u64,
@@ -150,8 +133,13 @@ unsafe extern "C" {
     safe fn bray_runtime_cleanup_incident_reporting() -> Status;
     safe fn bray_runtime_panic_report_construction(
         cause: PanicCause,
-        source: SourceAnchor,
-        message: StringView,
+        source_present: u32,
+        source_identity: u32,
+        source_start: u32,
+        source_end: u32,
+        source_version: u64,
+        message_data: *const u8,
+        message_length: usize,
     ) -> usize;
     safe fn bray_runtime_panic_reporting(payload: usize) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
@@ -254,17 +242,13 @@ extern "C-unwind" fn panic_frame(_: usize) -> FrameProgress {
         state: 0,
         payload: bray_runtime_panic_report_construction(
             PanicCause::MESSAGE,
-            SourceAnchor {
-                present: 1,
-                source: 0,
-                start: 0,
-                end: 1,
-                version: 0,
-            },
-            StringView {
-                data: MESSAGE.as_ptr(),
-                length: MESSAGE.len(),
-            },
+            1,
+            0,
+            0,
+            1,
+            0,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
         ),
     }
 }

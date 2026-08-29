@@ -3,6 +3,9 @@
 /// Stable symbol executing one compiler-generated root frame.
 pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution";
 
+/// Stable symbol initializing one loaded runtime artifact instance.
+pub const RUNTIME_INITIALIZATION_SYMBOL: &str = "bray_runtime_initialization";
+
 /// Stable symbol executing one synchronous root behind a panic boundary.
 pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution";
 
@@ -252,6 +255,19 @@ pub const PLATFORM_THREAD_JOIN_SYMBOL: &str = "bray_platform_thread_join";
 
 /// Stable symbol releasing one operating-system thread's join authority.
 pub const PLATFORM_THREAD_DETACH_SYMBOL: &str = "bray_platform_thread_detach";
+
+/// Stable symbol creating one destructor-bearing native thread-storage key.
+pub const PLATFORM_THREAD_STORAGE_CREATE_SYMBOL: &str = "bray_platform_thread_storage_create";
+
+/// Stable symbol loading the current native thread's value for one storage key.
+pub const PLATFORM_THREAD_STORAGE_LOAD_SYMBOL: &str = "bray_platform_thread_storage_load";
+
+/// Stable symbol storing the current native thread's value for one storage key.
+pub const PLATFORM_THREAD_STORAGE_STORE_SYMBOL: &str = "bray_platform_thread_storage_store";
+
+/// Stable symbol destroying one quiescent native thread-storage key.
+pub const PLATFORM_THREAD_STORAGE_DESTROY_SYMBOL: &str =
+    "bray_platform_thread_storage_destroy";
 
 /// Stable symbol observing the process-local monotonic clock.
 pub const PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL: &str = "bray_platform_clock_monotonic_now";
@@ -562,8 +578,9 @@ impl NativeStringView {
     }
 }
 
-/// Callback invoking one synchronous source root and writing its normal result.
-pub type NativeSynchronousRootCallback = extern "C-unwind" fn(destination: usize);
+/// Callback invoking one synchronous source root and writing its explicit terminal outcome.
+pub type NativeSynchronousRootCallback =
+    extern "C" fn(destination: usize, outcome: &mut NativeRunOutcome);
 
 /// Callback observing cancellation for one Bray-owned native thread.
 pub type NativeThreadCancellationCallback = extern "C" fn(context: usize) -> u32;

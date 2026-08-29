@@ -57,6 +57,7 @@ impl Compilation {
             source_inputs,
             mut dependency_interfaces,
             platform_services,
+            runtime_roles,
             package_interface_export,
             profile,
             profile_product,
@@ -135,6 +136,7 @@ impl Compilation {
             &diagnostics,
             &dependency_interfaces,
             &platform_services,
+            &runtime_roles,
             package_interface_export.as_ref(),
             codegen.as_ref(),
         ));
@@ -179,6 +181,7 @@ impl Compilation {
                 profile_product,
                 dependency_interfaces: dependency_interfaces.into_boxed_slice(),
                 platform_services: platform_services.into_boxed_slice(),
+                runtime_roles: runtime_roles.into_boxed_slice(),
                 fact_runtime,
                 cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_query_caches(source_count),

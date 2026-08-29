@@ -262,6 +262,9 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         }
         CodegenPreparationError::InvalidMappings(_) => Kind::CodegenInvalidMappings,
         CodegenPreparationError::MissingRuntimeRole(_) => Kind::CodegenMissingRuntimeRole,
+        CodegenPreparationError::InvalidRuntimeRoleSourceBinding { .. } => {
+            Kind::CodegenInvalidAbiMapping
+        }
         CodegenPreparationError::OpenConstantTerm(_) => Kind::CodegenOpenConstantTerm,
         CodegenPreparationError::InvalidArrayLength(_) => Kind::CodegenInvalidArrayLength,
         CodegenPreparationError::RecursiveValueType(_) => Kind::CodegenRecursiveValueType,

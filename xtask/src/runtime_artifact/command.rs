@@ -238,7 +238,9 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
                 &["test-host"][..],
                 "bray_runtime_adapter-",
             ),
-            RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon => {
+            RuntimeArchiveKind::Common
+            | RuntimeArchiveKind::TestCommon
+            | RuntimeArchiveKind::Bootstrap => {
                 unreachable!("common support is derived from owners")
             }
         };
@@ -260,6 +262,15 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 
     crate::progress::run("Partitioning runtime archives", || {
         partitioner.write(target, output)
+    })?;
+
+    crate::progress::run("Building the trusted Bray bootstrap archive", || {
+        super::bootstrap::build(
+            &root,
+            target,
+            &output.join(archive_file_name(target, RuntimeArchiveKind::Bootstrap)),
+        )
+        .map_err(CommandError::Bootstrap)
     })?;
 
     native_links
@@ -524,7 +535,8 @@ fn component_identity(
 
 fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
     Some(match role {
-        RuntimeAbiRole::SynchronousRootExecution
+        RuntimeAbiRole::RuntimeInitialization
+        | RuntimeAbiRole::SynchronousRootExecution
         | RuntimeAbiRole::ThreadAttachmentIdentity
         | RuntimeAbiRole::ThreadStaticCleanupRegistration
         | RuntimeAbiRole::ProductHostControl
@@ -673,6 +685,7 @@ pub(super) enum RuntimeArchiveKind {
     Common,
     TestCommon,
     Observation,
+    Bootstrap,
     Host,
     Callback,
     Scheduler,
@@ -682,10 +695,11 @@ pub(super) enum RuntimeArchiveKind {
 }
 
 impl RuntimeArchiveKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Common,
         Self::TestCommon,
         Self::Observation,
+        Self::Bootstrap,
         Self::Host,
         Self::Callback,
         Self::Scheduler,
@@ -709,6 +723,7 @@ impl RuntimeArchiveKind {
             Self::Common => "bray_runtime_common",
             Self::TestCommon => "bray_runtime_test_common",
             Self::Observation => "bray_runtime_observation",
+            Self::Bootstrap => "bray_runtime_bootstrap",
             Self::Host => "bray_runtime_host",
             Self::Callback => "bray_runtime_callback",
             Self::Scheduler => "bray_runtime_scheduler",
@@ -733,7 +748,15 @@ impl RuntimeArchiveKind {
                 PlatformServiceRole::StandardErrorLock,
                 PlatformServiceRole::StandardErrorUnlock,
             ],
-            _ => &[],
+            Self::Common
+            | Self::TestCommon
+            | Self::Observation
+            | Self::Bootstrap
+            | Self::Host
+            | Self::Callback
+            | Self::Scheduler
+            | Self::Cancellation
+            | Self::Event => &[],
         }
     }
 }
@@ -749,6 +772,7 @@ pub(super) enum CommandError {
     InputIdentity(String),
     DependencyAudit(crate::dependency_audit::DependencyAuditError),
     NativeArchive(crate::native_archive::BuildError),
+    Bootstrap(String),
     Read {
         path: PathBuf,
         error: std::io::Error,
@@ -765,6 +789,8 @@ pub(super) enum CommandError {
     NativeSymbolToolUnavailable(bray_tooling::LlvmToolPathError),
     NativeSymbolInspection(std::io::Error),
     NativeSymbolInspectionFailed,
+    NativeCompilerToolUnavailable(bray_tooling::LlvmToolPathError),
+    NativeCompiler(std::io::Error),
     RuntimeComponentBoundary {
         kind: RuntimeArchiveKind,
         missing: Vec<String>,
@@ -776,10 +802,20 @@ pub(super) enum CommandError {
     RuntimePartitionFailed,
     RuntimePartitionMissingOwner(RuntimeArchiveKind),
     SynchronousLinkMapBoundary(String),
+    BootstrapLinkMapBoundary(String),
     HostTarget,
     SmokeLinkFailed,
-    SmokeExecution(std::io::Error),
-    SmokeExecutionFailed,
+    SmokeExecution {
+        name: &'static str,
+        error: std::io::Error,
+    },
+    SmokeExecutionFailed {
+        name: &'static str,
+        status: std::process::ExitStatus,
+    },
+    BootstrapSmokeLinkFailed,
+    BootstrapSmokeExecution(std::io::Error),
+    BootstrapSmokeExecutionFailed,
     CleanupReportMissing,
 }
 
@@ -818,6 +854,7 @@ impl fmt::Display for CommandError {
             Self::InputIdentity(error) => formatter.write_str(error),
             Self::DependencyAudit(error) => write!(formatter, "{error}"),
             Self::NativeArchive(error) => write!(formatter, "{error}"),
+            Self::Bootstrap(error) => formatter.write_str(error),
             Self::Read { path, error } => {
                 write!(formatter, "could not read {}: {error}", path.display())
             }
@@ -849,6 +886,15 @@ impl fmt::Display for CommandError {
             }
             Self::NativeSymbolInspectionFailed => {
                 formatter.write_str("runtime archive symbol inspection failed")
+            }
+            Self::NativeCompilerToolUnavailable(error) => {
+                write!(
+                    formatter,
+                    "clang is unavailable for runtime artifact inspection: {error}"
+                )
+            }
+            Self::NativeCompiler(error) => {
+                write!(formatter, "could not run native compiler: {error}")
             }
             Self::RuntimeComponentBoundary {
                 kind,
@@ -891,13 +937,28 @@ impl fmt::Display for CommandError {
                     "synchronous runtime link map is invalid: {detail}"
                 )
             }
+            Self::BootstrapLinkMapBoundary(detail) => {
+                write!(formatter, "bootstrap runtime link map is invalid: {detail}")
+            }
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
             Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
-            Self::SmokeExecution(error) => {
-                write!(formatter, "could not run runtime smoke executable: {error}")
+            Self::SmokeExecution { name, error } => {
+                write!(formatter, "could not run {name} runtime smoke executable: {error}")
             }
-            Self::SmokeExecutionFailed => {
-                formatter.write_str("runtime artifact smoke execution failed")
+            Self::SmokeExecutionFailed { name, status } => {
+                write!(formatter, "{name} runtime smoke execution failed with {status}")
+            }
+            Self::BootstrapSmokeLinkFailed => {
+                formatter.write_str("bootstrap runtime smoke link failed")
+            }
+            Self::BootstrapSmokeExecution(error) => {
+                write!(
+                    formatter,
+                    "could not run bootstrap runtime smoke executable: {error}"
+                )
+            }
+            Self::BootstrapSmokeExecutionFailed => {
+                formatter.write_str("bootstrap runtime smoke execution failed")
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")
@@ -1107,6 +1168,7 @@ mod tests {
         assert_eq!(
             roles,
             [
+                RuntimeAbiRole::RuntimeInitialization,
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::ForeignCallbackExecution,

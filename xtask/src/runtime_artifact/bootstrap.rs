@@ -1,0 +1,192 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use bray_compilation::{
+    CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+};
+use bray_runtime_interface::{
+    PlatformServiceBinding, PlatformServiceRole, RuntimeAbiRole, RuntimeRoleSourceBinding,
+};
+use bray_standard_library::StandardLibraryRoot;
+use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
+use bray_target::NativeTarget;
+use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
+
+const PACKAGE_IDENTITY: &str = "bray_runtime_bootstrap";
+const PRODUCT_NAME: &str = "runtime";
+const MODULE: &str = "bray.runtime.bootstrap";
+
+const PLATFORM_BINDINGS: [(PlatformServiceRole, &str); 4] = [
+    (
+        PlatformServiceRole::ThreadStorageCreate,
+        "bray.runtime.bootstrap.platform_thread_storage_create",
+    ),
+    (
+        PlatformServiceRole::ThreadStorageLoad,
+        "bray.runtime.bootstrap.platform_thread_storage_load",
+    ),
+    (
+        PlatformServiceRole::ThreadStorageStore,
+        "bray.runtime.bootstrap.platform_thread_storage_store",
+    ),
+    (
+        PlatformServiceRole::ThreadStorageDestroy,
+        "bray.runtime.bootstrap.platform_thread_storage_destroy",
+    ),
+];
+
+const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 8] = [
+    (RuntimeAbiRole::RuntimeInitialization, "runtime_initialization"),
+    (
+        RuntimeAbiRole::SynchronousRootExecution,
+        "synchronous_root_execution",
+    ),
+    (
+        RuntimeAbiRole::ForeignCallbackExecution,
+        "foreign_callback_execution",
+    ),
+    (
+        RuntimeAbiRole::ThreadAttachmentIdentity,
+        "thread_attachment_identity",
+    ),
+    (
+        RuntimeAbiRole::ThreadStaticCleanupRegistration,
+        "register_thread_cleanup",
+    ),
+    (RuntimeAbiRole::PanicReporting, "panic_reporting"),
+    (RuntimeAbiRole::StructuredShutdown, "structured_shutdown"),
+    (
+        RuntimeAbiRole::PanicReportConstruction,
+        "panic_report_construction",
+    ),
+];
+
+pub(super) fn build(
+    root: &Path,
+    target: NativeTarget,
+    destination: &Path,
+) -> Result<(), String> {
+    let support = tempfile::Builder::new()
+        .prefix("bray-runtime-bootstrap-")
+        .tempdir()
+        .map_err(|error| format!("could not create bootstrap build directory: {error}"))?;
+
+    let standard_library = root
+        .join("target/runtime-bootstrap-standard-library")
+        .join(target.as_str());
+
+    crate::standard_library::build_target_bundle(
+        &root.join("standard-library"),
+        &standard_library,
+        target,
+    )
+    .map_err(|error| format!("could not build bootstrap standard library: {error}"))?;
+
+    let source_root = root.join("runtime/bootstrap/src");
+    let sources = source_paths(&source_root)?;
+
+    let sources = source_inputs_from_file_arguments(sources)
+        .map_err(|error| format!("could not load bootstrap source: {error:?}"))?;
+
+    let package = PackageIdentity::try_new(PACKAGE_IDENTITY)
+        .ok_or_else(|| "bootstrap package identity is invalid".to_owned())?;
+
+    let product = ProductIdentity::try_new(package.clone(), PRODUCT_NAME)
+        .ok_or_else(|| "bootstrap product identity is invalid".to_owned())?;
+
+    let selected = SelectedTarget::for_native(target);
+
+    let native_links = crate::standard_library::native_links(selected.profile().identity())
+        .map_err(|error| format!("could not load bootstrap native link inputs: {error}"))?;
+
+    let options = CompilationOptions::new(
+        WorkerBudget::default(),
+        ProductKind::Library,
+        selected,
+    )
+    .with_native_link_inputs(native_links);
+
+    let standard_library = StandardLibraryRoot::try_new(&standard_library)
+        .ok_or_else(|| "bootstrap standard-library root is invalid".to_owned())?;
+
+    let request = CompilationRequest::with_options(package, sources, options)
+        .with_standard_library_root(standard_library)
+        .with_platform_services(platform_bindings()?)
+        .with_runtime_roles(runtime_bindings()?);
+
+    let compilation = load_llvm_compilation(request)
+        .map_err(|error| format!("bootstrap compiler backend is unavailable: {error}"))?;
+
+    let diagnostics = compilation.check_diagnostics();
+
+    if !diagnostics.is_empty() {
+        return Err(format!(
+            "bootstrap source did not type-check: {diagnostics:?}"
+        ));
+    }
+
+    let emission = support.path().join("emission");
+
+    fs::create_dir_all(&emission)
+        .map_err(|error| format!("could not create bootstrap emission directory: {error}"))?;
+
+    let archive = crate::native_product::emit_static_library(
+        &compilation,
+        product,
+        target,
+        &emission,
+    )?;
+
+    fs::copy(&archive, destination).map_err(|error| {
+        format!(
+            "could not publish bootstrap archive {}: {error}",
+            destination.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let entries = fs::read_dir(root)
+        .map_err(|error| format!("could not read bootstrap source directory: {error}"))?;
+
+    let mut paths = entries
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path())
+                .map_err(|error| format!("could not read bootstrap source entry: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    paths.retain(|path| path.extension().is_some_and(|extension| extension == "bray"));
+    paths.sort();
+
+    if paths.is_empty() {
+        return Err("bootstrap source directory contains no Bray files".to_owned());
+    }
+
+    Ok(paths)
+}
+
+fn platform_bindings() -> Result<Vec<PlatformServiceBinding>, String> {
+    PLATFORM_BINDINGS
+        .into_iter()
+        .map(|(role, path)| {
+            PlatformServiceBinding::try_new(role, path)
+                .ok_or_else(|| format!("bootstrap platform binding is invalid: {path}"))
+        })
+        .collect()
+}
+
+fn runtime_bindings() -> Result<Vec<RuntimeRoleSourceBinding>, String> {
+    RUNTIME_BINDINGS
+        .into_iter()
+        .map(|(role, declaration)| {
+            let path = format!("{MODULE}.{declaration}");
+
+            RuntimeRoleSourceBinding::try_new(role, &path)
+                .ok_or_else(|| format!("bootstrap runtime binding is invalid: {path}"))
+        })
+        .collect()
+}

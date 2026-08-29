@@ -18,8 +18,9 @@ use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
-    ImplementationSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext, SemanticValueStore,
-    SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
+    ImplementationSymbolId, NamedTypeSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext,
+    SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
+    TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -28,8 +29,38 @@ use bray_target::{
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
+use super::super::super::substitution::named_type;
 use super::symbols::NativeBoundaryMapping;
 use crate::fact::{CancellationToken, FactQueryError};
+
+impl Compilation {
+    pub(super) fn codegen_representation_type(
+        &self,
+        role: RepresentationRole,
+    ) -> Result<TypeId, FactQueryError> {
+        let definition = self
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(role)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        named_type(
+            self.semantic_value_store()?,
+            NamedTypeSymbolId::Struct(definition),
+        )
+    }
+
+    pub(super) fn codegen_opaque_pointer_type(&self) -> Result<TypeId, FactQueryError> {
+        let element = self.codegen_representation_type(RepresentationRole::ScalarU8)?;
+
+        self.available_compiler_known_symbols()
+            .unary_representation_type(
+                self.semantic_value_store()?,
+                RepresentationRole::RawPointer,
+                element,
+            )
+            .ok_or(FactQueryError::InfrastructureFailure)
+    }
+}
 
 pub(super) fn atomic_storage_is_padding_free(
     ty: TypeId,
@@ -2370,6 +2401,43 @@ mod tests {
             "struct Node\n",
             "{\n",
             "    visit: func(pos node: Node) -> unit;\n",
+            "}\n",
+        ));
+
+        let target = baseline_codegen_target();
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let node = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Node"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let ty = named_type(values, NamedTypeSymbolId::Struct(node.id()))
+            .unwrap_or_else(|error| panic!("Node type must be available: {error:?}"));
+
+        let mappings = realized_types(&compilation, &target, [ty]);
+
+        assert_eq!(
+            mappings[&ty].layout().map(TargetValueLayout::size),
+            Some(pointer_layout(&target).size())
+        );
+    }
+
+    #[test]
+    fn raw_pointer_indirection_closes_recursive_value_layouts() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Node\n",
+            "{\n",
+            "    next: RawPointer<Node>;\n",
             "}\n",
         ));
 

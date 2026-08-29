@@ -138,3 +138,91 @@ trusted internal func platform_thread_detach(pos owner: u64) -> std.platform.Pla
 
     return internal std.platform.success_status();
 }
+
+@abi(c)
+trusted internal func platform_thread_storage_create(
+    pos destructor: RawPointer<u8>,
+    pos key: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    let destructor_pointer: RawPointer<std.os.windows.ThreadStorageDestructor> = trusted std.memory.reinterpret<
+        std.os.windows.ThreadStorageDestructor,
+        u8
+    >(destructor);
+
+    let callback: std.os.windows.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
+    let native_key: u32 = trusted std.os.windows.fls_alloc(callback);
+
+    if native_key == std.os.windows.FLS_OUT_OF_INDEXES
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    trusted std.memory.write<u64>(key, native_key as u64);
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_load(
+    pos key: u64,
+    pos value: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if key > 4294967295
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    trusted std.os.windows.set_last_error(0);
+
+    let stored: RawPointer<u8> = trusted std.os.windows.fls_get_value(std.truncate_to<u32>(key));
+
+    if std.memory.is_null<u8>(stored) && trusted std.os.windows.get_last_error() != 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    trusted std.memory.write<RawPointer<u8>>(value, stored);
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_store(
+    pos key: u64,
+    pos value: RawPointer<u8>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if key > 4294967295
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted std.os.windows.fls_set_value(std.truncate_to<u32>(key), value) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_destroy(pos key: u64) -> std.platform.PlatformStatus
+    uses(foreign_call)
+{
+    if key > 4294967295
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    if trusted std.os.windows.fls_free(std.truncate_to<u32>(key)) == 0
+    {
+        return trusted internal std.platform.windows_error_status();
+    }
+
+    return internal std.platform.success_status();
+}

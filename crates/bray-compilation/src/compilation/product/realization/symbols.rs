@@ -72,6 +72,7 @@ impl NativeBoundaryMapping {
 impl Compilation {
     pub(super) fn codegen_symbols(
         &self,
+        product: &bray_symbols::ProductIdentity,
         unit: &CodegenUnit,
         operations: &[CodegenOperationMapping],
         executable_host: Option<&ExecutableHostContract>,
@@ -114,6 +115,7 @@ impl Compilation {
                     )?;
 
                     let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
+                        product,
                         target,
                         realization,
                         boundary,
@@ -122,6 +124,26 @@ impl Compilation {
                     )?;
 
                     let signature = self.codegen_instance_signature(realization, cancellation)?;
+
+                    if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
+                        let expected = self.codegen_runtime_signature(role)?;
+
+                        let matches = super::runtime_source::runtime_source_signature_matches(
+                            self,
+                            role,
+                            &signature,
+                            cancellation,
+                        )?
+                        .unwrap_or(signature == expected);
+
+                        if !matches {
+                            return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
+                                role,
+                                expected,
+                                actual: signature,
+                            });
+                        }
+                    }
 
                     (name, linkage, signature, native_entry)
                 }
@@ -150,6 +172,7 @@ impl Compilation {
                 self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
 
             let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
+                product,
                 target,
                 realization,
                 boundary,
@@ -236,6 +259,7 @@ impl Compilation {
 
     fn codegen_callable_symbol_boundary(
         &self,
+        product: &bray_symbols::ProductIdentity,
         target: &CodegenTarget,
         realization: &ConcreteCodegenInstance,
         boundary: Option<NativeBoundaryMapping>,
@@ -252,6 +276,7 @@ impl Compilation {
         match boundary {
             Some(NativeBoundaryMapping::Callback { name, linkage }) => {
                 let body_name = self.generated_callable_symbol_name(
+                    product,
                     target,
                     CALLBACK_BODY_LINKAGE,
                     realization,
@@ -266,7 +291,13 @@ impl Compilation {
             }
             Some(NativeBoundaryMapping::Direct { name, linkage }) => Ok((name, linkage, None)),
             None => self
-                .generated_callable_symbol_name(target, default_linkage, realization, cancellation)
+                .generated_callable_symbol_name(
+                    product,
+                    target,
+                    default_linkage,
+                    realization,
+                    cancellation,
+                )
                 .map(|name| (name, default_linkage, None)),
         }
     }
@@ -385,6 +416,21 @@ impl Compilation {
             return Ok(None);
         };
 
+        if let MirUnitKey::Bound(_) = instance.template()
+            && let Some(role) = crate::compilation::foreign::runtime::runtime_role(self, function)?
+        {
+            let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            let name = BinarySymbolName::try_new(symbol)
+            .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+
+            return Ok(Some(NativeBoundaryMapping::Direct {
+                name,
+                linkage: CodegenLinkage::Export,
+            }));
+        }
+
         let platform_service = match instance.template() {
             MirUnitKey::Bound(_) => {
                 crate::compilation::foreign::platform::platform_service_role(self, function)?
@@ -444,8 +490,33 @@ impl Compilation {
             .transpose()
     }
 
+    fn codegen_runtime_source_role(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+    ) -> Result<Option<bray_runtime_interface::RuntimeAbiRole>, CodegenPreparationError> {
+        let MirUnitKey::Bound(unit) = instance.template() else {
+            return Ok(None);
+        };
+
+        if self.runtime_roles().is_empty()
+            || unit.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+        {
+            return Ok(None);
+        }
+
+        let definition = self.codegen_callable_definition(instance)?;
+
+        let bray_symbols::CallableSymbolId::Function(function) = definition.callable_symbol()
+        else {
+            return Ok(None);
+        };
+
+        crate::compilation::foreign::runtime::runtime_role(self, function).map_err(Into::into)
+    }
+
     pub(super) fn generated_callable_symbol_name(
         &self,
+        product: &bray_symbols::ProductIdentity,
         target: &CodegenTarget,
         linkage: CodegenLinkage,
         realization: &ConcreteCodegenInstance,
@@ -481,6 +552,10 @@ impl Compilation {
 
         hasher.write(b"bray.codegen-callable-symbol");
         definition.hash(&mut hasher);
+
+        if matches!(realization.key().template(), MirUnitKey::Bound(_)) {
+            product.hash(&mut hasher);
+        }
 
         realization.key().specialization().hash(&mut hasher);
         realization.key().witnesses().hash(&mut hasher);

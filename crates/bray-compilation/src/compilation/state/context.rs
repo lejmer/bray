@@ -59,6 +59,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) dependency_interfaces: Box<[DependencyInterfaceInput]>,
     pub(in crate::compilation) platform_services:
         Box<[bray_runtime_interface::PlatformServiceBinding]>,
+    pub(in crate::compilation) runtime_roles:
+        Box<[bray_runtime_interface::RuntimeRoleSourceBinding]>,
     pub(in crate::compilation) fact_runtime: FactRuntime,
     pub(in crate::compilation) cancellation: CancellationToken,
     pub(in crate::compilation) source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,

@@ -7,6 +7,15 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_initialization(
+        worker_capacity: usize,
+        timer_capacity: usize,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_initialization(worker_capacity, timer_capacity)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {
@@ -74,15 +83,29 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_panic_report_construction(
         cause: NativePanicCause,
-        source: NativeSourceAnchor,
-        message: NativeStringView,
+        source_present: u32,
+        source_identity: u32,
+        source_start: u32,
+        source_end: u32,
+        source_version: u64,
+        message_data: *const u8,
+        message_length: usize,
     ) -> usize {
-        implementation::bray_runtime_panic_report_construction(cause, source, message)
+        implementation::bray_runtime_panic_report_construction(
+            cause,
+            source_present,
+            source_identity,
+            source_start,
+            source_end,
+            source_version,
+            message_data,
+            message_length,
+        )
     }
 }
 
 native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_panic_propagation(payload: usize) -> ! {
+    pub extern "C" fn bray_runtime_panic_propagation(payload: usize) -> ! {
         implementation::bray_runtime_panic_propagation(payload)
     }
 }

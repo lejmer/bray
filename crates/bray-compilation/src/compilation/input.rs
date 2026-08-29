@@ -17,6 +17,7 @@ pub(super) fn compilation_inputs(
     source_diagnostics: &DiagnosticBag,
     dependency_interfaces: &[DependencyInterfaceInput],
     platform_services: &[bray_runtime_interface::PlatformServiceBinding],
+    runtime_roles: &[bray_runtime_interface::RuntimeRoleSourceBinding],
     package_interface_export: Option<&PackageInterfaceExportRequest>,
     codegen: Option<&CodegenConfiguration>,
 ) -> CompilationInputs {
@@ -37,6 +38,7 @@ pub(super) fn compilation_inputs(
     insert_product_inputs(
         &mut inputs,
         platform_services,
+        runtime_roles,
         package_interface_export,
         codegen,
     );
@@ -169,10 +171,12 @@ fn insert_dependency_input(
 fn insert_product_inputs(
     inputs: &mut CompilationInputs,
     platform_services: &[bray_runtime_interface::PlatformServiceBinding],
+    runtime_roles: &[bray_runtime_interface::RuntimeRoleSourceBinding],
     package_interface_export: Option<&PackageInterfaceExportRequest>,
     codegen: Option<&CodegenConfiguration>,
 ) {
     inputs.insert(CompilationInputKey::PlatformServices, platform_services);
+    inputs.insert(CompilationInputKey::RuntimeRoles, runtime_roles);
 
     inputs.insert(
         CompilationInputKey::PackageInterfaceExport,
@@ -251,6 +255,12 @@ impl Compilation {
         self.record_input(CompilationInputKey::PlatformServices);
 
         &self.state.platform_services
+    }
+
+    pub(super) fn runtime_roles(&self) -> &[bray_runtime_interface::RuntimeRoleSourceBinding] {
+        self.record_input(CompilationInputKey::RuntimeRoles);
+
+        &self.state.runtime_roles
     }
 
     pub(super) fn package_interface_export_request(

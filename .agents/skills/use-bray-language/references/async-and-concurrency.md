@@ -8,6 +8,7 @@
 - [Awaiting and starting](#awaiting-and-starting)
 - [Task results and obligations](#task-results-and-obligations)
 - [Execution requirements and entrypoints](#execution-requirements-and-entrypoints)
+- [Trusted runtime boundaries](#trusted-runtime-boundaries)
 - [Cooperative cancellation](#cooperative-cancellation)
 - [Cross-run state and synchronization](#cross-run-state-and-synchronization)
 - [Atomic storage and ordering](#atomic-storage-and-ordering)
@@ -196,6 +197,19 @@ An async entrypoint begins on a main-thread lane. That lane satisfies `main_thre
 The entrypoint run is a product execution root. Product shutdown requests cancellation for every remaining root, resolves their structured task trees and async cleanup, then destroys represented state before the host returns or exits.
 
 See [execution requirements](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-requirements.md), [execution roots and product shutdown](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-roots-and-product-shutdown.md), and [entrypoints and runtime](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/entrypoints-and-runtime.md).
+
+## Trusted runtime boundaries
+
+Private trusted runtime declarations receive runtime or platform roles only through build metadata. Source spelling,
+package identity, native symbol names, and `trusted` do not grant a role. Keep target thread storage beneath the runtime
+attachment model. The target creates, loads, stores, clears, and destroys the destructor-bearing slot. Trusted Bray owns
+attachment identities, nested entry, reverse-order cleanup, and shutdown quiescence.
+
+Runtime and foreign callbacks return explicit completed, cancelled, or panicked outcomes. A panicked outcome transfers
+one owned `PanicReport`. Forward that handle without reconstructing it, consume it exactly once, and contain every panic
+or cancellation before returning through a C or target callback ABI.
+
+See [low-level runtime](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/low-level-runtime.md).
 
 ## Cooperative cancellation
 

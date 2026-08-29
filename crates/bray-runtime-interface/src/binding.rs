@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use bray_base::{NonEmptySharedStr, shared_slice};
 use bray_runtime_abi::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, CLEANUP_INCIDENT_REPORTING_SYMBOL,
     COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL,
@@ -30,14 +33,18 @@ use bray_runtime_abi::{
     PLATFORM_STANDARD_INPUT_UNLOCK_SYMBOL, PLATFORM_STANDARD_OUTPUT_FLUSH_SYMBOL,
     PLATFORM_STANDARD_OUTPUT_LOCK_SYMBOL, PLATFORM_STANDARD_OUTPUT_UNLOCK_SYMBOL,
     PLATFORM_STANDARD_OUTPUT_WRITE_SYMBOL, PLATFORM_THREAD_CREATE_SYMBOL,
-    PLATFORM_THREAD_DETACH_SYMBOL, PLATFORM_THREAD_JOIN_SYMBOL, PLATFORM_TIME_DATE_ADD_SYMBOL,
+    PLATFORM_THREAD_DETACH_SYMBOL, PLATFORM_THREAD_JOIN_SYMBOL,
+    PLATFORM_THREAD_STORAGE_CREATE_SYMBOL, PLATFORM_THREAD_STORAGE_DESTROY_SYMBOL,
+    PLATFORM_THREAD_STORAGE_LOAD_SYMBOL, PLATFORM_THREAD_STORAGE_STORE_SYMBOL,
+    PLATFORM_TIME_DATE_ADD_SYMBOL,
     PLATFORM_TIME_DATE_VALIDATE_SYMBOL, PLATFORM_TIME_FORMAT_SYMBOL, PLATFORM_TIME_OBSERVE_SYMBOL,
     PLATFORM_TIME_PARSE_SYMBOL, PLATFORM_TIME_RESOLVE_SYMBOL, PLATFORM_TIME_ZONE_CLOSE_SYMBOL,
     PLATFORM_TIME_ZONE_LOAD_SYMBOL, PLATFORM_TIME_ZONE_LOCAL_SYMBOL,
     PLATFORM_TIME_ZONE_NAME_SYMBOL, PLATFORM_TIME_ZONE_RETAIN_SYMBOL,
     PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL, ROOT_CANCELLATION_REQUEST_SYMBOL,
     ROOT_COMPLETION_RESOLUTION_SYMBOL, ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL,
-    RUNTIME_EVENT_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
+    RUNTIME_EVENT_SYMBOL, RUNTIME_INITIALIZATION_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL,
+    SUSPENSION_REGISTRATION_SYMBOL,
     SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
     TASK_DESTRUCTION_SYMBOL, TASK_EVENT_CREATION_SYMBOL, TASK_EVENT_DESTRUCTION_SYMBOL,
     TASK_EVENT_SIGNAL_SYMBOL, TASK_OBSERVATION_CREATION_SYMBOL, TASK_RESOLUTION_SYMBOL,
@@ -45,11 +52,63 @@ use bray_runtime_abi::{
     THREAD_ATTACHMENT_IDENTITY_SYMBOL, THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL, WAKE_SYMBOL,
 };
 
+/// One explicit association between a source declaration and a closed semantic role.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceRoleBinding<Role> {
+    role: Role,
+    module: Arc<[NonEmptySharedStr]>,
+    declaration: NonEmptySharedStr,
+}
+
+impl<Role: Copy> SourceRoleBinding<Role> {
+    /// Creates a binding from a role and dotted declaration path.
+    pub fn try_new(role: Role, path: &str) -> Option<Self> {
+        let mut segments = path.split('.').map(NonEmptySharedStr::try_new);
+        let mut present = segments.by_ref().collect::<Option<Vec<_>>>()?;
+
+        let declaration = present.pop()?;
+
+        if present.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            role,
+            module: shared_slice(present),
+            declaration,
+        })
+    }
+
+    /// Returns the closed semantic role selected by this binding.
+    pub const fn role(&self) -> Role {
+        self.role
+    }
+
+    /// Returns the declaration's module path segments.
+    pub fn module(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.module.iter().map(NonEmptySharedStr::as_str)
+    }
+
+    /// Returns the declaration name within its module.
+    pub fn declaration(&self) -> &str {
+        self.declaration.as_str()
+    }
+
+    /// Returns the canonical dotted declaration path.
+    pub fn dotted_path(&self) -> String {
+        self.module()
+            .chain(std::iter::once(self.declaration()))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+}
+
 /// Returns the canonical native symbol for a role implemented by the Bray runtime.
 pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&'static str> {
     use crate::RuntimeAbiRole as Role;
 
     match role {
+        Role::RuntimeInitialization => Some(RUNTIME_INITIALIZATION_SYMBOL),
         Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
         Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
         Role::ForeignCallbackExecution => Some(FOREIGN_CALLBACK_EXECUTION_SYMBOL),
@@ -161,6 +220,10 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::ThreadCreate => PLATFORM_THREAD_CREATE_SYMBOL,
         Role::ThreadJoin => PLATFORM_THREAD_JOIN_SYMBOL,
         Role::ThreadDetach => PLATFORM_THREAD_DETACH_SYMBOL,
+        Role::ThreadStorageCreate => PLATFORM_THREAD_STORAGE_CREATE_SYMBOL,
+        Role::ThreadStorageLoad => PLATFORM_THREAD_STORAGE_LOAD_SYMBOL,
+        Role::ThreadStorageStore => PLATFORM_THREAD_STORAGE_STORE_SYMBOL,
+        Role::ThreadStorageDestroy => PLATFORM_THREAD_STORAGE_DESTROY_SYMBOL,
         Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
         Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
         Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,

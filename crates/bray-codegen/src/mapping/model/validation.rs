@@ -73,8 +73,23 @@ pub fn demanded_runtime_references_for_mir(
                 runtime_abi,
             ),
         )))
+        .chain(checked_call_cancellation_propagation_is_demanded(mir).then_some(Some(
+            MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+                runtime_abi,
+            ),
+        )))
         .flatten()
         .collect()
+}
+
+fn checked_call_cancellation_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
+    mir.blocks().iter().any(|block| {
+        matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::CheckCallPanic { .. }
+        )
+    })
 }
 
 fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {

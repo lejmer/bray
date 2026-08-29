@@ -208,6 +208,7 @@ impl Compilation {
 
     pub(in crate::compilation::product) fn codegen_mappings_for_product(
         &self,
+        product: &bray_symbols::ProductIdentity,
         unit: &CodegenUnit,
         executable_host: Option<&ExecutableHostContract>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
@@ -226,6 +227,7 @@ impl Compilation {
             self.codegen_native_static_storages(unit, reachability, cancellation)?;
 
         let mut symbols = self.codegen_symbols(
+            product,
             unit,
             &operations,
             executable_host,

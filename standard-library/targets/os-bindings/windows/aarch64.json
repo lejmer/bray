@@ -342,6 +342,20 @@
           "native_result": "DWORD"
         },
         {
+          "name": "ThreadStorageDestructor",
+          "native": "PFLS_CALLBACK_FUNCTION",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "value",
+              "type": "RawPointer<u8>",
+              "native_type": "PVOID"
+            }
+          ],
+          "result": "unit",
+          "native_result": "void"
+        },
+        {
           "name": "TickCountRoutine",
           "native": "ULONGLONG (*)(void)",
           "abi": "system",

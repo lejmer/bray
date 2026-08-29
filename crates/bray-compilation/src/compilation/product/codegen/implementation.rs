@@ -1874,33 +1874,43 @@ mod tests {
 
     #[test]
     fn synchronous_panics_emit_a_runtime_owned_host_boundary() {
-        let (backend, plan) = runtime_native_plan(include_str!(
-            "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
-        ));
-
-        let host = plan
-            .executable_host()
-            .unwrap_or_else(|| panic!("executable must own a host"));
-
-        assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
-
-        for role in [
-            RuntimeAbiRole::SynchronousRootExecution,
-            RuntimeAbiRole::PanicReporting,
-            RuntimeAbiRole::PanicPropagation,
+        for target in [
+            SelectedTarget::baseline(),
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
         ] {
-            assert_eq!(
-                host.role_binding(role)
-                    .map(RuntimeRoleBinding::implementation),
-                Some(RuntimeRoleImplementation::BrayRuntime)
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[include_str!(
+                    "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
+                )],
+                ProductKind::Executable,
+                target,
+                &[],
+            );
+
+            let host = plan
+                .executable_host()
+                .unwrap_or_else(|| panic!("executable must own a host"));
+
+            assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
+
+            for role in [
+                RuntimeAbiRole::SynchronousRootExecution,
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicPropagation,
+            ] {
+                assert_eq!(
+                    host.role_binding(role)
+                        .map(RuntimeRoleBinding::implementation),
+                    Some(RuntimeRoleImplementation::BrayRuntime)
+                );
+            }
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
             );
         }
-
-        assert!(
-            generated_artifacts(&backend, &plan)
-                .iter()
-                .all(|artifact| !artifact.is_empty())
-        );
     }
 
     #[test]
@@ -2021,10 +2031,19 @@ mod tests {
 
         let mut saw_concrete_generic_signature = false;
         let mut saw_const_specialization = false;
+        let mut saw_product_local_symbol = false;
+        let primary_product = test_product_identity();
+
+        let alternate_product = ProductIdentity::try_new(
+            primary_product.package().clone(),
+            "alternate-application",
+        )
+        .unwrap_or_else(|| panic!("alternate test product identity must validate"));
 
         for unit in units.iter() {
             let mappings = compilation
                 .codegen_mappings_for_product(
+                    &primary_product,
                     unit,
                     None,
                     &BTreeSet::new(),
@@ -2035,6 +2054,37 @@ mod tests {
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("generic mappings must realize: {error:?}"));
+
+            let alternate_mappings = compilation
+                .codegen_mappings_for_product(
+                    &alternate_product,
+                    unit,
+                    None,
+                    &BTreeSet::new(),
+                    &target,
+                    &reachability.graph().roots().iter().cloned().collect(),
+                    &reachability,
+                    false,
+                    &cancellation,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("alternate-product mappings must realize: {error:?}")
+                });
+
+            for symbol in mappings
+                .symbols()
+                .iter()
+                .filter(|symbol| symbol.linkage() == CodegenLinkage::Internal)
+            {
+                let alternate = alternate_mappings
+                    .symbols()
+                    .iter()
+                    .find(|candidate| candidate.key() == symbol.key())
+                    .unwrap_or_else(|| panic!("alternate mapping must retain every local symbol"));
+
+                assert_ne!(symbol.name(), alternate.name());
+                saw_product_local_symbol = true;
+            }
 
             for instance in unit.instances() {
                 let realization = reachability
@@ -2080,6 +2130,7 @@ mod tests {
 
         assert!(saw_concrete_generic_signature);
         assert!(saw_const_specialization);
+        assert!(saw_product_local_symbol);
     }
 
     #[test]
@@ -2375,6 +2426,7 @@ mod tests {
         for unit in units.iter() {
             compilation
                 .codegen_mappings_for_product(
+                    &test_product_identity(),
                     unit,
                     None,
                     &BTreeSet::new(),
@@ -2875,6 +2927,40 @@ mod tests {
                 Some(&test_linker()),
             )
             .unwrap_or_else(|error| panic!("runtime native plan must resolve: {error:?}"));
+
+        (backend, plan)
+    }
+
+    fn runtime_native_plan_with_source_roles(
+        sources: &[&str],
+        product_kind: ProductKind,
+        runtime_roles: impl IntoIterator<Item = bray_runtime_interface::RuntimeRoleSourceBinding>,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        Arc<super::NativeProductPlan>,
+    ) {
+        let (backend, compilation) = codegen_compilation_for_sources_target_with_source_roles(
+            sources,
+            product_kind,
+            SelectedTarget::baseline(),
+            &[],
+            [],
+            runtime_roles,
+            WorkerBudget::serial(),
+        );
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("runtime source-role plan must resolve: {error:?}"));
 
         (backend, plan)
     }
@@ -3990,6 +4076,165 @@ mod tests {
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         crate::Compilation,
     ) {
+        codegen_compilation_for_sources_target_with_source_roles(
+            sources,
+            product_kind,
+            target,
+            native_link_inputs,
+            platform_services,
+            [],
+            worker_budget,
+        )
+    }
+
+    #[test]
+    fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
+        let source = concat!(
+            "trusted module app;\n",
+            "@abi(c)\n",
+            "trusted internal func attachment_identity(pos descriptor: RawPointer<u8>) -> u64\n",
+            "{\n",
+            "    let _: RawPointer<u8> = descriptor;\n",
+            "    return 7;\n",
+            "}\n",
+        );
+
+        let role = RuntimeAbiRole::ThreadAttachmentIdentity;
+
+        let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(
+            role,
+            "app.attachment_identity",
+        )
+        .unwrap_or_else(|| panic!("runtime source binding must validate"));
+
+        let (backend, plan) =
+            runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+
+        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+            .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Export
+            })
+        }));
+
+        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn platform_source_bindings_export_and_retain_the_canonical_role_symbol() {
+        let source = concat!(
+            "trusted module app;\n",
+            "@layout(c)\n",
+            "internal struct PlatformStatus\n",
+            "{\n",
+            "    category: u32;\n",
+            "    reserved: u32;\n",
+            "    native_code: i64;\n",
+            "}\n",
+            "@abi(c)\n",
+            "trusted internal func flush() -> PlatformStatus\n",
+            "{\n",
+            "    return { category = 0, reserved = 0, native_code = 0 };\n",
+            "}\n",
+        );
+
+        let role = PlatformServiceRole::StandardOutputFlush;
+
+        let binding = PlatformServiceBinding::try_new(role, "app.flush")
+            .unwrap_or_else(|| panic!("platform source binding must validate"));
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+            &[],
+            [binding],
+        );
+
+        let symbol = bray_runtime_interface::native_platform_service_role_symbol(role);
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings.symbols().iter().any(|mapping| {
+                mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Fallback
+            })
+        }));
+
+        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
+        let source = concat!(
+            "trusted module app;\n",
+            "internal static STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
+            "@abi(c)\n",
+            "trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32\n",
+            "{\n",
+            "    let _: usize = timer_capacity;\n",
+            "    if worker_capacity == 0\n",
+            "    {\n",
+            "        let _: u32 = core.atomic.load<u32, 1>(&STATE);\n",
+            "    }\n",
+            "    return core.atomic.load<u32, 1>(&STATE);\n",
+            "}\n",
+        );
+
+        let role = RuntimeAbiRole::RuntimeInitialization;
+
+        let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(
+            role,
+            "app.initialize",
+        )
+        .unwrap_or_else(|| panic!("runtime source binding must validate"));
+
+        let (backend, plan) =
+            runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+
+        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+            .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
+
+        assert!(plan.preservation_roots().any(|root| root.as_str() == symbol));
+
+        assert!(plan.mappings().iter().any(|mappings| {
+            mappings
+                .static_storages()
+                .iter()
+                .any(bray_codegen::CodegenStaticStorageMapping::defines_storage)
+        }));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    fn codegen_compilation_for_sources_target_with_source_roles(
+        sources: &[&str],
+        product_kind: ProductKind,
+        target: SelectedTarget,
+        native_link_inputs: &[NativeLinkRequirement],
+        platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
+        runtime_roles: impl IntoIterator<Item = bray_runtime_interface::RuntimeRoleSourceBinding>,
+        worker_budget: WorkerBudget,
+    ) -> (
+        Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+        crate::Compilation,
+    ) {
         let backend = Arc::new(
             bray_codegen_llvm::LlvmCodeGenerator::try_new()
                 .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
@@ -4021,7 +4266,8 @@ mod tests {
                 .with_native_link_inputs(native_link_inputs.iter().cloned()),
         )
         .with_dependency_interfaces([runtime_dependency])
-        .with_platform_services(platform_services);
+        .with_platform_services(platform_services)
+        .with_runtime_roles(runtime_roles);
 
         let compilation = crate::Compilation::load_with_codegen(request, codegen)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));

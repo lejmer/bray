@@ -430,6 +430,15 @@ pub enum CodegenPreparationError {
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.
     MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
+    /// A build-bound Bray runtime implementation does not match its closed role ABI.
+    InvalidRuntimeRoleSourceBinding {
+        /// Closed runtime role selected by build metadata.
+        role: bray_runtime_interface::RuntimeAbiRole,
+        /// Target-classified ABI required by the role.
+        expected: bray_codegen::CodegenCallableSignature,
+        /// Target-classified ABI produced by the source declaration.
+        actual: bray_codegen::CodegenCallableSignature,
+    },
     /// A constant term needed by code generation still contains unresolved parameters.
     OpenConstantTerm(bray_symbols::ConstantTermId),
     /// A closed array length term did not contain its checked integer value.

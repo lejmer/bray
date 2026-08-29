@@ -6,6 +6,33 @@ package.
 Its binary symbols, calling conventions, frame descriptors, internal operations, and versioning are outside the
 source-language contract and do not reserve Bray declaration names.
 
+## Bootstrap thread attachment
+
+A runtime artifact may bind private trusted Bray declarations to closed runtime and platform roles through build
+metadata. The compiler validates the role, declaration shape, ABI, selected target, and semantic contract. A package,
+module path, declaration name, native symbol, or implementation language grants no role by itself. Ordinary source can
+spell the same declaration and receives no extra authority.
+
+The bootstrap thread-storage contract has four target operations. They create a destructor-bearing key, load the
+current thread's opaque pointer, store or clear that pointer, and destroy the key after every attached thread has
+quiesced. The target clears a nonzero slot before it invokes the destructor on the exiting native thread. Explicitly
+clearing a slot does not invoke the destructor, and destroying a key does not clean up another thread.
+
+The trusted runtime owns the value stored in that slot. It assigns a process-unique attachment identity, reuses the
+attachment for nested entry, and drains registered thread-static cleanup in reverse order on outermost detach or native
+thread exit. Cleanup continues after a cleanup panic, reports that incident, and never lets panic or cancellation cross
+the target destructor callback. Ordinary `@thread_local` statics still use the runtime attachment and cleanup roles.
+
+## Panic ownership at native boundaries
+
+Runtime-invoked Bray callbacks return an explicit outcome. A panicked outcome owns one `PanicReport` handle, while a
+cancelled outcome carries no report. Catching, forwarding, reporting, or destroying a report transfers that same owned
+handle rather than reconstructing it. Every terminal path must consume the handle exactly once.
+
+Foreign callbacks and target callbacks cannot unwind a Bray panic or propagate Bray cancellation through a non-Bray
+ABI frame. Runtime-role binding maps the protected source `PanicReport` representation to its opaque ABI handle without
+making representation casts or constructors available to ordinary source.
+
 A conforming runtime must preserve:
 
 - `Future<T>` and `Task<T>` ownership and movement,

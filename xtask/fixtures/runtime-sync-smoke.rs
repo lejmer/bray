@@ -15,13 +15,20 @@ struct RunOutcome {
 
 unsafe extern "C" {
     safe fn bray_runtime_synchronous_root_execution(
-        callback: extern "C" fn(usize),
+        callback: extern "C" fn(usize, *mut RunOutcome),
         destination: usize,
     ) -> RunOutcome;
 }
 
-extern "C" fn root(destination: usize) {
+extern "C" fn root(destination: usize, outcome: *mut RunOutcome) {
     assert_eq!(destination, 17);
+
+    unsafe {
+        outcome.write(RunOutcome {
+            state: RunState::COMPLETED,
+            payload: destination,
+        });
+    }
 }
 
 fn main() {

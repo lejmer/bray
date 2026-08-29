@@ -1,0 +1,52 @@
+trusted internal module bray.runtime.bootstrap.heap;
+
+using std.memory;
+
+trusted internal func allocation_bytes<T>() -> usize
+    uses(intrinsic)
+{
+    let bytes: usize = std.memory.size_of<T>();
+    let align: usize = std.memory.align_of<T>();
+    let padding: usize = align - 1;
+
+    if bytes > ~0 - padding
+    {
+        trusted core.target.abort();
+    }
+
+    return (bytes + padding) & ~padding;
+}
+
+trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
+    ensures(
+        trusted core.memory.owned_allocation(pointer = result, bytes = bytes, align = align),
+        trusted core.memory.valid_write<u8>(pointer = result, count = bytes),
+    )
+    uses(manual_alloc)
+{
+    return trusted core.memory.allocate(bytes = bytes, align = align);
+}
+
+trusted internal func deallocate<T>(pos pointer: RawPointer<T>)
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = trusted std.memory.reinterpret<u8, T>(pointer),
+            bytes = internal allocation_bytes<T>(),
+            align = std.memory.align_of<T>(),
+        ),
+    )
+    uses(layout_reinterpret, manual_alloc)
+{
+    trusted core.memory.deallocate(
+        trusted std.memory.reinterpret<u8, T>(pointer),
+        bytes = internal allocation_bytes<T>(),
+        align = std.memory.align_of<T>(),
+    );
+}
+
+trusted internal func deallocate_bytes(pos pointer: RawPointer<u8>, pos bytes: usize, align: usize)
+    requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
+    uses(manual_alloc)
+{
+    trusted core.memory.deallocate(pointer, bytes = bytes, align = align);
+}

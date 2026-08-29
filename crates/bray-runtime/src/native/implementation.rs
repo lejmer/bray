@@ -15,6 +15,7 @@ pub use super::export::{
     bray_runtime_panic_reporting, bray_runtime_product_host_control,
     bray_runtime_root_cancellation_request, bray_runtime_root_completion_resolution,
     bray_runtime_root_execution, bray_runtime_root_terminal_observation,
+    bray_runtime_initialization,
     bray_runtime_structured_shutdown, bray_runtime_suspension_registration,
     bray_runtime_task_allocation, bray_runtime_task_cancellation_request,
     bray_runtime_task_destruction, bray_runtime_task_event_creation,

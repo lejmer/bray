@@ -7,9 +7,9 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableParameterSignature,
-    CallableSignature, CallableSignatureQuery, ImplementationSymbolId, NamedTypeSymbolId,
-    ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
-    StructFieldDefaultQuery, StructFieldDefaultValue, StructSymbolId, SymbolQueryRequest,
+    CallableSignature, CallableSignatureQuery, ImplementationSymbolId, ReceiverParameterSignature,
+    RuntimeDefaultProviderInput, SelfTypeContext, StructFieldDefaultQuery,
+    StructFieldDefaultValue, SymbolQueryRequest,
     TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultQuery,
 };
@@ -17,7 +17,6 @@ use bray_symbols::{
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
-use super::super::super::substitution::named_type;
 use super::super::specialization::ConcreteCodegenInstance;
 use super::support::{
     callable_type_signature, codegen_checker_error, implementation_subject, is_void_result,
@@ -550,6 +549,10 @@ impl Compilation {
         &self,
         role: RuntimeAbiRole,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
+        if let Some(signature) = self.codegen_runtime_source_signature(role)? {
+            return Ok(signature);
+        }
+
         if role == RuntimeAbiRole::CurrentRunCancellationObservation {
             let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
 
@@ -676,7 +679,8 @@ impl Compilation {
             | RuntimeAbiRole::GeneratorFinish
             | RuntimeAbiRole::GeneratorCleanupBroadcast
             | RuntimeAbiRole::GeneratorDestruction => {}
-            RuntimeAbiRole::RootExecution
+            RuntimeAbiRole::RuntimeInitialization
+            | RuntimeAbiRole::RootExecution
             | RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::NativeThreadExecution
@@ -767,30 +771,4 @@ impl Compilation {
         ))
     }
 
-    pub(super) fn codegen_representation_type(
-        &self,
-        role: RepresentationRole,
-    ) -> Result<TypeId, FactQueryError> {
-        let definition = self
-            .available_compiler_known_symbols()
-            .representation_symbol::<StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        named_type(
-            self.semantic_value_store()?,
-            NamedTypeSymbolId::Struct(definition),
-        )
-    }
-
-    pub(super) fn codegen_opaque_pointer_type(&self) -> Result<TypeId, FactQueryError> {
-        let element = self.codegen_representation_type(RepresentationRole::ScalarU8)?;
-
-        self.available_compiler_known_symbols()
-            .unary_representation_type(
-                self.semantic_value_store()?,
-                RepresentationRole::RawPointer,
-                element,
-            )
-            .ok_or(FactQueryError::InfrastructureFailure)
-    }
 }

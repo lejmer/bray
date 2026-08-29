@@ -11,7 +11,10 @@ use inkwell::module::{Linkage, Module};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 
-use super::support::{int_value, llvm, native_run_outcome, native_run_state_is, pointer_value};
+use super::support::{
+    int_value, llvm, native_run_outcome, native_run_outcome_value, native_run_state_is,
+    pointer_value,
+};
 use crate::mapping::{LlvmTypeMappings, apply_signature_call_attributes, declare_native_entry};
 
 pub(super) fn prepare<'context, 'request>(
@@ -231,7 +234,15 @@ fn declare_callback<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let usize = crate::native::pointer_integer_type(context, target);
-    let callback_type = context.void_type().fn_type(&[usize.into()], false);
+
+    let callback_type = context.void_type().fn_type(
+        &[
+            usize.into(),
+            context.ptr_type(AddressSpace::default()).into(),
+        ],
+        false,
+    );
+
     let name = format!("{}.bray_callback_invoke", symbol.name().as_str());
     let callback = module.add_function(&name, callback_type, Some(Linkage::Private));
     let entry = context.append_basic_block(callback, "callback.invoke");
@@ -239,13 +250,13 @@ fn declare_callback<'context>(
 
     builder.position_at_end(entry);
 
-    let state = callback
+    let state_handle = callback
         .get_first_param()
         .and_then(int_value)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let state = llvm(builder.build_int_to_ptr(
-        state,
+        state_handle,
         context.ptr_type(AddressSpace::default()),
         "callback.state",
     ))?;
@@ -286,6 +297,20 @@ fn declare_callback<'context>(
         llvm(builder.build_store(destination, result))?;
     }
 
+    let outcome = callback
+        .get_nth_param(1)
+        .and_then(pointer_value)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let completed = native_run_outcome_value(
+        context,
+        &builder,
+        target,
+        NativeRunState::COMPLETED,
+        state_handle,
+    )?;
+
+    llvm(builder.build_store(outcome, completed))?;
     llvm(builder.build_return(None))?;
 
     Ok(callback)

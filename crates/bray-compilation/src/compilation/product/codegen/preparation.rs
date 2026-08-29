@@ -173,6 +173,7 @@ impl Compilation {
             crate::profile::ProfileOperation::NativeMapping,
             || {
                 self.map_native_codegen_units(
+                    product,
                     &units,
                     host.as_ref(),
                     &platform_overrides,
@@ -283,6 +284,7 @@ impl Compilation {
     )]
     fn map_native_codegen_units(
         &self,
+        product: &ProductIdentity,
         units: &[CodegenUnit],
         host: Option<&ExecutableHostContract>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
@@ -311,6 +313,7 @@ impl Compilation {
 
                         let mappings = self
                             .codegen_mappings_for_product(
+                                product,
                                 unit,
                                 host,
                                 platform_overrides,

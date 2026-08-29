@@ -1,18 +1,12 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use bray_platform::RuntimeThreadScope;
 use bray_runtime_abi::{
     NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeSynchronousRootCallback,
     NativeThreadCancellationCallback,
 };
 
-use crate::root::is_propagated_cancellation;
 use crate::{RunOutcome, execute_synchronous_root};
 
 use super::state::runtime_failure;
-
-#[derive(Debug)]
-pub(super) struct PropagatedPanicReport(pub(super) usize);
 
 native_export! {
     pub extern "C" fn bray_runtime_native_thread_execution(
@@ -100,16 +94,11 @@ fn execute_synchronous_callback(
     let outcome = execute_synchronous_root(
         || {
             super::host::with_output(|| {
-                match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
-                    Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
-                    Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                        NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
-                    }
-                    Err(payload) => payload.downcast_ref::<PropagatedPanicReport>().map_or_else(
-                        || runtime_failure(NativeRuntimeStatus::PANICKED),
-                        |report| NativeRunOutcome::new(NativeRunState::PANICKED, report.0),
-                    ),
-                }
+                let mut outcome = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
+
+                callback(destination, &mut outcome);
+
+                outcome
             })
         },
         on_started,
@@ -136,11 +125,9 @@ fn execute_synchronous_callback(
 
 #[cfg(test)]
 mod tests {
-    use std::panic::panic_any;
+    use bray_runtime_abi::{NativeRunOutcome, NativeRunState};
 
-    use bray_runtime_abi::NativeRunState;
-
-    use super::{PropagatedPanicReport, bray_runtime_native_thread_execution};
+    use super::bray_runtime_native_thread_execution;
 
     extern "C" fn cancellation_requested(_: usize) -> u32 {
         1
@@ -150,16 +137,18 @@ mod tests {
         0
     }
 
-    extern "C-unwind" fn observe_cancellation(_: usize) {
+    extern "C" fn observe_cancellation(destination: usize, outcome: &mut NativeRunOutcome) {
         assert!(crate::current_run_cancellation_requested());
+
+        *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
     }
 
-    extern "C-unwind" fn propagate_cancellation(_: usize) {
-        crate::root::propagate_current_run_cancellation();
+    extern "C" fn propagate_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
+        *outcome = NativeRunOutcome::new(NativeRunState::CANCELLED, 0);
     }
 
-    extern "C-unwind" fn propagate_report(_: usize) {
-        panic_any(PropagatedPanicReport(47));
+    extern "C" fn propagate_report(_: usize, outcome: &mut NativeRunOutcome) {
+        *outcome = NativeRunOutcome::new(NativeRunState::PANICKED, 47);
     }
 
     #[test]

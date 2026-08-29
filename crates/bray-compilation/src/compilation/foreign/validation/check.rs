@@ -541,7 +541,7 @@ fn raw_pointer_target(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum AbiField {
+pub(in crate::compilation) enum AbiField {
     Scalar(RepresentationRole),
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
@@ -598,7 +598,7 @@ fn pointer_struct_matches(
     c_struct_matches(compilation, target, fields, cancellation)
 }
 
-fn c_struct_matches(
+pub(in crate::compilation) fn c_struct_matches(
     compilation: &Compilation,
     ty: TypeId,
     expected_fields: &[AbiField],
@@ -657,20 +657,7 @@ fn c_struct_matches(
             return Ok(false);
         };
 
-        let matches = match expected {
-            AbiField::Scalar(role) => type_has_representation(compilation, field_ty, *role)?,
-            AbiField::Pointer(role) => raw_pointer_targets(compilation, field_ty, *role)?,
-            AbiField::Struct(fields) => {
-                c_struct_matches(compilation, field_ty, fields, cancellation)?
-            }
-            AbiField::PointerStruct(fields) => {
-                let Some(target) = raw_pointer_target(compilation, field_ty)? else {
-                    return Ok(false);
-                };
-
-                c_struct_matches(compilation, target, fields, cancellation)?
-            }
-        };
+        let matches = abi_type_matches(compilation, field_ty, expected, cancellation)?;
 
         if !matches {
             return Ok(false);
@@ -678,6 +665,26 @@ fn c_struct_matches(
     }
 
     Ok(true)
+}
+
+pub(in crate::compilation) fn abi_type_matches(
+    compilation: &Compilation,
+    ty: TypeId,
+    expected: &AbiField,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    match expected {
+        AbiField::Scalar(role) => type_has_representation(compilation, ty, *role),
+        AbiField::Pointer(role) => raw_pointer_targets(compilation, ty, *role),
+        AbiField::Struct(fields) => c_struct_matches(compilation, ty, fields, cancellation),
+        AbiField::PointerStruct(fields) => {
+            let Some(target) = raw_pointer_target(compilation, ty)? else {
+                return Ok(false);
+            };
+
+            c_struct_matches(compilation, target, fields, cancellation)
+        }
+    }
 }
 
 fn platform_status_matches(
