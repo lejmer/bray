@@ -1,6 +1,7 @@
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #if defined(_WIN32)
@@ -14,16 +15,43 @@ typedef struct RunOutcome {
     uintptr_t payload;
 } RunOutcome;
 
+typedef struct SourceAnchor {
+    uint32_t present;
+    uint32_t source;
+    uint32_t start;
+    uint32_t end;
+    uint64_t version;
+} SourceAnchor;
+
+typedef struct CleanupIncident {
+    uintptr_t payload;
+    uint8_t type_identity[32];
+    SourceAnchor source;
+    void *report;
+    void *destroy;
+} CleanupIncident;
+
+typedef struct StaticFinalizer {
+    uint32_t execution;
+    uint32_t reserved;
+    uintptr_t result_size;
+    uintptr_t result_alignment;
+    void *start;
+    void *resolve;
+} StaticFinalizer;
+
 typedef struct CleanupRegistration {
-    void *callback;
-    uintptr_t context;
+    void *product;
+    uint8_t static_identity[32];
+    void *prepare;
+    StaticFinalizer finalizer;
+    void *destroy;
+    void *detach;
 } CleanupRegistration;
 
-typedef struct PlatformStatus {
-    uint32_t category;
-    uint32_t reserved;
-    int64_t native_code;
-} PlatformStatus;
+typedef struct ShutdownRace {
+    RunOutcome outcome;
+} ShutdownRace;
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 extern RunOutcome bray_runtime_synchronous_root_execution(void *callback, uintptr_t context);
@@ -42,11 +70,15 @@ extern uintptr_t bray_runtime_panic_report_construction(
 );
 extern uint32_t bray_runtime_panic_reporting(uintptr_t report);
 extern uint32_t bray_runtime_structured_shutdown(void);
+extern uint64_t bray_runtime_bootstrap_thread_static_probe(void);
+extern uint64_t bray_runtime_bootstrap_thread_static_cleanup_observation(void);
 
 static _Atomic uint32_t thread_ready;
 static _Atomic uint32_t thread_release;
 static uint32_t cleanup_order[3];
 static uint32_t cleanup_count;
+static uint32_t cleanup_incident_reports;
+static uint32_t cleanup_incident_destroys;
 
 static void completed_callback(uintptr_t context, RunOutcome *outcome) {
     outcome->state = 0;
@@ -80,15 +112,73 @@ static void panicked_callback(uintptr_t context, RunOutcome *outcome) {
     outcome->payload = panic_report();
 }
 
-static void cleanup_callback(uintptr_t context, RunOutcome *outcome) {
-    cleanup_order[cleanup_count++] = (uint32_t)context;
+static void static_transition(void) {
+}
 
-    if (context == 2) {
-        panicked_callback(context, outcome);
-        return;
+static uint32_t report_cleanup_incident(uintptr_t payload) {
+    if (payload != 2) {
+        abort();
     }
 
-    completed_callback(context, outcome);
+    cleanup_incident_reports += 1;
+    return 0;
+}
+
+static void destroy_cleanup_incident(uintptr_t payload) {
+    if (payload != 2) {
+        abort();
+    }
+
+    cleanup_incident_destroys += 1;
+}
+
+static uint32_t record_cleanup(uint32_t ordinal, uintptr_t destination) {
+    cleanup_order[cleanup_count++] = ordinal;
+
+    if (ordinal == 2) {
+        CleanupIncident incident = {0};
+        incident.payload = 2;
+        incident.report = (void *)&report_cleanup_incident;
+        incident.destroy = (void *)&destroy_cleanup_incident;
+        *(CleanupIncident *)destination = incident;
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static uint32_t first_cleanup(uintptr_t destination) {
+    return record_cleanup(1, destination);
+}
+
+static uint32_t second_cleanup(uintptr_t destination) {
+    return record_cleanup(2, destination);
+}
+
+static uint32_t third_cleanup(uintptr_t destination) {
+    return record_cleanup(3, destination);
+}
+
+static uint32_t resolve_cleanup(uintptr_t completed, uintptr_t destination) {
+    (void)completed;
+    (void)destination;
+    return 0;
+}
+
+static CleanupRegistration cleanup_registration(uint8_t identity, void *start) {
+    CleanupRegistration registration = {0};
+    registration.static_identity[0] = identity;
+    registration.prepare = (void *)&static_transition;
+    registration.finalizer.execution = 1;
+    registration.finalizer.result_size = sizeof(CleanupIncident);
+    registration.finalizer.result_alignment = _Alignof(CleanupIncident);
+    registration.finalizer.start = start;
+    registration.finalizer.resolve = (void *)&resolve_cleanup;
+    registration.destroy = (void *)&static_transition;
+    registration.detach = (void *)&static_transition;
+
+    return registration;
 }
 
 static int exercise_thread_attachment(void) {
@@ -98,11 +188,17 @@ static int exercise_thread_attachment(void) {
         return 1;
     }
 
-    for (uintptr_t context = 1; context <= 3; context += 1) {
-        CleanupRegistration registration = {(void *)&cleanup_callback, context};
+    if (bray_runtime_bootstrap_thread_static_probe() != 46) {
+        return 2;
+    }
+
+    void *starts[] = {(void *)&first_cleanup, (void *)&second_cleanup, (void *)&third_cleanup};
+
+    for (uint8_t index = 0; index < 3; index += 1) {
+        CleanupRegistration registration = cleanup_registration(index + 1, starts[index]);
 
         if (bray_runtime_thread_static_cleanup_registration(&registration) != 0) {
-            return 2;
+            return 3;
         }
     }
 
@@ -119,104 +215,24 @@ static DWORD WINAPI thread_entry(LPVOID context) {
     (void)context;
     return (DWORD)exercise_thread_attachment();
 }
+
+static DWORD WINAPI shutdown_race_entry(LPVOID context) {
+    ShutdownRace *race = (ShutdownRace *)context;
+    race->outcome = bray_runtime_synchronous_root_execution((void *)&completed_callback, 97);
+    return 0;
+}
 #else
 static void *thread_entry(void *context) {
     (void)context;
     return (void *)(uintptr_t)exercise_thread_attachment();
 }
+
+static void *shutdown_race_entry(void *context) {
+    ShutdownRace *race = (ShutdownRace *)context;
+    race->outcome = bray_runtime_synchronous_root_execution((void *)&completed_callback, 97);
+    return NULL;
+}
 #endif
-
-static PlatformStatus platform_success(void) {
-    PlatformStatus status = {0, 0, 0};
-    return status;
-}
-
-static PlatformStatus platform_failure(int64_t native_code) {
-    PlatformStatus status = {1, 0, native_code};
-    return status;
-}
-
-PlatformStatus bray_platform_thread_storage_create(void *destructor, uint64_t *key) {
-#if defined(_WIN32)
-    DWORD native_key = FlsAlloc((PFLS_CALLBACK_FUNCTION)destructor);
-
-    if (native_key == FLS_OUT_OF_INDEXES) {
-        return platform_failure((int64_t)GetLastError());
-    }
-
-    *key = (uint64_t)native_key;
-#else
-    pthread_key_t native_key;
-    int result = pthread_key_create(&native_key, (void (*)(void *))destructor);
-
-    if (result != 0) {
-        return platform_failure((int64_t)result);
-    }
-
-    *key = (uint64_t)native_key;
-#endif
-
-    return platform_success();
-}
-
-PlatformStatus bray_platform_thread_storage_load(uint64_t key, void **value) {
-#if defined(_WIN32)
-    if (key > UINT32_MAX) {
-        return platform_failure(-1);
-    }
-
-    SetLastError(ERROR_SUCCESS);
-    *value = FlsGetValue((DWORD)key);
-
-    if (*value == NULL && GetLastError() != ERROR_SUCCESS) {
-        return platform_failure((int64_t)GetLastError());
-    }
-#else
-    *value = pthread_getspecific((pthread_key_t)key);
-#endif
-
-    return platform_success();
-}
-
-PlatformStatus bray_platform_thread_storage_store(uint64_t key, void *value) {
-#if defined(_WIN32)
-    if (key > UINT32_MAX) {
-        return platform_failure(-1);
-    }
-
-    if (!FlsSetValue((DWORD)key, value)) {
-        return platform_failure((int64_t)GetLastError());
-    }
-#else
-    int result = pthread_setspecific((pthread_key_t)key, value);
-
-    if (result != 0) {
-        return platform_failure((int64_t)result);
-    }
-#endif
-
-    return platform_success();
-}
-
-PlatformStatus bray_platform_thread_storage_destroy(uint64_t key) {
-#if defined(_WIN32)
-    if (key > UINT32_MAX) {
-        return platform_failure(-1);
-    }
-
-    if (!FlsFree((DWORD)key)) {
-        return platform_failure((int64_t)GetLastError());
-    }
-#else
-    int result = pthread_key_delete((pthread_key_t)key);
-
-    if (result != 0) {
-        return platform_failure((int64_t)result);
-    }
-#endif
-
-    return platform_success();
-}
 
 void bray_runtime_current_run_cancellation_propagation(void) {
     abort();
@@ -317,17 +333,82 @@ int main(void) {
     }
 #endif
 
-    if (
-        cleanup_count != 3
-        || cleanup_order[0] != 3
-        || cleanup_order[1] != 2
-        || cleanup_order[2] != 1
-    ) {
+    if (cleanup_count != 3) {
         return 11;
+    }
+
+    if (cleanup_order[0] != 3 || cleanup_order[1] != 2 || cleanup_order[2] != 1) {
+        return 13;
+    }
+
+    if (cleanup_incident_reports != 1 || cleanup_incident_destroys != 1) {
+        return 14;
+    }
+
+    uint64_t bootstrap_cleanup = bray_runtime_bootstrap_thread_static_cleanup_observation();
+
+    if (bootstrap_cleanup != 211717) {
+        fprintf(stderr, "bootstrap cleanup observation: %llu\n", (unsigned long long)bootstrap_cleanup);
+        return 15;
     }
 
     if (bray_runtime_structured_shutdown() != 0 || bray_runtime_structured_shutdown() != 1) {
         return 12;
+    }
+
+    for (uint32_t iteration = 0; iteration < 128; iteration += 1) {
+        if (bray_runtime_initialization(1, 1) != 0) {
+            return 16;
+        }
+
+        ShutdownRace race = {0};
+
+#if defined(_WIN32)
+        HANDLE racing_thread = CreateThread(NULL, 0, shutdown_race_entry, &race, 0, NULL);
+
+        if (racing_thread == NULL) {
+            return 17;
+        }
+#else
+        pthread_t racing_thread;
+
+        if (pthread_create(&racing_thread, NULL, shutdown_race_entry, &race) != 0) {
+            return 17;
+        }
+#endif
+
+        uint32_t shutdown = bray_runtime_structured_shutdown();
+
+        if (shutdown != 0 && shutdown != 4) {
+            return 18;
+        }
+
+#if defined(_WIN32)
+        if (WaitForSingleObject(racing_thread, INFINITE) != WAIT_OBJECT_0 || !CloseHandle(racing_thread)) {
+            return 19;
+        }
+#else
+        if (pthread_join(racing_thread, NULL) != 0) {
+            return 19;
+        }
+#endif
+
+        if (
+            !(
+                (race.outcome.state == 0 && race.outcome.payload == 97)
+                || (race.outcome.state == 3 && race.outcome.payload == 4)
+            )
+        ) {
+            return 20;
+        }
+
+        if (shutdown == 4 && bray_runtime_structured_shutdown() != 0) {
+            return 21;
+        }
+    }
+
+    if (bray_runtime_structured_shutdown() != 1) {
+        return 22;
     }
 
     return 0;

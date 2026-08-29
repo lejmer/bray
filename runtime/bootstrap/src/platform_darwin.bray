@@ -1,0 +1,139 @@
+@target(target.platform.native_threads && target.identity.SYSTEM == "darwin")
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+internal static NATIVE_THREAD_STORAGE_KEY: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+internal callable NativeThreadStorageDestructor = @abi(c)
+func(pos value: RawPointer<u8>);
+
+@abi(c)
+trusted internal func platform_thread_storage_create(
+    pos destructor: RawPointer<u8>,
+    pos key: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call, layout_reinterpret)
+{
+    if !begin_native_thread_storage_creation()
+    {
+        return platform_error_status(0);
+    }
+
+    let destructor_pointer: RawPointer<NativeThreadStorageDestructor> = trusted std.memory.reinterpret<
+        NativeThreadStorageDestructor,
+        u8
+    >(destructor);
+
+    let callback: NativeThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
+    let mut native_key: u64 = 0;
+    let status: i32 = trusted pthread_key_create(std.memory.address_of_mut<u64>(&mut native_key), destructor = callback);
+
+    if status != 0
+    {
+        cancel_native_thread_storage_creation();
+
+        return platform_error_status(status as i64);
+    }
+
+    core.atomic.store<u64, 0>(&NATIVE_THREAD_STORAGE_KEY, value = native_key);
+    publish_native_thread_storage();
+
+    trusted std.memory.write<u64>(key, PRIVATE_THREAD_STORAGE_KEY);
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_load(
+    pos key: u64,
+    pos value: RawPointer<RawPointer<u8>>,
+) -> PlatformStatus
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    if !native_thread_storage_ready(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    let native_key: u64 = core.atomic.load<u64, 0>(&NATIVE_THREAD_STORAGE_KEY);
+
+    trusted std.memory.write<RawPointer<u8>>(value, trusted pthread_getspecific(native_key));
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_store(
+    pos key: u64,
+    pos value: RawPointer<u8>,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    if !native_thread_storage_ready(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    let native_key: u64 = core.atomic.load<u64, 0>(&NATIVE_THREAD_STORAGE_KEY);
+    let status: i32 = trusted pthread_setspecific(native_key, value);
+
+    if status != 0
+    {
+        return platform_error_status(status as i64);
+    }
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_destroy(pos key: u64) -> PlatformStatus
+    uses(foreign_call)
+{
+    if !begin_native_thread_storage_destruction(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    let native_key: u64 = core.atomic.load<u64, 0>(&NATIVE_THREAD_STORAGE_KEY);
+    let status: i32 = trusted pthread_key_delete(native_key);
+
+    if status != 0
+    {
+        restore_native_thread_storage();
+
+        return platform_error_status(status as i64);
+    }
+
+    core.atomic.store<u64, 0>(&NATIVE_THREAD_STORAGE_KEY, value = 0);
+    finish_native_thread_storage_destruction();
+
+    return platform_success_status();
+}
+
+@link(name = "pthread", kind = system)
+@symbol(name = "pthread_getspecific")
+@abi(c)
+extern trusted func pthread_getspecific(pos key: u64) -> RawPointer<u8>
+    uses(foreign_call);
+
+@link(name = "pthread", kind = system)
+@symbol(name = "pthread_key_create")
+@abi(c)
+extern trusted func pthread_key_create(
+    pos key: RawPointer<u64>,
+    pos destructor: NativeThreadStorageDestructor,
+) -> i32
+    uses(foreign_call);
+
+@link(name = "pthread", kind = system)
+@symbol(name = "pthread_key_delete")
+@abi(c)
+extern trusted func pthread_key_delete(pos key: u64) -> i32
+    uses(foreign_call);
+
+@link(name = "pthread", kind = system)
+@symbol(name = "pthread_setspecific")
+@abi(c)
+extern trusted func pthread_setspecific(pos key: u64, pos value: RawPointer<u8>) -> i32
+    uses(foreign_call);

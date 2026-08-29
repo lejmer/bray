@@ -748,10 +748,15 @@ impl RuntimeArchiveKind {
                 PlatformServiceRole::StandardErrorLock,
                 PlatformServiceRole::StandardErrorUnlock,
             ],
+            Self::Bootstrap => &[
+                PlatformServiceRole::ThreadStorageCreate,
+                PlatformServiceRole::ThreadStorageLoad,
+                PlatformServiceRole::ThreadStorageStore,
+                PlatformServiceRole::ThreadStorageDestroy,
+            ],
             Self::Common
             | Self::TestCommon
             | Self::Observation
-            | Self::Bootstrap
             | Self::Host
             | Self::Callback
             | Self::Scheduler
@@ -815,7 +820,7 @@ pub(super) enum CommandError {
     },
     BootstrapSmokeLinkFailed,
     BootstrapSmokeExecution(std::io::Error),
-    BootstrapSmokeExecutionFailed,
+    BootstrapSmokeExecutionFailed(std::process::ExitStatus),
     CleanupReportMissing,
 }
 
@@ -957,8 +962,8 @@ impl fmt::Display for CommandError {
                     "could not run bootstrap runtime smoke executable: {error}"
                 )
             }
-            Self::BootstrapSmokeExecutionFailed => {
-                formatter.write_str("bootstrap runtime smoke execution failed")
+            Self::BootstrapSmokeExecutionFailed(status) => {
+                write!(formatter, "bootstrap runtime smoke execution failed with {status}")
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")

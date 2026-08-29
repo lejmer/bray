@@ -580,7 +580,7 @@ pub(super) fn declare_static_callback_with_type<'context>(
         .as_global_value()
         .set_visibility(GlobalVisibility::Hidden);
 
-    crate::comdat::attach(
+    crate::comdat::attach_any(
         module,
         callback.as_global_value(),
         name,

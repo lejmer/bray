@@ -113,7 +113,7 @@ fn smoke_test_bootstrap(
         .map_err(CommandError::BootstrapSmokeExecution)?;
 
     if !status.success() {
-        return Err(CommandError::BootstrapSmokeExecutionFailed);
+        return Err(CommandError::BootstrapSmokeExecutionFailed(status));
     }
 
     audit_bootstrap_link_map(&map)

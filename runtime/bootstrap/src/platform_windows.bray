@@ -1,0 +1,161 @@
+@target(target.platform.native_threads && target.identity.SYSTEM == "windows")
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+internal const FLS_OUT_OF_INDEXES: u32 = 4294967295;
+
+internal static NATIVE_THREAD_STORAGE_KEY: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal callable NativeThreadStorageDestructor = @abi(system)
+func(pos value: RawPointer<u8>);
+
+@abi(c)
+trusted internal func platform_thread_storage_create(
+    pos destructor: RawPointer<u8>,
+    pos key: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call, layout_reinterpret, raw_memory, unchecked_init)
+{
+    if !begin_native_thread_storage_creation()
+    {
+        return platform_error_status(0);
+    }
+
+    let destructor_pointer: RawPointer<NativeThreadStorageDestructor> = trusted std.memory.reinterpret<
+        NativeThreadStorageDestructor,
+        u8
+    >(destructor);
+
+    let callback: NativeThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
+    let native_key: u32 = trusted fls_alloc(callback);
+
+    if native_key == FLS_OUT_OF_INDEXES
+    {
+        cancel_native_thread_storage_creation();
+
+        return trusted windows_error_status();
+    }
+
+    core.atomic.store<u32, 0>(&NATIVE_THREAD_STORAGE_KEY, value = native_key);
+    publish_native_thread_storage();
+
+    trusted std.memory.write<u64>(key, PRIVATE_THREAD_STORAGE_KEY);
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_load(
+    pos key: u64,
+    pos value: RawPointer<RawPointer<u8>>,
+) -> PlatformStatus
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    if !native_thread_storage_ready(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    trusted set_last_error(0);
+
+    let native_key: u32 = core.atomic.load<u32, 0>(&NATIVE_THREAD_STORAGE_KEY);
+    let stored: RawPointer<u8> = trusted fls_get_value(native_key);
+
+    if std.memory.is_null<u8>(stored) && trusted get_last_error() != 0
+    {
+        return trusted windows_error_status();
+    }
+
+    trusted std.memory.write<RawPointer<u8>>(value, stored);
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_store(
+    pos key: u64,
+    pos value: RawPointer<u8>,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    if !native_thread_storage_ready(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    let native_key: u32 = core.atomic.load<u32, 0>(&NATIVE_THREAD_STORAGE_KEY);
+
+    if trusted fls_set_value(native_key, value) == 0
+    {
+        return trusted windows_error_status();
+    }
+
+    return platform_success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_destroy(pos key: u64) -> PlatformStatus
+    uses(foreign_call)
+{
+    if !begin_native_thread_storage_destruction(key)
+    {
+        return platform_invalid_input_status();
+    }
+
+    let native_key: u32 = core.atomic.load<u32, 0>(&NATIVE_THREAD_STORAGE_KEY);
+
+    if trusted fls_free(native_key) == 0
+    {
+        restore_native_thread_storage();
+
+        return trusted windows_error_status();
+    }
+
+    core.atomic.store<u32, 0>(&NATIVE_THREAD_STORAGE_KEY, value = 0);
+    finish_native_thread_storage_destruction();
+
+    return platform_success_status();
+}
+
+trusted internal func windows_error_status() -> PlatformStatus
+    uses(foreign_call)
+{
+    return platform_error_status(trusted get_last_error() as i64);
+}
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "FlsAlloc")
+@abi(system)
+extern trusted func fls_alloc(pos destructor: NativeThreadStorageDestructor) -> u32
+    uses(foreign_call);
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "FlsFree")
+@abi(system)
+extern trusted func fls_free(pos key: u32) -> i32
+    uses(foreign_call);
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "FlsGetValue")
+@abi(system)
+extern trusted func fls_get_value(pos key: u32) -> RawPointer<u8>
+    uses(foreign_call);
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "FlsSetValue")
+@abi(system)
+extern trusted func fls_set_value(pos key: u32, pos value: RawPointer<u8>) -> i32
+    uses(foreign_call);
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "GetLastError")
+@abi(system)
+extern trusted func get_last_error() -> u32
+    uses(foreign_call);
+
+@link(name = "Kernel32", kind = system)
+@symbol(name = "SetLastError")
+@abi(system)
+extern trusted func set_last_error(pos code: u32) -> unit
+    uses(foreign_call);

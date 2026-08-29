@@ -463,7 +463,8 @@ The runtime artifact smoke proof links a C target adapter directly with the trus
 must contain the eight bootstrap roles and four thread-storage operations, and must contain no Rust execution-runtime
 archive, Rust panic symbol, scheduler role, task role, or test-host role. The executable checks nested initialization,
 completed, cancelled, and panicked outcomes, report ownership, thread-exit cleanup order, cleanup-panic containment,
-attachment quiescence, and repeated shutdown.
+dependency access during thread-static cleanup, attachment quiescence, attach-versus-shutdown races, and repeated
+shutdown.
 
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 

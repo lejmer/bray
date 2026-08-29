@@ -18,6 +18,11 @@ internal const INITIALIZATION_EMPTY: u32 = 0;
 internal const INITIALIZATION_PENDING: u32 = 1;
 internal const INITIALIZATION_READY: u32 = 2;
 
+internal const ATTACHMENT_ACTIVE: u32 = 0;
+internal const ATTACHMENT_CLEANING: u32 = 1;
+internal const ATTACHMENT_GATE_CLOSING: u64 = 0x8000000000000000;
+internal const ATTACHMENT_GATE_COUNT_MASK: u64 = 0x7fffffffffffffff;
+
 internal const ONE_USIZE: usize = 1;
 
 @copy
@@ -45,27 +50,11 @@ trusted func(pos value: RawPointer<u8>);
 
 @copy
 @layout(c)
-internal struct CleanupRegistration
-{
-    callback: RawPointer<u8>;
-    context: usize;
-}
-
-@copy
-@layout(c)
-internal struct CleanupRecord
-{
-    next: RawPointer<CleanupRecord>;
-    callback: RawPointer<u8>;
-    context: usize;
-}
-
-@copy
-@layout(c)
 internal struct AttachmentState
 {
     identity: u64;
     depth: usize;
+    phase: u32;
     runtime_context: usize;
     task_context: usize;
     cancellation_context: usize;
@@ -91,11 +80,9 @@ internal static BOOTSTRAP_KEY: core.atomic.Atomic<u64> = core.atomic.initialize<
 
 internal static BOOTSTRAP_INITIALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
-internal static BOOTSTRAP_CLOSING: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
-
 internal static NEXT_ATTACHMENT_IDENTITY: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(1);
 
-internal static ACTIVE_ATTACHMENTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+internal static ATTACHMENT_GATE: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
 
 internal static CONSTRUCTED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
 
@@ -103,7 +90,7 @@ internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initiali
 
 @abi(c)
 trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
-    uses(foreign_call, layout_reinterpret)
+    uses(layout_reinterpret)
 {
     let _: usize = worker_capacity;
     let _: usize = timer_capacity;
@@ -131,7 +118,7 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
         return STATUS_RUNTIME_FAILURE;
     }
 
-    core.atomic.store<u32, 2>(&BOOTSTRAP_CLOSING, value = 0);
+    core.atomic.store<u64, 2>(&ATTACHMENT_GATE, value = 0);
     core.atomic.store<u32, 2>(&BOOTSTRAP_INITIALIZED, value = INITIALIZATION_READY);
 
     return STATUS_SUCCESS;
@@ -139,17 +126,16 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 
 @abi(c)
 trusted internal func structured_shutdown() -> u32
-    uses(foreign_call)
 {
     if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
     {
         return STATUS_NOT_INITIALIZED;
     }
 
-    let(_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
-        &BOOTSTRAP_CLOSING,
+    let(_, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
+        &ATTACHMENT_GATE,
         expected = 0,
-        desired = 1,
+        desired = ATTACHMENT_GATE_CLOSING,
     );
 
     if !acquired
@@ -157,16 +143,9 @@ trusted internal func structured_shutdown() -> u32
         return STATUS_RUNTIME_FAILURE;
     }
 
-    if core.atomic.load<u64, 1>(&ACTIVE_ATTACHMENTS) != 0
-    {
-        core.atomic.store<u32, 2>(&BOOTSTRAP_CLOSING, value = 0);
-
-        return STATUS_RUNTIME_FAILURE;
-    }
-
     if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
     {
-        core.atomic.store<u32, 2>(&BOOTSTRAP_CLOSING, value = 0);
+        core.atomic.store<u64, 2>(&ATTACHMENT_GATE, value = 0);
 
         return STATUS_RUNTIME_FAILURE;
     }
@@ -176,13 +155,14 @@ trusted internal func structured_shutdown() -> u32
 
     if status.category != 0
     {
-        core.atomic.store<u32, 2>(&BOOTSTRAP_CLOSING, value = 0);
+        core.atomic.store<u64, 2>(&ATTACHMENT_GATE, value = 0);
 
         return STATUS_RUNTIME_FAILURE;
     }
 
     core.atomic.store<u64, 2>(&BOOTSTRAP_KEY, value = 0);
     core.atomic.store<u32, 2>(&BOOTSTRAP_INITIALIZED, value = INITIALIZATION_EMPTY);
+    core.atomic.store<u64, 2>(&ATTACHMENT_GATE, value = 0);
 
     return STATUS_SUCCESS;
 }
@@ -206,82 +186,6 @@ trusted internal func thread_attachment_identity(pos descriptor: RawPointer<u8>)
     }
 
     return trusted read_opaque<AttachmentState>(state).identity;
-}
-
-@abi(c)
-trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) -> u32
-    requires(
-        trusted core.memory.valid_read<CleanupRegistration>(
-            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration),
-            count = 1,
-        ),
-        trusted core.memory.aligned_for<CleanupRegistration>(
-            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
-        ),
-        trusted core.memory.initialized_as<CleanupRegistration>(
-            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
-        ),
-    )
-    uses(layout_reinterpret)
-{
-    if std.memory.is_null<u8>(registration)
-    {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let state: RawPointer<AttachmentState> = trusted load_attachment();
-
-    if std.memory.is_null<AttachmentState>(state)
-    {
-        return STATUS_NOT_INITIALIZED;
-    }
-
-    let registration_value: CleanupRegistration = trusted read_opaque<CleanupRegistration>(
-        trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
-    );
-
-    if std.memory.is_null<u8>(registration_value.callback)
-    {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<CleanupRecord>();
-    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
-        bytes,
-        align = std.memory.align_of<CleanupRecord>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
-    {
-        return STATUS_RUNTIME_FAILURE;
-    }
-
-    let pointer: RawPointer<CleanupRecord> = trusted std.memory.reinterpret<CleanupRecord, u8>(allocation);
-    let current: AttachmentState = trusted read_opaque<AttachmentState>(state);
-
-    trusted write_opaque<CleanupRecord>(
-        pointer,
-        {
-            next = current.cleanups,
-            callback = registration_value.callback,
-            context = registration_value.context,
-        }
-    );
-
-    trusted write_opaque<AttachmentState>(
-        state,
-        {
-            identity = current.identity,
-            depth = current.depth,
-            runtime_context = current.runtime_context,
-            task_context = current.task_context,
-            cancellation_context = current.cancellation_context,
-            product_attachment_state = current.product_attachment_state,
-            cleanups = pointer,
-        }
-    );
-
-    return STATUS_SUCCESS;
 }
 
 @abi(c)
@@ -454,10 +358,9 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
         std.memory.is_null<AttachmentState>(result)
             || trusted core.memory.initialized_as<AttachmentState>(pointer = result),
     )
-    uses(foreign_call, intrinsic, layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
     if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
-        || core.atomic.load<u32, 1>(&BOOTSTRAP_CLOSING) != 0
     {
         return std.memory.null<AttachmentState>();
     }
@@ -468,11 +371,17 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
     {
         let current: AttachmentState = trusted read_opaque<AttachmentState>(existing);
 
+        if current.phase != ATTACHMENT_ACTIVE
+        {
+            return std.memory.null<AttachmentState>();
+        }
+
         trusted write_opaque<AttachmentState>(
             existing,
             {
                 identity = current.identity,
                 depth = current.depth + ONE_USIZE,
+                phase = current.phase,
                 runtime_context = current.runtime_context,
                 task_context = current.task_context,
                 cancellation_context = current.cancellation_context,
@@ -484,6 +393,11 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
         return existing;
     }
 
+    if !trusted acquire_attachment_admission()
+    {
+        return std.memory.null<AttachmentState>();
+    }
+
     let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<AttachmentState>();
     let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
         bytes,
@@ -492,6 +406,8 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
 
     if std.memory.is_null<u8>(allocation)
     {
+        trusted release_attachment_admission();
+
         return std.memory.null<AttachmentState>();
     }
 
@@ -509,6 +425,7 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
         {
             identity = identity,
             depth = ONE_USIZE,
+            phase = ATTACHMENT_ACTIVE,
             runtime_context = trusted core.target.expose_address<core.atomic.Atomic<u64>>(
                 std.memory.address_of<core.atomic.Atomic<u64>>(&BOOTSTRAP_KEY)
             ),
@@ -519,28 +436,12 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
         }
     );
 
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&ACTIVE_ATTACHMENTS, value = 1);
-
-    if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
-        || core.atomic.load<u32, 1>(&BOOTSTRAP_CLOSING) != 0
-    {
-        let _: u64 = core.atomic.fetch_sub<u64, 3>(&ACTIVE_ATTACHMENTS, value = 1);
-
-        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
-            allocation,
-            bytes = bytes,
-            align = std.memory.align_of<AttachmentState>(),
-        );
-
-        return std.memory.null<AttachmentState>();
-    }
-
     let key: u64 = core.atomic.load<u64, 1>(&BOOTSTRAP_KEY);
     let status: PlatformStatus = trusted platform_thread_storage_store(key, allocation);
 
     if status.category != 0
     {
-        let _: u64 = core.atomic.fetch_sub<u64, 3>(&ACTIVE_ATTACHMENTS, value = 1);
+        trusted release_attachment_admission();
 
         trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
             allocation,
@@ -554,8 +455,47 @@ trusted internal func attach(pos product: RawPointer<u8>) -> RawPointer<Attachme
     return state;
 }
 
+trusted internal func acquire_attachment_admission() -> bool
+    uses(intrinsic)
+{
+    let mut gate: u64 = core.atomic.load<u64, 1>(&ATTACHMENT_GATE);
+
+    while gate & ATTACHMENT_GATE_CLOSING == 0
+    {
+        if gate & ATTACHMENT_GATE_COUNT_MASK == ATTACHMENT_GATE_COUNT_MASK
+        {
+            trusted core.target.abort();
+        }
+
+        let(observed, acquired) = core.atomic.compare_exchange<u64, 3, 1>(
+            &ATTACHMENT_GATE,
+            expected = gate,
+            desired = gate + 1,
+        );
+
+        if acquired
+        {
+            return true;
+        }
+
+        gate = observed;
+    }
+
+    return false;
+}
+
+trusted internal func release_attachment_admission()
+    uses(intrinsic)
+{
+    let previous: u64 = core.atomic.fetch_sub<u64, 3>(&ATTACHMENT_GATE, value = 1);
+
+    if previous & ATTACHMENT_GATE_CLOSING != 0 || previous & ATTACHMENT_GATE_COUNT_MASK == 0
+    {
+        trusted core.target.abort();
+    }
+}
+
 trusted internal func detach()
-    uses(foreign_call, intrinsic)
 {
     let state: RawPointer<AttachmentState> = trusted load_attachment();
 
@@ -566,6 +506,11 @@ trusted internal func detach()
 
     let current: AttachmentState = trusted read_opaque<AttachmentState>(state);
 
+    if current.phase != ATTACHMENT_ACTIVE
+    {
+        return;
+    }
+
     if current.depth > 1
     {
         trusted write_opaque<AttachmentState>(
@@ -573,6 +518,7 @@ trusted internal func detach()
             {
                 identity = current.identity,
                 depth = current.depth - ONE_USIZE,
+                phase = current.phase,
                 runtime_context = current.runtime_context,
                 task_context = current.task_context,
                 cancellation_context = current.cancellation_context,
@@ -584,14 +530,6 @@ trusted internal func detach()
         return;
     }
 
-    let key: u64 = core.atomic.load<u64, 1>(&BOOTSTRAP_KEY);
-    let status: PlatformStatus = trusted platform_thread_storage_store(key, std.memory.null<u8>());
-
-    if status.category != 0
-    {
-        trusted core.target.abort();
-    }
-
     trusted finish_attachment(state);
 }
 
@@ -601,7 +539,7 @@ trusted internal func finish_attachment(pos state: RawPointer<AttachmentState>)
         trusted core.memory.aligned_for<AttachmentState>(pointer = state),
         trusted core.memory.initialized_as<AttachmentState>(pointer = state),
     )
-    uses(layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
     if std.memory.is_null<AttachmentState>(state)
     {
@@ -609,30 +547,61 @@ trusted internal func finish_attachment(pos state: RawPointer<AttachmentState>)
     }
 
     let current: AttachmentState = trusted read_opaque<AttachmentState>(state);
+
+    if current.phase == ATTACHMENT_CLEANING
+    {
+        return;
+    }
+
+    trusted write_opaque<AttachmentState>(
+        state,
+        {
+            identity = current.identity,
+            depth = 0,
+            phase = ATTACHMENT_CLEANING,
+            runtime_context = current.runtime_context,
+            task_context = current.task_context,
+            cancellation_context = current.cancellation_context,
+            product_attachment_state = current.product_attachment_state,
+            cleanups = current.cleanups,
+        }
+    );
+
+    let key: u64 = core.atomic.load<u64, 1>(&BOOTSTRAP_KEY);
+    let publish_status: PlatformStatus = trusted platform_thread_storage_store(
+        key,
+        trusted std.memory.reinterpret<u8, AttachmentState>(state),
+    );
+
+    if publish_status.category != 0
+    {
+        trusted core.target.abort();
+    }
+
     let mut cleanup: RawPointer<CleanupRecord> = current.cleanups;
 
     while !std.memory.is_null<CleanupRecord>(cleanup)
     {
         let record: CleanupRecord = trusted read_opaque<CleanupRecord>(cleanup);
-        let mut outcome: RunOutcome = { state = RUN_COMPLETED, payload = 0 };
-        let callback_pointer: RawPointer<SynchronousCallback> = trusted std.memory.reinterpret<SynchronousCallback, u8>(
-            record.callback
-        );
-        let callback: SynchronousCallback = trusted std.memory.callable_from_pointer(callback_pointer);
 
-        trusted callback(record.context, std.memory.address_of_mut<RunOutcome>(&mut outcome));
-
-        if outcome.state == RUN_PANICKED && outcome.payload != 0
-        {
-            let _: u32 = trusted panic_reporting(outcome.payload);
-        }
+        trusted invoke_static_transition(record.prepare);
+        trusted run_static_finalizer(record.finalizer);
+        trusted invoke_static_transition(record.destroy);
+        trusted invoke_static_transition(record.detach);
 
         let released: RawPointer<CleanupRecord> = cleanup;
         cleanup = record.next;
         trusted internal bray.runtime.bootstrap.heap.deallocate<CleanupRecord>(released);
     }
 
-    let _: u64 = core.atomic.fetch_sub<u64, 3>(&ACTIVE_ATTACHMENTS, value = 1);
+    let clear_status: PlatformStatus = trusted platform_thread_storage_store(key, std.memory.null<u8>());
+
+    if clear_status.category != 0
+    {
+        trusted core.target.abort();
+    }
+
+    trusted release_attachment_admission();
 
     trusted internal bray.runtime.bootstrap.heap.deallocate<AttachmentState>(state);
 }
@@ -648,7 +617,7 @@ trusted internal func load_attachment() -> RawPointer<AttachmentState>
         std.memory.is_null<AttachmentState>(result)
             || trusted core.memory.initialized_as<AttachmentState>(pointer = result),
     )
-    uses(foreign_call, layout_reinterpret)
+    uses(layout_reinterpret)
 {
     if core.atomic.load<u32, 1>(&BOOTSTRAP_INITIALIZED) != INITIALIZATION_READY
     {
@@ -733,28 +702,3 @@ trusted internal func atomic_u64_pointer(pos atomic: &core.atomic.Atomic<u64>) -
 
     return trusted std.memory.reinterpret<u64, core.atomic.Atomic<u64>>(pointer);
 }
-
-@abi(c)
-extern trusted internal func platform_thread_storage_create(
-    pos destructor: RawPointer<u8>,
-    pos key: RawPointer<u64>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_thread_storage_load(
-    pos key: u64,
-    pos value: RawPointer<RawPointer<u8>>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_thread_storage_store(
-    pos key: u64,
-    pos value: RawPointer<u8>,
-) -> PlatformStatus
-    uses(foreign_call);
-
-@abi(c)
-extern trusted internal func platform_thread_storage_destroy(pos key: u64) -> PlatformStatus
-    uses(foreign_call);
