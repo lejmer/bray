@@ -172,13 +172,7 @@ impl Lowerer<'_> {
 
         let result_type = self.expression_type(expression)?;
 
-        self.push_checked_value_operation(
-            expression,
-            block,
-            source,
-            operation,
-            result_type,
-        )
+        self.push_checked_value_operation(expression, block, source, operation, result_type)
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {

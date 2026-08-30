@@ -4415,11 +4415,9 @@ func create() -> Value
             DiagnosticKind::CheckingNoApplicableCandidate,
         );
 
-        let lowered = compilation
-            .lowered_unit(key)
-            .unwrap_or_else(|error| {
-                panic!("invalid structure call must remain checkable: {error:?}")
-            });
+        let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
+            panic!("invalid structure call must remain checkable: {error:?}")
+        });
 
         assert!(lowered.value().is_none());
 
@@ -4484,10 +4482,7 @@ func mutate(pos input: Value)
 
         let diagnostics = compilation.check_diagnostics();
 
-        let kinds = diagnostics
-            .iter()
-            .map(Diagnostic::kind)
-            .collect::<Vec<_>>();
+        let kinds = diagnostics.iter().map(Diagnostic::kind).collect::<Vec<_>>();
 
         assert_eq!(
             kinds,

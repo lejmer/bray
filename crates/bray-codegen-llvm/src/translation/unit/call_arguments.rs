@@ -176,10 +176,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());
 
-        let report = llvm(
-            self.builder
-                .build_load(ty, defaults.context, "call.default.panic.report"),
-        )?
+        let report = llvm(self.builder.build_load(
+            ty,
+            defaults.context,
+            "call.default.panic.report",
+        ))?
         .into_int_value();
 
         let pending = llvm(self.builder.build_int_compare(
@@ -239,7 +240,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let fallback = result.get_type().const_zero();
-        let phi = llvm(self.builder.build_phi(result.get_type(), "call.default.result"))?;
+
+        let phi = llvm(
+            self.builder
+                .build_phi(result.get_type(), "call.default.result"),
+        )?;
 
         phi.add_incoming(&[(&result, completed), (&fallback, defaults.panicked)]);
 

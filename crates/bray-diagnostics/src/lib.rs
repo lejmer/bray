@@ -35,12 +35,14 @@ pub use argument::{
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
     DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
-    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
-    DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
-    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure, DiagnosticModuleTrust,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind,
+    DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
+    DiagnosticSourceConstructKind, DiagnosticStandardLibraryManifestProblem,
+    DiagnosticStandardLibraryOptimizationMetadataProblem, DiagnosticTargetRepresentation,
+    DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{

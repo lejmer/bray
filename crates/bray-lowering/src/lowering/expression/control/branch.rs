@@ -224,7 +224,12 @@ impl Lowerer<'_> {
         let (then_edge, else_edge) = match operator {
             BoundOperator::LogicalOr => (short_edge, right_edge),
             BoundOperator::LogicalAnd => (right_edge, short_edge),
-            _ => return Err(LoweringError::UnsupportedOperator(operator)),
+            _ => {
+                return Err(LoweringError::UnsupportedOperator {
+                    expression: id,
+                    operator,
+                });
+            }
         };
 
         self.builder.set_terminator(

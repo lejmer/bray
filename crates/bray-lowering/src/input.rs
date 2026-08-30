@@ -174,7 +174,13 @@ impl<'unit> LoweringInput<'unit> {
             ));
         }
 
-        validate_async_analysis(unit, storage_plan, dependency_contracts, async_analysis)?;
+        validate_async_analysis(
+            unit,
+            storage_plan,
+            storage_flow,
+            dependency_contracts,
+            async_analysis,
+        )?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
@@ -362,7 +368,7 @@ impl<'unit> LoweringInput<'unit> {
 }
 
 /// A semantic input required by source-unit lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LoweringInputKind {
     /// Control-flow analysis.
     ControlFlow,
@@ -393,7 +399,7 @@ pub enum LoweringInputKind {
 }
 
 /// A contract violation that prevents a bound unit from entering lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LoweringInputError {
     /// A required semantic input belongs to another bound unit.
     ForeignInput {
@@ -683,6 +689,7 @@ fn refinement_kind_exists(unit: &BoundUnit, kind: RefinementKind) -> bool {
 fn validate_async_analysis(
     unit: &BoundUnit,
     storage: &StoragePlan,
+    storage_flow: &StorageFlow,
     dependencies: &CheckedDependencyContracts,
     analysis: &CheckedAsync,
 ) -> Result<(), LoweringInputError> {
@@ -723,13 +730,26 @@ fn validate_async_analysis(
                 .all(|access| storage.access(*access).is_some())
     });
 
-    if !valid_frame || !valid_suspensions || !valid_tasks || !valid_exits {
+    let complete_exits = scope_exit_plans_are_complete(storage_flow, analysis);
+
+    if !valid_frame || !valid_suspensions || !valid_tasks || !valid_exits || !complete_exits {
         return Err(LoweringInputError::InvalidInputContents(
             LoweringInputKind::Async,
         ));
     }
 
     Ok(())
+}
+
+fn scope_exit_plans_are_complete(storage_flow: &StorageFlow, analysis: &CheckedAsync) -> bool {
+    storage_flow.exits().len() == analysis.scope_exits().len()
+        && storage_flow.exits().iter().zip(analysis.scope_exits()).all(
+            |(storage_exit, async_exit)| {
+                async_exit.scope() == storage_exit.scope()
+                    && async_exit.exit() == storage_exit.exit()
+                    && async_exit.moved() == storage_exit.moved()
+            },
+        )
 }
 
 fn dependency_subject_exists(
@@ -918,7 +938,8 @@ mod tests {
     use std::num::NonZeroU16;
 
     use bray_bound_tree::{
-        BorrowCapabilityOrigin, BoundConversionExpression, BoundDependencyContract,
+        AsyncScopeExitPlan, BorrowCapabilityOrigin, BoundBlock, BoundBlockExpression,
+        BoundBlockItem, BoundConversionExpression, BoundDependencyContract,
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
@@ -926,9 +947,9 @@ mod tests {
         CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
         CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
         ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
-        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlow,
-        StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
-        StoragePlanBuilder,
+        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
+        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{BorrowKind, CurrentRunCancellation, SemanticValueStore, TypeData, TypeId};
@@ -1248,11 +1269,103 @@ mod tests {
         .unwrap_or_else(|error| panic!("same-unit async analysis must build: {error:?}"));
 
         assert_eq!(
-            super::validate_async_analysis(&unit, &storage, &dependencies, &async_analysis),
+            super::validate_async_analysis(
+                &unit,
+                &storage,
+                &StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+                    .unwrap_or_else(|error| panic!("empty storage flow must build: {error:?}")),
+                &dependencies,
+                &async_analysis,
+            ),
             Err(LoweringInputError::InvalidInputContents(
                 LoweringInputKind::Async
             ))
         );
+    }
+
+    #[test]
+    fn async_cleanup_plans_cover_exact_storage_exit_identities() {
+        let mut scope = None;
+        let mut exit = None;
+        let mut other_exit = None;
+
+        let unit = test_runtime_default_unit(27, |tree, origin| {
+            let expression = push_unit_expression(tree, origin);
+
+            let block = tree
+                .push_block(BoundBlock::new(
+                    origin,
+                    [BoundBlockItem::Expression(expression)],
+                    false,
+                ))
+                .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
+
+            let block_expression = tree
+                .push_expression(BoundExpression::Block(BoundBlockExpression::new(
+                    origin, block, None, false,
+                )))
+                .unwrap_or_else(|error| panic!("test block expression must fit: {error:?}"));
+
+            scope = Some(block);
+            exit = Some(expression.into());
+            other_exit = Some(block_expression.into());
+
+            block_expression
+        });
+
+        let scope = scope.unwrap_or_else(|| panic!("test scope must be captured"));
+        let exit = exit.unwrap_or_else(|| panic!("test exit must be captured"));
+        let other_exit = other_exit.unwrap_or_else(|| panic!("alternate exit must be captured"));
+        let kind = unit.key().kind();
+
+        let storage_flow = StorageFlow::try_new(
+            unit.unit(),
+            kind,
+            [],
+            [],
+            [StorageExitDecision::new(scope, exit, [], [], [], false)],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("storage exit must build: {error:?}"));
+
+        let matching = CheckedAsync::try_new(
+            unit.unit(),
+            kind,
+            [],
+            [],
+            [],
+            [AsyncScopeExitPlan::new(scope, exit, [], [], [], false)],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("matching async exit must build: {error:?}"));
+
+        let mismatched = CheckedAsync::try_new(
+            unit.unit(),
+            kind,
+            [],
+            [],
+            [],
+            [AsyncScopeExitPlan::new(
+                scope,
+                other_exit,
+                [],
+                [],
+                [],
+                false,
+            )],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("mismatched async exit must build: {error:?}"));
+
+        assert!(super::scope_exit_plans_are_complete(
+            &storage_flow,
+            &matching
+        ));
+
+        assert!(!super::scope_exit_plans_are_complete(
+            &storage_flow,
+            &mismatched
+        ));
     }
 
     #[test]

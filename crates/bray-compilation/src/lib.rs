@@ -25,8 +25,8 @@ pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };
 pub use fact::{
-    CancellationToken, FactCycle, FactQueryError, ImportedSemanticRecordKey, QueryPriority,
-    SymbolCompletionError,
+    CancellationToken, FactCycle, FactQueryError, ImportedSemanticRecordKey,
+    LocatedLoweringFailure, QueryPriority, SymbolCompletionError,
 };
 pub use profile::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,

@@ -481,9 +481,7 @@ pub(super) struct OperationEffectView<'a> {
 }
 
 impl<'a> OperationEffectView<'a> {
-    pub(super) fn uses(
-        self,
-    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+    pub(super) fn uses(self) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
         self.effect
             .uses
             .iter()

@@ -114,9 +114,7 @@ where
         | ImplementationHook::ByteBufferFill
         | ImplementationHook::ByteBufferCopy
         | ImplementationHook::ByteBufferRead
-        | ImplementationHook::SliceLength => {
-            classify_allocation_and_buffer_operation(hook, types)
-        }
+        | ImplementationHook::SliceLength => classify_allocation_and_buffer_operation(hook, types),
         ImplementationHook::VolatileLoad
         | ImplementationHook::VolatileStore
         | ImplementationHook::DeviceVolatileLoad
@@ -150,11 +148,9 @@ where
         | ImplementationHook::AtomicCompilerFence
         | ImplementationHook::AtomicWait
         | ImplementationHook::AtomicNotifyOne
-        | ImplementationHook::AtomicNotifyAll => {
-            Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ))
-        }
+        | ImplementationHook::AtomicNotifyAll => Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        )),
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin
         | ImplementationHook::TaskCancel
@@ -193,11 +189,9 @@ where
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
         | ImplementationHook::TestingFail => Ok(None),
-        _ => {
-            Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ))
-        }
+        _ => Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        )),
     }
 }
 

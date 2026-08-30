@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 use std::io::ErrorKind;
 
+use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
 
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
-    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
-    DiagnosticNativeProductFailureKind,
+    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
+    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
 };
 
 #[test]
@@ -145,6 +147,11 @@ fn diagnostic_io_error_kinds_keep_stable_categories() {
 fn native_product_failure_keys_are_unique_and_domain_named() {
     use DiagnosticNativeProductFailureKind as Kind;
 
+    let source = SourceSpan::new(
+        SourceId::new(0),
+        TextRange::new(TextSize::new(0), TextSize::new(1)),
+    );
+
     let failures = [
         Kind::CodegenBackendNotSelected,
         Kind::MissingProductRoot,
@@ -154,6 +161,14 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::InvalidNativeLinkInput,
         Kind::EvaluationCycle,
         Kind::EvaluationInfrastructure,
+        Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
+            DiagnosticLoweringInputFailureKind::InvalidStorageExit,
+            source,
+        )),
+        Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
+            DiagnosticLoweringFailureKind::MissingCleanupPlan,
+            source,
+        )),
         Kind::SemanticContextFailure,
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,

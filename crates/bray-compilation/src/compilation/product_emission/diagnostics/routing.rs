@@ -10,12 +10,12 @@ use bray_package_interface::{
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
+use super::common::emission_failure_diagnostics;
+use super::evaluation::query_failure_diagnostics;
 use super::linking::{link_plan_failure_diagnostics, staging_failure_diagnostics};
 use super::model::ProductEmissionErrorKind;
 use super::planning::planning_failure_diagnostics;
-use super::terminal::{
-    codegen_failure_diagnostics, package_interface_failure_diagnostics, query_failure_diagnostics,
-};
+use super::terminal::{codegen_failure_diagnostics, package_interface_failure_diagnostics};
 
 const fn package_interface_validation_error(
     kind: &ProductEmissionErrorKind,
@@ -172,23 +172,6 @@ pub(super) fn product_emission_failure_diagnostics(
         ProductEmissionErrorKind::Outcome(_) => DiagnosticEmissionFailure::IncompleteProduct,
     };
 
-    DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::EmissionFailed,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
-        .with_arg(DiagnosticArg::target_triple(target.as_str()))
-        .with_arg(DiagnosticArg::emission_failure(failure)),
-    )
-}
-
-fn emission_failure_diagnostics(
-    failure: DiagnosticEmissionFailure,
-    product: &ProductIdentity,
-    target: &TargetIdentity,
-) -> DiagnosticBag {
     DiagnosticBag::single(
         Diagnostic::new(
             DiagnosticId::new(0),

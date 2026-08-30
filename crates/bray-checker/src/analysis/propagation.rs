@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
+use bray_bound_tree::{
+    BoundExpressionId, BoundStructuredExpression, SelectedPropagation, SemanticSelection,
+};
 use bray_compiler_known::RepresentationRole;
 
 use crate::CheckerRequestContext;
@@ -12,39 +14,62 @@ impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn build_propagation(
+    pub(super) fn build_result_propagation(
         &mut self,
         expression: BoundExpressionId,
         current: AnalysisBlockId,
-        nullable: bool,
     ) -> Option<Option<AnalysisBlockId>> {
         let success = self.push_block();
         let failure = self.push_block();
 
-        let (success_kind, failure_kind, success_refinement, failure_refinement) = if nullable {
-            (
-                AnalysisEdgeKind::NullablePresent,
-                AnalysisEdgeKind::NullableAbsent,
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: true,
-                }),
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: false,
-                }),
-            )
-        } else {
-            (
-                AnalysisEdgeKind::ResultSuccess,
-                AnalysisEdgeKind::ResultErrorPropagation,
-                None,
-                None,
-            )
-        };
+        self.push_edge(current, success, AnalysisEdgeKind::ResultSuccess, None);
 
-        self.push_edge(current, success, success_kind, success_refinement);
-        self.push_edge(current, failure, failure_kind, failure_refinement);
+        self.push_edge(
+            current,
+            failure,
+            AnalysisEdgeKind::ResultErrorPropagation,
+            None,
+        );
+
+        self.push_exit(
+            failure,
+            AnalysisExitKind::ResultErrorPropagation,
+            expression.into(),
+        );
+
+        Some(Some(success))
+    }
+
+    pub(super) fn build_nullable_propagation(
+        &mut self,
+        expression: BoundExpressionId,
+        subject: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        let success = self.push_block();
+        let failure = self.push_block();
+
+        self.push_edge(
+            current,
+            success,
+            AnalysisEdgeKind::NullablePresent,
+            Some(AnalysisRefinement::NullablePresence {
+                expression: subject,
+                is_present: true,
+            }),
+        );
+
+        self.push_edge(
+            current,
+            failure,
+            AnalysisEdgeKind::NullableAbsent,
+            Some(AnalysisRefinement::NullablePresence {
+                expression: subject,
+                is_present: false,
+            }),
+        );
+
+        self.push_bound(success, expression.into());
 
         self.push_exit(
             failure,
@@ -61,8 +86,8 @@ where
         expression: &BoundStructuredExpression,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        match self.propagation_operand_role(expression) {
-            Some(RepresentationRole::Result) => self.build_propagation(id, current, false),
+        match self.propagation_role(id, expression) {
+            Some(RepresentationRole::Result) => self.build_result_propagation(id, current),
             Some(RepresentationRole::RunResult) => {
                 Some(Some(self.build_run_result_propagation(id, current)))
             }
@@ -74,10 +99,22 @@ where
         }
     }
 
-    fn propagation_operand_role(
+    fn propagation_role(
         &self,
+        id: BoundExpressionId,
         expression: &BoundStructuredExpression,
     ) -> Option<RepresentationRole> {
+        if let Some(SemanticSelection::Propagation(selection)) = self
+            .selections()
+            .and_then(|selections| selections.expression(id))
+        {
+            return match selection {
+                SelectedPropagation::Nullable { .. } => None,
+                SelectedPropagation::Result { .. } => Some(RepresentationRole::Result),
+                SelectedPropagation::CurrentRun => Some(RepresentationRole::RunResult),
+            };
+        }
+
         let operand = expression.operands().first().copied()?;
 
         let operand_type = self

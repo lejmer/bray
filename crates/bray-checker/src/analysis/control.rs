@@ -85,11 +85,9 @@ where
             BoundStructuredExpressionKind::NullablePropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
 
-                self.push_bound(current, id.into());
-
                 let subject = expression.operands().first().copied().unwrap_or(id);
 
-                self.build_propagation(subject, current, true)
+                self.build_nullable_propagation(id, subject, current)
             }
             BoundStructuredExpressionKind::Panic => {
                 let current = self.build_operands(expression.operands(), current)?;

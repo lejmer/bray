@@ -107,13 +107,12 @@ pub use selection::{
 pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
-    OwnerRetention,
-    Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,
-    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageAlternative,
-    StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageExitDecision, StorageFlow,
-    StorageFlowBuildError, StorageIdentity, StorageIdentityId, StorageOperationDecision,
-    StorageOperationStatus, StoragePlan, StoragePlanBuildError, StoragePlanBuilder,
-    StorageProjection, StorageRelationship, StorageSuspensionState,
+    Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
+    StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
+    StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageIdentity, StorageIdentityId,
+    StorageOperationDecision, StorageOperationStatus, StoragePlan, StoragePlanBuildError,
+    StoragePlanBuilder, StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

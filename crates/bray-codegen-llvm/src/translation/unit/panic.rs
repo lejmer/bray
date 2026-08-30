@@ -67,15 +67,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .panic_report_context
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-            let ty = crate::native::pointer_integer_type(
-                self.types.context(),
-                self.request.target(),
-            );
+            let ty =
+                crate::native::pointer_integer_type(self.types.context(), self.request.target());
 
-            llvm(self.builder.build_store(
-                context,
-                ty.const_int(CANCELLATION_OUTCOME_SENTINEL, false),
-            ))?;
+            llvm(
+                self.builder
+                    .build_store(context, ty.const_int(CANCELLATION_OUTCOME_SENTINEL, false)),
+            )?;
 
             self.return_propagated_outcome()?;
         } else {
@@ -99,10 +97,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());
 
-        let report = llvm(
-            self.builder
-                .build_load(ty, context, "call.panic.report"),
-        )?;
+        let report = llvm(self.builder.build_load(ty, context, "call.panic.report"))?;
 
         llvm(self.builder.build_store(context, ty.const_zero()))?;
 
@@ -155,15 +150,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (source, pending_moves) = self.take_control_source()?;
 
-        let completed_route =
-            self.route_edge(completed, "call.completed", &pending_moves)?;
+        let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
 
-        let panicked_route = self.route_call_panic(
-            panicked,
-            report.into(),
-            "call.panicked",
-            &pending_moves,
-        )?;
+        let panicked_route =
+            self.route_call_panic(panicked, report.into(), "call.panicked", &pending_moves)?;
 
         self.builder.position_at_end(source);
 

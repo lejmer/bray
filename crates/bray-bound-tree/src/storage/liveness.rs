@@ -160,12 +160,9 @@ impl Liveness {
             || live_across_suspensions.iter().any(|entry| {
                 entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
             })
-            || owner_retentions
-                .iter()
-                .any(|retention| {
-                    retention.expression().unit() != unit
-                        || !retention.subject().is_valid_for(unit)
-                })
+            || owner_retentions.iter().any(|retention| {
+                retention.expression().unit() != unit || !retention.subject().is_valid_for(unit)
+            })
         {
             return Err(LivenessBuildError::ForeignUnit);
         }

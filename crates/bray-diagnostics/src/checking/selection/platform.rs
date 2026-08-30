@@ -141,7 +141,10 @@ mod tests {
     #[test]
     fn diagnostic_roles_cover_bootstrap_thread_storage() {
         for id in 0x0331..=0x0334 {
-            assert_eq!(DiagnosticPlatformServiceRole::try_new(id).map(|role| role.id()), Some(id));
+            assert_eq!(
+                DiagnosticPlatformServiceRole::try_new(id).map(|role| role.id()),
+                Some(id)
+            );
         }
 
         assert_eq!(DiagnosticPlatformServiceRole::try_new(0x0330), None);

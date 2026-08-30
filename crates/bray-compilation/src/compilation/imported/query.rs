@@ -182,6 +182,12 @@ impl super::super::Compilation {
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
+            Err(FactQueryError::LoweringInput(error)) => {
+                panic!("lowering input validation failed: {error:?}")
+            }
+            Err(FactQueryError::Lowering(error)) => {
+                panic!("MIR lowering failed: {error:?}")
+            }
         }
     }
 

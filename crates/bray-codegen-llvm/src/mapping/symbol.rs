@@ -174,8 +174,7 @@ fn apply_linkage(
     if matches!(
         mapping.linkage(),
         CodegenLinkage::Fallback | CodegenLinkage::LinkOnce
-    )
-        && defines_symbol
+    ) && defines_symbol
         && target.machine().object_format() == bray_target::ObjectFormat::Coff
     {
         if mapping.linkage() == CodegenLinkage::LinkOnce {
@@ -699,12 +698,7 @@ mod tests {
 
         assert_eq!(function.get_linkage(), Linkage::WeakODR);
 
-        assert!(
-            module
-                .print_to_string()
-                .to_string()
-                .contains("comdat any")
-        );
+        assert!(module.print_to_string().to_string().contains("comdat any"));
     }
 
     #[test]

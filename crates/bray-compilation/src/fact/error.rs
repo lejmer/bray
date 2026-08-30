@@ -1,5 +1,7 @@
 use bray_binder::SemanticUnitContextError;
 use bray_checker::CheckerInfrastructureError;
+use bray_lowering::{LoweringError, LoweringInputError};
+use bray_source::SourceSpan;
 
 use super::CompilationFactKey;
 
@@ -80,6 +82,29 @@ mod tests {
     }
 }
 
+/// A compiler-owned lowering failure and the Bray source construct being compiled.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct LocatedLoweringFailure<E> {
+    cause: E,
+    source: SourceSpan,
+}
+
+impl<E> LocatedLoweringFailure<E> {
+    pub(crate) const fn new(cause: E, source: SourceSpan) -> Self {
+        Self { cause, source }
+    }
+
+    /// Returns the exact compiler contract failure.
+    pub const fn cause(&self) -> &E {
+        &self.cause
+    }
+
+    /// Returns the closest Bray source construct affected by the failure.
+    pub const fn source(&self) -> SourceSpan {
+        self.source
+    }
+}
+
 /// An outer compiler-query outcome that must not be represented as a source diagnostic.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum FactQueryError {
@@ -105,6 +130,10 @@ pub enum FactQueryError {
     SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
     CheckerInfrastructure(CheckerInfrastructureError),
+    /// Checked lowering inputs violated the lowering boundary contract.
+    LoweringInput(LocatedLoweringFailure<LoweringInputError>),
+    /// MIR lowering violated a checked semantic or MIR construction contract.
+    Lowering(LocatedLoweringFailure<LoweringError>),
 }
 
 impl std::fmt::Display for FactQueryError {
@@ -144,6 +173,16 @@ impl std::fmt::Display for FactQueryError {
                     formatter,
                     "semantic checking infrastructure failed: {error:?}"
                 )
+            }
+            Self::LoweringInput(error) => {
+                write!(
+                    formatter,
+                    "lowering input validation failed: {:?}",
+                    error.cause()
+                )
+            }
+            Self::Lowering(error) => {
+                write!(formatter, "MIR lowering failed: {:?}", error.cause())
             }
         }
     }

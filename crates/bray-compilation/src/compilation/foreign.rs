@@ -2,9 +2,9 @@ pub(in crate::compilation) mod diagnostic;
 mod directive;
 mod layout;
 pub(in crate::compilation) mod platform;
+mod query;
 pub(in crate::compilation) mod runtime;
 mod source_role;
-mod query;
 mod static_storage;
 mod validation;
 

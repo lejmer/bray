@@ -130,13 +130,14 @@ impl Lowerer<'_> {
                 conversion.target_type()
             };
 
-            let later_expressions = selected_arguments[index + 1..]
-                .iter()
-                .filter_map(|(ordinal, expression, _)| {
-                    usize::try_from(*ordinal)
-                        .is_ok_and(|ordinal| is_runtime_expression(kind, ordinal))
-                        .then_some(*expression)
-                });
+            let later_expressions =
+                selected_arguments[index + 1..]
+                    .iter()
+                    .filter_map(|(ordinal, expression, _)| {
+                        usize::try_from(*ordinal)
+                            .is_ok_and(|ordinal| is_runtime_expression(kind, ordinal))
+                            .then_some(*expression)
+                    });
 
             let operand = self.materialize_memory_argument(
                 current,
@@ -501,10 +502,7 @@ impl Lowerer<'_> {
     }
 }
 
-const fn is_runtime_expression(
-    kind: CheckedMemoryOperationKind,
-    ordinal: usize,
-) -> bool {
+const fn is_runtime_expression(kind: CheckedMemoryOperationKind, ordinal: usize) -> bool {
     kind.runtime_argument_index(ordinal).is_some()
         || matches!(
             kind,

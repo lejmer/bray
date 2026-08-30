@@ -6,7 +6,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_ir::MirUnitBuildError;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LoweringError {
     /// The bound unit root is not part of the synchronous lowering contract.
     UnsupportedRoot(BoundUnitRoot),
@@ -33,7 +33,10 @@ pub enum LoweringError {
     /// The synchronous lowering core does not yet cover this binding pattern.
     UnsupportedPattern(BoundPatternId),
     /// An operator selected for the synchronous core has no MIR operation.
-    UnsupportedOperator(BoundOperator),
+    UnsupportedOperator {
+        expression: BoundExpressionId,
+        operator: BoundOperator,
+    },
     /// An expression has no checked storage access.
     MissingStorageAccess(BoundExpressionId),
     /// A checked storage access is absent from the canonical plan.

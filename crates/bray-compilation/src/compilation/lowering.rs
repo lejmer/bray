@@ -2,15 +2,18 @@ use std::sync::Arc;
 
 use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
-    BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
-    CheckedExpressionTypes,
+    AnyBoundNodeId, BoundExpression, BoundReferenceTarget, BoundSourceAnchor, BoundUnit,
+    BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedExpressionTypes, StorageAccessId,
+    StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::MirTargetContract;
 use bray_lowering::{
-    CompileTimeUnit, LoweredUnit, LoweringInput, executable_unit_kind, lower_unit,
+    CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, LoweringInputError,
+    executable_unit_kind, lower_unit,
 };
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, ConstantValueId, GenericOwnerId, StaticInstanceTemplateId,
     StaticReferenceSelection, TypeId,
@@ -20,7 +23,8 @@ use super::Compilation;
 use super::binder::generic_parameter_ids;
 use super::substitution::identity_substitution;
 use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
+    CancellationToken, CompilationFactKey, FactQueryError, LocatedLoweringFailure,
+    PublishedUnitResult, QueryPriority,
 };
 
 type LoweredUnitComputation = (
@@ -168,7 +172,11 @@ impl Compilation {
             target,
         )
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-        .unwrap_or_else(|error| panic!("checked lowering input is inconsistent: {error:?}"));
+        .map_err(|error| {
+            let source = lowering_input_failure_source(&error, unit.result().value());
+
+            FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
+        })?;
 
         let input = input.with_native_static_templates(&native_static_templates);
 
@@ -189,7 +197,12 @@ impl Compilation {
             span.finish(crate::profile::result_outcome(&result));
         }
 
-        let mir = result.unwrap_or_else(|error| panic!("checked MIR lowering failed: {error:?}"));
+        let mir = result.map_err(|error| {
+            let source =
+                lowering_failure_source(&error, unit.result().value(), storage.result().value());
+
+            FactQueryError::Lowering(LocatedLoweringFailure::new(error, source))
+        })?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
             profile.record_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
@@ -356,6 +369,135 @@ impl Compilation {
             ty,
         )))
     }
+}
+
+fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -> SourceSpan {
+    match error {
+        LoweringInputError::MissingSemanticSelection(expression)
+        | LoweringInputError::MissingExpressionType(expression)
+        | LoweringInputError::InvalidStorageOperation(expression) => {
+            expression_source(unit, *expression)
+        }
+        LoweringInputError::InvalidStorageExit(block) => {
+            node_source(unit, (*block).into()).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringInputError::ForeignInput { .. }
+        | LoweringInputError::InputKindMismatch { .. }
+        | LoweringInputError::InvalidPatternInput
+        | LoweringInputError::InvalidInputContents(_)
+        | LoweringInputError::StorageOperationCountMismatch { .. }
+        | LoweringInputError::LiteralTargetWidthMismatch { .. }
+        | LoweringInputError::ExecutableHostRequiresSyntheticInput
+        | LoweringInputError::CompileTimeUnitRequiresClassification => unit_source(unit),
+    }
+}
+
+fn lowering_failure_source(
+    error: &LoweringError,
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+) -> SourceSpan {
+    match error {
+        LoweringError::UnsupportedRoot(root) => {
+            node_source(unit, (*root).into()).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingBoundNode(node) | LoweringError::RecoveredBoundNode(node) => {
+            node_source(unit, *node).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingExpressionType(expression)
+        | LoweringError::AwaitOutsideProtectedFrame(expression)
+        | LoweringError::MissingSuspensionPoint(expression)
+        | LoweringError::InvalidTaskOperation(expression)
+        | LoweringError::MissingLiteralValue(expression)
+        | LoweringError::MissingSemanticSelection(expression)
+        | LoweringError::UnsupportedExpression(expression)
+        | LoweringError::UnsupportedOperator { expression, .. }
+        | LoweringError::MissingStorageAccess(expression)
+        | LoweringError::MissingIterationStorage(expression)
+        | LoweringError::MissingOperationResult(expression) => expression_source(unit, *expression),
+        LoweringError::UnsupportedPattern(pattern) => {
+            node_source(unit, (*pattern).into()).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingCleanupPlan(block) => {
+            node_source(unit, (*block).into()).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingStorageAccessRecord(access)
+        | LoweringError::MissingStorageIdentity(access)
+        | LoweringError::UnsupportedStorageAccess(access) => {
+            access_failure_source(unit, storage, *access)
+        }
+        LoweringError::MissingStorageIdentityRecord(identity) => {
+            identity_source(unit, storage, *identity).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingCallableResultType
+        | LoweringError::MissingRepresentation(_)
+        | LoweringError::SemanticValueUnavailable
+        | LoweringError::InvalidFrameDescriptor
+        | LoweringError::Mir(_) => unit_source(unit),
+    }
+}
+
+fn expression_source(
+    unit: &BoundUnit,
+    expression: bray_bound_tree::BoundExpressionId,
+) -> SourceSpan {
+    node_source(unit, expression.into()).unwrap_or_else(|| unit_source(unit))
+}
+
+fn node_source(unit: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
+    let view = unit.view();
+
+    let origin = match node {
+        AnyBoundNodeId::Expression(expression) => {
+            view.expression(expression).map(BoundExpression::origin)
+        }
+        AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(|pattern| pattern.origin()),
+        AnyBoundNodeId::Block(block) => view.block(block).map(|block| block.origin()),
+        AnyBoundNodeId::CallableBody(body) => view.callable_body(body).map(|body| body.origin()),
+    }?;
+
+    Some(source_span(origin.source_anchor()))
+}
+
+fn access_failure_source(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    access: StorageAccessId,
+) -> SourceSpan {
+    if let Some(access) = storage.access(access) {
+        return source_span(access.source());
+    }
+
+    storage
+        .access_plans()
+        .iter()
+        .find(|plan| plan.access() == access)
+        .map(|plan| expression_source(unit, plan.expression()))
+        .unwrap_or_else(|| unit_source(unit))
+}
+
+fn identity_source(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    identity: StorageIdentityId,
+) -> Option<SourceSpan> {
+    match storage.identity(identity)? {
+        StorageIdentity::CompilerCreated(origin) => Some(source_span(origin.source_anchor())),
+        StorageIdentity::Error(source) => Some(source_span(source)),
+        identity => identity
+            .definition_node()
+            .and_then(|node| node_source(unit, node)),
+    }
+}
+
+fn unit_source(unit: &BoundUnit) -> SourceSpan {
+    source_span(unit.key().source())
+}
+
+fn source_span(source: BoundSourceAnchor) -> SourceSpan {
+    let syntax = source.syntax();
+
+    SourceSpan::new(syntax.source_id(), syntax.full_range())
 }
 
 #[cfg(test)]
@@ -2136,6 +2278,135 @@ func both_bounds(pos values: Values) -> i32
             .collect::<BTreeSet<_>>();
 
         assert_eq!(cleanup_storages.len(), 2, "{cleanup_places:?}");
+    }
+
+    #[test]
+    fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
+        let compilation = standard_text_compilation(&[
+            include_str!("../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../standard-library/std/src/bytes/buffer.bray"),
+            include_str!("../../../../standard-library/std/src/collection/list.bray"),
+            include_str!("../../../../standard-library/std/src/collection/deque.bray"),
+            r#"module app;
+
+using std.collection;
+using std.bytes;
+using std.memory;
+
+struct Probe
+{
+    bytes: std.bytes.Buffer;
+}
+
+trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    {
+        let bytes: [u8; 1] = [7];
+        let mut values: std.collection.Deque<Probe> = try trusted std.collection.Deque<Probe>();
+
+        try trusted values.push_back(
+            {
+                bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
+            }
+        );
+    }
+
+    return Ok(unit);
+}
+"#,
+        ]);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("nested propagated cleanup must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
+    }
+
+    #[test]
+    fn nullable_nested_scope_exit_publishes_its_cleanup_plan() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Probe
+{
+    destruct() {}
+}
+
+func main(pos value: i32?) -> i32?
+{
+    {
+        let probe: Probe = Probe {};
+        let unwrapped: i32 = value?;
+        let mut result: i32? = none;
+
+        result = unwrapped;
+
+        return result;
+    }
+}
+"#,
+        );
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("nullable unit must bind: {error:?}"));
+
+        assert!(bound.diagnostics().is_empty(), "{:#?}", bound.diagnostics());
+
+        let types = compilation
+            .expression_types(key.clone())
+            .unwrap_or_else(|error| panic!("nullable expressions must type: {error:?}"));
+
+        assert!(types.diagnostics().is_empty(), "{:#?}", types.diagnostics());
+
+        let patterns = compilation
+            .patterns(key.clone())
+            .unwrap_or_else(|error| panic!("nullable patterns must check: {error:?}"));
+
+        assert!(
+            patterns.diagnostics().is_empty(),
+            "{:#?}",
+            patterns.diagnostics()
+        );
+
+        let storage = compilation
+            .storage_plan(key.clone())
+            .unwrap_or_else(|error| panic!("nullable storage must plan: {error:?}"));
+
+        assert!(
+            storage.diagnostics().is_empty(),
+            "{:#?}",
+            storage.diagnostics()
+        );
+
+        compilation
+            .storage_flow(key.clone())
+            .unwrap_or_else(|error| panic!("nullable storage flow must publish: {error:?}"));
+
+        compilation
+            .async_analysis(key.clone())
+            .unwrap_or_else(|error| panic!("nullable cleanup plans must publish: {error:?}"));
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("nested nullable cleanup must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        assert!(lowered.value().is_some(), "{lowered:#?}");
     }
 
     #[test]

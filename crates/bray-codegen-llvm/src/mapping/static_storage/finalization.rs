@@ -141,12 +141,8 @@ fn declare_static_finalizer_start<'context>(
 
         let (arguments, name) = match symbol.signature().result() {
             CodegenResultMapping::Void => (vec![storage.into()], ""),
-            CodegenResultMapping::Direct { .. } => {
-                (vec![storage.into()], "static.finalize.value")
-            }
-            CodegenResultMapping::Indirect { .. } => {
-                (vec![destination.into(), storage.into()], "")
-            }
+            CodegenResultMapping::Direct { .. } => (vec![storage.into()], "static.finalize.value"),
+            CodegenResultMapping::Indirect { .. } => (vec![destination.into(), storage.into()], ""),
         };
 
         let call = invoke_static_boundary(

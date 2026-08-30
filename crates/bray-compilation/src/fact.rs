@@ -17,7 +17,7 @@ mod unit_identity;
 
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
-pub use error::{FactCycle, FactQueryError};
+pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
 

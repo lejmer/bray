@@ -33,14 +33,28 @@ pub(super) fn emission_failure_diagnostic(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> Diagnostic {
-    Diagnostic::new(
+    let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::EmissionFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target.as_str()))
-    .with_arg(DiagnosticArg::emission_failure(failure))
+    .with_arg(DiagnosticArg::emission_failure(failure.clone()));
+
+    let source = match failure {
+        DiagnosticEmissionFailure::Evaluation(failure) => {
+            crate::compilation::diagnostics::code_production_failure_source(failure)
+        }
+        _ => None,
+    };
+
+    match source {
+        Some(source) => {
+            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
+        }
+        None => diagnostic,
+    }
 }
 
 pub(super) const fn diagnostic_artifact(
