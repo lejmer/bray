@@ -2471,52 +2471,7 @@ mod tests {
             })
         }));
 
-        let roots = reachability
-            .graph()
-            .roots()
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-
-        let compatibility = reachability
-            .graph()
-            .instances()
-            .iter()
-            .map(|instance| {
-                compilation
-                    .codegen_partition_compatibility(
-                        instance,
-                        compilation.package_identity(),
-                        &roots,
-                        &cancellation,
-                    )
-                    .map(|compatibility| (instance.key().clone(), compatibility))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()
-            .unwrap_or_else(|error| panic!("consumer partition plan must resolve: {error:?}"));
-
-        let units = partition_codegen_units(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            reachability.graph(),
-            |instance| compatibility.get(instance.key()).cloned(),
-        )
-        .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
-
-        for unit in units.iter() {
-            compilation
-                .codegen_mappings_for_product(
-                    &test_product_identity(),
-                    unit,
-                    None,
-                    &BTreeSet::new(),
-                    &target,
-                    &roots,
-                    &reachability,
-                    false,
-                    &cancellation,
-                )
-                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
-        }
+        realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
     }
 
     #[test]
@@ -2563,7 +2518,9 @@ mod tests {
             })
             .count();
 
-        assert_eq!(imported_defaults, 2);
+        assert_eq!(imported_defaults, 4);
+
+        realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
     }
 
     #[test]
@@ -4875,7 +4832,16 @@ mod tests {
             "    }\n",
             "    func quadrupled() -> i32\n",
             "    {\n",
-            "        return self.doubled() + self.doubled();\n",
+            "        return self.doubled() + self.through_lambda();\n",
+            "    }\n",
+            "    func through_lambda() -> i32\n",
+            "    {\n",
+            "        let invoke = lambda(pos value: &Self) -> i32\n",
+            "        {\n",
+            "            return value.count();\n",
+            "        };\n",
+            "\n",
+            "        return invoke(&self);\n",
             "    }\n",
             "}\n",
             "\n",
@@ -4894,8 +4860,62 @@ mod tests {
             "}\n",
         ),
         runtime_frames: None,
-        executable_templates: 4,
+        executable_templates: 6,
     };
+
+    fn realize_codegen_mappings(
+        compilation: &crate::Compilation,
+        target: &bray_codegen::CodegenTarget,
+        reachability: &super::super::super::specialization::ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
+    ) {
+        let roots = reachability
+            .graph()
+            .roots()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let compatibility = reachability
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                compilation
+                    .codegen_partition_compatibility(
+                        instance,
+                        compilation.package_identity(),
+                        &roots,
+                        cancellation,
+                    )
+                    .map(|compatibility| (instance.key().clone(), compatibility))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .unwrap_or_else(|error| panic!("consumer partition plan must resolve: {error:?}"));
+
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            reachability.graph(),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
+
+        for unit in units.iter() {
+            compilation
+                .codegen_mappings_for_product(
+                    &test_product_identity(),
+                    unit,
+                    None,
+                    &BTreeSet::new(),
+                    target,
+                    &roots,
+                    reachability,
+                    false,
+                    cancellation,
+                )
+                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
+        }
+    }
 
     fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
         generic_consumer_for_target(dependency, SelectedTarget::baseline())

@@ -96,7 +96,7 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let contextual_self =
-            codegen_instance_contextual_self(self, &binding_context, instance)?;
+            codegen_instance_contextual_self(&binding_context, instance)?;
 
         let template = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(

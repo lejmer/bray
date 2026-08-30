@@ -113,7 +113,7 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
 
         let contextual_self = instance
-            .map(|instance| codegen_instance_contextual_self(self, &binding_context, instance))
+            .map(|instance| codegen_instance_contextual_self(&binding_context, instance))
             .transpose()?
             .flatten();
 

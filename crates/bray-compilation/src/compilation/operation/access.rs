@@ -20,11 +20,11 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
     CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-    CallableSignatureQuery, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
-    ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, ReceiverParameterSignature,
-    SelfTypeContext, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
-    TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
-    TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
+    CallableSignatureQuery, CheckedConstraintKind, ExactSymbolId, GenericDeclarationTemplateQuery,
+    GenericOwnerId, ImplementationSelection, ImplementationSubjectQuery, MemberLookupResult,
+    NamedTypeSymbolId, ReceiverParameterSignature, SelfTypeContext, StructFieldTypeQuery,
+    SymbolQueryContract, SymbolQueryRequest, TraitApplicationId, TraitCallableMemberSymbolId,
+    TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{GenericArgumentSyntax, TraitApplicationSyntax};
 
@@ -224,6 +224,7 @@ impl Compilation {
         {
             return self.resolve_trait_default_body_member_operation(
                 binding_context,
+                unit,
                 expression,
                 receiver_type,
                 *trait_definition,
@@ -454,6 +455,7 @@ impl Compilation {
         if let [(subject_type, application, member, requirement, witness)] = candidates.as_slice() {
             return self.resolve_selected_trait_member_operation(
                 binding_context,
+                unit,
                 expression,
                 *subject_type,
                 *application,
@@ -473,6 +475,7 @@ impl Compilation {
         for (subject_type, application, member, requirement, witness) in candidates {
             let resolution = self.resolve_selected_trait_member_operation(
                 binding_context,
+                unit,
                 expression,
                 subject_type,
                 application,
@@ -532,6 +535,7 @@ impl Compilation {
     fn resolve_selected_trait_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
         expression: BoundExpressionId,
         subject_type: TypeId,
         application: TraitApplicationId,
@@ -546,18 +550,19 @@ impl Compilation {
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let instance = values
+        let implementation = values
             .implementation_instance_data(witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let fulfillments = implementation_fulfillments(binding_context, instance.definition())?;
+        let fulfillments =
+            implementation_fulfillments(binding_context, implementation.definition())?;
 
         let Some(selected) = implementation_callable_instance(
             binding_context,
             fulfillments.callables,
             trait_member,
             application_data.substitution(),
-            instance.substitution(),
+            implementation.substitution(),
         )?
         else {
             return Ok(None);
@@ -569,9 +574,24 @@ impl Compilation {
         let callable =
             self.resolve_callable_instance_signature(binding_context, selected, diagnostics)?;
 
-        let Some(callable) = callable else {
+        let Some(mut callable) = callable else {
             return Ok(None);
         };
+
+        let inherited_substitution = if uses_trait_default {
+            application_data.substitution()
+        } else {
+            implementation.substitution()
+        };
+
+        callable.template = self.bind_trait_callable_member_template(
+            binding_context,
+            unit,
+            expression,
+            selected.definition().symbol(),
+            inherited_substitution,
+            diagnostics,
+        )?;
 
         let signature = if uses_trait_default {
             substitute_callable_self(
@@ -595,8 +615,13 @@ impl Compilation {
         )
         .with_callable(callable.instance, signature, defaults);
 
+        if let Some(template) = callable.template {
+            target = target.with_callable_template(template);
+        }
+
         if uses_trait_default {
-            target = target.with_trait_dispatch(TraitConstraintDispatch::trait_default(requirement));
+            target =
+                target.with_trait_dispatch(TraitConstraintDispatch::trait_default(requirement));
         }
 
         Ok(Some(OperationResolution::new(
@@ -610,6 +635,7 @@ impl Compilation {
     fn resolve_trait_default_body_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
         expression: BoundExpressionId,
         receiver_type: TypeId,
         trait_definition: bray_symbols::TraitSymbolId,
@@ -648,6 +674,7 @@ impl Compilation {
 
         self.resolve_constrained_trait_member_operation(
             binding_context,
+            unit,
             expression,
             receiver_type,
             application,
@@ -707,6 +734,7 @@ impl Compilation {
 
         self.resolve_constrained_trait_member_operation(
             binding_context,
+            unit,
             expression,
             receiver_type,
             *application,
@@ -724,6 +752,7 @@ impl Compilation {
     fn resolve_constrained_trait_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
         expression: BoundExpressionId,
         subject_type: TypeId,
         application: TraitApplicationId,
@@ -747,9 +776,18 @@ impl Compilation {
             diagnostics,
         )?;
 
-        let Some(callable) = callable else {
+        let Some(mut callable) = callable else {
             return Ok(None);
         };
+
+        callable.template = self.bind_trait_callable_member_template(
+            binding_context,
+            unit,
+            expression,
+            member.into(),
+            application.substitution(),
+            diagnostics,
+        )?;
 
         let trait_context = SelfTypeContext::Trait(application.definition());
 
@@ -768,9 +806,13 @@ impl Compilation {
 
         let signature = member_callable_signature(signature, subject_type);
 
-        let target = MemberTarget::new(member.into(), result_type, [])
+        let mut target = MemberTarget::new(member.into(), result_type, [])
             .with_callable(callable.instance, signature, defaults)
             .with_trait_dispatch(dispatch);
+
+        if let Some(template) = callable.template {
+            target = target.with_callable_template(template);
+        }
 
         Ok(Some(OperationResolution::new(
             expression,
@@ -938,6 +980,7 @@ impl Compilation {
             if let Some(dispatch) = requirements.get(&application).copied() {
                 return self.resolve_constrained_trait_member_operation(
                     binding_context,
+                    unit,
                     expression,
                     subject_type,
                     application,
@@ -971,6 +1014,7 @@ impl Compilation {
 
         self.resolve_selected_trait_member_operation(
             binding_context,
+            unit,
             expression,
             subject_type,
             application,
@@ -1001,8 +1045,84 @@ impl Compilation {
             return Ok(None);
         };
 
+        callable.template = self.bind_callable_member_template(
+            binding_context,
+            unit,
+            expression,
+            member,
+            receiver_substitution,
+            diagnostics,
+        )?;
+
+        Ok(Some(callable))
+    }
+
+    fn bind_callable_member_template(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        expression: BoundExpressionId,
+        member: AnySymbolId,
+        inherited_substitution: bray_symbols::GenericSubstitutionId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<bray_bound_tree::CallableDeclarationTemplate>, FactQueryError> {
         let arguments = member_call_generic_arguments(self, unit, expression)?;
 
+        self.bind_callable_member_template_with_arguments(
+            binding_context,
+            unit,
+            member,
+            inherited_substitution,
+            &arguments,
+            diagnostics,
+        )
+    }
+
+    fn bind_trait_callable_member_template(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        expression: BoundExpressionId,
+        member: AnySymbolId,
+        inherited_substitution: bray_symbols::GenericSubstitutionId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<bray_bound_tree::CallableDeclarationTemplate>, FactQueryError> {
+        let arguments = member_call_generic_arguments(self, unit, expression)?;
+
+        let member_owner =
+            GenericOwnerId::try_new(member).ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let direct_generic = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
+                member_owner,
+            ))
+            .map_err(binding_query_error)?;
+
+        *diagnostics = diagnostics.merged(direct_generic.diagnostics());
+
+        if arguments.is_empty() && direct_generic.value().parameters().is_empty() {
+            return Ok(None);
+        }
+
+        self.bind_callable_member_template_with_arguments(
+            binding_context,
+            unit,
+            member,
+            inherited_substitution,
+            &arguments,
+            diagnostics,
+        )
+    }
+
+    fn bind_callable_member_template_with_arguments(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        member: AnySymbolId,
+        inherited_substitution: bray_symbols::GenericSubstitutionId,
+        arguments: &[GenericArgumentSyntax],
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<bray_bound_tree::CallableDeclarationTemplate>, FactQueryError> {
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
@@ -1013,16 +1133,15 @@ impl Compilation {
         let template = bind_member_callable_template(
             binding_context,
             member,
-            receiver_substitution,
-            &arguments,
+            inherited_substitution,
+            arguments,
             &scope,
         )
         .map_err(binding_query_error)?;
 
         *diagnostics = diagnostics.merged(template.diagnostics());
-        callable.template = template.value().clone();
 
-        Ok(Some(callable))
+        Ok(template.value().clone())
     }
 
     fn resolve_callable_defaults(

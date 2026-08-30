@@ -1,13 +1,11 @@
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_symbols::{
     ExactSymbolId, ImplementationCoherenceQuery, ImplementationSymbolId, SelfTypeContext,
-    SemanticValueStore, SymbolQueryRequest, TraitApplicationData, TraitSymbolId, TypeId,
+    SemanticValueStore, SymbolQueryRequest, TraitSymbolId, TypeId,
 };
 
-use super::super::super::Compilation;
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::super::implementation::implementation_instance_requirement;
-use super::super::super::substitution::substitution_for_owner;
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::fact::FactQueryError;
 
@@ -26,10 +24,37 @@ pub(super) fn substitute_contextual_self(
 }
 
 pub(super) fn codegen_instance_contextual_self(
-    compilation: &Compilation,
     binding_context: &CompilationBindingContext<'_>,
     instance: &ConcreteCodegenInstance,
 ) -> Result<Option<(SelfTypeContext, TypeId)>, FactQueryError> {
+    if let Some(witness) = instance.contextual_self_witness() {
+        let requirement = implementation_instance_requirement(binding_context, witness)?;
+
+        let application = binding_context
+            .semantic_values()
+            .trait_application_data(requirement.trait_application())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if let Some(callable) = instance.callable_instance() {
+            let container = binding_context
+                .containing_symbol(callable.definition().symbol())
+                .map_err(binding_query_error)?
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let trait_definition = TraitSymbolId::try_from_any(container)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            if trait_definition != application.definition() {
+                return Err(FactQueryError::InfrastructureFailure);
+            }
+        }
+
+        return Ok(Some((
+            SelfTypeContext::Trait(application.definition()),
+            requirement.subject(),
+        )));
+    }
+
     let Some(callable) = instance.callable_instance() else {
         return Ok(None);
     };
@@ -50,36 +75,11 @@ pub(super) fn codegen_instance_contextual_self(
         )));
     }
 
-    let Some(trait_definition) = TraitSymbolId::try_from_any(container) else {
-        return Ok(None);
-    };
-
-    let values = compilation.semantic_value_store()?;
-
-    let substitution = substitution_for_owner(
-        values,
-        trait_definition.into(),
-        [callable.substitution()],
-    )?;
-
-    let application = values
-        .intern_trait_application(TraitApplicationData::new(trait_definition, substitution))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    let witness = instance
-        .contextual_self_witness()
-        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-    let requirement = implementation_instance_requirement(binding_context, witness)?;
-
-    if requirement.trait_application() != application {
+    if TraitSymbolId::try_from_any(container).is_some() {
         return Err(FactQueryError::InfrastructureFailure);
     }
 
-    Ok(Some((
-        SelfTypeContext::Trait(trait_definition),
-        requirement.subject(),
-    )))
+    Ok(None)
 }
 
 pub(super) fn implementation_subject(

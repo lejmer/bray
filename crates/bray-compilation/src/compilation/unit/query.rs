@@ -3727,6 +3727,52 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
     }
 
     #[test]
+    fn participating_trait_methods_bind_direct_generic_arguments() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Mapper\n",
+            "{\n",
+            "    func default_map<T>(pos value: T) -> T\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "    func explicit_map<T>(pos value: T) -> T;\n",
+            "}\n",
+            "struct Value {}\n",
+            "impl ValueMapper = Value(Mapper)\n",
+            "{\n",
+            "    func explicit_map<T>(pos value: T) -> T\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "}\n",
+            "using ValueMapper;\n",
+            "func read(pos value: &Value) -> i32\n",
+            "{\n",
+            "    return value.default_map<i32>(1) + value.explicit_map<i32>(2);\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "read");
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("generic trait calls must select: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("generic trait calls must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+    }
+
+    #[test]
     fn participating_trait_methods_report_each_ambiguous_implementation() {
         let compilation = compilation(concat!(
             "module app;\n",
