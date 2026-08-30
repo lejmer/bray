@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work on Bray Issues"
+  short_description: "Run Bray issue stacks through review and handoff"
+  default_prompt: "Use $work-on-bray-issues to carry this Bray issue or ordered issue stack through implementation, review, and handoff without stopping at intermediate pull requests."
