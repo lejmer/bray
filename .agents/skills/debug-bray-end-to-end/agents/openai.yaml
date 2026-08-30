@@ -1,0 +1,4 @@
+interface:
+  display_name: "Debug Bray End to End"
+  short_description: "Find cross-layer Bray failures with cheap reruns"
+  default_prompt: "Use $debug-bray-end-to-end to isolate this Bray failure at its first broken contract and keep the rebuild and test loop as small as possible."
