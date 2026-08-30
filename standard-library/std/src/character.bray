@@ -13,3 +13,60 @@ extern func is_alphabetic(value: char) -> bool;
 extern func is_numeric(value: char) -> bool;
 
 extern func is_whitespace(value: char) -> bool;
+
+internal func utf16_units(pos scalar: u32) -> (u16, u16?)
+{
+    if scalar < 65_536
+    {
+        return(std.truncate_to<u16>(scalar), none);
+    }
+
+    let supplementary: u32 = scalar - 65_536;
+    let first: u16 = std.truncate_to<u16>(55_296 + (supplementary >> 10));
+    let second: u16 = std.truncate_to<u16>(56_320 + (supplementary & 1_023));
+    let mut optional_second: u16? = none;
+
+    optional_second = second;
+
+    return(first, optional_second);
+}
+
+internal func utf16_scalar(pos first: u16, second: u16?) -> (u32, bool)?
+{
+    let first_value: u32 = first as u32;
+
+    if first_value >= 55_296 && first_value <= 56_319
+    {
+        let second_value: u32 = match second
+        {
+            case ?value { yield value as u32; }
+            case none { return none; }
+        };
+
+        if second_value < 56_320 || second_value > 57_343
+        {
+            return none;
+        }
+
+        let scalar: u32 = 65_536 + ((first_value - 55_296) << 10) + (second_value - 56_320);
+
+        let decoded_value: (u32, bool) = (scalar, true);
+        let mut decoded: (u32, bool)? = none;
+
+        decoded = decoded_value;
+
+        return decoded;
+    }
+
+    if first_value >= 56_320 && first_value <= 57_343
+    {
+        return none;
+    }
+
+    let decoded_value: (u32, bool) = (first_value, false);
+    let mut decoded: (u32, bool)? = none;
+
+    decoded = decoded_value;
+
+    return decoded;
+}

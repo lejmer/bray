@@ -1,0 +1,111 @@
+@target(target.c.WCHAR == "u16")
+module std.ffi.c;
+
+/// Decodes borrowed target C wide units as UTF-16.
+///
+/// Available when `target.c.WCHAR` selects `u16`.
+///
+/// Returns `StringError.InvalidEncoding` for an invalid surrogate sequence and
+/// `StringError.Allocation` when the decoded Bray string cannot be allocated.
+trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, StringError>
+{
+    let units: &[WideChar] = value.units();
+    let count: usize = std.memory.slice_length<WideChar>(units);
+
+    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
+    {
+        case Ok(buffer) { yield buffer; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let first: u16 = units[index].value();
+
+        let mut second: u16? = none;
+
+        if index + 1 < count
+        {
+            let second_value: u16 = units[index + 1].value();
+
+            second = second_value;
+        }
+
+        let (scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
+        {
+            case ?decoded { yield decoded; }
+            case none { return Error(StringError.InvalidEncoding); }
+        };
+
+        if consumed_second
+        {
+            index += 1;
+        }
+
+        try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = scalar);
+        index += 1;
+    }
+
+    return internal decoded_wide_string(&bytes);
+}
+
+/// Encodes Bray text as an owned NUL-terminated UTF-16 C wide string.
+///
+/// Available when `target.c.WCHAR` selects `u16`.
+///
+/// Returns `StringError.InteriorNul` when the text contains NUL and
+/// `StringError.Allocation` when the owned wide string cannot be allocated.
+trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringError>
+{
+    let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
+        capacity = std.string.scalar_count(value),
+    )
+    {
+        case Ok(list) { yield list; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut scalars: std.string.ScalarCursor = std.string.scalars(value);
+
+    loop
+    {
+        let character: char = match scalars.next()
+        {
+            case ?next { yield next; }
+            case none { break; }
+        };
+
+        let scalar: u32 = std.character.scalar_value(value = character);
+
+        if scalar == 0
+        {
+            return Error(StringError.InteriorNul);
+        }
+
+        let (first, second) = internal std.character.utf16_units(scalar);
+
+        try trusted push_utf16_unit(&mut units, scalar = first as u32);
+
+        match second
+        {
+            case ?unit_value { try trusted push_utf16_unit(&mut units, scalar = unit_value as u32); }
+            case none {}
+        }
+    }
+
+    return trusted OwnedWideString.from_units(std.collection.as_slice<WideChar>(&units));
+}
+
+trusted internal func push_utf16_unit(
+    pos units: &mut std.collection.List<WideChar>,
+    scalar: u32,
+) -> Result<unit, StringError>
+{
+    match trusted std.collection.push<WideChar>(units, wide_char_wrapping(scalar as u128))
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(_) { return Error(StringError.Allocation); }
+    }
+}

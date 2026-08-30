@@ -1,31 +1,22 @@
-@target(target.c.LONG == "i64" && target.c.UNSIGNED_LONG == "u64")
+@target(target.c.LONG == "i64")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `long` when `target.c.LONG` selects `i64`.
 struct Long
 {
     internal raw: i64;
 
+    /// Returns the selected `i64` representation.
     func value() -> i64
     {
         return self.raw;
     }
 }
 
-@copy
-@layout(transparent)
-struct UnsignedLong
-{
-    internal raw: u64;
-
-    func value() -> u64
-    {
-        return self.raw;
-    }
-}
-
-func long(pos raw: i64) -> Long
+/// Creates a C `long` wrapper from its exact `i64` representation.
+const func long_exact(pos raw: i64) -> Long
 {
     return
     {
@@ -33,10 +24,26 @@ func long(pos raw: i64) -> Long
     };
 }
 
-func unsigned_long(pos raw: u64) -> UnsignedLong
+/// Converts an integer to C `long` and reports `ConversionError.OutOfRange` when it does not fit.
+func long_checked(pos value: i128) -> Result<Long, ConversionError>
+{
+    if value < std.numeric.I64_MIN as i128 || value > std.numeric.I64_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<i64>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `long` by wrapping it to the selected `i64` representation.
+func long_wrapping(pos value: i128) -> Long
 {
     return
     {
-        raw = raw
+        raw = std.truncate_to<i64>(value)
     };
 }

@@ -3,20 +3,47 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `wchar_t` when `target.c.WCHAR` selects `u16`.
 struct WideChar
 {
     internal raw: u16;
 
+    /// Returns the selected `u16` representation.
     func value() -> u16
     {
         return self.raw;
     }
 }
 
-func wide_char(pos raw: u16) -> WideChar
+/// Creates a C `wchar_t` wrapper from its exact `u16` representation.
+const func wide_char_exact(pos raw: u16) -> WideChar
 {
     return
     {
         raw = raw
+    };
+}
+
+/// Converts an integer to C `wchar_t` and reports `ConversionError.OutOfRange` when it does not fit.
+func wide_char_checked(pos value: u128) -> Result<WideChar, ConversionError>
+{
+    if value > std.numeric.U16_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<u16>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `wchar_t` by wrapping it to the selected `u16` representation.
+func wide_char_wrapping(pos value: u128) -> WideChar
+{
+    return
+    {
+        raw = std.truncate_to<u16>(value)
     };
 }

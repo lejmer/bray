@@ -1,10 +1,10 @@
-@target(target.c.LONG == "i32")
+@target(target.c.INT == "i32")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-/// Target-exact wrapper for C `long` when `target.c.LONG` selects `i32`.
-struct Long
+/// Target-exact wrapper for C `int` when `target.c.INT` selects `i32`.
+struct Int
 {
     internal raw: i32;
 
@@ -15,8 +15,8 @@ struct Long
     }
 }
 
-/// Creates a C `long` wrapper from its exact `i32` representation.
-const func long_exact(pos raw: i32) -> Long
+/// Creates a C `int` wrapper from its exact `i32` representation.
+const func int_exact(pos raw: i32) -> Int
 {
     return
     {
@@ -24,8 +24,8 @@ const func long_exact(pos raw: i32) -> Long
     };
 }
 
-/// Converts an integer to C `long` and reports `ConversionError.OutOfRange` when it does not fit.
-func long_checked(pos value: i128) -> Result<Long, ConversionError>
+/// Converts an integer to C `int` and reports `ConversionError.OutOfRange` when it does not fit.
+func int_checked(pos value: i128) -> Result<Int, ConversionError>
 {
     if value < std.numeric.I32_MIN as i128 || value > std.numeric.I32_MAX as i128
     {
@@ -39,8 +39,8 @@ func long_checked(pos value: i128) -> Result<Long, ConversionError>
     );
 }
 
-/// Converts an integer to C `long` by wrapping it to the selected `i32` representation.
-func long_wrapping(pos value: i128) -> Long
+/// Converts an integer to C `int` by wrapping it to the selected `i32` representation.
+func int_wrapping(pos value: i128) -> Int
 {
     return
     {

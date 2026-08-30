@@ -2862,7 +2862,7 @@ mod tests {
                 "linux",
                 "gnu",
                 "gnu",
-                bray_target::TargetCDataModel::try_new(
+                bray_target::TargetCDataModel::try_native(
                     bray_target::TargetScalarKind::I8,
                     bray_target::TargetScalarKind::I64,
                     bray_target::TargetScalarKind::U64,

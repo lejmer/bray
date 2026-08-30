@@ -40,7 +40,7 @@ pointer rather than reading the value or creating a borrow.
 @link(name = "c")
 @symbol(name = "errno")
 @thread_local
-extern trusted static mut errno: std.ffi.c.int;
+extern trusted static mut errno: std.ffi.c.Int;
 ```
 
 The complete foreign-data contract is defined in

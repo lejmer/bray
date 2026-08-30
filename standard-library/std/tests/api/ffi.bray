@@ -9,10 +9,12 @@ using std.testing;
 using internal std.ffi.ForeignResourceState;
 using internal std.platform.PlatformStatus;
 
+static C_INT_EXACT: std.ffi.c.Int = std.ffi.c.int_exact(7);
+
 @abi(c)
 func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
 {
-    return std.ffi.c.int(value.value() + 1);
+    return std.ffi.c.int_wrapping(value.value() as i128 + 1);
 }
 
 @symbol(name = "bray_test_stateful_callback")
@@ -28,13 +30,23 @@ trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> 
 @test
 func c_scalar_wrappers_preserve_values_and_layouts()
 {
-    let value: std.ffi.c.Int = c_increment(std.ffi.c.int(41));
+    let value: std.ffi.c.Int = c_increment(std.ffi.c.int_wrapping(41));
+    let checked: std.ffi.c.Int = std.testing.assert_ok<std.ffi.c.Int, ConversionError>(std.ffi.c.int_checked(42));
+
+    let _: ConversionError = std.testing.assert_error<std.ffi.c.Int, ConversionError>(
+        std.ffi.c.int_checked(2_147_483_648),
+    );
+
+    let wrapped: std.ffi.c.Int = std.ffi.c.int_wrapping(4_294_967_297);
 
     assert(value.value() == 42);
+    assert(C_INT_EXACT.value() == 7);
+    assert(checked.value() == 42);
+    assert(wrapped.value() == 1);
     assert(std.memory.size_of<std.ffi.c.Int>() == std.memory.size_of<i32>());
     assert(std.memory.align_of<std.ffi.c.Int>() == std.memory.align_of<i32>());
-    assert(std.ffi.c.boolean(true).value());
-    assert(!std.ffi.c.boolean(false).value());
+    assert(std.ffi.c.boolean_exact(true).value());
+    assert(!std.ffi.c.boolean_exact(false).value());
 }
 
 @test
@@ -100,7 +112,7 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 
     assert(std.string.equals(&decoded, &"A"));
 
-    let wide_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char(65), std.ffi.c.wide_char(66)];
+    let wide_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char_wrapping(65), std.ffi.c.wide_char_wrapping(66)];
 
     let wide_owned: std.ffi.c.OwnedWideString = try trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..]);
 
@@ -149,7 +161,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
         case _ { assert(false); }
     }
 
-    let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char(65)];
+    let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char_wrapping(65)];
 
     match std.testing.assert_error<std.ffi.c.BorrowedWideString, std.ffi.c.StringError>(
         std.ffi.c.borrow_wide_string(&wide_unterminated[..]),
@@ -160,9 +172,9 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
     }
 
     let wide_interior: [std.ffi.c.WideChar; 3] = [
-        std.ffi.c.wide_char(65),
-        std.ffi.c.wide_char(0),
-        std.ffi.c.wide_char(66),
+        std.ffi.c.wide_char_wrapping(65),
+        std.ffi.c.wide_char_wrapping(0),
+        std.ffi.c.wide_char_wrapping(66),
     ];
 
     match std.testing.assert_error<std.ffi.c.OwnedWideString, std.ffi.c.StringError>(

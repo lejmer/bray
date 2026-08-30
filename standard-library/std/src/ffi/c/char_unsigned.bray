@@ -3,20 +3,47 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `char` when `target.c.CHAR` selects `u8`.
 struct Char
 {
     internal raw: u8;
 
+    /// Returns the selected `u8` representation.
     func value() -> u8
     {
         return self.raw;
     }
 }
 
-func char(pos raw: u8) -> Char
+/// Creates a C `char` wrapper from its exact `u8` representation.
+const func char_exact(pos raw: u8) -> Char
 {
     return
     {
         raw = raw
+    };
+}
+
+/// Converts an integer to C `char` and reports `ConversionError.OutOfRange` when it does not fit.
+func char_checked(pos value: u128) -> Result<Char, ConversionError>
+{
+    if value > std.numeric.U8_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<u8>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `char` by wrapping it to the selected `u8` representation.
+func char_wrapping(pos value: u128) -> Char
+{
+    return
+    {
+        raw = std.truncate_to<u8>(value)
     };
 }

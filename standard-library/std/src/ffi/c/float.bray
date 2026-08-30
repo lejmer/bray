@@ -1,0 +1,25 @@
+@target(target.c.FLOAT == "r32")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+/// Target-exact wrapper for C `float` when `target.c.FLOAT` selects `r32`.
+struct Float
+{
+    internal raw: r32;
+
+    /// Returns the selected `r32` representation.
+    func value() -> r32
+    {
+        return self.raw;
+    }
+}
+
+/// Creates a C `float` wrapper from its exact `r32` representation.
+const func float_exact(pos raw: r32) -> Float
+{
+    return
+    {
+        raw = raw
+    };
+}

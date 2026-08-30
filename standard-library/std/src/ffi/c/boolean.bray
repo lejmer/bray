@@ -1,0 +1,25 @@
+@target(target.c.BOOL == "bool")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+/// Target-exact wrapper for C `bool` when `target.c.BOOL` selects `bool`.
+struct Boolean
+{
+    internal raw: bool;
+
+    /// Returns the selected `bool` representation.
+    func value() -> bool
+    {
+        return self.raw;
+    }
+}
+
+/// Creates a C `bool` wrapper from its exact `bool` representation.
+const func boolean_exact(pos raw: bool) -> Boolean
+{
+    return
+    {
+        raw = raw
+    };
+}

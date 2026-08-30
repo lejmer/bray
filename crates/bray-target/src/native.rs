@@ -201,7 +201,7 @@ impl NativeTarget {
             Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu | Self::X86_64MacOs => None,
         };
 
-        TargetCDataModel::try_new(char, long, unsigned_long, wide_char, long_double)
+        TargetCDataModel::try_native(char, long, unsigned_long, wide_char, long_double)
             .unwrap_or_else(|| panic!("native target C ABI properties must be valid"))
     }
 

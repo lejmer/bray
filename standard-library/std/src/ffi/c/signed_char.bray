@@ -1,0 +1,49 @@
+@target(target.c.SIGNED_CHAR == "i8")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+/// Target-exact wrapper for C `signed char` when `target.c.SIGNED_CHAR` selects `i8`.
+struct SignedChar
+{
+    internal raw: i8;
+
+    /// Returns the selected `i8` representation.
+    func value() -> i8
+    {
+        return self.raw;
+    }
+}
+
+/// Creates a C `signed char` wrapper from its exact `i8` representation.
+const func signed_char_exact(pos raw: i8) -> SignedChar
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+/// Converts an integer to C `signed char` and reports `ConversionError.OutOfRange` when it does not fit.
+func signed_char_checked(pos value: i128) -> Result<SignedChar, ConversionError>
+{
+    if value < std.numeric.I8_MIN as i128 || value > std.numeric.I8_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<i8>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `signed char` by wrapping it to the selected `i8` representation.
+func signed_char_wrapping(pos value: i128) -> SignedChar
+{
+    return
+    {
+        raw = std.truncate_to<i8>(value)
+    };
+}

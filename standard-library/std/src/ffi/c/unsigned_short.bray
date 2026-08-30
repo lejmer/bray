@@ -1,0 +1,49 @@
+@target(target.c.UNSIGNED_SHORT == "u16")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+/// Target-exact wrapper for C `unsigned short` when `target.c.UNSIGNED_SHORT` selects `u16`.
+struct UnsignedShort
+{
+    internal raw: u16;
+
+    /// Returns the selected `u16` representation.
+    func value() -> u16
+    {
+        return self.raw;
+    }
+}
+
+/// Creates a C `unsigned short` wrapper from its exact `u16` representation.
+const func unsigned_short_exact(pos raw: u16) -> UnsignedShort
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+/// Converts an integer to C `unsigned short` and reports `ConversionError.OutOfRange` when it does not fit.
+func unsigned_short_checked(pos value: u128) -> Result<UnsignedShort, ConversionError>
+{
+    if value > std.numeric.U16_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<u16>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `unsigned short` by wrapping it to the selected `u16` representation.
+func unsigned_short_wrapping(pos value: u128) -> UnsignedShort
+{
+    return
+    {
+        raw = std.truncate_to<u16>(value)
+    };
+}

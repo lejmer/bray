@@ -3,20 +3,47 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `wchar_t` when `target.c.WCHAR` selects `i32`.
 struct WideChar
 {
     internal raw: i32;
 
+    /// Returns the selected `i32` representation.
     func value() -> i32
     {
         return self.raw;
     }
 }
 
-func wide_char(pos raw: i32) -> WideChar
+/// Creates a C `wchar_t` wrapper from its exact `i32` representation.
+const func wide_char_exact(pos raw: i32) -> WideChar
 {
     return
     {
         raw = raw
+    };
+}
+
+/// Converts an integer to C `wchar_t` and reports `ConversionError.OutOfRange` when it does not fit.
+func wide_char_checked(pos value: i128) -> Result<WideChar, ConversionError>
+{
+    if value < std.numeric.I32_MIN as i128 || value > std.numeric.I32_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<i32>(value)
+        }
+    );
+}
+
+/// Converts an integer to C `wchar_t` by wrapping it to the selected `i32` representation.
+func wide_char_wrapping(pos value: i128) -> WideChar
+{
+    return
+    {
+        raw = std.truncate_to<i32>(value)
     };
 }

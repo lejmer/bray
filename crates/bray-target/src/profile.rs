@@ -32,6 +32,10 @@ pub enum TargetProfileBuildError {
     AbiAcceptsUnavailableScalar,
     /// A C scalar maps to a Bray scalar unavailable on the target.
     CAbiMapsUnavailableScalar,
+    /// C scalar mappings exist without an available C callable ABI.
+    CScalarMappingWithoutCAbi,
+    /// A C scalar mapping cannot use the target's C by-value transparent-wrapper contract.
+    CAbiRejectsMappedScalar,
     /// A callable ABI accepts an alignment above the target storage maximum.
     AbiAlignmentAboveStorageMaximum,
 }
@@ -66,6 +70,12 @@ impl std::fmt::Display for TargetProfileBuildError {
             Self::CAbiMapsUnavailableScalar => {
                 formatter.write_str("the C ABI maps to an unavailable scalar")
             }
+            Self::CScalarMappingWithoutCAbi => {
+                formatter.write_str("C scalar mappings exist without a C callable ABI")
+            }
+            Self::CAbiRejectsMappedScalar => formatter.write_str(
+                "a C scalar mapping is incompatible with the C ABI transparent-wrapper contract",
+            ),
             Self::AbiAlignmentAboveStorageMaximum => {
                 formatter.write_str("a callable ABI alignment exceeds the storage maximum")
             }
@@ -144,6 +154,16 @@ impl TargetProfile {
             return Err(TargetProfileBuildError::CAbiMapsUnavailableScalar);
         }
 
+        match abis.c_contract() {
+            Some(contract) if !properties.c_abi().is_supported_by_c_abi(contract) => {
+                return Err(TargetProfileBuildError::CAbiRejectsMappedScalar);
+            }
+            None if !properties.c_abi().is_empty() => {
+                return Err(TargetProfileBuildError::CScalarMappingWithoutCAbi);
+            }
+            Some(_) | None => {}
+        }
+
         for contract in [abis.c_contract(), abis.system_contract()]
             .into_iter()
             .flatten()
@@ -196,10 +216,10 @@ mod tests {
     use crate::test_support::{test_target_machine, test_target_profile, test_target_properties};
     use crate::{
         Endianness, ObjectFormat, TargetAbiScalars, TargetAbiSupport, TargetAddressSpaces,
-        TargetAlignmentLimits, TargetArchitecture, TargetAtomicSupport, TargetForeignAbiContract,
-        TargetIdentity, TargetMachineProperties, TargetOperationSupport, TargetPlatformIdentity,
-        TargetProfile, TargetProfileBuildError, TargetProperties, TargetScalarKind,
-        TargetScalarSupport,
+        TargetAlignmentLimits, TargetArchitecture, TargetAtomicSupport, TargetCDataModel,
+        TargetCScalarKind, TargetForeignAbiContract, TargetIdentity, TargetMachineProperties,
+        TargetOperationSupport, TargetPlatformIdentity, TargetProfile, TargetProfileBuildError,
+        TargetProperties, TargetScalarKind, TargetScalarSupport,
     };
 
     #[test]
@@ -365,6 +385,108 @@ mod tests {
         assert_eq!(
             TargetProfile::try_new(test_identity(), test_target_machine(), properties),
             Err(TargetProfileBuildError::AbiAlignmentAboveStorageMaximum)
+        );
+    }
+
+    #[test]
+    fn profiles_require_mapped_c_scalars_to_match_the_c_callable_abi() {
+        let baseline = test_target_properties();
+        let maximum = baseline.alignments().max_storage();
+        let no_c_abi = TargetAbiSupport::new(None, baseline.abis().system_contract());
+
+        let properties = TargetProperties::new(
+            baseline.identity().clone(),
+            TargetScalarSupport::new(false, true, false, false),
+            baseline.atomics(),
+            no_c_abi,
+            baseline.c_abi(),
+            baseline.address_spaces(),
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        assert_eq!(
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
+            Err(TargetProfileBuildError::CScalarMappingWithoutCAbi)
+        );
+
+        let c_abi = TargetCDataModel::try_new(&[(
+            TargetCScalarKind::LongDouble,
+            TargetScalarKind::R128,
+        )])
+        .unwrap_or_else(|| panic!("test C scalar mapping must be valid"));
+
+        let contract = TargetForeignAbiContract::new(
+            TargetAbiScalars::required(),
+            true,
+            true,
+            true,
+            true,
+            true,
+            maximum,
+        );
+
+        let properties = TargetProperties::new(
+            baseline.identity().clone(),
+            TargetScalarSupport::new(false, true, false, false),
+            baseline.atomics(),
+            TargetAbiSupport::new(Some(contract), baseline.abis().system_contract()),
+            c_abi,
+            baseline.address_spaces(),
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        assert_eq!(
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
+            Err(TargetProfileBuildError::CAbiRejectsMappedScalar)
+        );
+
+        let c_abi = TargetCDataModel::try_new(&[(TargetCScalarKind::Int, TargetScalarKind::I32)])
+            .unwrap_or_else(|| panic!("test C scalar mapping must be valid"));
+
+        let contract = TargetForeignAbiContract::new(
+            TargetAbiScalars::required(),
+            true,
+            true,
+            true,
+            false,
+            true,
+            maximum,
+        );
+
+        let properties = TargetProperties::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            TargetAbiSupport::new(Some(contract), baseline.abis().system_contract()),
+            c_abi,
+            baseline.address_spaces(),
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        assert_eq!(
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
+            Err(TargetProfileBuildError::CAbiRejectsMappedScalar)
+        );
+
+        let c_abi = TargetCDataModel::try_new(&[])
+            .unwrap_or_else(|| panic!("empty C scalar mapping must be valid"));
+
+        let properties = TargetProperties::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            TargetAbiSupport::new(Some(contract), baseline.abis().system_contract()),
+            c_abi,
+            baseline.address_spaces(),
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        assert!(
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties).is_ok()
         );
     }
 

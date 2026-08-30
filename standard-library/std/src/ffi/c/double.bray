@@ -1,0 +1,25 @@
+@target(target.c.DOUBLE == "r64")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+/// Target-exact wrapper for C `double` when `target.c.DOUBLE` selects `r64`.
+struct Double
+{
+    internal raw: r64;
+
+    /// Returns the selected `r64` representation.
+    func value() -> r64
+    {
+        return self.raw;
+    }
+}
+
+/// Creates a C `double` wrapper from its exact `r64` representation.
+const func double_exact(pos raw: r64) -> Double
+{
+    return
+    {
+        raw = raw
+    };
+}

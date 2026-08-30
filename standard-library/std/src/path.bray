@@ -418,18 +418,15 @@ internal func append_utf16(pos buffer: &mut std.bytes.Buffer, pos value: char) -
 
 internal func append_utf16_scalar(pos buffer: &mut std.bytes.Buffer, pos scalar: u32) -> Result<unit, PathError>
 {
-    if scalar <= 65535
+    let (first, second) = internal std.character.utf16_units(scalar);
+
+    try append_native_unit(&mut buffer, first as u32);
+
+    match second
     {
-        return append_native_unit(&mut buffer, scalar);
+        case ?value { return append_native_unit(&mut buffer, value as u32); }
+        case none { return Ok(unit); }
     }
-
-    let adjusted: u32 = scalar - 65536;
-    let high: u32 = 55296 + adjusted / 1024;
-    let low: u32 = 56320 + adjusted % 1024;
-
-    try append_native_unit(&mut buffer, high);
-
-    return append_native_unit(&mut buffer, low);
 }
 
 internal func append_native_unit(pos buffer: &mut std.bytes.Buffer, pos value: u32) -> Result<unit, PathError>
@@ -465,29 +462,26 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
 
     while index < std.bytes.slice_length(bytes)
     {
-        let first: u32 = native_unit(bytes, index = index);
-        let mut scalar: u32 = first;
+        let first: u16 = std.truncate_to<u16>(native_unit(bytes, index = index));
 
-        if first >= 55296 && first <= 56319
+        let mut second: u16? = none;
+
+        if index + 2 < std.bytes.slice_length(bytes)
         {
-            if index + 2 >= std.bytes.slice_length(bytes)
-            {
-                return Error(PathError.InvalidNativeValue);
-            }
+            let second_value: u16 = std.truncate_to<u16>(native_unit(bytes, index = index + 2));
 
-            let second: u32 = native_unit(bytes, index = index + 2);
-
-            if second < 56320 || second > 57343
-            {
-                return Error(PathError.InvalidNativeValue);
-            }
-
-            scalar = 65536 + (first - 55296) * 1024 + second - 56320;
-            index += 2;
+            second = second_value;
         }
-        else if first >= 56320 && first <= 57343
+
+        let (scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
         {
-            return Error(PathError.InvalidNativeValue);
+            case ?decoded { yield decoded; }
+            case none { return Error(PathError.InvalidNativeValue); }
+        };
+
+        if consumed_second
+        {
+            index += 2;
         }
 
         let character: char? = std.character.from_scalar_value(value = scalar);

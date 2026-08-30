@@ -69,6 +69,8 @@ The two `counter_backend` blocks contribute to the same module identity for disj
 
 Target properties cover identity, pointer width, scalar support, endianness, alignment, callable ABI, exact C scalar mappings, atomics, address spaces, allocation, platform services, and linkage. Public signatures, constants, layouts, implementations, and availability that depend on them retain the relevant target dependencies in compiled interfaces.
 
+Every `target.c` property is independent. Gate each `std.ffi.c` wrapper against its own exact scalar spelling, omit only a wrapper whose property is `"unavailable"`, and never infer one C mapping from a neighboring mapping or from the compiler host. The selected scalar must be available, accepted by the C callable ABI, and valid through a transparent wrapper. Use `*_exact`, `*_checked`, or `*_wrapping` according to the conversion policy. C string text conversion must also name UTF-8, UTF-16, or UTF-32 explicitly. See [target profiles and properties](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/target-profiles-and-properties.md) and [foreign and platform interoperability](https://github.com/lejmer/bray/blob/develop/docs/design/foreign-and-platform-interoperability.md#c-interoperability).
+
 See [target profiles and properties](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/target-profiles-and-properties.md), [target constraints and gates](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/target-constraints-and-gates.md), and [static storage declarations](https://github.com/lejmer/bray/blob/develop/docs/language/declarations/static-storage-declarations.md).
 
 ## Physical layout and layout queries
@@ -146,7 +148,7 @@ union NativeStatus
 @layout(c, tag = none)
 union NativeValue
 {
-    Integer(value: std.ffi.c.int);
+    Integer(value: std.ffi.c.Int);
     Floating(value: r32);
     Pointer(value: RawPointer<u8>);
 }
@@ -204,11 +206,11 @@ trusted module native_math
         uses(foreign_call);
 
     @symbol(name = "native_counter")
-    extern trusted static mut COUNTER: std.ffi.c.uint;
+    extern trusted static mut COUNTER: std.ffi.c.UnsignedInt;
 
     @symbol(name = "native_printf")
     @abi(c)
-    extern trusted func printf(pos format: RawPointer<std.ffi.c.char>, ...) -> std.ffi.c.int
+    extern trusted func printf(pos format: RawPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
         uses(foreign_call);
 }
 ```
