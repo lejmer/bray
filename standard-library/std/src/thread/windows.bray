@@ -87,7 +87,7 @@ trusted internal func platform_thread_create(
     {
         let code: i32 = trusted internal std.platform.read_native_i32(trusted std.os.windows.errno_location());
 
-        let status: std.platform.PlatformStatus = internal std.platform.native_error_status(code as i64);
+        let status: std.platform.PlatformStatus = internal std.platform.windows_errno_status_from(code);
 
         trusted std.memory.write<i64>(native_error, status.native_code);
 

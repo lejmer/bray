@@ -2,13 +2,25 @@
 module bray.standard_library_tests.os_windows;
 
 using std.os.windows;
+using std.platform;
+using internal std.platform.PlatformStatus;
 
 @test
 func windows_native_values_are_typed_and_target_gated()
 {
     let handle: std.os.windows.Handle = std.os.windows.handle(7);
 
+    let transient_exhaustion: std.platform.PlatformStatus =
+        internal std.platform.windows_errno_status_from(std.os.windows.EAGAIN);
+
+    let memory_exhaustion: std.platform.PlatformStatus =
+        internal std.platform.windows_errno_status_from(std.os.windows.ENOMEM);
+
     assert(handle.value() == 7);
     assert(std.os.windows.GENERIC_READ == 2147483648);
     assert(std.os.windows.OPEN_EXISTING == 3);
+    assert(internal std.platform.is_exhausted_status(transient_exhaustion));
+    assert(transient_exhaustion.native_code == std.os.windows.EAGAIN as i64);
+    assert(internal std.platform.is_exhausted_status(memory_exhaustion));
+    assert(memory_exhaustion.native_code == std.os.windows.ENOMEM as i64);
 }

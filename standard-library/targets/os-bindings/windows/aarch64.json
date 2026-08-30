@@ -92,6 +92,18 @@
           "value": 1
         },
         {
+          "name": "EAGAIN",
+          "native": "EAGAIN",
+          "type": "i32",
+          "value": 11
+        },
+        {
+          "name": "ENOMEM",
+          "native": "ENOMEM",
+          "type": "i32",
+          "value": 12
+        },
+        {
           "name": "FILE_SHARE_DELETE",
           "native": "FILE_SHARE_DELETE",
           "type": "u32",
